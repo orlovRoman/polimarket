@@ -2,6 +2,7 @@ import os
 import sys
 from dotenv import load_dotenv
 
+# Добавляем корень проекта в путь поиска модулей
 sys.path.append(os.getcwd())
 
 from agents.shared.adapters.polymarket import PolymarketAdapter
@@ -11,19 +12,30 @@ from agents.polymarket_insider_agent.src.agent import ShadowAgent, save_opinion
 from agents.polymarket_news_agent.src.agent import HeraldAgent
 
 def run_team_discussion(log_callback=None, summary_callback=None, category=None):
+    """
+    Координирует обсуждение рынков командой AI-агентов.
+    Процесс включает: поиск новых рынков, анализ недооценки (SCOUT), 
+    проверку инсайдов (SHADOW) и поиск новостей (HERALD).
+    
+    :param log_callback: Функция для вывода подробных логов в UI (Telegram)
+    :param summary_callback: Функция для отправки краткой выжимки пользователю
+    :param category: Опциональная категория рынков для сканирования
+    """
     def log(msg):
         print(msg)
         if log_callback:
             log_callback(msg)
 
+    # Загружаем настройки и инициализируем базу данных
     load_dotenv()
     init_db()
     
     key = os.getenv("GOOGLE_API_KEY")
     if not key:
-        log("GOOGLE_API_KEY не найден!")
+        log("Критическая ошибка: GOOGLE_API_KEY не найден в .env!")
         return
 
+    # Инициализируем адаптер платформы и агентов
     adapter = PolymarketAdapter()
     scout = ScoutAgent(api_key=key)
     shadow = ShadowAgent(api_key=key)
@@ -31,28 +43,35 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
 
     cat_msg = f" в категории '{category}'" if category else ""
     log(f"--- 1. Поиск новых рынков{cat_msg} ---")
-    markets = adapter.list_markets(limit=5, category=category)
+    
+    # Получаем список активных рынков с Polymarket
+    # Увеличиваем лимит сканирования до 20 для более глубокого охвата
+    markets = adapter.list_markets(limit=20, category=category)
     for m in markets:
-        save_market(m)
+        save_market(m) # Сохраняем/обновляем данные о рынке в БД
 
-    log(f"\\n--- 2. Обсуждение идей (SCOUT + SHADOW + HERALD) ---")
+    log(f"\n--- 2. Обсуждение идей (SCOUT + SHADOW + HERALD) ---")
+    log(f"Всего рынков для проверки: {len(markets)}")
+    
     new_markets_found = False
     for m in markets:
+        # Проверяем, анализировали ли мы этот рынок ранее при такой же цене
         last_price = get_last_analyzed_price(m.id)
         
         if last_price is not None:
             price_diff = abs(last_price - m.price)
+            # Если цена изменилась незначительно (менее 3%), пропускаем повторный анализ
             if price_diff < 0.03:
-                log(f"\\n[РЫНОК]: {m.title} (Цена {m.price} почти не изменилась с {last_price}, пропускаем)")
+                log(f"\n[РЫНОК]: {m.title} (Цена {m.price} стабильна, пропускаем)")
                 continue
             else:
-                log(f"\\n[РЫНОК]: {m.title} (Цена изменилась: {last_price} -> {m.price}, АНАЛИЗИРУЕМ ЗАНОВО)")
+                log(f"\n[РЫНОК]: {m.title} (Цена изменилась: {last_price} -> {m.price}, пересматриваем)")
         else:
-            log(f"\\n[РЫНОК]: {m.title} (Новый рынок)")
+            log(f"\n[РЫНОК]: {m.title} (Новый рынок в системе)")
             
         new_markets_found = True
         
-        # 1. SCOUT дает оценку
+        # ЭТАП 1: SCOUT ищет математическую недооценку (Edge)
         log("  SCOUT оценивает...")
         signal = scout.estimate_market(m)
         
@@ -60,17 +79,17 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
         opinion_herald = None
 
         if signal:
-            log(f"  SCOUT: Нашел недооценку! Edge: {signal.edge:.2f}")
+            log(f"  SCOUT: Нашел недооценку! Ожидаемый Edge: {signal.edge:.2f}")
             
-            # 2. SHADOW проверяет объемы/инсайды
+            # ЭТАП 2: SHADOW анализирует объемы торгов и активность крупных кошельков
             log("  SHADOW проверяет...")
             opinion_shadow = shadow.analyze_idea(m, signal.details)
             
-            # 3. HERALD проверяет новости
+            # ЭТАП 3: HERALD ищет новости и проверяет, не завершилось ли событие досрочно
             log("  HERALD проверяет...")
             opinion_herald = herald.analyze_idea(m, signal.details)
             
-            # Собираем мнения
+            # Сохраняем мнения всех агентов в базу данных для истории
             for op in [opinion_shadow, opinion_herald]:
                 if op:
                     save_opinion(op)
@@ -78,19 +97,21 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
                     log(f"  {op.agent_name}: {status} (Уверенность: {op.confidence})")
                     log(f"  Мнение {op.agent_name}: {op.opinion[:100]}...")
 
-            # Консенсус: все должны быть согласны
+            # ЛОГИКА КОНСЕНСУСА:
+            # Идея принимается только если оба эксперта (Shadow и Herald) согласны
+            # и их уверенность в своем решении выше порога (0.6)
             if opinion_shadow and opinion_herald and \
                opinion_shadow.agree and opinion_herald.agree and \
                opinion_shadow.confidence > 0.6 and opinion_herald.confidence > 0.6:
                 
-                log("  !!! ИДЕЯ ПОДТВЕРЖДЕНА ВСЕЙ КОМАНДОЙ. Сохраняем в сигналы.")
+                log("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ. Генерируем сигнал.")
                 save_signal(signal)
             else:
-                log("  --- Консенсус не достигнут.")
+                log("  --- Консенсус не достигнут. Идея отклонена экспертами.")
         else:
-            log("  SCOUT: Идея не найдена.")
+            log("  SCOUT: Математическое преимущество не обнаружено.")
             
-        # Формируем и отправляем выжимку обсуждения
+        # Формируем и отправляем краткое резюме для Telegram-интерфейса
         if summary_callback:
             summary_text = f"🗣 <b>Обсуждение рынка:</b>\\n<a href='{m.url}'>{m.title}</a>\\n\\n"
             if signal:

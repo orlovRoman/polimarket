@@ -9,53 +9,77 @@ from agents.shared.utils.obsidian_adapter import ObsidianAdapter
 
 class NexusAgent:
     """
-    Оркестратор (NexusAgent), использующий Gemini API (через requests).
-    Отвечает за координацию, генерацию отчетов и взаимодействие с памятью (SQLite и Obsidian).
+    Оркестратор (NexusAgent) — центральный мозг системы.
+    Использует Gemini API для координации специализированных агентов, 
+    генерации сводных отчетов и управления долгосрочной памятью в Obsidian.
     """
 
     def __init__(self, model_name: str = "gemini-2.5-pro", api_key: Optional[str] = None):
+        """
+        Инициализация агента-координатора.
+        
+        :param model_name: Версия модели Gemini для использования
+        :param api_key: API ключ (загружается из окружения, если не передан)
+        """
         self.model_name = model_name
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
-            raise ValueError("GOOGLE_API_KEY не найден")
+            raise ValueError("Критическая ошибка: GOOGLE_API_KEY не найден")
         
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
         self.db_manager = DatabaseManager()
         self.obsidian = ObsidianAdapter()
 
-    # --- Tool Functions ---
+    # --- Функции-инструменты для работы с базой знаний (Obsidian) ---
+    
     def read_obsidian_file(self, relative_path: str) -> str:
-        """Читает содержимое файла из базы знаний (vault)."""
+        """
+        Читает содержимое конкретного файла из базы знаний (vault).
+        Позволяет агенту извлекать исторический контекст.
+        """
         content = self.obsidian.read_file(relative_path)
         if content is None:
-            return f"Файл {relative_path} не найден."
+            return f"Файл {relative_path} не найден в vault."
         return content
 
     def write_daily_summary(self, content: str) -> str:
-        """Записывает ежедневный отчет (Daily Summary) в Obsidian."""
+        """
+        Формирует и записывает ежедневный отчет (Daily Summary) в Obsidian.
+        Используется для подведения итогов дня и планирования.
+        """
         path = self.obsidian.write_daily_summary(content)
-        return f"Успешно сохранен отчет по пути: {path}"
+        return f"Ежедневный отчет успешно сохранен: {path}"
 
     def write_to_inbox(self, filename: str, content: str) -> str:
-        """Сохраняет сырые данные/идеи в папку inbox Obsidian."""
+        """
+        Сохраняет сырые данные, идеи или входящие сообщения в папку inbox.
+        Для последующей ручной или автоматической обработки.
+        """
         path = self.obsidian.write_to_inbox(filename, content)
-        return f"Успешно сохранено в inbox по пути: {path}"
+        return f"Данные сохранены в inbox: {path}"
 
     def promote_to_memory(self, category: str, filename: str, content: str) -> str:
-        """Сохраняет долгосрочную память (Layer 3)."""
+        """
+        Переносит важные инсайты в долгосрочную структурированную память (Layer 3).
+        """
         try:
             path = self.obsidian.promote_to_memory(category, filename, content)
-            return f"Успешно сохранено в память по пути: {path}"
+            return f"Информация перенесена в долгосрочную память: {path}"
         except Exception as e:
-            return f"Ошибка при сохранении: {e}"
+            return f"Ошибка при сохранении в память: {e}"
 
     def append_to_project_notes(self, filename: str, content: str) -> str:
-        """Добавляет записи в проекты/стратегии в Obsidian."""
+        """
+        Добавляет новые заметки или стратегии в проектные файлы.
+        """
         path = self.obsidian.append_to_project_notes(filename, content)
-        return f"Успешно добавлено в проектные заметки: {path}"
+        return f"Добавлено в проектные заметки: {path}"
 
     def query_database(self, query: str, params: tuple = ()) -> str:
-        """Выполняет SELECT запрос к SQLite базе данных."""
+        """
+        Выполняет прямой SQL-запрос к локальной базе данных SQLite.
+        Используется для извлечения статистики или поиска конкретных сигналов.
+        """
         try:
             with self.db_manager._get_connection() as conn:
                 cursor = conn.cursor()
@@ -64,7 +88,7 @@ class NexusAgent:
                 result = [dict(row) for row in rows]
                 return json.dumps(result, ensure_ascii=False, default=str)
         except Exception as e:
-            return f"Ошибка базы данных: {e}"
+            return f"Ошибка при запросе к БД: {e}"
 
     # --- Agent Execution ---
     def process_prompt(self, prompt: str) -> str:
@@ -72,7 +96,7 @@ class NexusAgent:
         
         tools = [
             {
-                "google_search_retrieval": {}
+                "google_search": {}
             },
             {
                 "function_declarations": [

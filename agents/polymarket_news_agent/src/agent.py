@@ -8,39 +8,33 @@ from agents.shared.python.models import Market, AgentOpinion
 from agents.shared.python.db import get_connection
 
 class HeraldAgent:
+    """
+    Агент HERALD — новостной аналитик и фактчекер.
+    Его основная задача — поиск подтверждений торговых идей в актуальных новостях, 
+    а также выявление ситуаций арбитража, когда событие уже завершилось, 
+    но цена на рынке еще не отыграла результат.
+    """
     def __init__(self, api_key: str, model: str = "gemini-2.5-pro"):
+        """
+        Инициализация агента HERALD.
+        """
         self.api_key = api_key
         self.model = model
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
         
+        # Системные инструкции для анализа новостного фона и поиска арбитража
         self.system_instruction = """
 # HERALD — Агент новостей и контекста
-
-## Роль
-Ты — экспертный новостной аналитик. Твоя задача — найти подтверждение или опровержение торговой идее в последних новостях и мировых событиях.
-
-## Функции
-1. **Проверка статуса события (КРИТИЧЕСКИ ВАЖНО)**: Прежде всего, проверь через поиск, не завершилось ли уже это событие.
-   - **АРБИТРАЖ**: Если событие уже завершилось и исход ГАРАНТИРОВАН (например, матч окончен, результат официально объявлен), но цена на рынке еще не достигла 1.0 (или не упала до 0.0), ты ДОЛЖЕН указать это. Это ситуация арбитража.
-   - Если событие завершилось и исход ОПРОВЕРГАЕТ идею SCOUT, ты должен поставить `agree: false` с высокой уверенностью.
-2. **Анализ новостного фона**: Как последние новости влияют на вероятность исхода?
-3. **Оценка хайпа**: Является ли движение цены результатом реальных новостей или это просто шум в соцсетях?
-
-## Инструменты
-Тебе доступен инструмент `google_search_retrieval`. Используй его, чтобы проверить текущий статус события и свежие новости.
-
-## Формат ответа (JSON)
-{
-  "agree": bool,
-  "confidence": float,
-  "opinion": "Твой краткий анализ новостей по теме рынка. Если событие уже завершилось и это арбитраж, напиши об этом здесь.",
-  "is_arbitrage": bool,
-  "news_sources": ["список ключевых заголовков или ссылок"]
-}
+...
 """
 
     def fetch_rss_news(self, query: str) -> List[str]:
-        """Получает новости через Google News RSS (без ключа)"""
+        """
+        Получает последние новости через Google News RSS для первичного ознакомления.
+        
+        :param query: Поисковый запрос (обычно название рынка)
+        :return: Список заголовков новостей
+        """
         try:
             url = f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
             response = requests.get(url, timeout=10)
@@ -58,7 +52,13 @@ class HeraldAgent:
             return []
 
     def analyze_idea(self, market: Market, scout_opinion: str) -> Optional[AgentOpinion]:
-        """HERALD ищет новости и анализирует идею"""
+        """
+        Анализирует идею, используя поиск в реальном времени и RSS-ленты.
+        
+        :param market: Объект анализируемого рынка
+        :param scout_opinion: Гипотеза от SCOUT
+        :return: Мнение агента (AgentOpinion) с учетом новостного фона
+        """
         
         print(f"  HERALD ищет новости и проверяет статус по запросу: {market.title}...")
         news_titles = self.fetch_rss_news(market.title)
@@ -81,7 +81,7 @@ class HeraldAgent:
         
         payload = {
             "contents": [{"role": "user", "parts": [{"text": self.system_instruction + "\n\n" + prompt}]}],
-            "tools": [{"google_search_retrieval": {}}],
+            "tools": [{"google_search": {}}], # Позволяем агенту использовать полноценный поиск Google
             "generationConfig": {"response_mime_type": "application/json"}
         }
         
@@ -99,7 +99,7 @@ class HeraldAgent:
                     agree=analysis.get("agree", False)
                 )
                 
-                # Если найден арбитраж, помечаем это в мнении
+                # Специальная обработка для ситуаций арбитража
                 if analysis.get("is_arbitrage"):
                     opinion.opinion = "🚨 [АРБИТРАЖ] " + opinion.opinion
                     opinion.confidence = 1.0

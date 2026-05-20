@@ -1,16 +1,25 @@
 [Unit]
+# Описание сервиса: Бот-команда агентов для Polymarket
 Description=Polymarket Agent Team Bot
+# Запускать только после того, как сеть станет доступна
 After=network.target
 
 [Service]
 Type=simple
+# Имя пользователя, под которым будет работать сервис
 User=orlovrp
+# Рабочая директория проекта
 WorkingDirectory=/home/orlovrp/polymarket-bot
-ExecStart=/home/orlovrp/venv/bin/python3 main.py
+# Команда запуска основного скрипта
+ExecStart=/usr/bin/python3 main.py
+# Перезапускать сервис автоматически при сбое
 Restart=always
+# Пауза перед перезапуском (10 секунд)
 RestartSec=10
+# Логирование вывода в системный журнал journald
 StandardOutput=journal
 StandardError=journal
 
 [Install]
+# Уровень запуска для автозагрузки
 WantedBy=multi-user.target

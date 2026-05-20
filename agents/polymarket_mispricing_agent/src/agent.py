@@ -7,18 +7,34 @@ from agents.shared.python.models import Market, Signal
 from agents.shared.python.db import save_signal, get_connection
 
 class ScoutAgent:
+    """
+    Агент SCOUT — основной аналитический модуль для поиска недооцененных рынков.
+    Специализируется на выявлении математического преимущества (Edge) путем 
+    сравнения собственной оценки вероятности события с текущей рыночной ценой.
+    """
     def __init__(self, api_key: str, model: str = "gemini-2.5-pro"):
+        """
+        Инициализация агента SCOUT. Инструкции загружаются из локального GEMINI.md.
+        """
         self.api_key = api_key
         self.model = model
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
         
-        # Путь к инструкциям
+        # Загружаем детальные системные инструкции из файла конфигурации агента
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(base_path, "GEMINI.md"), "r") as f:
             self.system_instruction = f.read()
 
     def estimate_market(self, market: Market) -> Optional[Signal]:
+        """
+        Оценивает рынок и формирует торговый сигнал, если найдена недооценка.
+        
+        :param market: Данные о рынке Polymarket
+        :return: Объект Signal, если Edge > 0.10, иначе None
+        """
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         prompt = f"""
+Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
 Описание: {market.description}
 Исход: {market.outcome}
@@ -50,11 +66,11 @@ class ScoutAgent:
             content = result['candidates'][0]['content']['parts'][0]['text']
             analysis = json.loads(content)
             
-            # Проверяем edge
+            # Рассчитываем математическое преимущество (Edge)
             est_prob = analysis.get("estimate_probability", 0)
             edge = est_prob - market.price
             
-            # Порог из REQUIREMENTS.md: edge > 0.10
+            # Порог активации сигнала: преимущество должно составлять более 10 процентных пунктов
             if edge > 0.10:
                 signal = Signal(
                     id=f"sig-{market.id}-{int(datetime.now().timestamp())}",
@@ -74,7 +90,11 @@ class ScoutAgent:
         return None
 
     def run_scan(self, limit: int = 10):
-        """Сканирует рынки из БД и ищет недооцененные"""
+        """
+        Запускает цикл сканирования рынков из базы данных.
+        
+        :param limit: Количество рынков для проверки
+        """
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM markets ORDER BY updated_at DESC LIMIT ?", (limit,))
@@ -104,6 +124,7 @@ class ScoutAgent:
                 print("--- Сигнал не найден.")
 
 if __name__ == "__main__":
+    # Локальный запуск агента для тестов
     from dotenv import load_dotenv
     load_dotenv()
     

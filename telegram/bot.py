@@ -30,33 +30,37 @@ ORCHESTRATOR_GEMINI_MD = Path(__file__).parent.parent / "agents" / "orchestrator
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN не найден в .env файле!")
 
-# Инициализируем БД при запуске
+# Инициализируем БД при старте
 init_db()
 
-# Включаем логирование
-logging.basicConfig(level=logging.INFO)
-
-# Инициализируем бота и диспетчер
+# Инициализируем бота и диспетчер событий aiogram
 bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
 async def set_commands(bot: Bot):
+    """
+    Настраивает меню команд в интерфейсе Telegram-бота.
+    """
     commands = [
-        BotCommand(command="start", description="Запустить приветствие"),
-        BotCommand(command="help", description="Справочник всех команд"),
-        BotCommand(command="status", description="Статус системы и агентов"),
-        BotCommand(command="scan", description="Запустить ручной поиск идей"),
-        BotCommand(command="ideas", description="Торговые сигналы"),
+        BotCommand(command="start", description="Начало работы"),
+        BotCommand(command="help", description="Справка по командам"),
+        BotCommand(command="status", description="Проверка статуса системы"),
+        BotCommand(command="scan", description="Запуск анализа рынков"),
+        BotCommand(command="ideas", description="Просмотр найденных идей"),
         BotCommand(command="stats", description="Статистика базы данных"),
-        BotCommand(command="logs", description="Просмотр логов"),
+        BotCommand(command="logs", description="Просмотр последних логов"),
     ]
     await bot.set_my_commands(commands)
 
-# Глобальная переменная для отслеживания состояния сканирования
+# Глобальный флаг для предотвращения одновременных запусков сканирования
 is_scanning = False
 
 def get_nexus_system_prompt():
-    prompt = "Ты — NEXUS, главный ИИ-координатор команды агентов (SCOUT, SHADOW, HERALD), анализирующих рынки Polymarket. Твоя цель — общаться с пользователем в живом диалоге, помогать ему управлять системой и давать советы. Отвечай кратко, профессионально и по делу."
+    """
+    Формирует системный промпт для NEXUS (Gemini), включая текущий контекст и инструкции.
+    """
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    prompt = f"Сегодняшняя дата и время: {now}\n\nТы — NEXUS, главный ИИ-координатор команды агентов (SCOUT, SHADOW, HERALD), анализирующих рынки Polymarket. Твоя цель — общаться с пользователем в живом диалоге, помогать ему управлять системой и давать советы. Отвечай кратко, профессионально и по делу."
     if ORCHESTRATOR_GEMINI_MD.exists():
         try:
             with open(ORCHESTRATOR_GEMINI_MD, "r") as f:
@@ -66,8 +70,15 @@ def get_nexus_system_prompt():
     return prompt
 
 def ask_gemini(text: str, history: list = None) -> str:
+    """
+    Отправляет запрос к Gemini API для получения ответа от NEXUS.
+    
+    :param text: Сообщение пользователя
+    :param history: История диалога для сохранения контекста
+    :return: Ответ ИИ или сообщение об ошибке
+    """
     if not GOOGLE_API_KEY:
-        return "Ошибка: GOOGLE_API_KEY не настроен."
+        return "Ошибка: GOOGLE_API_KEY не настроен в окружении."
         
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={GOOGLE_API_KEY}"
     
@@ -76,27 +87,32 @@ def ask_gemini(text: str, history: list = None) -> str:
     
     payload = {
         "contents": contents,
-        "tools": [{"google_search_retrieval": {}}],
+        "tools": [{"google_search": {}}], # Включаем поиск Google для актуальной информации
         "systemInstruction": {"role": "system", "parts": [{"text": get_nexus_system_prompt()}]}
     }
     
     try:
-        response = requests.post(url, json=payload, timeout=20)
+        response = requests.post(url, json=payload, timeout=40)
         if response.status_code == 200:
             result = response.json()
             return result['candidates'][0]['content']['parts'][0]['text']
         else:
             return f"Ошибка API: {response.status_code}\n{response.text}"
+    except requests.exceptions.Timeout:
+        return "Превышено время ожидания ответа от ИИ. Попробуйте еще раз."
     except Exception as e:
-        return f"Ошибка соединения: {e}"
+        return f"Ошибка при обращении к ИИ: {e}"
 
 @dp.message(CommandStart())
 async def command_start_handler(message: types.Message) -> None:
+    """
+    Обработчик команды /start. Приветствует пользователя.
+    """
     welcome_text = (
         f"Привет, <b>{message.from_user.full_name}</b>! 👋\n\n"
         f"Я <b>NEXUS</b> — терминал управления AI-командой Polymarket.\n\n"
-        f"Я работаю 24/7, сканирую рынки и ищу недооцененные события.\n\n"
-        f"Используй /help для просмотра всех доступных команд."
+        f"Моя задача — непрерывный мониторинг рынков и поиск возможностей.\n\n"
+        f"Используй /help, чтобы увидеть, что я умею."
     )
     await message.answer(welcome_text)
 
@@ -156,8 +172,11 @@ async def command_logs_handler(message: types.Message) -> None:
         return
     
     try:
+        # Читаем последние 10 строк
         logs = subprocess.check_output(["tail", "-n", "10", str(LOG_PATH)]).decode("utf-8")
-        await message.answer(f"📜 <b>Последние логи:</b>\n<pre>{logs}</pre>")
+        # Экранируем спецсимволы для HTML
+        safe_logs = logs.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        await message.answer(f"📜 <b>Последние логи:</b>\n<pre>{safe_logs}</pre>")
     except Exception as e:
         await message.answer(f"Ошибка чтения логов: {e}")
 
@@ -270,6 +289,7 @@ async def conversational_handler(message: types.Message) -> None:
         return
         
     chat_id = message.chat.id
+    user_text = message.text
     
     # Уведомляем пользователя, что бот печатает ответ
     await bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -278,17 +298,19 @@ async def conversational_handler(message: types.Message) -> None:
     history = await asyncio.to_thread(get_chat_history, chat_id, 15)
     
     # Отправляем запрос к Gemini
-    response_text = await asyncio.to_thread(ask_gemini, message.text, history)
+    response_text = await asyncio.to_thread(ask_gemini, user_text, history)
     
-    # Сохраняем сообщение пользователя и ответ в базу
-    await asyncio.to_thread(save_chat_message, chat_id, "user", message.text)
-    await asyncio.to_thread(save_chat_message, chat_id, "model", response_text)
+    # Не сохраняем в историю ошибки (таймаут или сбой API)
+    if not response_text.startswith("Ошибка"):
+        # Сохраняем сообщение пользователя и ответ в базу
+        await asyncio.to_thread(save_chat_message, chat_id, "user", user_text)
+        await asyncio.to_thread(save_chat_message, chat_id, "model", response_text)
     
     # Отправляем ответ пользователю
     try:
         await message.answer(response_text)
     except Exception as e:
-        await message.answer(f"Ошибка при отправке сообщения: {e}")
+        print(f"Ошибка при отправке сообщения в Telegram: {e}")
 
 async def main() -> None:
     print("🤖 Бот NEXUS запускается...")

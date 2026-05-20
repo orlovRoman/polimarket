@@ -7,12 +7,20 @@ from agents.shared.python.models import Market, AgentOpinion
 from agents.shared.python.db import get_connection
 
 class ShadowAgent:
+    """
+    Агент SHADOW — эксперт по анализу On-chain данных и рыночных аномалий.
+    Его задача — верифицировать идеи SCOUT, основываясь на объемах торгов 
+    и возможной активности крупных игроков (инсайдеров).
+    """
     def __init__(self, api_key: str, model: str = "gemini-2.5-pro"):
+        """
+        Инициализация агента SHADOW.
+        """
         self.api_key = api_key
         self.model = model
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
         
-        # Инструкции для SHADOW
+        # Системные инструкции, определяющие логику поведения агента
         self.system_instruction = """
 # SHADOW — Агент мониторинга инсайдеров и объемов
 
@@ -32,12 +40,18 @@ class ShadowAgent:
 """
 
     def analyze_idea(self, market: Market, scout_opinion: str) -> Optional[AgentOpinion]:
-        """SHADOW анализирует идею, найденную SCOUT"""
+        """
+        Проводит анализ торговой идеи на предмет аномалий.
         
-        # В реальной версии здесь будет вызов API Polymarket для получения истории торгов/ордербука.
-        # Для MVP мы просим LLM оценить риск на основе описания и 'шума' вокруг темы.
+        :param market: Данные о рынке
+        :param scout_opinion: Гипотеза от агента SCOUT
+        :return: Мнение агента (AgentOpinion) или None
+        """
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        # Формируем контекст для модели. В MVP LLM анализирует описание и общий фон.
         prompt = f"""
+Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
 Текущая цена: {market.price}
 Идея SCOUT: {scout_opinion}
@@ -68,6 +82,9 @@ class ShadowAgent:
         return None
 
 def save_opinion(opinion: AgentOpinion):
+    """
+    Сохраняет вынесенное мнение эксперта в БД SQLite.
+    """
     from agents.shared.python.db import get_connection
     with get_connection() as conn:
         cursor = conn.cursor()
