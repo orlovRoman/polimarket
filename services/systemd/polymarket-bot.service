@@ -1,0 +1,16 @@
+[Unit]
+Description=Polymarket Agent Team Bot
+After=network.target
+
+[Service]
+Type=simple
+User=orlovrp
+WorkingDirectory=/home/orlovrp/polymarket-bot
+ExecStart=/home/orlovrp/venv/bin/python3 main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

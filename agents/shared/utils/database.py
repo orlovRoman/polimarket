@@ -11,7 +11,7 @@ class DatabaseManager:
     истории обсуждений агентов и профилям кошельков (Smart Money).
     """
 
-    def __init__(self, db_path: str = "/home/orlovrp/vault/database.sqlite"):
+    def __init__(self, db_path: str = "/home/orlovrp/polymarket-bot/vault/database.sqlite"):
         self.db_path = db_path
         self._init_db()
 
@@ -44,28 +44,31 @@ class DatabaseManager:
 
             # Таблица: Обсуждения агентов (Shared State)
             cursor.execute('''
-                CREATE TABLE IF NOT EXISTS discussions (
+                CREATE TABLE IF NOT EXISTS agent_opinions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     market_id TEXT NOT NULL,
                     agent_name TEXT NOT NULL,
-                    message TEXT NOT NULL,
+                    opinion TEXT NOT NULL,
                     confidence REAL,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    agree BOOLEAN,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
 
             # Таблица: Финальные торговые сигналы
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS signals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id TEXT PRIMARY KEY,
                     market_id TEXT NOT NULL,
-                    signal_type TEXT NOT NULL, -- НЕДООЦЕНКА, ИНСАЙДЕР, АРБИТРАЖ
-                    description TEXT NOT NULL,
-                    model_prob REAL,
-                    market_prob REAL,
+                    type TEXT NOT NULL,
+                    platform TEXT NOT NULL,
                     edge REAL,
-                    status TEXT DEFAULT 'PENDING', -- PENDING, EXECUTED, REJECTED
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    confidence REAL NOT NULL,
+                    priority TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    details TEXT NOT NULL,
+                    status TEXT DEFAULT 'PENDING',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
 
@@ -98,20 +101,20 @@ class DatabaseManager:
             )
             conn.commit()
 
-    def add_discussion_message(self, market_id: str, agent_name: str, message: str, confidence: float = None):
-        """Записывает мнение агента (SCOUT, SHADOW, HERALD) в общий журнал обсуждений."""
+    def add_discussion_message(self, market_id: str, agent_name: str, message: str, confidence: float = None, agree: bool = True):
+        """Записывает мнение агента в общий журнал обсуждений."""
         with self._get_connection() as conn:
             conn.execute(
-                "INSERT INTO discussions (market_id, agent_name, message, confidence) VALUES (?, ?, ?, ?)",
-                (market_id, agent_name, message, confidence)
+                "INSERT INTO agent_opinions (market_id, agent_name, opinion, confidence, agree) VALUES (?, ?, ?, ?, ?)",
+                (market_id, agent_name, message, confidence, agree)
             )
             conn.commit()
 
     def get_market_discussions(self, market_id: str) -> List[Dict[str, Any]]:
-        """Получает всю историю обсуждений агентов по конкретному рынку (используется NEXUS'ом)."""
+        """Получает всю историю обсуждений агентов по конкретному рынку."""
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM discussions WHERE market_id = ? ORDER BY timestamp ASC",
+                "SELECT * FROM agent_opinions WHERE market_id = ? ORDER BY created_at ASC",
                 (market_id,)
             )
             return [dict(row) for row in cursor.fetchall()]

@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand
 from dotenv import load_dotenv
 from pathlib import Path
 from datetime import datetime
@@ -40,6 +40,18 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
+async def set_commands(bot: Bot):
+    commands = [
+        BotCommand(command="start", description="Запустить приветствие"),
+        BotCommand(command="help", description="Справочник всех команд"),
+        BotCommand(command="status", description="Статус системы и агентов"),
+        BotCommand(command="scan", description="Запустить ручной поиск идей"),
+        BotCommand(command="ideas", description="Торговые сигналы"),
+        BotCommand(command="stats", description="Статистика базы данных"),
+        BotCommand(command="logs", description="Просмотр логов"),
+    ]
+    await bot.set_my_commands(commands)
+
 # Глобальная переменная для отслеживания состояния сканирования
 is_scanning = False
 
@@ -64,6 +76,7 @@ def ask_gemini(text: str, history: list = None) -> str:
     
     payload = {
         "contents": contents,
+        "tools": [{"google_search_retrieval": {}}],
         "systemInstruction": {"role": "system", "parts": [{"text": get_nexus_system_prompt()}]}
     }
     
@@ -81,24 +94,54 @@ def ask_gemini(text: str, history: list = None) -> str:
 async def command_start_handler(message: types.Message) -> None:
     welcome_text = (
         f"Привет, <b>{message.from_user.full_name}</b>! 👋\n\n"
-        f"Я <b>NEXUS</b> — терминал управления AI-командой.\n\n"
-        f"<b>Команды управления:</b>\n"
-        f"🚀 /scan — запустить принудительный поиск идей\n"
-        f"📊 /stats — статистика базы данных\n"
-        f"💡 /ideas — последние найденные сигналы\n"
-        f"📜 /logs — последние 10 строк логов\n"
-        f"⚙️ /status — статус системы\n"
+        f"Я <b>NEXUS</b> — терминал управления AI-командой Polymarket.\n\n"
+        f"Я работаю 24/7, сканирую рынки и ищу недооцененные события.\n\n"
+        f"Используй /help для просмотра всех доступных команд."
     )
     await message.answer(welcome_text)
 
+@dp.message(Command("help"))
+async def command_help_handler(message: types.Message) -> None:
+    help_text = (
+        "📚 <b>Справочник команд NEXUS:</b>\n\n"
+        "<b>Основные:</b>\n"
+        "🚀 /scan — запустить принудительный поиск идей (выбор категории)\n"
+        "💡 /ideas — показать последние 5 активных сигналов\n"
+        "⚙️ /status — детальный статус агентов и планировщика\n\n"
+        "<b>Аналитика и БД:</b>\n"
+        "📊 /stats — общая статистика (рынки, сигналы, мнения)\n"
+        "📜 /logs — последние 10 строк системного лога\n\n"
+        "<b>Информация:</b>\n"
+        "❓ /help — это сообщение\n"
+        "👋 /start — перезапустить приветствие\n\n"
+        "<i>Ты также можешь просто писать мне вопросы в чат — я отвечу, используя контекст нашей команды.</i>"
+    )
+    await message.answer(help_text)
+
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:
-    from agents.shared.python.db import DB_PATH
+    from agents.shared.python.db import DB_PATH, get_connection
+    
+    # Пытаемся получить время последнего сканирования из БД
+    last_scan_str = "Неизвестно"
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM memory WHERE key = 'last_scan_time'")
+            row = cursor.fetchone()
+            if row:
+                last_scan_str = json.loads(row['value'])
+    except Exception:
+        pass
+
     status_text = (
-        "📊 <b>Статус системы:</b>\n"
-        f"● NEXUS: 🟢 В сети\n"
-        f"● Сканирование: {'🟡 Выполняется...' if is_scanning else '🟢 Ожидание'}\n"
-        f"● БД: {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
+        "📊 <b>Статус системы (24/7 Monitoring):</b>\n\n"
+        f"● <b>Оркестратор (NEXUS):</b> 🟢 В сети\n"
+        f"● <b>Агенты (SCOUT, SHADOW):</b> 🟢 Готовы\n"
+        f"● <b>Планировщик:</b> 🟢 Активен (30 мин)\n"
+        f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
+        f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning else '🟢 Ожидание'}\n\n"
+        f"🕒 <b>Последнее авто-сканирование:</b>\n<code>{last_scan_str}</code>"
     )
     await message.answer(status_text)
 
@@ -249,6 +292,7 @@ async def conversational_handler(message: types.Message) -> None:
 
 async def main() -> None:
     print("🤖 Бот NEXUS запускается...")
+    await set_commands(bot)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

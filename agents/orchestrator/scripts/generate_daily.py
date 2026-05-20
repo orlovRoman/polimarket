@@ -25,10 +25,12 @@ def main():
         with db_manager._get_connection() as conn:
             cursor = conn.cursor()
             
-            cursor.execute("SELECT * FROM discussions WHERE timestamp >= ?", (date_str,))
+            # В таблице agent_opinions используем created_at
+            cursor.execute("SELECT * FROM agent_opinions WHERE created_at >= ?", (date_str,))
             discussions = [dict(row) for row in cursor.fetchall()]
             
-            cursor.execute("SELECT * FROM signals WHERE timestamp >= ?", (date_str,))
+            # В таблице signals используем created_at
+            cursor.execute("SELECT * FROM signals WHERE created_at >= ?", (date_str,))
             signals = [dict(row) for row in cursor.fetchall()]
     except Exception as e:
         print(f"Ошибка при чтении базы данных: {e}")

@@ -2,6 +2,7 @@ import sqlite3
 import json
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 from .models import Market, Signal
 
 DB_PATH = Path(__file__).parent.parent.parent.parent / "vault" / "database.sqlite"
@@ -45,12 +46,22 @@ def init_db():
                 priority TEXT NOT NULL,
                 summary TEXT NOT NULL,
                 details TEXT NOT NULL,
+                status TEXT DEFAULT 'PENDING',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (market_id) REFERENCES markets (id)
             )
         """)
-        
-        # Таблица мнений агентов (для обсуждений)
+
+        # Таблица: Долгосрочная память (Key-Value)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS memory (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL, -- JSON string
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Таблица проанализированных рынков
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS agent_opinions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,13 +135,14 @@ def get_db_stats():
     return f"📊 <b>Статистика БД:</b>\n- Рынков: {m_count}\n- Сигналов: {s_count}\n- Мнений: {o_count}"
 
 def get_signals(limit: int = 5):
-    """Получает последние сигналы из БД"""
+    """Получает последние сигналы со статусом PENDING из БД"""
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT s.*, m.title, m.url, m.price as market_price 
             FROM signals s 
             JOIN markets m ON s.market_id = m.id 
+            WHERE s.status = 'PENDING'
             ORDER BY s.created_at DESC LIMIT ?
         """, (limit,))
         return [dict(row) for row in cursor.fetchall()]
@@ -148,9 +160,9 @@ def save_signal(signal: Signal):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT OR REPLACE INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, signal.details, signal.created_at.isoformat()))
+            INSERT OR REPLACE INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, signal.details, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat()))
         conn.commit()
 
 def mark_market_analyzed(market_id: str, price: float):
@@ -165,6 +177,15 @@ def get_last_analyzed_price(market_id: str) -> float | None:
         cursor.execute("SELECT last_price FROM analyzed_markets WHERE market_id = ?", (market_id,))
         row = cursor.fetchone()
         return row['last_price'] if row else None
+
+def save_memory(key: str, value: Any):
+    """Сохраняет данные в долгосрочную Key-Value память (JSON)."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO memory (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (key, json.dumps(value), datetime.utcnow())
+        )
+        conn.commit()
 
 if __name__ == "__main__":
     init_db()

@@ -22,6 +22,7 @@ class Signal(BaseModel):
     priority: Literal['low', 'medium', 'high']
     summary: str
     details: str
+    status: Literal['PENDING', 'EXECUTED', 'REJECTED', 'ARCHIVED'] = 'PENDING'
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class AgentOpinion(BaseModel):

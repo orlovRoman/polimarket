@@ -2,6 +2,7 @@ import os
 import sys
 import asyncio
 import logging
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
@@ -10,6 +11,7 @@ sys.path.append(os.getcwd())
 
 from run_team import run_team_discussion
 from telegram.bot import dp, bot
+from agents.shared.python.db import save_memory
 
 # Создаем папку для логов ДО настройки логирования
 os.makedirs("logs", exist_ok=True)
@@ -30,6 +32,10 @@ async def scheduled_job():
     try:
         # Запускаем в отдельном потоке, чтобы не блокировать бота
         await asyncio.to_thread(run_team_discussion)
+        
+        # Сохраняем время успешного завершения
+        save_memory("last_scan_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        
         logger.info("<<< Сканирование завершено успешно.")
     except Exception as e:
         logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)

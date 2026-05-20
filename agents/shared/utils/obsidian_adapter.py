@@ -10,7 +10,7 @@ class ObsidianAdapter:
     в соответствии с 3-уровневой архитектурой памяти проекта.
     """
 
-    def __init__(self, vault_path: str = "/home/orlovrp/vault"):
+    def __init__(self, vault_path: str = "/home/orlovrp/polymarket-bot/vault"):
         self.vault_path = Path(vault_path)
         self._ensure_directories()
 
