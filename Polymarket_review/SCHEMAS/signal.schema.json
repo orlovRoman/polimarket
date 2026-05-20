@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Signal",
+  "type": "object",
+  "properties": {
+    "id": {"type": "string"},
+    "type": {"type": "string"},
+    "market_id": {"type": "string"},
+    "platform": {"type": "string"},
+    "edge": {"type": ["number", "null"]},
+    "confidence": {"type": "number"},
+    "priority": {"type": "string"},
+    "summary": {"type": "string"},
+    "details": {"type": "string"}
+  },
+  "required": ["id", "type", "market_id", "platform", "confidence", "priority", "summary"]
+}
