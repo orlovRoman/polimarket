@@ -211,5 +211,18 @@ def save_memory(key: str, value: Any):
         )
         conn.commit()
 
+def get_memory(key: str, default: Any = None) -> Any:
+    """Извлекает данные из долгосрочной памяти."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM memory WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        if row:
+            try:
+                return json.loads(row['value'])
+            except json.JSONDecodeError:
+                return row['value']
+        return default
+
 if __name__ == "__main__":
     init_db()

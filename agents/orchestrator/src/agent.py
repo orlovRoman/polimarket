@@ -324,6 +324,11 @@ class NexusAgent:
         """
         Основной цикл обработки запроса с поддержкой многошаговых вызовов функций.
         """
+        # Динамически получаем модель из БД (если пользователь изменил ее через Telegram)
+        selected_model = self.db_manager.get_memory("selected_model")
+        current_model = selected_model if selected_model else self.model_name
+        current_api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={self.api_key}"
+
         contents = history if history else []
         contents.append({"role": "user", "parts": [{"text": prompt}]})
 
@@ -340,7 +345,7 @@ class NexusAgent:
         max_iterations = 8
         for _ in range(max_iterations):
             try:
-                response = requests.post(self.api_url, json=payload, timeout=60)
+                response = requests.post(current_api_url, json=payload, timeout=60)
                 if response.status_code != 200:
                     return f"Ошибка API: {response.status_code}\n{response.text}"
 

@@ -52,6 +52,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="ideas", description="Просмотр найденных идей"),
         BotCommand(command="stats", description="Статистика базы данных"),
         BotCommand(command="settings", description="Настройка лимитов запросов"),
+        BotCommand(command="model", description="Выбор языковой модели"),
         BotCommand(command="logs", description="Просмотр последних логов"),
     ]
     await bot.set_my_commands(commands)
@@ -96,6 +97,7 @@ async def command_help_handler(message: types.Message) -> None:
         "⚙️ /status — детальный статус агентов и планировщика\n\n"
         "<b>Настройки:</b>\n"
         "🛠 /settings — изменить лимит запросов (кол-во рынков за скан)\n"
+        "🧠 /model — выбрать языковую модель Gemini\n"
         "📊 /stats — общая статистика (рынки, сигналы, мнения)\n"
         "📜 /logs — последние 10 строк системного лога\n\n"
         "<b>Информация:</b>\n"
@@ -157,6 +159,23 @@ async def callback_setlimit_handler(callback: CallbackQuery) -> None:
     from agents.shared.python.db import save_memory
     await asyncio.to_thread(save_memory, "scan_limit", limit)
     await callback.message.edit_text(f"✅ <b>Лимит обновлен!</b>\nТеперь система будет анализировать не более <b>{limit}</b> рынков за один проход.")
+    await callback.answer()
+
+@dp.message(Command("model"))
+async def command_model_handler(message: types.Message) -> None:
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Gemini 2.5 Pro (Рекомендуется)", callback_data="setmodel_gemini-2.5-pro")],
+        [InlineKeyboardButton(text="Gemini 2.5 Flash (Быстрая)", callback_data="setmodel_gemini-2.5-flash")],
+        [InlineKeyboardButton(text="Gemini 1.5 Pro (Старая)", callback_data="setmodel_gemini-1.5-pro-latest")]
+    ])
+    await message.answer("🧠 <b>Выбор языковой модели:</b>\n\nТекущая модель влияет на ответы агентов. Выберите предпочитаемую версию Gemini:", reply_markup=keyboard)
+
+@dp.callback_query(F.data.startswith("setmodel_"))
+async def callback_setmodel_handler(callback: CallbackQuery) -> None:
+    model_name = callback.data.split("_")[1]
+    from agents.shared.python.db import save_memory
+    await asyncio.to_thread(save_memory, "selected_model", model_name)
+    await callback.message.edit_text(f"✅ <b>Модель обновлена!</b>\nТеперь Оркестратор будет использовать: <b>{model_name}</b>")
     await callback.answer()
 
 @dp.message(Command("logs"))
