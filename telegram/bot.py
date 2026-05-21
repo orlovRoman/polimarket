@@ -271,8 +271,7 @@ async def command_scan_handler(message: types.Message) -> None:
          InlineKeyboardButton(text="₿ Крипто", callback_data="scan_crypto")],
         [InlineKeyboardButton(text="⚽ Спорт", callback_data="scan_sports"),
          InlineKeyboardButton(text="🔬 Наука", callback_data="scan_science")],
-        [InlineKeyboardButton(text="🎬 Культура", callback_data="scan_culture"),
-         InlineKeyboardButton(text="💼 Бизнес", callback_data="scan_business")]
+        [InlineKeyboardButton(text="💼 Бизнес", callback_data="scan_business")]
     ])
     await message.answer("🔍 <b>Выберите категорию для сканирования:</b>", reply_markup=keyboard)
 

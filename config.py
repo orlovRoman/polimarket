@@ -31,6 +31,6 @@ PRICE_RANGE_MIN = float(os.getenv("PRICE_RANGE_MIN", "0.10"))
 PRICE_RANGE_MAX = float(os.getenv("PRICE_RANGE_MAX", "0.90"))
 DEFAULT_MIN_EDGE = float(os.getenv("DEFAULT_MIN_EDGE", "0.10"))
 
-# Категории для ротации при автоскане
+# Категории для ротации при автоскане (culture=0 результатов на API)
 SCAN_CATEGORIES = ["politics", "crypto", "sports", "science", "business"]
 
