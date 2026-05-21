@@ -195,7 +195,6 @@ class NexusAgent:
 
     def _get_tools_declaration(self) -> List[Dict[str, Any]]:
         return [
-            {"google_search": {}},
             {
                 "function_declarations": [
                     {
