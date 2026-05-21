@@ -81,15 +81,24 @@ class HeraldAgent:
         
         payload = {
             "contents": [{"role": "user", "parts": [{"text": self.system_instruction + "\n\n" + prompt}]}],
-            "tools": [{"google_search": {}}], # Позволяем агенту использовать полноценный поиск Google
-            "generationConfig": {"response_mime_type": "application/json"}
+            "tools": [{"google_search": {}}],
+            # НЕ совмещаем google_search с response_mime_type: application/json (API 400)
         }
         
         try:
-            response = requests.post(self.api_url, json=payload, timeout=30)
+            response = requests.post(self.api_url, json=payload, timeout=45)
             if response.status_code == 200:
                 result = response.json()
-                analysis = json.loads(result['candidates'][0]['content']['parts'][0]['text'])
+                raw_text = result['candidates'][0]['content']['parts'][0]['text']
+                
+                # Пытаемся извлечь JSON из ответа (может быть обёрнут в markdown)
+                import re
+                json_match = re.search(r'\{[^{}]*"agree"[^{}]*\}', raw_text, re.DOTALL)
+                if json_match:
+                    analysis = json.loads(json_match.group())
+                else:
+                    # Fallback: LLM не вернул JSON — используем текст как мнение
+                    analysis = {"agree": False, "confidence": 0.3, "opinion": raw_text[:300]}
                 
                 opinion = AgentOpinion(
                     agent_name="HERALD",

@@ -12,12 +12,12 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand
 from dotenv import load_dotenv
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Импортируем функции БД
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from agents.shared.python.db import save_chat_message, get_chat_history, init_db, get_db_stats, get_signals, cleanup_chat_history
+from agents.shared.python.db import save_chat_message, get_chat_history, init_db, get_db_stats, get_signals, cleanup_chat_history, cleanup_stale_signals
 from agents.orchestrator.src.agent import NexusAgent
 
 # Загружаем переменные окружения
@@ -54,11 +54,22 @@ async def set_commands(bot: Bot):
         BotCommand(command="settings", description="Настройка лимитов запросов"),
         BotCommand(command="model", description="Выбор языковой модели"),
         BotCommand(command="logs", description="Просмотр последних логов"),
+        BotCommand(command="cleanup", description="Очистить устаревшие сигналы"),
     ]
     await bot.set_my_commands(commands)
 
 # Глобальный флаг для предотвращения одновременных запусков сканирования
 is_scanning = False
+
+def _is_stale_message(message: types.Message, max_age_seconds: int = 30) -> bool:
+    """Проверяет, не устарело ли сообщение (защита от дублей после простоя бота)."""
+    if message.date:
+        try:
+            now = datetime.now(message.date.tzinfo)
+            return (now - message.date) > timedelta(seconds=max_age_seconds)
+        except Exception:
+            pass
+    return False
 
 def ask_gemini(text: str, history: list = None) -> str:
     """
@@ -79,6 +90,7 @@ async def command_start_handler(message: types.Message) -> None:
     """
     Обработчик команды /start. Приветствует пользователя.
     """
+    if _is_stale_message(message): return
     welcome_text = (
         f"Привет, <b>{message.from_user.full_name}</b>! 👋\n\n"
         f"Я <b>NEXUS</b> — терминал управления AI-командой Polymarket.\n\n"
@@ -89,16 +101,18 @@ async def command_start_handler(message: types.Message) -> None:
 
 @dp.message(Command("help"))
 async def command_help_handler(message: types.Message) -> None:
+    if _is_stale_message(message): return
     help_text = (
         "📚 <b>Справочник команд NEXUS:</b>\n\n"
         "<b>Основные:</b>\n"
-        "🚀 /scan — запустить принудительный поиск идей (выбор категории)\n"
+        "🚀 /scan — запустить поиск идей (выбор из 7 категорий)\n"
         "💡 /ideas — показать последние 5 активных сигналов\n"
-        "⚙️ /status — детальный статус агентов и планировщика\n\n"
+        "⚙️ /status — детальный статус агентов и метрики памяти\n\n"
         "<b>Настройки:</b>\n"
-        "🛠 /settings — изменить лимит запросов (кол-во рынков за скан)\n"
+        "🛠 /settings — лимит рынков + порог Edge (SCOUT)\n"
         "🧠 /model — выбрать языковую модель Gemini\n"
         "📊 /stats — общая статистика (рынки, сигналы, мнения)\n"
+        "🧹 /cleanup — архивировать устаревшие сигналы\n"
         "📜 /logs — последние 10 строк системного лога\n\n"
         "<b>Информация:</b>\n"
         "❓ /help — это сообщение\n"
@@ -109,9 +123,10 @@ async def command_help_handler(message: types.Message) -> None:
 
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:
-    from agents.shared.python.db import DB_PATH, get_connection
+    if _is_stale_message(message): return
+    from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats
     
-    # Пытаемся получить время последнего сканирования и лимит из БД
+    # Получаем время последнего сканирования и лимит из БД
     last_scan_str = "Неизвестно"
     scan_limit = 10
     try:
@@ -127,6 +142,9 @@ async def command_status_handler(message: types.Message) -> None:
     except Exception:
         pass
 
+    # Получаем метрики памяти
+    stats = await asyncio.to_thread(get_memory_stats)
+
     status_text = (
         "📊 <b>Статус системы (24/7 Monitoring):</b>\n\n"
         f"● <b>Оркестратор (NEXUS):</b> 🟢 В сети\n"
@@ -135,23 +153,62 @@ async def command_status_handler(message: types.Message) -> None:
         f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
         f"● <b>Лимит запросов:</b> <code>{scan_limit} рынков/цикл</code>\n"
         f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning else '🟢 Ожидание'}\n\n"
+        f"🧠 <b>Память:</b>\n"
+        f"  Факты (Layer 1): {stats.get('facts', '?')}\n"
+        f"  Рынков в БД: {stats.get('markets', '?')}\n"
+        f"  Сигналов (активных): {stats.get('signals_pending', '?')}\n"
+        f"  Сигналов (архив): {stats.get('signals_archived', '?')}\n"
+        f"  Мнений агентов: {stats.get('opinions', '?')}\n"
+        f"  Vault файлов: {stats.get('vault_files', '?')}\n"
+        f"  Размер БД: {stats.get('db_size_kb', 0):.0f} KB\n\n"
         f"🕒 <b>Последнее авто-сканирование:</b>\n<code>{last_scan_str}</code>"
     )
     await message.answer(status_text)
 
 @dp.message(Command("stats"))
 async def command_stats_handler(message: types.Message) -> None:
+    if _is_stale_message(message): return
     await message.answer(await asyncio.to_thread(get_db_stats))
 
 @dp.message(Command("settings"))
 async def command_settings_handler(message: types.Message) -> None:
+    from agents.shared.python.db import get_memory
+    current_edge = int((get_memory("min_edge") or 0.10) * 100)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Лимит рынков (scan_limit)", callback_data="settings_limits")],
+        [InlineKeyboardButton(text=f"🎯 Edge порог: {current_edge}%", callback_data="settings_edge")],
+    ])
+    await message.answer("⚙️ <b>Настройки системы:</b>\n\nВыберите параметр для настройки:", reply_markup=keyboard)
+
+@dp.callback_query(F.data == "settings_limits")
+async def callback_settings_limits(callback: CallbackQuery) -> None:
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Минимум (3 рынка)", callback_data="setlimit_3")],
         [InlineKeyboardButton(text="Эконом (5 рынков)", callback_data="setlimit_5")],
         [InlineKeyboardButton(text="Стандарт (10 рынков)", callback_data="setlimit_10")],
         [InlineKeyboardButton(text="Глубокий (20 рынков)", callback_data="setlimit_20")]
     ])
-    await message.answer("⚙️ <b>Настройка лимитов (Экономия токенов):</b>\n\nВыберите количество рынков, которые команда будет анализировать за один цикл сканирования. Чем меньше число, тем дешевле обходится работа агентов.", reply_markup=keyboard)
+    await callback.message.edit_text("⚙️ <b>Лимит рынков за цикл:</b>\n\nЧем меньше число, тем дешевле работа агентов.", reply_markup=keyboard)
+    await callback.answer()
+
+@dp.callback_query(F.data == "settings_edge")
+async def callback_settings_edge(callback: CallbackQuery) -> None:
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="5% (агрессивный — больше сигналов)", callback_data="edge_5")],
+        [InlineKeyboardButton(text="7% (умеренный)", callback_data="edge_7")],
+        [InlineKeyboardButton(text="10% (стандарт)", callback_data="edge_10")],
+        [InlineKeyboardButton(text="15% (консервативный — только явные)", callback_data="edge_15")]
+    ])
+    await callback.message.edit_text("🎯 <b>Edge порог (SCOUT):</b>\n\nМинимальное математическое преимущество, при котором SCOUT сгенерирует сигнал.\nНиже = больше сигналов (но менее надёжных).", reply_markup=keyboard)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("edge_"))
+async def callback_edge_handler(callback: CallbackQuery) -> None:
+    value = int(callback.data.split("_")[1])
+    from agents.shared.python.db import save_memory
+    await asyncio.to_thread(save_memory, "min_edge", value / 100, 'config', None, 10)
+    await callback.message.edit_text(f"✅ <b>Edge порог обновлён!</b>\nSCOUT будет генерировать сигналы при преимуществе ≥ <b>{value}%</b>.")
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("setlimit_"))
 async def callback_setlimit_handler(callback: CallbackQuery) -> None:
@@ -193,20 +250,31 @@ async def command_logs_handler(message: types.Message) -> None:
     except Exception as e:
         await message.answer(f"Ошибка чтения логов: {e}")
 
+@dp.message(Command("cleanup"))
+async def command_cleanup_handler(message: types.Message) -> None:
+    """Очищает устаревшие сигналы (2025, истёкшие рынки)."""
+    if _is_stale_message(message): return
+    count = await asyncio.to_thread(cleanup_stale_signals)
+    await message.answer(f"🧹 Очистка завершена. Архивировано устаревших сигналов: {count}")
+
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:
+    if _is_stale_message(message): return
     global is_scanning
     if is_scanning:
         await message.answer("⚠️ Сканирование уже запущено. Пожалуйста, подождите.")
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Всё (Топ объема)", callback_data="scan_all")],
-        [InlineKeyboardButton(text="Политика", callback_data="scan_politics")],
-        [InlineKeyboardButton(text="Спорт", callback_data="scan_sports")],
-        [InlineKeyboardButton(text="Крипта", callback_data="scan_crypto")]
+        [InlineKeyboardButton(text="🌐 Все (авто-микс)", callback_data="scan_all")],
+        [InlineKeyboardButton(text="🏛 Политика", callback_data="scan_politics"),
+         InlineKeyboardButton(text="₿ Крипто", callback_data="scan_crypto")],
+        [InlineKeyboardButton(text="⚽ Спорт", callback_data="scan_sports"),
+         InlineKeyboardButton(text="🔬 Наука", callback_data="scan_science")],
+        [InlineKeyboardButton(text="🎬 Культура", callback_data="scan_culture"),
+         InlineKeyboardButton(text="💼 Бизнес", callback_data="scan_business")]
     ])
-    await message.answer("Выберите категорию для сканирования:", reply_markup=keyboard)
+    await message.answer("🔍 <b>Выберите категорию для сканирования:</b>", reply_markup=keyboard)
 
 @dp.callback_query(F.data.startswith("scan_"))
 async def callback_scan_handler(callback: CallbackQuery) -> None:
@@ -218,10 +286,14 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
     category = callback.data.split("_")[1]
     if category == "all":
         category_param = None
-        cat_name = "Все рынки"
+        cat_name = "Все рынки (авто-микс)"
     else:
         category_param = category
-        cat_map = {"politics": "Политика", "sports": "Спорт", "crypto": "Крипта"}
+        cat_map = {
+            "politics": "🏛 Политика", "crypto": "₿ Крипто",
+            "sports": "⚽ Спорт", "science": "🔬 Наука",
+            "culture": "🎬 Культура", "business": "💼 Бизнес"
+        }
         cat_name = cat_map.get(category, category)
 
     await callback.message.edit_text(f"🚀 Запускаю полный цикл анализа (Категория: {cat_name})...")
@@ -278,6 +350,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
 
 @dp.message(Command("ideas"))
 async def command_ideas_handler(message: types.Message) -> None:
+    if _is_stale_message(message): return
     signals = await asyncio.to_thread(get_signals)
     if not signals:
         await message.answer("Пока нет новых идей. Запустите /scan.")

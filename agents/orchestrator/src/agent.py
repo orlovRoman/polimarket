@@ -46,16 +46,13 @@ class NexusAgent:
         """Формирует актуальный системный промпт с текущей датой и фактами из Layer 1."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Извлекаем важные факты из Layer 1 (таблица memory)
-        facts = []
+        # Извлекаем приоритетные факты из Layer 1 (с учётом TTL и лимита)
         try:
-            with self.db_manager._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT key, value FROM memory")
-                for row in cursor.fetchall():
-                    facts.append(f"- {row['key']}: {row['value']}")
+            from agents.shared.python.db import get_active_facts
+            from config import MEMORY_FACTS_LIMIT
+            facts = get_active_facts(limit=MEMORY_FACTS_LIMIT)
         except Exception:
-            pass
+            facts = []
         
         facts_str = "\n".join(facts) if facts else "Нет сохраненных фактов."
 
@@ -86,8 +83,23 @@ class NexusAgent:
         return "\n".join(files)
 
     def search_vault(self, query: str) -> str:
-        """Ищет текст во всех файлах базы знаний (аналог grep)."""
+        """
+        Ищет текст во всех файлах базы знаний.
+        Сначала проверяет SQLite индекс (быстро), затем full-text grep (полно).
+        Возвращает контекст вокруг совпадения, а не первые 200 символов.
+        """
         results = []
+        
+        # 1. Быстрый поиск по SQLite индексу (заголовки, теги)
+        try:
+            from agents.shared.python.db import search_vault_index
+            indexed = search_vault_index(query, limit=5)
+            for item in indexed:
+                results.append(f"📎 [{item.get('category', '?')}] {item.get('title', item['path'])}\n   Путь: {item['path']}")
+        except Exception:
+            pass
+        
+        # 2. Full-text поиск по файлам (с контекстом)
         vault_path = self.obsidian.vault_path
         for root, _, files in os.walk(vault_path):
             for file in files:
@@ -96,15 +108,26 @@ class NexusAgent:
                     try:
                         with open(full_path, "r", encoding="utf-8") as f:
                             content = f.read()
-                            if query.lower() in content.lower():
+                            lower_content = content.lower()
+                            lower_query = query.lower()
+                            pos = lower_content.find(lower_query)
+                            if pos != -1:
                                 rel_path = full_path.relative_to(vault_path)
-                                results.append(f"--- {rel_path} ---\n{content[:200]}...")
+                                # Извлекаем контекст: 100 символов до и 200 после совпадения
+                                start = max(0, pos - 100)
+                                end = min(len(content), pos + len(query) + 200)
+                                snippet = content[start:end].strip()
+                                if start > 0:
+                                    snippet = "..." + snippet
+                                if end < len(content):
+                                    snippet = snippet + "..."
+                                results.append(f"--- {rel_path} ---\n{snippet}")
                     except Exception:
                         continue
         
         if not results:
             return f"По запросу '{query}' ничего не найдено."
-        return "\n\n".join(results[:10]) # Ограничиваем вывод
+        return "\n\n".join(results[:10])
 
     def write_daily_summary(self, content: str) -> str:
         """Записывает ежедневный отчет (Daily Summary) в Obsidian."""

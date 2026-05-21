@@ -1,7 +1,12 @@
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+# Импортируем путь из единого конфига
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+from config import VAULT_PATH
 
 class ObsidianAdapter:
     """
@@ -10,8 +15,8 @@ class ObsidianAdapter:
     в соответствии с 3-уровневой архитектурой памяти проекта.
     """
 
-    def __init__(self, vault_path: str = "/home/orlovrp/polymarket-bot/vault"):
-        self.vault_path = Path(vault_path)
+    def __init__(self, vault_path: str = None):
+        self.vault_path = Path(vault_path) if vault_path else VAULT_PATH
         self._ensure_directories()
 
     def _ensure_directories(self):
@@ -32,6 +37,7 @@ class ObsidianAdapter:
         """
         Записывает ежедневный отчет оркестратора (Daily Summary).
         Формат файла: YYYY-MM-DD-polimarket-orchestrator.md
+        Использует режим append, чтобы не потерять данные при повторном вызове за день.
         """
         if date is None:
             date = datetime.now()
@@ -39,8 +45,11 @@ class ObsidianAdapter:
         filename = f"{date.strftime('%Y-%m-%d')}-polimarket-orchestrator.md"
         filepath = self.vault_path / "daily" / filename
         
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
+        # Добавляем timestamp-разделитель при дописывании
+        separator = f"\n\n---\n### Обновление {date.strftime('%H:%M:%S')}\n\n"
+        
+        with open(filepath, "a", encoding="utf-8") as f:
+            f.write(separator + content)
             
         return filepath
 
@@ -58,9 +67,10 @@ class ObsidianAdapter:
             
         return filepath
 
-    def promote_to_memory(self, category: str, filename: str, content: str) -> Path:
+    def promote_to_memory(self, category: str, filename: str, content: str, tags: list = None) -> Path:
         """
-        Сохраняет долгосрочную память (Layer 3).
+        Сохраняет долгосрочную память (Layer 3) с YAML frontmatter.
+        Автоматически индексирует файл в SQLite vault_index для быстрого поиска.
         Допустимые категории: 'durable', 'entities', 'market-patterns', 'source-profiles'.
         """
         valid_categories = ["durable", "entities", "market-patterns", "source-profiles"]
@@ -72,8 +82,29 @@ class ObsidianAdapter:
 
         filepath = self.vault_path / "memory" / category / filename
         
+        # Формируем frontmatter
+        import json
+        now = datetime.now()
+        frontmatter = (
+            f"---\n"
+            f"created: {now.isoformat()}\n"
+            f"category: {category}\n"
+            f"tags: {json.dumps(tags or [])}\n"
+            f"---\n\n"
+        )
+        
         with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
+            f.write(frontmatter + content)
+        
+        # Индексируем в SQLite для быстрого поиска (Layer 1 ↔ Layer 3 связь)
+        try:
+            import hashlib
+            content_hash = hashlib.md5(content.encode()).hexdigest()
+            from agents.shared.python.db import update_vault_index
+            rel_path = str(filepath.relative_to(self.vault_path))
+            update_vault_index(rel_path, category, filename.replace(".md", ""), tags, content_hash)
+        except Exception:
+            pass  # Не блокируем запись, если индексация не удалась
             
         return filepath
 

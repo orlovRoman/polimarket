@@ -9,12 +9,41 @@ sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
 from agents.orchestrator.src.agent import NexusAgent
 from agents.shared.utils.database import DatabaseManager
+from agents.shared.python.db import cleanup_stale_signals
+from config import DB_PATH
+
+def backup_database():
+    """Создаёт бэкап БД перед опасными операциями (GC, миграции)."""
+    import shutil
+    backup_dir = DB_PATH.parent / "backups"
+    backup_dir.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"database_{timestamp}.sqlite"
+    shutil.copy2(str(DB_PATH), str(backup_path))
+    # Удаляем бэкапы старше 7 дней (оставляем до 10 штук)
+    backups = sorted(backup_dir.glob("database_*.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in backups[10:]:
+        old.unlink(missing_ok=True)
+    return backup_path
 
 def main():
     print("Запуск сборки мусора и архивации памяти (Memory GC)...")
+    
+    # Бэкап БД перед GC
+    try:
+        bp = backup_database()
+        print(f"Бэкап БД: {bp}")
+    except Exception as e:
+        print(f"Предупреждение: бэкап не удался ({e}), продолжаем...")
+    
     db_manager = DatabaseManager()
     agent = NexusAgent()
     
+    # 0. Автоочистка устаревших сигналов (2025, истёкшие рынки)
+    stale = cleanup_stale_signals()
+    if stale > 0:
+        print(f"Автоочистка: архивировано {stale} устаревших сигналов.")
+
     # 1. Сначала пометим как EXECUTED те сигналы, чьи рынки уже закрылись (события 2025 года и т.д.)
     now = datetime.utcnow().isoformat()
     try:

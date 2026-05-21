@@ -5,10 +5,15 @@ from datetime import datetime
 from typing import Any
 from .models import Market, Signal
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "vault" / "database.sqlite"
+# Импортируем путь из единого конфига
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+from config import DB_PATH
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")    # Write-Ahead Logging для конкурентного доступа
+    conn.execute("PRAGMA busy_timeout=5000")    # Ждём 5 сек при блокировке
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -85,6 +90,19 @@ def init_db():
             )
         """)
         
+        # Таблица: Профили кошельков (Smart Money Tracker)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS wallets (
+                address TEXT PRIMARY KEY,
+                alias TEXT,
+                win_rate REAL DEFAULT 0.0,
+                total_profit REAL DEFAULT 0.0,
+                is_insider BOOLEAN DEFAULT FALSE,
+                last_seen DATETIME,
+                notes TEXT
+            )
+        ''')
+        
         # Таблица истории чата Telegram
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS chat_history (
@@ -96,6 +114,38 @@ def init_db():
             )
         """)
         
+        
+        # Индексы для ускорения частых запросов
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_opinions_market ON agent_opinions(market_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_chat ON chat_history(chat_id, timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close ON markets(close_time)")
+
+        # Миграция: добавляем новые колонки в memory (если их ещё нет)
+        existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(memory)").fetchall()}
+        if 'category' not in existing_cols:
+            cursor.execute("ALTER TABLE memory ADD COLUMN category TEXT DEFAULT 'general'")
+        if 'ttl' not in existing_cols:
+            cursor.execute("ALTER TABLE memory ADD COLUMN ttl INTEGER DEFAULT NULL")
+        if 'priority' not in existing_cols:
+            cursor.execute("ALTER TABLE memory ADD COLUMN priority INTEGER DEFAULT 0")
+        if 'expires_at' not in existing_cols:
+            cursor.execute("ALTER TABLE memory ADD COLUMN expires_at DATETIME DEFAULT NULL")
+
+        # Таблица: Индекс vault (Layer 1 ↔ Layer 2/3 связь)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS vault_index (
+                path TEXT PRIMARY KEY,
+                category TEXT,
+                title TEXT,
+                tags TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                content_hash TEXT
+            )
+        """)
+
         conn.commit()
     print(f"База данных инициализирована по адресу: {DB_PATH}")
 
@@ -202,20 +252,52 @@ def get_last_analyzed_price(market_id: str) -> float | None:
         row = cursor.fetchone()
         return row['last_price'] if row else None
 
-def save_memory(key: str, value: Any):
-    """Сохраняет данные в долгосрочную Key-Value память (JSON)."""
+def get_markets_on_cooldown(cooldown_hours: int = 4) -> set:
+    """Возвращает set market_id, проанализированных менее N часов назад."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT market_id FROM analyzed_markets 
+            WHERE analyzed_at > datetime('now', '-' || ? || ' hours')
+        """, (cooldown_hours,))
+        return {row['market_id'] for row in cursor.fetchall()}
+
+def save_memory(key: str, value: Any, category: str = 'general', ttl: int = None, priority: int = 0):
+    """
+    Сохраняет данные в долгосрочную Key-Value память (JSON).
+    
+    :param key: Ключ записи
+    :param value: Значение (будет сохранено как JSON)
+    :param category: Категория ('config', 'fact', 'preference', 'cache', 'general')
+    :param ttl: Время жизни в секундах (None = бессрочно)
+    :param priority: Приоритет для ранжирования (0-10, выше = важнее)
+    """
+    now = datetime.utcnow()
+    expires_at = None
+    if ttl is not None:
+        from datetime import timedelta
+        expires_at = (now + timedelta(seconds=ttl)).isoformat()
+    
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO memory (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-            (key, json.dumps(value), datetime.utcnow())
+            """INSERT INTO memory (key, value, updated_at, category, ttl, priority, expires_at) 
+               VALUES (?, ?, ?, ?, ?, ?, ?) 
+               ON CONFLICT(key) DO UPDATE SET 
+                   value=excluded.value, updated_at=excluded.updated_at,
+                   category=excluded.category, ttl=excluded.ttl, 
+                   priority=excluded.priority, expires_at=excluded.expires_at""",
+            (key, json.dumps(value), now, category, ttl, priority, expires_at)
         )
         conn.commit()
 
 def get_memory(key: str, default: Any = None) -> Any:
-    """Извлекает данные из долгосрочной памяти."""
+    """Извлекает данные из долгосрочной памяти. Пропускает истёкшие записи."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM memory WHERE key = ?", (key,))
+        cursor.execute(
+            "SELECT value FROM memory WHERE key = ? AND (expires_at IS NULL OR expires_at > datetime('now'))",
+            (key,)
+        )
         row = cursor.fetchone()
         if row:
             try:
@@ -223,6 +305,156 @@ def get_memory(key: str, default: Any = None) -> Any:
             except json.JSONDecodeError:
                 return row['value']
         return default
+
+def get_active_facts(limit: int = 30) -> list:
+    """
+    Загружает актуальные приоритетные факты для системного промпта.
+    Фильтрует по TTL, сортирует по приоритету. Не загружает category='cache'.
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT key, value FROM memory 
+            WHERE (expires_at IS NULL OR expires_at > datetime('now'))
+              AND category != 'cache'
+            ORDER BY priority DESC, updated_at DESC
+            LIMIT ?
+        """, (limit,))
+        results = []
+        for row in cursor.fetchall():
+            try:
+                val = json.loads(row['value'])
+            except (json.JSONDecodeError, TypeError):
+                val = row['value']
+            results.append(f"- {row['key']}: {val}")
+        return results
+
+def cleanup_expired_memory():
+    """Удаляет записи с истёкшим TTL из таблицы memory."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM memory WHERE expires_at IS NOT NULL AND expires_at < datetime('now')")
+        count = cursor.rowcount
+        conn.commit()
+    return count
+
+def add_wallet(address: str, alias: str = None, is_insider: bool = False):
+    """Добавляет новый кошелек для мониторинга агентом SHADOW."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO wallets (address, alias, is_insider, last_seen) VALUES (?, ?, ?, ?)",
+            (address, alias, is_insider, datetime.utcnow())
+        )
+        conn.commit()
+
+def update_wallet_stats(address: str, win_rate: float, total_profit: float):
+    """Обновляет статистику кошелька (Win Rate) для фильтра Smart Money."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE wallets SET win_rate = ?, total_profit = ?, last_seen = ? WHERE address = ?",
+            (win_rate, total_profit, datetime.utcnow(), address)
+        )
+        conn.commit()
+
+def add_discussion_message(market_id: str, agent_name: str, message: str, confidence: float = None, agree: bool = True):
+    """Записывает мнение агента в общий журнал обсуждений."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO agent_opinions (market_id, agent_name, opinion, confidence, agree) VALUES (?, ?, ?, ?, ?)",
+            (market_id, agent_name, message, confidence, agree)
+        )
+        conn.commit()
+
+def get_market_discussions(market_id: str):
+    """Получает всю историю обсуждений агентов по конкретному рынку."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT * FROM agent_opinions WHERE market_id = ? ORDER BY created_at ASC",
+            (market_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+def cleanup_stale_signals():
+    """Архивирует устаревшие сигналы (рынки 2025 года и истёкшие рынки)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Архивируем сигналы рынков, которые уже закрыты
+        cursor.execute("""
+            UPDATE signals SET status = 'ARCHIVED'
+            WHERE status = 'PENDING' AND market_id IN (
+                SELECT id FROM markets WHERE close_time < datetime('now')
+            )
+        """)
+        archived_expired = cursor.rowcount
+        # Архивируем сигналы с '2025' в названии рынка (fallback)
+        cursor.execute("""
+            UPDATE signals SET status = 'ARCHIVED'
+            WHERE status = 'PENDING' AND market_id IN (
+                SELECT id FROM markets WHERE title LIKE '%2025%'
+            )
+        """)
+        archived_year = cursor.rowcount
+        conn.commit()
+    return archived_expired + archived_year
+
+
+def update_vault_index(path: str, category: str, title: str, tags: list = None, content_hash: str = None):
+    """Обновляет индекс vault-файла в SQLite для быстрого поиска."""
+    import json as _json
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO vault_index (path, category, title, tags, updated_at, content_hash)
+            VALUES (?, ?, ?, ?, datetime('now'), ?)
+            ON CONFLICT(path) DO UPDATE SET 
+                category=excluded.category, title=excluded.title,
+                tags=excluded.tags, updated_at=excluded.updated_at,
+                content_hash=excluded.content_hash
+        """, (path, category, title, _json.dumps(tags or []), content_hash))
+        conn.commit()
+
+def search_vault_index(query: str, limit: int = 10) -> list:
+    """
+    Быстрый поиск по индексу vault (по заголовку и тегам).
+    Возвращает список совпадений [{path, category, title, tags}].
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT path, category, title, tags FROM vault_index
+            WHERE title LIKE ? OR tags LIKE ? OR path LIKE ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+        """, (f'%{query}%', f'%{query}%', f'%{query}%', limit))
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_memory_stats() -> dict:
+    """Возвращает метрики использования памяти для /status."""
+    import os as _os
+    stats = {}
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM memory WHERE expires_at IS NULL OR expires_at > datetime('now')")
+            stats['facts'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM signals WHERE status = 'PENDING'")
+            stats['signals_pending'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM signals WHERE status = 'ARCHIVED'")
+            stats['signals_archived'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM markets")
+            stats['markets'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM agent_opinions")
+            stats['opinions'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM vault_index")
+            stats['vault_files'] = cursor.fetchone()[0]
+        # Размер файла БД
+        if _os.path.exists(DB_PATH):
+            stats['db_size_kb'] = _os.path.getsize(DB_PATH) / 1024
+        else:
+            stats['db_size_kb'] = 0
+    except Exception:
+        pass
+    return stats
+
 
 if __name__ == "__main__":
     init_db()

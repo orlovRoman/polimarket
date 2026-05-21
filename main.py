@@ -11,7 +11,7 @@ sys.path.append(os.getcwd())
 
 from run_team import run_team_discussion
 from telegram.bot import dp, bot
-from agents.shared.python.db import save_memory
+from agents.shared.python.db import save_memory, cleanup_stale_signals, cleanup_expired_memory, cleanup_chat_history
 
 # Создаем директорию для логов, если она еще не существует
 os.makedirs("logs", exist_ok=True)
@@ -34,7 +34,12 @@ async def scheduled_job():
     """
     logger.info(">>> Запуск планового сканирования рынков...")
     try:
-        # 1. Сначала запускаем очистку старых сигналов
+        # 0. Очистка устаревших сигналов (2025, истёкшие)
+        stale_count = cleanup_stale_signals()
+        if stale_count > 0:
+            logger.info(f"Очищено устаревших сигналов: {stale_count}")
+
+        # 1. Очистка через NexusAgent (проверка по close_time)
         from agents.orchestrator.src.agent import NexusAgent
         nexus = NexusAgent()
         cleanup_res = nexus.cleanup_expired_signals()
@@ -46,6 +51,11 @@ async def scheduled_job():
         # 3. Фиксируем время последнего успешного сканирования
         save_memory("last_scan_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         
+        # 4. Чистим истёкшие записи из памяти (TTL)
+        expired = cleanup_expired_memory()
+        if expired > 0:
+            logger.info(f"Очищено истёкших записей памяти: {expired}")
+
         logger.info("<<< Сканирование завершено успешно.")
     except Exception as e:
         logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)
