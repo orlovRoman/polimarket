@@ -119,7 +119,31 @@ def get_chat_history(chat_id: int, limit: int = 20):
         """, (chat_id, limit))
         rows = cursor.fetchall()
         # Возвращаем в хронологическом порядке
-        return [{"role": row["role"], "parts": [{"text": row["content"]}]} for row in reversed(rows)]
+        history = [{"role": row["role"], "parts": [{"text": row["content"]}]} for row in reversed(rows)]
+        
+        # Убеждаемся, что история начинается с сообщения пользователя (требование Gemini API)
+        if history and history[0]["role"] != "user":
+            history = history[1:]
+            
+        return history
+
+def cleanup_chat_history(chat_id: int, keep_last: int = 20):
+    """
+    Удаляет старые сообщения из истории чата, оставляя только последние keep_last записей.
+    Согласно MEMORY_POLICY.md, мы не храним полные логи LLM-диалогов бесконечно.
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE FROM chat_history 
+            WHERE chat_id = ? AND id NOT IN (
+                SELECT id FROM chat_history 
+                WHERE chat_id = ? 
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            )
+        """, (chat_id, chat_id, keep_last))
+        conn.commit()
 
 def get_db_stats():
     """Получает статистику из БД"""

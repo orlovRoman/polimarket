@@ -17,7 +17,7 @@ from datetime import datetime
 # Импортируем функции БД
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from agents.shared.python.db import save_chat_message, get_chat_history, init_db, get_db_stats, get_signals
+from agents.shared.python.db import save_chat_message, get_chat_history, init_db, get_db_stats, get_signals, cleanup_chat_history
 from agents.orchestrator.src.agent import NexusAgent
 
 # Загружаем переменные окружения
@@ -299,6 +299,9 @@ async def conversational_handler(message: types.Message) -> None:
         # Сохраняем сообщение пользователя и ответ в базу
         await asyncio.to_thread(save_chat_message, chat_id, "user", user_text)
         await asyncio.to_thread(save_chat_message, chat_id, "model", response_text)
+        
+        # Очищаем старую историю (согласно MEMORY_POLICY не храним длинные логи)
+        await asyncio.to_thread(cleanup_chat_history, chat_id, 20)
     
     # Отправляем ответ пользователю
     try:
