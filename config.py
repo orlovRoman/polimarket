@@ -34,3 +34,8 @@ DEFAULT_MIN_EDGE = float(os.getenv("DEFAULT_MIN_EDGE", "0.10"))
 # Категории для ротации при автоскане (culture=0 результатов на API)
 SCAN_CATEGORIES = ["politics", "crypto", "sports", "science", "business"]
 
+# Настройки Telegram Userbot для Telethon
+TG_API_ID = os.getenv("TG_API_ID", "")
+TG_API_HASH = os.getenv("TG_API_HASH", "")
+TG_PHONE = os.getenv("TG_PHONE", "")
+

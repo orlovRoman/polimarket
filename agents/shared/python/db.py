@@ -102,6 +102,21 @@ def init_db():
                 notes TEXT
             )
         ''')
+
+        # Таблица: Крупные сделки трейдеров (Smart Money Bets)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trader_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet_address TEXT NOT NULL,
+                market_id TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                amount_usd REAL NOT NULL,
+                price REAL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (wallet_address) REFERENCES wallets (address),
+                FOREIGN KEY (market_id) REFERENCES markets (id)
+            )
+        ''')
         
         # Таблица истории чата Telegram
         cursor.execute("""
@@ -150,6 +165,7 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close ON markets(close_time)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_price_history_market ON price_history(market_id, recorded_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_correlations_new ON correlations(notified, detected_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_trader_transactions_market ON trader_transactions(market_id, timestamp)")
 
         # Миграция: добавляем новые колонки в memory (если их ещё нет)
         existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(memory)").fetchall()}
@@ -562,6 +578,56 @@ def mark_correlations_notified(ids: list):
             ids
         )
         conn.commit()
+
+def save_trader_transaction(wallet_address: str, market_id: str, outcome: str, amount_usd: float, price: float = None, alias: str = None):
+    """
+    Сохраняет транзакцию трейдера. Если кошелек отсутствует в wallets,
+    автоматически добавляет его.
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        # 1. Проверяем / добавляем кошелек в wallets
+        cursor.execute("SELECT address FROM wallets WHERE address = ?", (wallet_address,))
+        if not cursor.fetchone():
+            cursor.execute(
+                "INSERT INTO wallets (address, alias, last_seen) VALUES (?, ?, ?)",
+                (wallet_address, alias, datetime.utcnow())
+            )
+        else:
+            cursor.execute(
+                "UPDATE wallets SET last_seen = ? WHERE address = ?",
+                (datetime.utcnow(), wallet_address)
+            )
+            if alias:
+                cursor.execute(
+                    "UPDATE wallets SET alias = ? WHERE address = ? AND alias IS NULL",
+                    (alias, wallet_address)
+                )
+                
+        # 2. Добавляем транзакцию
+        cursor.execute("""
+            INSERT INTO trader_transactions (wallet_address, market_id, outcome, amount_usd, price)
+            VALUES (?, ?, ?, ?, ?)
+        """, (wallet_address, market_id, outcome, amount_usd, price))
+        
+        conn.commit()
+
+def get_market_trader_transactions(market_id: str, limit: int = 50) -> list:
+    """
+    Возвращает список крупных сделок трейдеров по конкретному рынку.
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT t.*, w.alias, w.win_rate 
+            FROM trader_transactions t
+            JOIN wallets w ON t.wallet_address = w.address
+            WHERE t.market_id = ?
+            ORDER BY t.timestamp DESC
+            LIMIT ?
+        """, (market_id, limit))
+        return [dict(row) for row in cursor.fetchall()]
 
 
 if __name__ == "__main__":

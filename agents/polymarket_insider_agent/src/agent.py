@@ -62,6 +62,28 @@ class ShadowAgent:
                 lines.append(f"  {point['recorded_at']}: {point['price']:.4f}")
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
+                
+        # Загружаем крупные сделки трейдеров (Smart Money) из БД
+        from agents.shared.python.db import get_market_trader_transactions
+        try:
+            transactions = get_market_trader_transactions(market.id)
+        except Exception as e:
+            print(f"Ошибка получения транзакций трейдеров для {market.id}: {e}")
+            transactions = []
+            
+        trader_transactions_str = "Данные о сделках крупных трейдеров отсутствуют."
+        if transactions:
+            tx_lines = []
+            for tx in transactions[:10]:  # Берем последние 10 сделок
+                alias_str = f" ({tx['alias']})" if tx.get('alias') else ""
+                win_rate_str = f" | WinRate: {tx['win_rate'] * 100:.1f}%" if tx.get('win_rate') else ""
+                price_str = f" по цене {tx['price']:.4f}" if tx.get('price') else ""
+                tx_lines.append(
+                    f"  - Кошелек: {tx['wallet_address']}{alias_str} | Ставка: {tx['outcome']} | "
+                    f"Сумма: ${tx['amount_usd']:,.0f}{price_str}{win_rate_str} | Время: {tx['timestamp']}"
+                )
+            if tx_lines:
+                trader_transactions_str = "=== КРУПНЫЕ СДЕЛКИ ТРЕЙДЕРОВ (SMART MONEY) ===\n" + "\n".join(tx_lines)
         
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
@@ -73,7 +95,9 @@ class ShadowAgent:
 
 {price_history_str}
 
-Проанализируй этот рынок на предмет рисков ликвидности и аномалий.
+{trader_transactions_str}
+
+Проанализируй этот рынок на предмет рисков ликвидности, сделок крупных игроков и аномалий.
 """
         
         payload = {
