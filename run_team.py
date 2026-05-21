@@ -28,7 +28,7 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
     
     # Получаем лимит сканирования из БД (Layer 1 memory)
     db = DatabaseManager()
-    scan_limit = db.get_memory("scan_limit") or 10  # Дефолт: 10 рынков за цикл
+    scan_limit = int(db.get_memory("scan_limit") or 10)  # Дефолт: 10 рынков за цикл
     log(f"Параметры сессии: Лимит запросов (рынков) = {scan_limit}")
 
     # Очищаем устаревшие сигналы перед новым сканом

@@ -36,6 +36,8 @@ class MarketSelector:
         При ручном скане с category — все рынки из этой категории.
         При автоскане (category=None) — микс из разных стратегий с ротацией.
         """
+        total_limit = int(total_limit)  # Защита от float из json.loads
+        
         if category:
             # Ручной скан: одна категория
             raw = self._fetch_category(category, total_limit * 2)
@@ -61,7 +63,7 @@ class MarketSelector:
 
     def _fetch_mixed(self, fetch_limit: int) -> List[Market]:
         """Собирает рынки из нескольких стратегий."""
-        per_strategy = max(fetch_limit // 4, 5)
+        per_strategy = int(max(fetch_limit // 4, 5))
         all_markets = []
 
         # Стратегия 1: Mid-volume с offset (ротация)
