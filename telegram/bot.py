@@ -18,6 +18,7 @@ from datetime import datetime
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.shared.python.db import save_chat_message, get_chat_history, init_db, get_db_stats, get_signals
+from agents.orchestrator.src.agent import NexusAgent
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -25,13 +26,15 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 LOG_PATH = Path(__file__).parent.parent / "logs" / "main.log"
-ORCHESTRATOR_GEMINI_MD = Path(__file__).parent.parent / "agents" / "orchestrator" / "GEMINI.md"
 
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN не найден в .env файле!")
 
 # Инициализируем БД при старте
 init_db()
+
+# Инициализируем NexusAgent
+nexus_agent = NexusAgent()
 
 # Инициализируем бота и диспетчер событий aiogram
 bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -48,6 +51,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="scan", description="Запуск анализа рынков"),
         BotCommand(command="ideas", description="Просмотр найденных идей"),
         BotCommand(command="stats", description="Статистика базы данных"),
+        BotCommand(command="settings", description="Настройка лимитов запросов"),
         BotCommand(command="logs", description="Просмотр последних логов"),
     ]
     await bot.set_my_commands(commands)
@@ -55,53 +59,19 @@ async def set_commands(bot: Bot):
 # Глобальный флаг для предотвращения одновременных запусков сканирования
 is_scanning = False
 
-def get_nexus_system_prompt():
-    """
-    Формирует системный промпт для NEXUS (Gemini), включая текущий контекст и инструкции.
-    """
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    prompt = f"Сегодняшняя дата и время: {now}\n\nТы — NEXUS, главный ИИ-координатор команды агентов (SCOUT, SHADOW, HERALD), анализирующих рынки Polymarket. Твоя цель — общаться с пользователем в живом диалоге, помогать ему управлять системой и давать советы. Отвечай кратко, профессионально и по делу."
-    if ORCHESTRATOR_GEMINI_MD.exists():
-        try:
-            with open(ORCHESTRATOR_GEMINI_MD, "r") as f:
-                prompt += "\n\nТвои инструкции:\n" + f.read()
-        except Exception:
-            pass
-    return prompt
-
 def ask_gemini(text: str, history: list = None) -> str:
     """
-    Отправляет запрос к Gemini API для получения ответа от NEXUS.
+    Отправляет запрос к Gemini API через NexusAgent для получения ответа от NEXUS.
     
     :param text: Сообщение пользователя
     :param history: История диалога для сохранения контекста
     :return: Ответ ИИ или сообщение об ошибке
     """
-    if not GOOGLE_API_KEY:
-        return "Ошибка: GOOGLE_API_KEY не настроен в окружении."
-        
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={GOOGLE_API_KEY}"
-    
-    contents = history if history else []
-    contents.append({"role": "user", "parts": [{"text": text}]})
-    
-    payload = {
-        "contents": contents,
-        "tools": [{"google_search": {}}], # Включаем поиск Google для актуальной информации
-        "systemInstruction": {"role": "system", "parts": [{"text": get_nexus_system_prompt()}]}
-    }
-    
     try:
-        response = requests.post(url, json=payload, timeout=40)
-        if response.status_code == 200:
-            result = response.json()
-            return result['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return f"Ошибка API: {response.status_code}\n{response.text}"
-    except requests.exceptions.Timeout:
-        return "Превышено время ожидания ответа от ИИ. Попробуйте еще раз."
+        # NexusAgent.process_prompt уже содержит логику системных инструкций и инструментов
+        return nexus_agent.process_prompt(text, history)
     except Exception as e:
-        return f"Ошибка при обращении к ИИ: {e}"
+        return f"Ошибка при обращении к NEXUS: {e}"
 
 @dp.message(CommandStart())
 async def command_start_handler(message: types.Message) -> None:
@@ -124,7 +94,8 @@ async def command_help_handler(message: types.Message) -> None:
         "🚀 /scan — запустить принудительный поиск идей (выбор категории)\n"
         "💡 /ideas — показать последние 5 активных сигналов\n"
         "⚙️ /status — детальный статус агентов и планировщика\n\n"
-        "<b>Аналитика и БД:</b>\n"
+        "<b>Настройки:</b>\n"
+        "🛠 /settings — изменить лимит запросов (кол-во рынков за скан)\n"
         "📊 /stats — общая статистика (рынки, сигналы, мнения)\n"
         "📜 /logs — последние 10 строк системного лога\n\n"
         "<b>Информация:</b>\n"
@@ -138,15 +109,19 @@ async def command_help_handler(message: types.Message) -> None:
 async def command_status_handler(message: types.Message) -> None:
     from agents.shared.python.db import DB_PATH, get_connection
     
-    # Пытаемся получить время последнего сканирования из БД
+    # Пытаемся получить время последнего сканирования и лимит из БД
     last_scan_str = "Неизвестно"
+    scan_limit = 10
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT value FROM memory WHERE key = 'last_scan_time'")
-            row = cursor.fetchone()
-            if row:
-                last_scan_str = json.loads(row['value'])
+            cursor.execute("SELECT key, value FROM memory WHERE key IN ('last_scan_time', 'scan_limit')")
+            rows = cursor.fetchall()
+            for row in rows:
+                if row['key'] == 'last_scan_time':
+                    last_scan_str = json.loads(row['value'])
+                elif row['key'] == 'scan_limit':
+                    scan_limit = json.loads(row['value'])
     except Exception:
         pass
 
@@ -154,8 +129,9 @@ async def command_status_handler(message: types.Message) -> None:
         "📊 <b>Статус системы (24/7 Monitoring):</b>\n\n"
         f"● <b>Оркестратор (NEXUS):</b> 🟢 В сети\n"
         f"● <b>Агенты (SCOUT, SHADOW):</b> 🟢 Готовы\n"
-        f"● <b>Планировщик:</b> 🟢 Активен (30 мин)\n"
+        f"● <b>Планировщик:</b> 🟢 Активен (5 мин)\n"
         f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
+        f"● <b>Лимит запросов:</b> <code>{scan_limit} рынков/цикл</code>\n"
         f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning else '🟢 Ожидание'}\n\n"
         f"🕒 <b>Последнее авто-сканирование:</b>\n<code>{last_scan_str}</code>"
     )
@@ -164,6 +140,24 @@ async def command_status_handler(message: types.Message) -> None:
 @dp.message(Command("stats"))
 async def command_stats_handler(message: types.Message) -> None:
     await message.answer(await asyncio.to_thread(get_db_stats))
+
+@dp.message(Command("settings"))
+async def command_settings_handler(message: types.Message) -> None:
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Минимум (3 рынка)", callback_data="setlimit_3")],
+        [InlineKeyboardButton(text="Эконом (5 рынков)", callback_data="setlimit_5")],
+        [InlineKeyboardButton(text="Стандарт (10 рынков)", callback_data="setlimit_10")],
+        [InlineKeyboardButton(text="Глубокий (20 рынков)", callback_data="setlimit_20")]
+    ])
+    await message.answer("⚙️ <b>Настройка лимитов (Экономия токенов):</b>\n\nВыберите количество рынков, которые команда будет анализировать за один цикл сканирования. Чем меньше число, тем дешевле обходится работа агентов.", reply_markup=keyboard)
+
+@dp.callback_query(F.data.startswith("setlimit_"))
+async def callback_setlimit_handler(callback: CallbackQuery) -> None:
+    limit = int(callback.data.split("_")[1])
+    from agents.shared.python.db import save_memory
+    await asyncio.to_thread(save_memory, "scan_limit", limit)
+    await callback.message.edit_text(f"✅ <b>Лимит обновлен!</b>\nТеперь система будет анализировать не более <b>{limit}</b> рынков за один проход.")
+    await callback.answer()
 
 @dp.message(Command("logs"))
 async def command_logs_handler(message: types.Message) -> None:

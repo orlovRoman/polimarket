@@ -88,7 +88,7 @@ class ObsidianAdapter:
         
         # Режим 'a' для добавления, если файл существует
         with open(filepath, "a", encoding="utf-8") as f:
-            f.write(f"\\n\\n{content}\n")
+            f.write(f"\n\n{content}\n")
             
         return filepath
 
@@ -101,6 +101,21 @@ class ObsidianAdapter:
             with open(filepath, "r", encoding="utf-8") as f:
                 return f.read()
         return None
+
+    def list_files(self, sub_dir: str = "") -> list:
+        """
+        Возвращает список всех файлов в указанной поддиректории vault.
+        """
+        target_dir = self.vault_path / sub_dir
+        if not target_dir.exists() or not target_dir.is_dir():
+            return []
+        
+        files = []
+        for p in target_dir.glob("**/*"):
+            if p.is_file():
+                # Возвращаем относительный путь от корня vault
+                files.append(str(p.relative_to(self.vault_path)))
+        return sorted(files)
 
 if __name__ == "__main__":
     # Тестирование адаптера

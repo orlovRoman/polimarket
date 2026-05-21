@@ -10,16 +10,12 @@ from agents.shared.python.db import save_market, init_db, save_signal, get_last_
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent, save_opinion
 from agents.polymarket_news_agent.src.agent import HeraldAgent
+from agents.shared.utils.database import DatabaseManager
+from datetime import datetime
 
 def run_team_discussion(log_callback=None, summary_callback=None, category=None):
     """
     Координирует обсуждение рынков командой AI-агентов.
-    Процесс включает: поиск новых рынков, анализ недооценки (SCOUT), 
-    проверку инсайдов (SHADOW) и поиск новостей (HERALD).
-    
-    :param log_callback: Функция для вывода подробных логов в UI (Telegram)
-    :param summary_callback: Функция для отправки краткой выжимки пользователю
-    :param category: Опциональная категория рынков для сканирования
     """
     def log(msg):
         print(msg)
@@ -30,6 +26,11 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
     load_dotenv()
     init_db()
     
+    # Получаем лимит сканирования из БД (Layer 1 memory)
+    db = DatabaseManager()
+    scan_limit = db.get_memory("scan_limit") or 10
+    log(f"Параметры сессии: Лимит запросов (рынков) = {scan_limit}")
+
     key = os.getenv("GOOGLE_API_KEY")
     if not key:
         log("Критическая ошибка: GOOGLE_API_KEY не найден в .env!")
@@ -44,9 +45,20 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
     cat_msg = f" в категории '{category}'" if category else ""
     log(f"--- 1. Поиск новых рынков{cat_msg} ---")
     
-    # Получаем список активных рынков с Polymarket
-    # Увеличиваем лимит сканирования до 20 для более глубокого охвата
-    markets = adapter.list_markets(limit=20, category=category)
+    # Получаем список активных рынков с Polymarket с учетом лимита
+    markets = adapter.list_markets(limit=scan_limit, category=category)
+    
+    # ФИЛЬТР: Игнорируем рынки 2025 года и ранее, если сейчас 2026+
+    current_year = datetime.now().year
+    filtered_markets = []
+    for m in markets:
+        if "2025" in m.title and current_year > 2025:
+            log(f"  [ФИЛЬТР]: Пропуск рынка {m.title} (событие 2025 года)")
+            continue
+        filtered_markets.append(m)
+    
+    markets = filtered_markets
+
     for m in markets:
         save_market(m) # Сохраняем/обновляем данные о рынке в БД
 

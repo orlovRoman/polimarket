@@ -31,14 +31,19 @@ logger = logging.getLogger("NEXUS_SYSTEM")
 async def scheduled_job():
     """
     Периодическая задача: запуск анализа рынков всей командой агентов.
-    Выполняется в отдельном потоке, чтобы не блокировать событийный цикл Telegram-бота.
     """
     logger.info(">>> Запуск планового сканирования рынков...")
     try:
-        # Запускаем обсуждение команды в отдельном потоке
+        # 1. Сначала запускаем очистку старых сигналов
+        from agents.orchestrator.src.agent import NexusAgent
+        nexus = NexusAgent()
+        cleanup_res = nexus.cleanup_expired_signals()
+        logger.info(f"Очистка: {cleanup_res}")
+
+        # 2. Запускаем основное обсуждение
         await asyncio.to_thread(run_team_discussion)
         
-        # Фиксируем время последнего успешного сканирования в локальной памяти
+        # 3. Фиксируем время последнего успешного сканирования
         save_memory("last_scan_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         
         logger.info("<<< Сканирование завершено успешно.")
