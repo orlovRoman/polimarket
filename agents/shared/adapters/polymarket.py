@@ -1,7 +1,7 @@
 import requests
 import json
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from .base_adapter import BaseMarketAdapter
 from ..python.models import Market
 
@@ -12,6 +12,62 @@ class PolymarketAdapter(BaseMarketAdapter):
     @property
     def name(self) -> str:
         return "polymarket"
+
+    def _format_market_prices(self, question: str, description: Optional[str], outcomes: list, prices: list) -> tuple:
+        """
+        Форматирует заголовок и описание рынка, добавляя в них стоимость YES и NO контрактов.
+        """
+        yes_price = None
+        no_price = None
+        
+        try:
+            for i, outcome in enumerate(outcomes):
+                if i < len(prices):
+                    try:
+                        p_val = float(prices[i])
+                    except (ValueError, TypeError):
+                        continue
+                    if str(outcome).strip().lower() == 'yes':
+                        yes_price = p_val
+                    elif str(outcome).strip().lower() == 'no':
+                        no_price = p_val
+            
+            if yes_price is None and no_price is None and len(outcomes) == 2 and len(prices) == 2:
+                yes_price = float(prices[0])
+                no_price = float(prices[1])
+        except Exception:
+            pass
+            
+        if yes_price is None and no_price is None:
+            if prices:
+                try:
+                    main_p = float(prices[0])
+                except (ValueError, TypeError):
+                    main_p = 0.5
+                yes_price = main_p
+                no_price = 1.0 - main_p
+            else:
+                yes_price = 0.5
+                no_price = 0.5
+        elif yes_price is None:
+            yes_price = 1.0 - no_price
+        elif no_price is None:
+            no_price = 1.0 - yes_price
+            
+        yes_cents = int(round(yes_price * 100))
+        no_cents = int(round(no_price * 100))
+        
+        price_tag = f"YES: {yes_cents}¢ | NO: {no_cents}¢"
+        
+        formatted_question = question
+        if price_tag not in question:
+            formatted_question = f"{question} ({price_tag})"
+            
+        formatted_description = description or ""
+        if price_tag not in formatted_description:
+            formatted_description = f"[{price_tag}] " + formatted_description
+            
+        return formatted_question, formatted_description
 
     def list_markets(self, limit: int = 20, category: str = None) -> List[Market]:
         """Получает список активных рынков с Polymarket. Если передан category, фильтрует по тегу."""
@@ -64,12 +120,20 @@ class PolymarketAdapter(BaseMarketAdapter):
                 # Используем event_slug если есть (из events API), иначе берем slug самого рынка
                 url_slug = item.get("event_slug", item.get("slug"))
                 
+                # Форматируем заголовок и описание с ценами YES/NO
+                q_formatted, desc_formatted = self._format_market_prices(
+                    item["question"],
+                    item.get("description"),
+                    outcomes,
+                    prices
+                )
+                
                 # Создаем объект Market для основного исхода (обычно YES)
                 m = Market(
                     id=item["id"],
                     platform=self.name,
-                    title=item["question"],
-                    description=item.get("description"),
+                    title=q_formatted,
+                    description=desc_formatted,
                     url=f"https://polymarket.com/event/{url_slug}",
                     outcome=outcomes[0],
                     price=float(prices[0]),
@@ -116,11 +180,20 @@ class PolymarketAdapter(BaseMarketAdapter):
                 if not outcomes or not prices:
                     continue
                 url_slug = item.get("event_slug", item.get("slug"))
+                
+                # Форматируем заголовок и описание с ценами YES/NO
+                q_formatted, desc_formatted = self._format_market_prices(
+                    item["question"],
+                    item.get("description"),
+                    outcomes,
+                    prices
+                )
+                
                 m = Market(
                     id=item["id"],
                     platform=self.name,
-                    title=item["question"],
-                    description=item.get("description"),
+                    title=q_formatted,
+                    description=desc_formatted,
                     url=f"https://polymarket.com/event/{url_slug}",
                     outcome=outcomes[0],
                     price=float(prices[0]),
@@ -139,11 +212,19 @@ class PolymarketAdapter(BaseMarketAdapter):
         outcomes = json.loads(item.get("outcomes", "[]"))
         prices = json.loads(item.get("outcomePrices", "[]"))
         
+        # Форматируем заголовок и описание с ценами YES/NO
+        q_formatted, desc_formatted = self._format_market_prices(
+            item["question"],
+            item.get("description"),
+            outcomes,
+            prices
+        )
+        
         return Market(
             id=item["id"],
             platform=self.name,
-            title=item["question"],
-            description=item.get("description"),
+            title=q_formatted,
+            description=desc_formatted,
             url=f"https://polymarket.com/event/{item.get('slug')}",
             outcome=outcomes[0],
             price=float(prices[0]),
