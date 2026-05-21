@@ -1,21 +1,32 @@
 import os
 import sys
+from datetime import datetime
 from dotenv import load_dotenv
 
 # Добавляем корень проекта в путь поиска модулей
 sys.path.append(os.getcwd())
 
 from agents.shared.adapters.polymarket import PolymarketAdapter
-from agents.shared.python.db import save_market, init_db, save_signal, get_last_analyzed_price, mark_market_analyzed, cleanup_stale_signals
+from agents.shared.python.db import (
+    save_market, init_db, save_signal, get_last_analyzed_price,
+    mark_market_analyzed, cleanup_stale_signals, save_price_point,
+    get_price_history, get_new_correlations, mark_correlations_notified
+)
+from agents.shared.python.db import get_memory, save_memory
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent, save_opinion
 from agents.polymarket_news_agent.src.agent import HeraldAgent
+from agents.orchestrator.src.agent import NexusAgent
 from agents.shared.utils.database import DatabaseManager
 from agents.shared.python.market_selector import MarketSelector
+
+# Интервал между скринингами (секунды). 30 мин = 1800 сек
+SCREENING_INTERVAL_SEC = 1800
 
 def run_team_discussion(log_callback=None, summary_callback=None, category=None):
     """
     Координирует обсуждение рынков командой AI-агентов.
+    Включает двухстадийный pipeline: SCREENER (NEXUS) → SCOUT → SHADOW → HERALD.
     """
     def log(msg):
         print(msg)
@@ -47,22 +58,89 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
     shadow = ShadowAgent(api_key=key)
     herald = HeraldAgent(api_key=key)
 
+    # ===================================================================
+    # СТАДИЯ 0: СКРИНИНГ (NEXUS) — каждые 30 минут
+    # Загружает ВСЕ рынки, отбирает Top-30, ищет корреляции
+    # ===================================================================
+    screened_market_ids = None
+    
+    if not category:  # Скрининг только в режиме "авто-микс"
+        last_screen_raw = get_memory("last_screen_time")
+        now = datetime.utcnow()
+        needs_screening = True
+        
+        if last_screen_raw:
+            try:
+                last_screen = datetime.fromisoformat(last_screen_raw)
+                elapsed = (now - last_screen).total_seconds()
+                if elapsed < SCREENING_INTERVAL_SEC:
+                    needs_screening = False
+                    log(f"Скрининг не требуется (прошло {elapsed/60:.0f} мин из {SCREENING_INTERVAL_SEC/60:.0f})")
+                    screened_market_ids = get_memory("screened_market_ids")
+            except (ValueError, TypeError):
+                pass
+        
+        if needs_screening:
+            log("--- 0. NEXUS скринирует все рынки ---")
+            try:
+                all_compact = adapter.list_all_markets_compact()
+                log(f"  Загружено {len(all_compact)} рынков для скрининга")
+                
+                nexus = NexusAgent(api_key=key)
+                screen_result = nexus.screen_markets(all_compact, top_n=30)
+                
+                screened_market_ids = screen_result.get("top_candidates", [])
+                correlations_count = len(screen_result.get("correlations", []))
+                
+                # Кешируем результат
+                save_memory("screened_market_ids", screened_market_ids, category='cache', ttl=SCREENING_INTERVAL_SEC)
+                save_memory("last_screen_time", now.isoformat(), category='cache', ttl=SCREENING_INTERVAL_SEC)
+                
+                log(f"  NEXUS отобрал {len(screened_market_ids)} кандидатов, найдено {correlations_count} корреляций")
+                
+                # Алерт о новых корреляциях
+                if correlations_count > 0 and summary_callback:
+                    _send_correlation_alerts(summary_callback)
+                    
+            except Exception as e:
+                log(f"  Ошибка скрининга: {e}. Используем стандартный отбор.")
+                screened_market_ids = None
+    
+    # ===================================================================
+    # СТАДИЯ 1: ОТБОР РЫНКОВ
+    # ===================================================================
     cat_msg = f" в категории '{category}'" if category else " (авто-микс)"
-    log(f"--- 1. Поиск новых рынков{cat_msg} ---")
+    log(f"\n--- 1. Поиск новых рынков{cat_msg} ---")
     
-    # Умный отбор рынков через MarketSelector
-    selector = MarketSelector(adapter)
-    markets = selector.select(total_limit=scan_limit, category=category)
-    
-    if not category:
-        auto_cat = selector.get_auto_category()
-        log(f"  Категория ротации: {auto_cat}")
+    if screened_market_ids and not category:
+        # Используем отфильтрованные NEXUS'ом рынки
+        log(f"  Используем {len(screened_market_ids)} рынков от NEXUS SCREENER")
+        markets = []
+        for mid in screened_market_ids[:scan_limit]:
+            try:
+                m = adapter.get_market(mid)
+                if m:
+                    markets.append(m)
+            except Exception:
+                continue
+        log(f"  Загружено полных данных: {len(markets)} рынков")
+    else:
+        # Стандартный путь: MarketSelector
+        selector = MarketSelector(adapter)
+        markets = selector.select(total_limit=scan_limit, category=category)
+        
+        if not category:
+            auto_cat = selector.get_auto_category()
+            log(f"  Категория ротации: {auto_cat}")
     
     log(f"  Отобрано рынков после фильтрации: {len(markets)}")
 
     for m in markets:
-        save_market(m) # Сохраняем/обновляем данные о рынке в БД
+        save_market(m)  # Сохраняем/обновляем данные о рынке в БД
 
+    # ===================================================================
+    # СТАДИЯ 2: ОБСУЖДЕНИЕ (SCOUT → SHADOW → HERALD)
+    # ===================================================================
     log(f"\n--- 2. Обсуждение идей (SCOUT + SHADOW + HERALD) ---")
     log(f"Всего рынков для проверки: {len(markets)}")
     
@@ -76,6 +154,8 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
             # Если цена изменилась незначительно (менее 3%), пропускаем повторный анализ
             if price_diff < 0.03:
                 log(f"\n[РЫНОК]: {m.title} (Цена {m.price} стабильна, пропускаем)")
+                # Всё равно записываем price point для истории
+                save_price_point(m.id, m.price)
                 continue
             else:
                 log(f"\n[РЫНОК]: {m.title} (Цена изменилась: {last_price} -> {m.price}, пересматриваем)")
@@ -83,6 +163,9 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
             log(f"\n[РЫНОК]: {m.title} (Новый рынок в системе)")
             
         new_markets_found = True
+        
+        # Записываем текущую цену в историю
+        save_price_point(m.id, m.price)
         
         # ЭТАП 1: SCOUT ищет математическую недооценку (Edge)
         log("  SCOUT оценивает...")
@@ -94,9 +177,22 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
         if signal:
             log(f"  SCOUT: Нашел недооценку! Ожидаемый Edge: {signal.edge:.2f}")
             
-            # ЭТАП 2: SHADOW анализирует объемы торгов и активность крупных кошельков
+            # Получаем ордербук для SHADOW (если есть token_id)
+            orderbook = None
+            if m.tokens:
+                try:
+                    orderbook = adapter.get_orderbook(m.tokens[0])
+                    if orderbook:
+                        log(f"  Ордербук загружен: спред={orderbook.get('spread')}, bid_depth=${orderbook.get('bid_depth_5', 0):,.0f}")
+                except Exception as e:
+                    log(f"  Ордербук недоступен: {e}")
+            
+            # Получаем историю цен для SHADOW
+            price_hist = get_price_history(m.id, hours=24)
+            
+            # ЭТАП 2: SHADOW анализирует ордербук и ликвидность
             log("  SHADOW проверяет...")
-            opinion_shadow = shadow.analyze_idea(m, signal.details)
+            opinion_shadow = shadow.analyze_idea(m, signal.details, orderbook=orderbook, price_history=price_hist)
             
             # ЭТАП 3: HERALD ищет новости и проверяет, не завершилось ли событие досрочно
             log("  HERALD проверяет...")
@@ -156,6 +252,41 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
 
     if not new_markets_found:
         log("\nНет рынков для обсуждения (цены не изменились).")
+
+
+def _send_correlation_alerts(summary_callback):
+    """Отправляет алерты о новых корреляциях в Telegram."""
+    try:
+        new_corrs = get_new_correlations()
+        if not new_corrs:
+            return
+        
+        type_icons = {
+            'causal': '🔄 ПРИЧИННАЯ',
+            'inverse': '↕️ ОБРАТНАЯ',
+            'arbitrage': '⚡ АРБИТРАЖ',
+            'thematic': '🔗 ТЕМАТИЧЕСКАЯ'
+        }
+        
+        alert_text = f"🔗 <b>Обнаружено {len(new_corrs)} корреляций между рынками:</b>\n\n"
+        
+        for i, c in enumerate(new_corrs[:5], 1):  # Макс 5 корреляций за алерт
+            corr_type = type_icons.get(c['correlation_type'], c['correlation_type'])
+            alert_text += (
+                f"<b>{i}. {corr_type}</b> ({c['confidence']:.0%})\n"
+                f"  📍 {c['title_a']}\n"
+                f"  📍 {c['title_b']}\n"
+                f"  → <i>{c['description']}</i>\n\n"
+            )
+        
+        summary_callback(alert_text)
+        
+        # Помечаем как отправленные
+        mark_correlations_notified([c['id'] for c in new_corrs])
+        
+    except Exception as e:
+        print(f"Ошибка отправки корреляций: {e}")
+
 
 if __name__ == "__main__":
     run_team_discussion()

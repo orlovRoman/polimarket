@@ -12,7 +12,7 @@ class ScoutAgent:
     Специализируется на выявлении математического преимущества (Edge) путем 
     сравнения собственной оценки вероятности события с текущей рыночной ценой.
     """
-    def __init__(self, api_key: str, model: str = "gemini-2.5-pro"):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         """
         Инициализация агента SCOUT. Инструкции загружаются из локального GEMINI.md.
         """

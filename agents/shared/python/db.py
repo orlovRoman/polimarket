@@ -1,9 +1,9 @@
 import sqlite3
 import json
 from pathlib import Path
-from datetime import datetime
-from typing import Any
-from .models import Market, Signal
+from datetime import datetime, timedelta
+from typing import Any, List
+from .models import Market, Signal, MarketCorrelation
 
 # Импортируем путь из единого конфига
 import sys
@@ -115,12 +115,41 @@ def init_db():
         """)
         
         
+        # Таблица истории цен (для трендового анализа)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS price_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_id TEXT NOT NULL,
+                price REAL NOT NULL,
+                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (market_id) REFERENCES markets (id)
+            )
+        """)
+
+        # Таблица корреляций между рынками
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS correlations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_id_a TEXT NOT NULL,
+                market_id_b TEXT NOT NULL,
+                title_a TEXT,
+                title_b TEXT,
+                correlation_type TEXT NOT NULL,
+                description TEXT,
+                confidence REAL,
+                detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                notified BOOLEAN DEFAULT FALSE
+            )
+        """)
+
         # Индексы для ускорения частых запросов
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_opinions_market ON agent_opinions(market_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_chat ON chat_history(chat_id, timestamp)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close ON markets(close_time)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_price_history_market ON price_history(market_id, recorded_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_correlations_new ON correlations(notified, detected_at)")
 
         # Миграция: добавляем новые колонки в memory (если их ещё нет)
         existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(memory)").fetchall()}
@@ -132,6 +161,13 @@ def init_db():
             cursor.execute("ALTER TABLE memory ADD COLUMN priority INTEGER DEFAULT 0")
         if 'expires_at' not in existing_cols:
             cursor.execute("ALTER TABLE memory ADD COLUMN expires_at DATETIME DEFAULT NULL")
+
+        # Миграция: добавляем новые колонки в markets (tokens, volume)
+        market_cols = {row[1] for row in cursor.execute("PRAGMA table_info(markets)").fetchall()}
+        if 'tokens' not in market_cols:
+            cursor.execute("ALTER TABLE markets ADD COLUMN tokens TEXT DEFAULT NULL")
+        if 'volume' not in market_cols:
+            cursor.execute("ALTER TABLE markets ADD COLUMN volume REAL DEFAULT NULL")
 
         # Таблица: Индекс vault (Layer 1 ↔ Layer 2/3 связь)
         cursor.execute("""
@@ -224,10 +260,11 @@ def get_signals(limit: int = 5):
 def save_market(market: Market):
     with get_connection() as conn:
         cursor = conn.cursor()
+        tokens_json = json.dumps(market.tokens) if market.tokens else None
         cursor.execute("""
-            INSERT OR REPLACE INTO markets (id, platform, title, description, url, outcome, price, close_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (market.id, market.platform, market.title, market.description, market.url, market.outcome, market.price, market.close_time.isoformat()))
+            INSERT OR REPLACE INTO markets (id, platform, title, description, url, outcome, price, close_time, tokens, volume)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (market.id, market.platform, market.title, market.description, market.url, market.outcome, market.price, market.close_time.isoformat(), tokens_json, market.volume))
         conn.commit()
 
 def save_signal(signal: Signal):
@@ -454,6 +491,77 @@ def get_memory_stats() -> dict:
     except Exception:
         pass
     return stats
+
+# --- Price History ---
+
+def save_price_point(market_id: str, price: float):
+    """Записывает точку цены для трендового анализа."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO price_history (market_id, price) VALUES (?, ?)",
+            (market_id, price)
+        )
+        conn.commit()
+
+def get_price_history(market_id: str, hours: int = 24) -> list:
+    """Возвращает историю цен за последние N часов."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT price, recorded_at FROM price_history
+            WHERE market_id = ? AND recorded_at > datetime('now', '-' || ? || ' hours')
+            ORDER BY recorded_at ASC
+        """, (market_id, hours))
+        return [{'price': row['price'], 'recorded_at': row['recorded_at']} for row in cursor.fetchall()]
+
+def cleanup_old_price_history(days: int = 7) -> int:
+    """Удаляет старую историю цен (старше N дней)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM price_history WHERE recorded_at < datetime('now', '-' || ? || ' days')",
+            (days,)
+        )
+        count = cursor.rowcount
+        conn.commit()
+    return count
+
+# --- Correlations ---
+
+def save_correlation(corr: MarketCorrelation):
+    """Сохраняет обнаруженную корреляцию между рынками."""
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO correlations (market_id_a, market_id_b, title_a, title_b, correlation_type, description, confidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (corr.market_id_a, corr.market_id_b, corr.title_a, corr.title_b,
+              corr.correlation_type, corr.description, corr.confidence))
+        conn.commit()
+
+def get_new_correlations() -> list:
+    """Возвращает непрочитанные корреляции (для алертов в Telegram)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, market_id_a, market_id_b, title_a, title_b,
+                   correlation_type, description, confidence, detected_at
+            FROM correlations
+            WHERE notified = FALSE
+            ORDER BY detected_at DESC
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
+def mark_correlations_notified(ids: list):
+    """Помечает корреляции как отправленные."""
+    if not ids:
+        return
+    with get_connection() as conn:
+        placeholders = ','.join('?' * len(ids))
+        conn.execute(
+            f"UPDATE correlations SET notified = TRUE WHERE id IN ({placeholders})",
+            ids
+        )
+        conn.commit()
 
 
 if __name__ == "__main__":

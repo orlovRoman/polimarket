@@ -128,6 +128,16 @@ class PolymarketAdapter(BaseMarketAdapter):
                     prices
                 )
                 
+                # Парсим clobTokenIds и volume
+                try:
+                    tokens = json.loads(item.get("clobTokenIds", "[]")) or None
+                except (json.JSONDecodeError, TypeError):
+                    tokens = None
+                try:
+                    volume = float(item.get("volumeNum", 0) or item.get("volume", 0) or 0) or None
+                except (ValueError, TypeError):
+                    volume = None
+                
                 # Создаем объект Market для основного исхода (обычно YES)
                 m = Market(
                     id=item["id"],
@@ -137,7 +147,9 @@ class PolymarketAdapter(BaseMarketAdapter):
                     url=f"https://polymarket.com/event/{url_slug}",
                     outcome=outcomes[0],
                     price=float(prices[0]),
-                    close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00"))
+                    close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00")),
+                    tokens=tokens,
+                    volume=volume,
                 )
                 markets.append(m)
             except (KeyError, ValueError, TypeError, json.JSONDecodeError) as e:
@@ -189,6 +201,16 @@ class PolymarketAdapter(BaseMarketAdapter):
                     prices
                 )
                 
+                # Парсим clobTokenIds и volume
+                try:
+                    tokens = json.loads(item.get("clobTokenIds", "[]")) or None
+                except (json.JSONDecodeError, TypeError):
+                    tokens = None
+                try:
+                    volume = float(item.get("volumeNum", 0) or item.get("volume", 0) or 0) or None
+                except (ValueError, TypeError):
+                    volume = None
+                
                 m = Market(
                     id=item["id"],
                     platform=self.name,
@@ -197,7 +219,9 @@ class PolymarketAdapter(BaseMarketAdapter):
                     url=f"https://polymarket.com/event/{url_slug}",
                     outcome=outcomes[0],
                     price=float(prices[0]),
-                    close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00"))
+                    close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00")),
+                    tokens=tokens,
+                    volume=volume,
                 )
                 markets.append(m)
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
@@ -220,6 +244,16 @@ class PolymarketAdapter(BaseMarketAdapter):
             prices
         )
         
+        # Парсим clobTokenIds и volume
+        try:
+            tokens = json.loads(item.get("clobTokenIds", "[]")) or None
+        except (json.JSONDecodeError, TypeError):
+            tokens = None
+        try:
+            volume = float(item.get("volumeNum", 0) or item.get("volume", 0) or 0) or None
+        except (ValueError, TypeError):
+            volume = None
+        
         return Market(
             id=item["id"],
             platform=self.name,
@@ -228,5 +262,87 @@ class PolymarketAdapter(BaseMarketAdapter):
             url=f"https://polymarket.com/event/{item.get('slug')}",
             outcome=outcomes[0],
             price=float(prices[0]),
-            close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00"))
+            close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00")),
+            tokens=tokens,
+            volume=volume,
         )
+
+    def get_orderbook(self, token_id: str) -> dict:
+        """Получает ордербук с CLOB API (без авторизации — read-only)."""
+        try:
+            resp = requests.get(
+                "https://clob.polymarket.com/book",
+                params={"token_id": token_id},
+                timeout=10
+            )
+            resp.raise_for_status()
+            book = resp.json()
+            
+            bids = book.get("bids", [])
+            asks = book.get("asks", [])
+            
+            return {
+                "bid_depth_5": sum(float(b.get("size", 0)) for b in bids[:5]),
+                "ask_depth_5": sum(float(a.get("size", 0)) for a in asks[:5]),
+                "spread": round(float(asks[0]["price"]) - float(bids[0]["price"]), 4) if bids and asks else None,
+                "top_bid": float(bids[0]["price"]) if bids else None,
+                "top_ask": float(asks[0]["price"]) if asks else None,
+                "total_bids": len(bids),
+                "total_asks": len(asks),
+            }
+        except Exception as e:
+            print(f"Ошибка при получении ордербука для {token_id}: {e}")
+            return {}
+
+    def list_all_markets_compact(self) -> list:
+        """
+        Загружает ВСЕ активные рынки для скрининга (compact-формат).
+        Пагинированная загрузка по 100 рынков за запрос.
+        """
+        all_markets = []
+        offset = 0
+        max_pages = 10  # Защита от бесконечного цикла (макс. 1000 рынков)
+        
+        while offset < max_pages * 100:
+            try:
+                params = {
+                    "active": "true",
+                    "closed": "false",
+                    "limit": 100,
+                    "offset": offset,
+                    "order": "volume",
+                    "ascending": "false"
+                }
+                resp = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
+                resp.raise_for_status()
+                items = resp.json()
+                
+                if not items:
+                    break
+                
+                for item in items:
+                    try:
+                        prices = json.loads(item.get("outcomePrices", "[]"))
+                        price = float(prices[0]) if prices else 0.5
+                        
+                        all_markets.append({
+                            "id": item.get("id", ""),
+                            "q": item.get("question", ""),
+                            "p": round(price, 4),
+                            "end": item.get("endDate", ""),
+                            "vol": float(item.get("volumeNum", 0) or item.get("volume", 0) or 0),
+                            "tags": item.get("tags", []),
+                        })
+                    except (ValueError, TypeError, json.JSONDecodeError):
+                        continue
+                
+                offset += 100
+                if len(items) < 100:
+                    break
+                    
+            except Exception as e:
+                print(f"[PolymarketAdapter] Ошибка при загрузке страницы {offset // 100}: {e}")
+                break
+        
+        print(f"[PolymarketAdapter] Загружено {len(all_markets)} рынков (compact)")
+        return all_markets

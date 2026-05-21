@@ -11,7 +11,7 @@ sys.path.append(os.getcwd())
 
 from run_team import run_team_discussion
 from telegram.bot import dp, bot
-from agents.shared.python.db import save_memory, cleanup_stale_signals, cleanup_expired_memory, cleanup_chat_history
+from agents.shared.python.db import save_memory, cleanup_stale_signals, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history
 
 # Создаем директорию для логов, если она еще не существует
 os.makedirs("logs", exist_ok=True)
@@ -55,6 +55,11 @@ async def scheduled_job():
         expired = cleanup_expired_memory()
         if expired > 0:
             logger.info(f"Очищено истёкших записей памяти: {expired}")
+        
+        # 5. Очистка старой истории цен (старше 7 дней)
+        old_prices = cleanup_old_price_history(days=7)
+        if old_prices > 0:
+            logger.info(f"Очищено старых записей истории цен: {old_prices}")
 
         logger.info("<<< Сканирование завершено успешно.")
     except Exception as e:

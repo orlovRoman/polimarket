@@ -14,7 +14,7 @@ class HeraldAgent:
     а также выявление ситуаций арбитража, когда событие уже завершилось, 
     но цена на рынке еще не отыграла результат.
     """
-    def __init__(self, api_key: str, model: str = "gemini-2.5-pro"):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         """
         Инициализация агента HERALD.
         """
@@ -22,11 +22,10 @@ class HeraldAgent:
         self.model = model
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
         
-        # Системные инструкции для анализа новостного фона и поиска арбитража
-        self.system_instruction = """
-# HERALD — Агент новостей и контекста
-...
-"""
+        # Загружаем детальные системные инструкции из файла конфигурации агента
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
+            self.system_instruction = f.read()
 
     def fetch_rss_news(self, query: str) -> List[str]:
         """

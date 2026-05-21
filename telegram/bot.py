@@ -50,6 +50,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="status", description="Проверка статуса системы"),
         BotCommand(command="scan", description="Запуск анализа рынков"),
         BotCommand(command="ideas", description="Просмотр найденных идей"),
+        BotCommand(command="correlations", description="Корреляции между рынками"),
         BotCommand(command="stats", description="Статистика базы данных"),
         BotCommand(command="settings", description="Настройка лимитов запросов"),
         BotCommand(command="model", description="Выбор языковой модели"),
@@ -221,11 +222,11 @@ async def callback_setlimit_handler(callback: CallbackQuery) -> None:
 @dp.message(Command("model"))
 async def command_model_handler(message: types.Message) -> None:
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Gemini 2.5 Pro (Рекомендуется)", callback_data="setmodel_gemini-2.5-pro")],
-        [InlineKeyboardButton(text="Gemini 2.5 Flash (Быстрая)", callback_data="setmodel_gemini-2.5-flash")],
-        [InlineKeyboardButton(text="Gemini 1.5 Pro (Старая)", callback_data="setmodel_gemini-1.5-pro-latest")]
+        [InlineKeyboardButton(text="⚡ Gemini 2.5 Flash (Рекомендуется)", callback_data="setmodel_gemini-2.5-flash")],
+        [InlineKeyboardButton(text="🚀 Gemini 3.5 Flash (Новейшая)", callback_data="setmodel_gemini-3.5-flash")],
+        [InlineKeyboardButton(text="🧠 Gemini 2.5 Pro (Дорогая, мощная)", callback_data="setmodel_gemini-2.5-pro")],
     ])
-    await message.answer("🧠 <b>Выбор языковой модели:</b>\n\nТекущая модель влияет на ответы агентов. Выберите предпочитаемую версию Gemini:", reply_markup=keyboard)
+    await message.answer("🧠 <b>Выбор языковой модели:</b>\n\nВлияет на ответы NEXUS и скрининг рынков. Агенты SCOUT/SHADOW/HERALD используют Flash по умолчанию.", reply_markup=keyboard)
 
 @dp.callback_query(F.data.startswith("setmodel_"))
 async def callback_setmodel_handler(callback: CallbackQuery) -> None:
@@ -256,6 +257,49 @@ async def command_cleanup_handler(message: types.Message) -> None:
     if _is_stale_message(message): return
     count = await asyncio.to_thread(cleanup_stale_signals)
     await message.answer(f"🧹 Очистка завершена. Архивировано устаревших сигналов: {count}")
+
+@dp.message(Command("correlations"))
+async def command_correlations_handler(message: types.Message) -> None:
+    """Показывает найденные корреляции между рынками."""
+    if _is_stale_message(message): return
+    from agents.shared.python.db import get_connection
+    
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT correlation_type, title_a, title_b, description, confidence, detected_at
+                FROM correlations
+                ORDER BY detected_at DESC
+                LIMIT 10
+            """)
+            rows = cursor.fetchall()
+        
+        if not rows:
+            await message.answer("🔗 Корреляции пока не обнаружены. Запустите /scan для скрининга.")
+            return
+        
+        type_icons = {
+            'causal': '🔄 ПРИЧИННАЯ',
+            'inverse': '↕️ ОБРАТНАЯ',
+            'arbitrage': '⚡ АРБИТРАЖ',
+            'thematic': '🔗 ТЕМАТИЧЕСКАЯ'
+        }
+        
+        response = f"🔗 <b>Корреляции между рынками (Top-10):</b>\n\n"
+        for i, row in enumerate(rows, 1):
+            corr_type = type_icons.get(row['correlation_type'], row['correlation_type'])
+            conf = row['confidence'] or 0
+            response += (
+                f"<b>{i}. {corr_type}</b> ({conf:.0%})\n"
+                f"  📍 {row['title_a']}\n"
+                f"  📍 {row['title_b']}\n"
+                f"  → <i>{row['description']}</i>\n\n"
+            )
+        
+        await message.answer(response, disable_web_page_preview=True)
+    except Exception as e:
+        await message.answer(f"Ошибка при получении корреляций: {e}")
 
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:

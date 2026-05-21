@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 
 class Market(BaseModel):
@@ -11,6 +11,8 @@ class Market(BaseModel):
     outcome: str
     price: float
     close_time: datetime
+    tokens: Optional[List[str]] = None  # clobTokenIds для CLOB API (orderbook)
+    volume: Optional[float] = None      # Объём торгов (для ранжирования)
 
 class Signal(BaseModel):
     id: str
@@ -32,3 +34,15 @@ class AgentOpinion(BaseModel):
     confidence: float
     agree: bool
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class MarketCorrelation(BaseModel):
+    """Обнаруженная корреляция между двумя рынками."""
+    market_id_a: str
+    market_id_b: str
+    title_a: str
+    title_b: str
+    correlation_type: Literal['causal', 'inverse', 'arbitrage', 'thematic']
+    description: str
+    confidence: float
+    detected_at: datetime = Field(default_factory=datetime.utcnow)
+

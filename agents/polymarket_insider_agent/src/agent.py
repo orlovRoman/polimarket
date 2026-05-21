@@ -8,11 +8,11 @@ from agents.shared.python.db import get_connection
 
 class ShadowAgent:
     """
-    Агент SHADOW — эксперт по анализу On-chain данных и рыночных аномалий.
-    Его задача — верифицировать идеи SCOUT, основываясь на объемах торгов 
-    и возможной активности крупных игроков (инсайдеров).
+    Агент SHADOW — эксперт по анализу ликвидности, ордербука и объёмов.
+    Его задача — верифицировать идеи SCOUT, основываясь на реальных данных
+    ордербука (CLOB API) и истории цен.
     """
-    def __init__(self, api_key: str, model: str = "gemini-2.5-pro"):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         """
         Инициализация агента SHADOW.
         """
@@ -20,43 +20,60 @@ class ShadowAgent:
         self.model = model
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
         
-        # Системные инструкции, определяющие логику поведения агента
-        self.system_instruction = """
-# SHADOW — Агент мониторинга инсайдеров и объемов
+        # Загружаем детальные системные инструкции из файла конфигурации агента
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
+            self.system_instruction = f.read()
 
-## Роль
-Ты — эксперт по анализу On-chain данных и рыночных аномалий. Твоя задача — подтверждать или опровергать идеи SCOUT, основываясь на активности крупных игроков (китов) и объемах торгов.
-
-## Функции
-1. **Анализ объемов**: Если на рынке низкая ликвидность, но внезапно зашел крупный объем — это признак инсайда.
-2. **Верификация**: Проверь, не является ли движение цены манипуляцией (Pump & Dump).
-
-## Формат ответа (JSON)
-{
-  "agree": bool,
-  "confidence": float,
-  "opinion": "Твое краткое обоснование: видишь ли ты аномальные объемы или активность инсайдеров."
-}
-"""
-
-    def analyze_idea(self, market: Market, scout_opinion: str) -> Optional[AgentOpinion]:
+    def analyze_idea(self, market: Market, scout_opinion: str, orderbook: dict = None, price_history: list = None) -> Optional[AgentOpinion]:
         """
-        Проводит анализ торговой идеи на предмет аномалий.
+        Проводит анализ торговой идеи на предмет ликвидности и аномалий.
         
         :param market: Данные о рынке
         :param scout_opinion: Гипотеза от агента SCOUT
+        :param orderbook: Данные ордербука от CLOB API (bid/ask depth, spread)
+        :param price_history: История цен [{price, recorded_at}, ...]
         :return: Мнение агента (AgentOpinion) или None
         """
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Формируем контекст для модели. В MVP LLM анализирует описание и общий фон.
+        # Форматируем данные ордербука
+        orderbook_str = "Данные ордербука недоступны."
+        if orderbook:
+            orderbook_str = (
+                f"=== ДАННЫЕ ОРДЕРБУКА (CLOB API) ===\n"
+                f"Спред: {orderbook.get('spread', 'N/A')}\n"
+                f"Top Bid: {orderbook.get('top_bid', 'N/A')} | Top Ask: {orderbook.get('top_ask', 'N/A')}\n"
+                f"Глубина Bid (5 lvl): ${orderbook.get('bid_depth_5', 0):,.0f} | Ask: ${orderbook.get('ask_depth_5', 0):,.0f}\n"
+                f"Всего уровней — Bids: {orderbook.get('total_bids', 0)} | Asks: {orderbook.get('total_asks', 0)}"
+            )
+            # Добавляем асимметрию
+            bid_d = orderbook.get('bid_depth_5', 0)
+            ask_d = orderbook.get('ask_depth_5', 0)
+            if ask_d > 0:
+                ratio = bid_d / ask_d
+                orderbook_str += f"\nАсимметрия Bid/Ask: {ratio:.1f}x"
+        
+        # Форматируем историю цен
+        price_history_str = "История цен недоступна."
+        if price_history:
+            lines = []
+            for point in price_history[-6:]:  # Последние 6 точек
+                lines.append(f"  {point['recorded_at']}: {point['price']:.4f}")
+            if lines:
+                price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
+        
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
 Текущая цена: {market.price}
 Идея SCOUT: {scout_opinion}
 
-Проанализируй этот рынок на предмет инсайдерских рисков и аномалий.
+{orderbook_str}
+
+{price_history_str}
+
+Проанализируй этот рынок на предмет рисков ликвидности и аномалий.
 """
         
         payload = {

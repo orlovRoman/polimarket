@@ -15,7 +15,7 @@ class NexusAgent:
     генерации сводных отчетов и управления долгосрочной памятью в Obsidian.
     """
 
-    def __init__(self, model_name: str = "gemini-2.5-pro", api_key: Optional[str] = None):
+    def __init__(self, model_name: str = "gemini-2.5-flash", api_key: Optional[str] = None):
         """
         Инициализация агента-координатора.
         """
@@ -65,6 +65,125 @@ class NexusAgent:
             f"ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ:\n{self.base_instructions}"
         )
         return prompt
+
+    # --- Скрининг рынков (SCREENER mode) ---
+
+    def screen_markets(self, markets_compact: list, top_n: int = 30) -> dict:
+        """
+        Скринирует ВСЕ рынки и возвращает Top-N кандидатов + корреляции.
+        Один LLM-вызов с JSON-выходом.
+        """
+        # Формируем compact-текст для промпта (минимум токенов)
+        market_lines = []
+        for m in markets_compact:
+            market_lines.append(f"- id:{m['id']} | q:{m['q']} | p:{m['p']} | vol:{m.get('vol',0):.0f} | end:{m.get('end','')}")
+        
+        markets_text = "\n".join(market_lines)
+        
+        screening_prompt = f"""
+РЕЖИМ: SCREENER
+
+Тебе дан список ВСЕХ активных рынков Polymarket ({len(markets_compact)} шт).
+
+ЗАДАЧИ:
+1. Отбери Top-{top_n} самых перспективных рынков для глубокого анализа.
+2. Найди корреляции между рынками (causal, inverse, arbitrage, thematic).
+
+Ответь строго в JSON:
+{{
+  "top_candidates": ["id1", "id2", ...],
+  "correlations": [
+    {{
+      "market_a_id": "...",
+      "market_b_id": "...",
+      "market_a_title": "...",
+      "market_b_title": "...",
+      "type": "causal|inverse|arbitrage|thematic",
+      "description": "...",
+      "confidence": 0.85
+    }}
+  ]
+}}
+
+СПИСОК РЫНКОВ:
+{markets_text}
+"""
+        
+        # Используем более свежую модель если доступна
+        selected_model = self.db_manager.get_memory("selected_model")
+        current_model = selected_model if selected_model else self.model_name
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={self.api_key}"
+        
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": screening_prompt}]}],
+            "systemInstruction": {"parts": [{"text": self.base_instructions}]},
+            "generationConfig": {"response_mime_type": "application/json"}
+        }
+        
+        try:
+            response = requests.post(api_url, json=payload, timeout=120)
+            if response.status_code != 200:
+                print(f"[NEXUS SCREENER] Ошибка API: {response.status_code}")
+                return {"top_candidates": [], "correlations": []}
+            
+            res_json = response.json()
+            text = res_json['candidates'][0]['content']['parts'][0]['text']
+            result = json.loads(text)
+            
+            # Сохраняем корреляции в БД
+            from agents.shared.python.db import save_correlation
+            from agents.shared.python.models import MarketCorrelation
+            
+            for corr in result.get("correlations", []):
+                try:
+                    mc = MarketCorrelation(
+                        market_id_a=corr["market_a_id"],
+                        market_id_b=corr["market_b_id"],
+                        title_a=corr.get("market_a_title", ""),
+                        title_b=corr.get("market_b_title", ""),
+                        correlation_type=corr["type"],
+                        description=corr.get("description", ""),
+                        confidence=corr.get("confidence", 0.5)
+                    )
+                    save_correlation(mc)
+                except Exception as e:
+                    print(f"[NEXUS SCREENER] Ошибка сохранения корреляции: {e}")
+            
+            candidates = result.get("top_candidates", [])
+            correlations_count = len(result.get("correlations", []))
+            print(f"[NEXUS SCREENER] Отобрано {len(candidates)} кандидатов, найдено {correlations_count} корреляций")
+            
+            return result
+            
+        except Exception as e:
+            print(f"[NEXUS SCREENER] Критическая ошибка: {e}")
+            return {"top_candidates": [], "correlations": []}
+
+    def get_correlations_report(self) -> str:
+        """Формирует отчёт о найденных корреляциях для пользователя."""
+        try:
+            from agents.shared.python.db import get_new_correlations
+            corrs = get_new_correlations()
+            if not corrs:
+                return "Новых корреляций не обнаружено."
+            
+            type_icons = {
+                'causal': '🔄', 'inverse': '↕️',
+                'arbitrage': '⚡', 'thematic': '🔗'
+            }
+            
+            lines = [f"Найдено {len(corrs)} корреляций:\n"]
+            for c in corrs:
+                icon = type_icons.get(c['correlation_type'], '❓')
+                lines.append(
+                    f"{icon} {c['correlation_type'].upper()} ({c['confidence']:.0%})\n"
+                    f"  A: {c['title_a']}\n"
+                    f"  B: {c['title_b']}\n"
+                    f"  → {c['description']}\n"
+                )
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Ошибка при получении корреляций: {e}"
 
     # --- Функции-инструменты для работы с базой знаний (Obsidian) ---
     
@@ -337,6 +456,11 @@ class NexusAgent:
                             },
                             "required": ["query"]
                         }
+                    },
+                    {
+                        "name": "get_correlations",
+                        "description": "Показывает обнаруженные корреляции между рынками Polymarket.",
+                        "parameters": {"type": "object", "properties": {}}
                     }
                 ]
             }
@@ -424,6 +548,8 @@ class NexusAgent:
                         result = self.cleanup_expired_signals()
                     elif name == "query_database":
                         result = self.query_database(**args)
+                    elif name == "get_correlations":
+                        result = self.get_correlations_report()
                     elif name == "google_search":
                         result = "Поиск выполнен (через встроенный инструмент)."
                     else:
