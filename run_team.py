@@ -6,12 +6,12 @@ from dotenv import load_dotenv
 sys.path.append(os.getcwd())
 
 from agents.shared.adapters.polymarket import PolymarketAdapter
-from agents.shared.python.db import save_market, init_db, save_signal, get_last_analyzed_price, mark_market_analyzed
+from agents.shared.python.db import save_market, init_db, save_signal, get_last_analyzed_price, mark_market_analyzed, cleanup_stale_signals
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent, save_opinion
 from agents.polymarket_news_agent.src.agent import HeraldAgent
 from agents.shared.utils.database import DatabaseManager
-from datetime import datetime
+from agents.shared.python.market_selector import MarketSelector
 
 def run_team_discussion(log_callback=None, summary_callback=None, category=None):
     """
@@ -28,8 +28,13 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
     
     # Получаем лимит сканирования из БД (Layer 1 memory)
     db = DatabaseManager()
-    scan_limit = db.get_memory("scan_limit") or 10
+    scan_limit = db.get_memory("scan_limit") or 10  # Дефолт: 10 рынков за цикл
     log(f"Параметры сессии: Лимит запросов (рынков) = {scan_limit}")
+
+    # Очищаем устаревшие сигналы перед новым сканом
+    stale = cleanup_stale_signals()
+    if stale > 0:
+        log(f"Очищено устаревших сигналов: {stale}")
 
     key = os.getenv("GOOGLE_API_KEY")
     if not key:
@@ -42,22 +47,18 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
     shadow = ShadowAgent(api_key=key)
     herald = HeraldAgent(api_key=key)
 
-    cat_msg = f" в категории '{category}'" if category else ""
+    cat_msg = f" в категории '{category}'" if category else " (авто-микс)"
     log(f"--- 1. Поиск новых рынков{cat_msg} ---")
     
-    # Получаем список активных рынков с Polymarket с учетом лимита
-    markets = adapter.list_markets(limit=scan_limit, category=category)
+    # Умный отбор рынков через MarketSelector
+    selector = MarketSelector(adapter)
+    markets = selector.select(total_limit=scan_limit, category=category)
     
-    # ФИЛЬТР: Игнорируем рынки 2025 года и ранее, если сейчас 2026+
-    current_year = datetime.now().year
-    filtered_markets = []
-    for m in markets:
-        if "2025" in m.title and current_year > 2025:
-            log(f"  [ФИЛЬТР]: Пропуск рынка {m.title} (событие 2025 года)")
-            continue
-        filtered_markets.append(m)
+    if not category:
+        auto_cat = selector.get_auto_category()
+        log(f"  Категория ротации: {auto_cat}")
     
-    markets = filtered_markets
+    log(f"  Отобрано рынков после фильтрации: {len(markets)}")
 
     for m in markets:
         save_market(m) # Сохраняем/обновляем данные о рынке в БД

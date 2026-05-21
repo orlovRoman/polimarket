@@ -82,6 +82,55 @@ class PolymarketAdapter(BaseMarketAdapter):
                 
         return markets
 
+    def list_markets_paged(self, limit: int = 20, offset: int = 0, order: str = "volume") -> List[Market]:
+        """Получает рынки с pagination (offset) для ротации."""
+        params = {
+            "active": "true", "closed": "false",
+            "limit": limit, "offset": offset,
+            "order": order, "ascending": "false"
+        }
+        response = requests.get(f"{self.api_url}/markets", params=params)
+        response.raise_for_status()
+        return self._parse_markets(response.json(), limit)
+
+    def list_markets_ending_soon(self, limit: int = 20) -> List[Market]:
+        """Рынки, закрывающиеся скоро (повышенная волатильность)."""
+        params = {
+            "active": "true", "closed": "false",
+            "limit": limit,
+            "order": "endDate", "ascending": "true"
+        }
+        response = requests.get(f"{self.api_url}/markets", params=params)
+        response.raise_for_status()
+        return self._parse_markets(response.json(), limit)
+
+    def _parse_markets(self, items: list, limit: int) -> List[Market]:
+        """Общий парсер рынков из ответа API."""
+        markets = []
+        for item in items:
+            if len(markets) >= limit:
+                break
+            try:
+                outcomes = json.loads(item.get("outcomes", "[]"))
+                prices = json.loads(item.get("outcomePrices", "[]"))
+                if not outcomes or not prices:
+                    continue
+                url_slug = item.get("event_slug", item.get("slug"))
+                m = Market(
+                    id=item["id"],
+                    platform=self.name,
+                    title=item["question"],
+                    description=item.get("description"),
+                    url=f"https://polymarket.com/event/{url_slug}",
+                    outcome=outcomes[0],
+                    price=float(prices[0]),
+                    close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00"))
+                )
+                markets.append(m)
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+        return markets
+
     def get_market(self, market_id: str) -> Market:
         response = requests.get(f"{self.api_url}/markets/{market_id}")
         response.raise_for_status()

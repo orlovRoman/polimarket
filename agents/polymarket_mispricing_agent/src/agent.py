@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Optional, List
 from agents.shared.python.models import Market, Signal
-from agents.shared.python.db import save_signal, get_connection
+from agents.shared.python.db import save_signal, get_connection, get_memory
 
 class ScoutAgent:
     """
@@ -70,8 +70,9 @@ class ScoutAgent:
             est_prob = analysis.get("estimate_probability", 0)
             edge = est_prob - market.price
             
-            # Порог активации сигнала: преимущество должно составлять более 10 процентных пунктов
-            if edge > 0.10:
+            # Порог активации: настраиваемый через /settings (дефолт 10%)
+            min_edge = get_memory("min_edge") or 0.10
+            if edge > min_edge:
                 signal = Signal(
                     id=f"sig-{market.id}-{int(datetime.now().timestamp())}",
                     type="undervaluation",
