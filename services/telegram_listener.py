@@ -244,9 +244,9 @@ async def main():
                 )
                 print(f"[Listener] ✅ Сделка сохранена: Кошелек {bet_info['wallet']} | Сумма ${bet_info['amount_usd']:,.0f} | Исход {bet_info['outcome']} | Рынок {m_id}")
                 
-                # Триггерим мгновенный анализ, если сделка крупная (> $10,000 USD)
-                if bet_info["amount_usd"] >= 10000.0:
-                    await trigger_nexus_scan(m_id, bet_info["amount_usd"])
+            # Триггерим мгновенный анализ только для первого рынка из списка (одно событие), если сделка крупная (> $10,000 USD)
+            if bet_info["amount_usd"] >= 10000.0 and market_ids:
+                await trigger_nexus_scan(market_ids[0], bet_info["amount_usd"])
                     
         except Exception as e:
             print(f"[Listener] ❌ Ошибка при обработке сообщения: {e}")

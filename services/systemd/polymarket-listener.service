@@ -1,6 +1,6 @@
 [Unit]
-# Описание сервиса: Бот-команда агентов для Polymarket
-Description=Polymarket Agent Team Bot
+# Описание сервиса: Real-time слушатель крупных сделок из Telegram для Polymarket
+Description=Polymarket Telegram Whale Alert Listener
 # Запускать только после того, как сеть станет доступна
 After=network.target
 
@@ -10,8 +10,10 @@ Type=simple
 User=orlovrp
 # Рабочая директория проекта
 WorkingDirectory=/home/orlovrp/polymarket-bot
-# Команда запуска основного скрипта
-ExecStart=/home/orlovrp/polymarket-bot/venv/bin/python3 main.py
+# Принудительный сброс буфера вывода Python для мгновенного логирования в journald
+Environment=PYTHONUNBUFFERED=1
+# Команда запуска с использованием виртуального окружения
+ExecStart=/home/orlovrp/polymarket-bot/venv/bin/python3 services/telegram_listener.py
 # Перезапускать сервис автоматически при сбое
 Restart=always
 # Пауза перед перезапуском (10 секунд)

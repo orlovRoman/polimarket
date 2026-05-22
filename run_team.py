@@ -28,19 +28,80 @@ SCREENING_INTERVAL_SEC = 1800
 # Глобальная блокировка для предотвращения одновременного запуска планового скана и ручного /scan
 _scan_lock = threading.Lock()
 
+LOCK_FILE = os.path.join("vault", "scan.lock")
+LOCK_TIMEOUT_SEC = 600  # 10 минут макс на один скан
+
+def acquire_process_lock() -> bool:
+    """Пытается захватить межпроцессный замок (File Lock)."""
+    import time
+    os.makedirs("vault", exist_ok=True)
+    
+    if os.path.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE, "r") as f:
+                data = f.read().strip().split(",")
+                if len(data) == 2:
+                    lock_time = float(data[0])
+                    lock_pid = int(data[1])
+                    
+                    # Проверяем, жив ли процесс
+                    process_alive = False
+                    if sys.platform != "win32":
+                        try:
+                            os.kill(lock_pid, 0)
+                            process_alive = True
+                        except OSError:
+                            pass
+                    
+                    elapsed = time.time() - lock_time
+                    if elapsed < LOCK_TIMEOUT_SEC:
+                        if sys.platform != "win32" and not process_alive:
+                            print(f"[Lock] Обнаружен устаревший замок от мертвого процесса {lock_pid}. Сбрасываем.")
+                        else:
+                            print(f"[Lock] Сканирование заблокировано процессом PID {lock_pid} (активен {elapsed:.0f} сек).")
+                            return False
+                    else:
+                        print(f"[Lock] Обнаружен зависший замок (прошло {elapsed:.0f} сек). Сбрасываем.")
+        except Exception as e:
+            print(f"[Lock] Ошибка чтения замка: {e}. Сбрасываем.")
+            
+    try:
+        with open(LOCK_FILE, "w") as f:
+            f.write(f"{time.time()},{os.getpid()}")
+        return True
+    except Exception as e:
+        print(f"[Lock] Не удалось создать файл блокировки: {e}")
+        return False
+
+def release_process_lock():
+    """Освобождает межпроцессный замок."""
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+            print("[Lock] Межпроцессный замок успешно снят.")
+    except Exception as e:
+        print(f"[Lock] Ошибка удаления файла блокировки: {e}")
+
 def run_team_discussion(log_callback=None, summary_callback=None, category=None, market_id=None):
     """
     Координирует обсуждение рынков командой AI-агентов.
     Включает двухстадийный pipeline: SCREENER (NEXUS) → SCOUT → SHADOW → HERALD.
     Возвращает количество обработанных рынков.
     """
+    # 1. Проверяем внутрипроцессную блокировку
     if not _scan_lock.acquire(blocking=False):
         print("Сканирование уже выполняется (другой поток). Пропускаем.")
+        return 0
+        
+    # 2. Проверяем межпроцессную блокировку
+    if not acquire_process_lock():
+        _scan_lock.release()
         return 0
     
     try:
         return _run_team_discussion_inner(log_callback, summary_callback, category, market_id)
     finally:
+        release_process_lock()
         _scan_lock.release()
 
 def _run_team_discussion_inner(log_callback=None, summary_callback=None, category=None, market_id=None):
