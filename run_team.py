@@ -23,7 +23,7 @@ from agents.shared.python.market_selector import MarketSelector
 # Интервал между скринингами (секунды). 30 мин = 1800 сек
 SCREENING_INTERVAL_SEC = 1800
 
-def run_team_discussion(log_callback=None, summary_callback=None, category=None):
+def run_team_discussion(log_callback=None, summary_callback=None, category=None, market_id=None):
     """
     Координирует обсуждение рынков командой AI-агентов.
     Включает двухстадийный pipeline: SCREENER (NEXUS) → SCOUT → SHADOW → HERALD.
@@ -32,6 +32,27 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
         print(msg)
         if log_callback:
             log_callback(msg)
+
+    # Функция фоновой отправки оповещений в Telegram (если нет интерактивного callback)
+    def send_telegram_alert(text: str):
+        from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+        if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+            return
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True
+            }
+            import requests
+            requests.post(url, json=payload, timeout=10)
+        except Exception as e:
+            print(f"Ошибка фонового оповещения Telegram: {e}")
+
+    if not summary_callback:
+        summary_callback = send_telegram_alert
 
     # Загружаем настройки и инициализируем базу данных
     load_dotenv()
@@ -64,7 +85,7 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
     # ===================================================================
     screened_market_ids = None
     
-    if not category:  # Скрининг только в режиме "авто-микс"
+    if not category and not market_id:  # Скрининг только в режиме "авто-микс" и без точечного market_id
         last_screen_raw = get_memory("last_screen_time")
         now = datetime.utcnow()
         needs_screening = True
@@ -110,9 +131,20 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
     # СТАДИЯ 1: ОТБОР РЫНКОВ
     # ===================================================================
     cat_msg = f" в категории '{category}'" if category else " (авто-микс)"
+    if market_id:
+        cat_msg = f" (точечный горячий анализ {market_id})"
     log(f"\n--- 1. Поиск новых рынков{cat_msg} ---")
     
-    if screened_market_ids and not category:
+    if market_id:
+        log(f"  Загружаем конкретный рынок по запросу: {market_id}")
+        markets = []
+        try:
+            m = adapter.get_market(market_id)
+            if m:
+                markets.append(m)
+        except Exception as e:
+            log(f"  Ошибка загрузки рынка {market_id}: {e}")
+    elif screened_market_ids and not category:
         # Используем отфильтрованные NEXUS'ом рынки
         log(f"  Используем {len(screened_market_ids)} рынков от NEXUS SCREENER")
         markets = []
@@ -146,10 +178,10 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
     
     new_markets_found = False
     for m in markets:
-        # Проверяем, анализировали ли мы этот рынок ранее при такой же цене
+        # Проверяем, анализировали ли мы этот рынок ранее при такой же цене (если это не точечный анализ по market_id)
         last_price = get_last_analyzed_price(m.id)
         
-        if last_price is not None:
+        if last_price is not None and not market_id:
             price_diff = abs(last_price - m.price)
             # Если цена изменилась незначительно (менее 3%), пропускаем повторный анализ
             if price_diff < 0.03:
@@ -160,7 +192,10 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None)
             else:
                 log(f"\n[РЫНОК]: {m.title} (Цена изменилась: {last_price} -> {m.price}, пересматриваем)")
         else:
-            log(f"\n[РЫНОК]: {m.title} (Новый рынок в системе)")
+            if market_id:
+                log(f"\n[РЫНОК]: {m.title} (Точечный принудительный анализ)")
+            else:
+                log(f"\n[РЫНОК]: {m.title} (Новый рынок в системе)")
             
         new_markets_found = True
         
@@ -289,4 +324,10 @@ def _send_correlation_alerts(summary_callback):
 
 
 if __name__ == "__main__":
-    run_team_discussion()
+    import argparse
+    parser = argparse.ArgumentParser(description="Запуск обсуждения рынков командой агентов")
+    parser.add_argument("--market_id", type=str, help="ID конкретного рынка для точечного горячего анализа")
+    parser.add_argument("--category", type=str, help="Категория для сканирования")
+    args = parser.parse_args()
+    
+    run_team_discussion(category=args.category, market_id=args.market_id)
