@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -10,11 +11,12 @@ from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import (
     save_market, init_db, save_signal, get_last_analyzed_price,
     mark_market_analyzed, cleanup_stale_signals, save_price_point,
-    get_price_history, get_new_correlations, mark_correlations_notified
+    get_price_history, get_new_correlations, mark_correlations_notified,
+    get_markets_on_cooldown, add_discussion_message
 )
 from agents.shared.python.db import get_memory, save_memory
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
-from agents.polymarket_insider_agent.src.agent import ShadowAgent, save_opinion
+from agents.polymarket_insider_agent.src.agent import ShadowAgent
 from agents.polymarket_news_agent.src.agent import HeraldAgent
 from agents.orchestrator.src.agent import NexusAgent
 from agents.shared.utils.database import DatabaseManager
@@ -23,15 +25,40 @@ from agents.shared.python.market_selector import MarketSelector
 # Интервал между скринингами (секунды). 30 мин = 1800 сек
 SCREENING_INTERVAL_SEC = 1800
 
+# Глобальная блокировка для предотвращения одновременного запуска планового скана и ручного /scan
+_scan_lock = threading.Lock()
+
 def run_team_discussion(log_callback=None, summary_callback=None, category=None, market_id=None):
     """
     Координирует обсуждение рынков командой AI-агентов.
     Включает двухстадийный pipeline: SCREENER (NEXUS) → SCOUT → SHADOW → HERALD.
+    Возвращает количество обработанных рынков.
     """
+    if not _scan_lock.acquire(blocking=False):
+        print("Сканирование уже выполняется (другой поток). Пропускаем.")
+        return 0
+    
+    try:
+        return _run_team_discussion_inner(log_callback, summary_callback, category, market_id)
+    finally:
+        _scan_lock.release()
+
+def _run_team_discussion_inner(log_callback=None, summary_callback=None, category=None, market_id=None):
+    """Внутренняя реализация обсуждения (защищена _scan_lock)."""
     def log(msg):
-        print(msg)
+        try:
+            print(msg)
+        except UnicodeEncodeError:
+            try:
+                enc = sys.stdout.encoding or 'utf-8'
+                print(str(msg).encode(enc, errors='replace').decode(enc))
+            except Exception:
+                print(str(msg).encode('ascii', errors='replace').decode('ascii'))
         if log_callback:
-            log_callback(msg)
+            try:
+                log_callback(msg)
+            except Exception as e:
+                print(f"Ошибка в log_callback: {e}")
 
     # Функция фоновой отправки оповещений в Telegram (если нет интерактивного callback)
     def send_telegram_alert(text: str):
@@ -176,6 +203,10 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None,
     log(f"\n--- 2. Обсуждение идей (SCOUT + SHADOW + HERALD) ---")
     log(f"Всего рынков для проверки: {len(markets)}")
     
+    # Получаем список рынков, которые были проанализированы за последние N часов (кулдаун)
+    from config import MARKET_COOLDOWN_HOURS
+    cooldown_markets = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
+    
     new_markets_found = False
     for m in markets:
         # Проверяем, анализировали ли мы этот рынок ранее при такой же цене (если это не точечный анализ по market_id)
@@ -183,12 +214,16 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None,
         
         if last_price is not None and not market_id:
             price_diff = abs(last_price - m.price)
-            # Если цена изменилась незначительно (менее 3%), пропускаем повторный анализ
-            if price_diff < 0.03:
-                log(f"\n[РЫНОК]: {m.title} (Цена {m.price} стабильна, пропускаем)")
+            is_cooldown = m.id in cooldown_markets
+            
+            # Гибридный триггер: анализируем, если цена изменилась >= 3% ИЛИ прошло >= 6 часов (не в кулдауне)
+            if price_diff < 0.03 and is_cooldown:
+                log(f"\n[РЫНОК]: {m.title} (Цена {m.price} стабильна и рынок на 6-часовом кулдауне, пропускаем)")
                 # Всё равно записываем price point для истории
                 save_price_point(m.id, m.price)
                 continue
+            elif not is_cooldown:
+                log(f"\n[РЫНОК]: {m.title} (Истек 6-часовой кулдаун, пересматриваем)")
             else:
                 log(f"\n[РЫНОК]: {m.title} (Цена изменилась: {last_price} -> {m.price}, пересматриваем)")
         else:
@@ -236,10 +271,10 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None,
             # Сохраняем мнения всех агентов в базу данных для истории
             for op in [opinion_shadow, opinion_herald]:
                 if op:
-                    save_opinion(op)
+                    add_discussion_message(m.id, op.agent_name, op.opinion, op.confidence, op.agree)
                     status = "✅ СОГЛАСЕН" if op.agree else "❌ НЕ СОГЛАСЕН"
                     log(f"  {op.agent_name}: {status} (Уверенность: {op.confidence})")
-                    log(f"  Мнение {op.agent_name}: {op.opinion[:100]}...")
+                    log(f"  Мнение {op.agent_name}: {(op.opinion or '')[:100]}...")
 
             # ЛОГИКА КОНСЕНСУСА:
             # Идея принимается только если оба эксперта (Shadow и Herald) согласны
@@ -257,19 +292,19 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None,
             
         # Формируем и отправляем краткое резюме для Telegram-интерфейса
         if summary_callback:
-            summary_text = f"🗣 <b>Обсуждение рынка:</b>\\n<a href='{m.url}'>{m.title}</a>\\n\\n"
+            summary_text = f"🗣 <b>Обсуждение рынка:</b>\n<a href='{m.url}'>{m.title}</a>\n\n"
             if signal:
-                summary_text += f"<b>SCOUT</b> 🟢 Нашел потенциал (Edge: {signal.edge:.2f})\\n\\n"
+                summary_text += f"<b>SCOUT</b> 🟢 Нашел потенциал (Edge: {signal.edge:.2f})\n\n"
             else:
-                summary_text += f"<b>SCOUT</b> ⚪️ Идея не найдена.\\n\\n"
+                summary_text += f"<b>SCOUT</b> ⚪️ Идея не найдена.\n\n"
             
             if opinion_shadow:
                 status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
-                summary_text += f"<b>SHADOW</b> {status} (Увер: {opinion_shadow.confidence})\\n<i>{opinion_shadow.opinion}</i>\\n\\n"
+                summary_text += f"<b>SHADOW</b> {status} (Увер: {opinion_shadow.confidence})\n<i>{opinion_shadow.opinion}</i>\n\n"
             
             if opinion_herald:
                 status = "✅ СОГЛАСЕН" if opinion_herald.agree else "❌ ПРОТИВ"
-                summary_text += f"<b>HERALD</b> {status} (Увер: {opinion_herald.confidence})\\n<i>{opinion_herald.opinion}</i>\\n\\n"
+                summary_text += f"<b>HERALD</b> {status} (Увер: {opinion_herald.confidence})\n<i>{opinion_herald.opinion}</i>\n\n"
             
             if signal and opinion_shadow and opinion_herald and \
                opinion_shadow.agree and opinion_herald.agree and \
@@ -287,6 +322,9 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None,
 
     if not new_markets_found:
         log("\nНет рынков для обсуждения (цены не изменились).")
+    
+    # Возвращаем количество фактически обработанных рынков
+    return 1 if new_markets_found else 0
 
 
 def _send_correlation_alerts(summary_callback):
@@ -317,7 +355,7 @@ def _send_correlation_alerts(summary_callback):
         summary_callback(alert_text)
         
         # Помечаем как отправленные
-        mark_correlations_notified([c['id'] for c in new_corrs])
+        mark_correlations_notified([c['id'] for c in new_corrs[:5]])
         
     except Exception as e:
         print(f"Ошибка отправки корреляций: {e}")

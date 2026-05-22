@@ -11,10 +11,9 @@ sys.path.append(os.getcwd())
 
 from run_team import run_team_discussion
 from telegram.bot import dp, bot
-from agents.shared.python.db import save_memory, cleanup_stale_signals, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history
+from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history
 
-# Создаем директорию для логов, если она еще не существует
-os.makedirs("logs", exist_ok=True)
+
 
 # Глобальная настройка системы логирования
 # Логи выводятся в файл и в консоль для удобства мониторинга
@@ -22,7 +21,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("logs/main.log"),
+        logging.FileHandler("logs/main.log", encoding="utf-8"),
         logging.StreamHandler()
     ]
 )
@@ -34,11 +33,6 @@ async def scheduled_job():
     """
     logger.info(">>> Запуск планового сканирования рынков...")
     try:
-        # 0. Очистка устаревших сигналов (2025, истёкшие)
-        stale_count = cleanup_stale_signals()
-        if stale_count > 0:
-            logger.info(f"Очищено устаревших сигналов: {stale_count}")
-
         # 1. Очистка через NexusAgent (проверка по close_time)
         from agents.orchestrator.src.agent import NexusAgent
         nexus = NexusAgent()
@@ -46,10 +40,11 @@ async def scheduled_job():
         logger.info(f"Очистка: {cleanup_res}")
 
         # 2. Запускаем основное обсуждение
-        await asyncio.to_thread(run_team_discussion)
+        processed_count = await asyncio.to_thread(run_team_discussion)
         
-        # 3. Фиксируем время последнего успешного сканирования
-        save_memory("last_scan_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        # 3. Фиксируем время последнего успешного сканирования (только если рынки были обработаны)
+        if processed_count and processed_count > 0:
+            save_memory("last_scan_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         
         # 4. Чистим истёкшие записи из памяти (TTL)
         expired = cleanup_expired_memory()
@@ -64,6 +59,38 @@ async def scheduled_job():
         logger.info("<<< Сканирование завершено успешно.")
     except Exception as e:
         logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)
+
+async def scheduled_memory_archive():
+    """
+    Периодическая задача: автобэкап БД, архивация памяти и сборка мусора (раз в 24 часа).
+    """
+    logger.info(">>> Запуск процесса автоархивации памяти и GC (Memory GC)...")
+    try:
+        from agents.orchestrator.scripts.memory_archiver import main as run_archiver
+        # Запускаем в фоновом потоке, так как там есть вызовы Gemini API
+        await asyncio.to_thread(run_archiver)
+        logger.info("<<< Автоархивация памяти и GC завершены.")
+    except Exception as e:
+        logger.error(f"Ошибка при архивации памяти: {e}", exc_info=True)
+
+async def scheduled_trend_hunting():
+    """
+    Периодическая задача: проактивный поиск трендов на основе новостей.
+    Запускается только если Trend Hunter включен в настройках.
+    """
+    from agents.shared.python.db import get_memory
+    enabled = get_memory("trend_hunter_enabled", True)
+    if not enabled:
+        logger.info("Проактивный Trend Hunter отключен пользователем в настройках.")
+        return
+
+    logger.info(">>> Запуск проактивного Trend Hunter...")
+    try:
+        from services.trend_hunter import run_trend_hunter
+        await asyncio.to_thread(run_trend_hunter)
+        logger.info("<<< Работа Trend Hunter завершена успешно.")
+    except Exception as e:
+        logger.error(f"Ошибка при работе Trend Hunter: {e}", exc_info=True)
 
 async def start_system():
     """
@@ -81,7 +108,13 @@ async def start_system():
     # Выполняем первый запуск немедленно при старте системы
     scheduler.add_job(scheduled_job) 
     
-    logger.info("Планировщик настроен (интервал 5 мин).")
+    # Автоархивация и сборка мусора (GC) — запускаем раз в 24 часа
+    scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
+    
+    # Проактивный поиск трендов (Trend Hunter) — запускаем раз в 2 часа
+    scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
+    
+    logger.info("Планировщик настроен (интервал 5 мин, GC 24 ч, Trend Hunter 2 ч).")
     scheduler.start()
 
     # 2. Инициализация и запуск Telegram-бота (Aiogram)

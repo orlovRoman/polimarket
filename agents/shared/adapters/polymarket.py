@@ -79,7 +79,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 "limit": limit,
                 "tag_slug": category
             }
-            response = requests.get(f"{self.api_url}/events", params=params)
+            response = requests.get(f"{self.api_url}/events", params=params, timeout=15)
             response.raise_for_status()
             data = response.json()
             
@@ -102,7 +102,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 "order": "volume",
                 "ascending": "false"
             }
-            response = requests.get(f"{self.api_url}/markets", params=params)
+            response = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
             response.raise_for_status()
             items = response.json()
         
@@ -165,7 +165,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             "limit": limit, "offset": offset,
             "order": order, "ascending": "false"
         }
-        response = requests.get(f"{self.api_url}/markets", params=params)
+        response = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
         response.raise_for_status()
         return self._parse_markets(response.json(), limit)
 
@@ -176,7 +176,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             "limit": limit,
             "order": "endDate", "ascending": "true"
         }
-        response = requests.get(f"{self.api_url}/markets", params=params)
+        response = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
         response.raise_for_status()
         return self._parse_markets(response.json(), limit)
 
@@ -229,12 +229,15 @@ class PolymarketAdapter(BaseMarketAdapter):
         return markets
 
     def get_market(self, market_id: str) -> Market:
-        response = requests.get(f"{self.api_url}/markets/{market_id}")
+        response = requests.get(f"{self.api_url}/markets/{market_id}", timeout=15)
         response.raise_for_status()
         item = response.json()
         
         outcomes = json.loads(item.get("outcomes", "[]"))
         prices = json.loads(item.get("outcomePrices", "[]"))
+        
+        if not outcomes or not prices:
+            return None
         
         # Форматируем заголовок и описание с ценами YES/NO
         q_formatted, desc_formatted = self._format_market_prices(
@@ -346,3 +349,15 @@ class PolymarketAdapter(BaseMarketAdapter):
         
         print(f"[PolymarketAdapter] Загружено {len(all_markets)} рынков (compact)")
         return all_markets
+
+    def search_markets(self, query: str, limit: int = 10) -> List[Market]:
+        """Ищет активные рынки на Polymarket по ключевому слову/запросу."""
+        params = {
+            "active": "true",
+            "closed": "false",
+            "limit": limit,
+            "query": query
+        }
+        response = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
+        response.raise_for_status()
+        return self._parse_markets(response.json(), limit)

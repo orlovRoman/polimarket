@@ -1,7 +1,8 @@
 import sqlite3
 import json
+from contextlib import contextmanager
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, List
 from .models import Market, Signal, MarketCorrelation
 
@@ -10,15 +11,29 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from config import DB_PATH
 
+@contextmanager
 def get_connection():
+    """Контекст-менеджер для SQLite-соединений с гарантированным закрытием."""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL")    # Write-Ahead Logging для конкурентного доступа
-    conn.execute("PRAGMA busy_timeout=5000")    # Ждём 5 сек при блокировке
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+_db_initialized = False
 
 def init_db():
-    """Инициализация таблиц базы данных"""
+    """Инициализация таблиц базы данных (вызывается один раз)."""
+    global _db_initialized
+    if _db_initialized:
+        return
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     
     with get_connection() as conn:
@@ -197,9 +212,74 @@ def init_db():
                 content_hash TEXT
             )
         """)
+        # Таблица расхода токенов
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS token_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_name TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_token_usage_agent_date ON token_usage(agent_name, created_at)")
 
         conn.commit()
+    _db_initialized = True
     print(f"База данных инициализирована по адресу: {DB_PATH}")
+
+def save_token_usage(agent_name: str, model_name: str, input_tokens: int, output_tokens: int):
+    """Сохраняет запись о потреблении токенов агентом."""
+    total_tokens = input_tokens + output_tokens
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT INTO token_usage (agent_name, model_name, input_tokens, output_tokens, total_tokens) VALUES (?, ?, ?, ?, ?)",
+                (agent_name, model_name, input_tokens, output_tokens, total_tokens)
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"[DB] Ошибка при сохранении расхода токенов: {e}")
+
+def get_token_usage_last_24h(agent_name: str) -> dict:
+    """Возвращает статистику потребления токенов агентом за последние 24 часа."""
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """SELECT SUM(input_tokens) as in_t, SUM(output_tokens) as out_t, SUM(total_tokens) as tot_t 
+                   FROM token_usage 
+                   WHERE agent_name = ? AND created_at >= datetime('now', '-1 day')""",
+                (agent_name,)
+            )
+            row = cursor.fetchone()
+            if row and row['tot_t'] is not None:
+                return {
+                    "input_tokens": int(row['in_t']),
+                    "output_tokens": int(row['out_t']),
+                    "total_tokens": int(row['tot_t'])
+                }
+    except Exception as e:
+        print(f"[DB] Ошибка получения статистики токенов: {e}")
+    return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+def get_agent_model(agent_name: str, default_model: str = "gemini-2.5-flash") -> str:
+    """Возвращает последнюю использованную модель для агента из логов токенов."""
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT model_name FROM token_usage WHERE agent_name = ? ORDER BY created_at DESC LIMIT 1",
+                (agent_name,)
+            )
+            row = cursor.fetchone()
+            if row and row['model_name']:
+                return row['model_name']
+    except Exception as e:
+        print(f"[DB] Ошибка получения последней модели агента: {e}")
+    return default_model
 
 def save_chat_message(chat_id: int, role: str, content: str):
     with get_connection() as conn:
@@ -325,7 +405,7 @@ def save_memory(key: str, value: Any, category: str = 'general', ttl: int = None
     :param ttl: Время жизни в секундах (None = бессрочно)
     :param priority: Приоритет для ранжирования (0-10, выше = важнее)
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     expires_at = None
     if ttl is not None:
         from datetime import timedelta
@@ -396,7 +476,7 @@ def add_wallet(address: str, alias: str = None, is_insider: bool = False):
     with get_connection() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO wallets (address, alias, is_insider, last_seen) VALUES (?, ?, ?, ?)",
-            (address, alias, is_insider, datetime.utcnow())
+            (address, alias, is_insider, datetime.now(timezone.utc))
         )
         conn.commit()
 
@@ -405,7 +485,7 @@ def update_wallet_stats(address: str, win_rate: float, total_profit: float):
     with get_connection() as conn:
         conn.execute(
             "UPDATE wallets SET win_rate = ?, total_profit = ?, last_seen = ? WHERE address = ?",
-            (win_rate, total_profit, datetime.utcnow(), address)
+            (win_rate, total_profit, datetime.now(timezone.utc), address)
         )
         conn.commit()
 
@@ -439,13 +519,14 @@ def cleanup_stale_signals():
             )
         """)
         archived_expired = cursor.rowcount
-        # Архивируем сигналы с '2025' в названии рынка (fallback)
+        # Архивируем сигналы с прошлогодним годом в названии рынка (fallback)
+        stale_year = str(datetime.now(timezone.utc).year - 1)
         cursor.execute("""
             UPDATE signals SET status = 'ARCHIVED'
             WHERE status = 'PENDING' AND market_id IN (
-                SELECT id FROM markets WHERE title LIKE '%2025%'
+                SELECT id FROM markets WHERE title LIKE ?
             )
-        """)
+        """, (f'%{stale_year}%',))
         archived_year = cursor.rowcount
         conn.commit()
     return archived_expired + archived_year
@@ -504,8 +585,8 @@ def get_memory_stats() -> dict:
             stats['db_size_kb'] = _os.path.getsize(DB_PATH) / 1024
         else:
             stats['db_size_kb'] = 0
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[DB] Ошибка получения статистики памяти: {e}")
     return stats
 
 # --- Price History ---
@@ -592,12 +673,12 @@ def save_trader_transaction(wallet_address: str, market_id: str, outcome: str, a
         if not cursor.fetchone():
             cursor.execute(
                 "INSERT INTO wallets (address, alias, last_seen) VALUES (?, ?, ?)",
-                (wallet_address, alias, datetime.utcnow())
+                (wallet_address, alias, datetime.now(timezone.utc))
             )
         else:
             cursor.execute(
                 "UPDATE wallets SET last_seen = ? WHERE address = ?",
-                (datetime.utcnow(), wallet_address)
+                (datetime.now(timezone.utc), wallet_address)
             )
             if alias:
                 cursor.execute(

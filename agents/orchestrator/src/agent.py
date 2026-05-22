@@ -1,6 +1,5 @@
 import os
 import json
-import requests
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -24,7 +23,6 @@ class NexusAgent:
         if not self.api_key:
             raise ValueError("Критическая ошибка: GOOGLE_API_KEY не найден")
         
-        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
         self.db_manager = DatabaseManager()
         self.obsidian = ObsidianAdapter()
         
@@ -58,7 +56,7 @@ class NexusAgent:
 
         prompt = (
             f"ТЕКУЩЕЕ ВРЕМЯ СИСТЕМЫ: {now}\n"
-            f"ВНИМАНИЕ: Все рынки на 2025 год и ранее считаются ИСТЕКШИМИ. Не анализируй их.\n\n"
+            f"ВНИМАНИЕ: Все рынки на {datetime.now().year - 1} год и ранее считаются ИСТЕКШИМИ. Не анализируй их.\n\n"
             f"ТЫ — NEXUS, главный ИИ-координатор команды (SCOUT, SHADOW, HERALD).\n"
             f"Твоя цель — живой диалог, управление системой и глубокая аналитика.\n\n"
             f"ЯДРО ПАМЯТИ (Layer 1 - Durable Facts):\n{facts_str}\n\n"
@@ -112,7 +110,6 @@ class NexusAgent:
         # Используем более свежую модель если доступна
         selected_model = self.db_manager.get_memory("selected_model")
         current_model = selected_model if selected_model else self.model_name
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={self.api_key}"
         
         payload = {
             "contents": [{"role": "user", "parts": [{"text": screening_prompt}]}],
@@ -121,12 +118,18 @@ class NexusAgent:
         }
         
         try:
-            response = requests.post(api_url, json=payload, timeout=120)
-            if response.status_code != 200:
-                print(f"[NEXUS SCREENER] Ошибка API: {response.status_code}")
-                return {"top_candidates": [], "correlations": []}
+            from agents.shared.utils.gemini_client import generate_content_with_fallback
+            res_json, active_model = generate_content_with_fallback(
+                api_key=self.api_key,
+                payload=payload,
+                default_model=current_model,
+                agent_name="NEXUS"
+            )
             
-            res_json = response.json()
+            if not res_json:
+                print("[NEXUS SCREENER] Не удалось получить ответ ни от одной модели.")
+                return {"top_candidates": [], "correlations": []}
+
             text = res_json['candidates'][0]['content']['parts'][0]['text']
             result = json.loads(text)
             
@@ -473,7 +476,6 @@ class NexusAgent:
         # Динамически получаем модель из БД (если пользователь изменил ее через Telegram)
         selected_model = self.db_manager.get_memory("selected_model")
         current_model = selected_model if selected_model else self.model_name
-        current_api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={self.api_key}"
 
         contents = history if history else []
         contents.append({"role": "user", "parts": [{"text": prompt}]})
@@ -491,11 +493,17 @@ class NexusAgent:
         max_iterations = 8
         for _ in range(max_iterations):
             try:
-                response = requests.post(current_api_url, json=payload, timeout=60)
-                if response.status_code != 200:
-                    return f"Ошибка API: {response.status_code}\n{response.text}"
+                from agents.shared.utils.gemini_client import generate_content_with_fallback
+                res_json, active_model = generate_content_with_fallback(
+                    api_key=self.api_key,
+                    payload=payload,
+                    default_model=current_model,
+                    agent_name="NEXUS"
+                )
+                
+                if not res_json:
+                    return "Ошибка: Не удалось получить ответ ни от одной модели Gemini во время диалога."
 
-                res_json = response.json()
             except Exception as e:
                 return f"Критическая ошибка при запросе к API: {e}"
 

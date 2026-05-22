@@ -1,8 +1,7 @@
 import os
-import requests
 import json
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 from agents.shared.python.models import Market, Signal
 from agents.shared.python.db import save_signal, get_connection, get_memory
 
@@ -18,60 +17,74 @@ class ScoutAgent:
         """
         self.api_key = api_key
         self.model = model
-        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
         
         # Загружаем детальные системные инструкции из файла конфигурации агента
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(base_path, "GEMINI.md"), "r") as f:
+        with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
     def estimate_market(self, market: Market) -> Optional[Signal]:
         """
         Оценивает рынок и формирует торговый сигнал, если найдена недооценка.
+        Честный Double-Blind: оценка производится без передачи цены в LLM.
         
         :param market: Данные о рынке Polymarket
         :return: Объект Signal, если Edge > 0.10, иначе None
         """
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Загружаем RAG-память из Obsidian
+        try:
+            from agents.shared.utils.rag import get_rag_context
+            rag_context = get_rag_context(market.title, market.description)
+        except Exception as e:
+            print(f"[SCOUT] Ошибка загрузки RAG-памяти: {e}")
+            rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
 Описание: {market.description}
 Исход: {market.outcome}
-Текущая цена: {market.price} (вероятность {market.price * 100}%)
+
+{rag_context}
 
 Выполни анализ согласно своим инструкциям.
 """
         
         payload = {
             "contents": [
-                {"role": "user", "parts": [{"text": self.system_instruction + "\n\n" + prompt}]}
+                {"role": "user", "parts": [{"text": prompt}]}
             ],
+            "systemInstruction": {"parts": [{"text": self.system_instruction}]},
             "generationConfig": {
                 "response_mime_type": "application/json",
             }
         }
         
+        from agents.shared.utils.gemini_client import generate_content_with_fallback
+        result, active_model = generate_content_with_fallback(
+            api_key=self.api_key,
+            payload=payload,
+            default_model=self.model,
+            agent_name="SCOUT"
+        )
+        
+        if not result:
+            return None
+            
         try:
-            response = requests.post(self.api_url, json=payload, timeout=30)
-            if response.status_code != 200:
-                print(f"Ошибка Gemini API: {response.text}")
-                return None
-                
-            result = response.json()
-            if 'candidates' not in result or not result['candidates']:
-                print(f"Gemini не вернул кандидатов: {result}")
-                return None
-
             content = result['candidates'][0]['content']['parts'][0]['text']
             analysis = json.loads(content)
             
-            # Рассчитываем математическое преимущество (Edge)
-            est_prob = analysis.get("estimate_probability", 0)
+            # Рассчитываем математическое преимущество (Edge) на уровне Python (честный Double-Blind)
+            est_prob = float(analysis.get("estimate_probability", 0))
             edge = est_prob - market.price
             
             # Порог активации: настраиваемый через /settings (дефолт 10%)
-            min_edge = get_memory("min_edge") or 0.10
+            min_edge = get_memory("min_edge")
+            if min_edge is None:
+                min_edge = 0.10
             if edge > min_edge:
                 signal = Signal(
                     id=f"sig-{market.id}-{int(datetime.now().timestamp())}",
@@ -96,11 +109,10 @@ class ScoutAgent:
         
         :param limit: Количество рынков для проверки
         """
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM markets ORDER BY updated_at DESC LIMIT ?", (limit,))
-        rows = cursor.fetchall()
-        conn.close()
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM markets ORDER BY updated_at DESC LIMIT ?", (limit,))
+            rows = cursor.fetchall()
         
         print(f"Запуск сканирования {len(rows)} рынков...")
         

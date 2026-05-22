@@ -153,7 +153,7 @@ class MarketSelector:
             score += 1.0
 
         # Закрывается скоро → повышенная волатильность
-        days_to_close = (market.close_time - now).days
+        days_to_close = (market.close_time - now).total_seconds() / 86400
         if 0 < days_to_close <= 1:
             score += 3.0  # Завтра закрывается
         elif 1 < days_to_close <= 7:

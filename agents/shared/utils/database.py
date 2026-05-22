@@ -24,7 +24,7 @@ class DatabaseManager:
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path or str(DB_PATH)
-        # Инициализация через каноничный модуль (все таблицы, индексы)
+        # init_db() имеет встроенный guard (_db_initialized) — безопасно вызывать повторно
         _db.init_db()
 
     def _get_connection(self):
@@ -54,14 +54,36 @@ class DatabaseManager:
         """Сохраняет данные в долгосрочную Key-Value память (JSON)."""
         _db.save_memory(key, value)
 
+    def save_memory_full(self, key: str, value: Any, category: str = 'general', ttl: int = None, priority: int = 0):
+        """Сохраняет данные в долгосрочную Key-Value память с полным набором параметров."""
+        _db.save_memory(key, value, category=category, ttl=ttl, priority=priority)
+
     def get_memory(self, key: str) -> Optional[Any]:
         """Извлекает данные из долгосрочной памяти."""
         return _db.get_memory(key)
 
+    # --- Токены и модели ---
+    def get_token_usage_last_24h(self, agent_name: str) -> Dict[str, int]:
+        """Получает статистику токенов агента за 24 часа."""
+        return _db.get_token_usage_last_24h(agent_name)
 
-# Пример использования
-if __name__ == "__main__":
-    db = DatabaseManager()
-    db.add_wallet("0x123456789", alias="PolymarketWhale1", is_insider=True)
-    db.add_discussion_message("market_001", "SCOUT", "Нашел недооценку. Модель 45%, Рынок 20%.", confidence=0.85)
-    print(f"База данных успешно инициализирована по пути: {db.db_path}")
+    def get_agent_model(self, agent_name: str, default_model: str = "gemini-2.5-flash") -> str:
+        """Получает последнюю использованную модель агента."""
+        return _db.get_agent_model(agent_name, default_model)
+
+    def save_token_usage(self, agent_name: str, model_name: str, input_tokens: int, output_tokens: int):
+        """Сохраняет запись о потреблении токенов."""
+        _db.save_token_usage(agent_name, model_name, input_tokens, output_tokens)
+
+    # --- Сигналы и рынки ---
+    def save_signal(self, signal):
+        """Сохраняет торговый сигнал."""
+        _db.save_signal(signal)
+
+    def save_market(self, market):
+        """Сохраняет/обновляет данные о рынке."""
+        _db.save_market(market)
+
+    def get_signals(self, status: str = None) -> list:
+        """Получает список сигналов."""
+        return _db.get_signals(status)

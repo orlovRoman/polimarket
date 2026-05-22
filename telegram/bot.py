@@ -40,6 +40,9 @@ nexus_agent = NexusAgent()
 bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
+# ID чата, авторизованного для управления ботом
+AUTHORIZED_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
 async def set_commands(bot: Bot):
     """
     Настраивает меню команд в интерфейсе Telegram-бота.
@@ -71,6 +74,13 @@ def _is_stale_message(message: types.Message, max_age_seconds: int = 30) -> bool
         except Exception:
             pass
     return False
+
+def _is_authorized(message_or_callback) -> bool:
+    """Проверяет, имеет ли отправитель право использовать бот."""
+    if not AUTHORIZED_CHAT_ID:
+        return True  # Если не задан, пропускаем проверку
+    chat_id = str(getattr(message_or_callback, 'chat', getattr(message_or_callback, 'message', None)).id if hasattr(message_or_callback, 'chat') else message_or_callback.message.chat.id)
+    return chat_id == AUTHORIZED_CHAT_ID
 
 def ask_gemini(text: str, history: list = None) -> str:
     """
@@ -125,35 +135,70 @@ async def command_help_handler(message: types.Message) -> None:
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:
     if _is_stale_message(message): return
-    from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats
+    from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats, get_token_usage_last_24h, get_memory, get_agent_model
     
-    # Получаем время последнего сканирования и лимит из БД
+    # Получаем настройки и метрики из БД
     last_scan_str = "Неизвестно"
     scan_limit = 10
+    trend_hunter_enabled = True
+    trend_hunter_alerts = True
+    trend_hunter_last_run = "Никогда"
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT key, value FROM memory WHERE key IN ('last_scan_time', 'scan_limit')")
+            cursor.execute("SELECT key, value FROM memory WHERE key IN ('last_scan_time', 'scan_limit', 'trend_hunter_enabled', 'trend_hunter_alerts_enabled', 'trend_hunter_last_run')")
             rows = cursor.fetchall()
             for row in rows:
                 if row['key'] == 'last_scan_time':
                     last_scan_str = json.loads(row['value'])
                 elif row['key'] == 'scan_limit':
                     scan_limit = json.loads(row['value'])
+                elif row['key'] == 'trend_hunter_enabled':
+                    trend_hunter_enabled = json.loads(row['value'])
+                elif row['key'] == 'trend_hunter_alerts_enabled':
+                    trend_hunter_alerts = json.loads(row['value'])
+                elif row['key'] == 'trend_hunter_last_run':
+                    trend_hunter_last_run = json.loads(row['value'])
     except Exception:
         pass
 
     # Получаем метрики памяти
     stats = await asyncio.to_thread(get_memory_stats)
+    
+    # Загружаем используемые модели и суточный расход токенов для каждого агента
+    nexus_model = get_memory("selected_model", "gemini-2.5-flash")
+    scout_model = await asyncio.to_thread(get_agent_model, "SCOUT", "gemini-2.5-flash")
+    shadow_model = await asyncio.to_thread(get_agent_model, "SHADOW", "gemini-2.5-flash")
+    herald_model = await asyncio.to_thread(get_agent_model, "HERALD", "gemini-2.5-flash")
+    
+    nexus_tokens = await asyncio.to_thread(get_token_usage_last_24h, "NEXUS")
+    scout_tokens = await asyncio.to_thread(get_token_usage_last_24h, "SCOUT")
+    shadow_tokens = await asyncio.to_thread(get_token_usage_last_24h, "SHADOW")
+    herald_tokens = await asyncio.to_thread(get_token_usage_last_24h, "HERALD")
+    
+    def format_tokens(t):
+        tot = t.get('total_tokens', 0)
+        inp = t.get('input_tokens', 0)
+        out = t.get('output_tokens', 0)
+        if tot == 0:
+            return "<code>0 токенов</code>"
+        return f"<code>{tot:,}</code> ({inp:,} in + {out:,} out)"
 
     status_text = (
         "📊 <b>Статус системы (24/7 Monitoring):</b>\n\n"
         f"● <b>Оркестратор (NEXUS):</b> 🟢 В сети\n"
-        f"● <b>Агенты (SCOUT, SHADOW):</b> 🟢 Готовы\n"
+        f"● <b>Агенты (SCOUT, SHADOW, HERALD):</b> 🟢 Готовы\n"
         f"● <b>Планировщик:</b> 🟢 Активен (5 мин)\n"
+        f"● <b>Trend Hunter:</b> {'🟢 Активен (2 ч)' if trend_hunter_enabled else '🔴 Отключен'}\n"
+        f"● <b>Тренды-оповещения:</b> {'🟢 Включены' if trend_hunter_alerts else '🔴 Отключены'}\n"
         f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
         f"● <b>Лимит запросов:</b> <code>{scan_limit} рынков/цикл</code>\n"
         f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning else '🟢 Ожидание'}\n\n"
+        f"🤖 <b>AI Агенты и токен-баланс (24ч):</b>\n"
+        f"  ● <b>NEXUS:</b> <code>{nexus_model}</code> | {format_tokens(nexus_tokens)}\n"
+        f"  ● <b>SCOUT:</b> <code>{scout_model}</code> | {format_tokens(scout_tokens)}\n"
+        f"  ● <b>SHADOW:</b> <code>{shadow_model}</code> | {format_tokens(shadow_tokens)}\n"
+        f"  ● <b>HERALD:</b> <code>{herald_model}</code> | {format_tokens(herald_tokens)}\n\n"
         f"🧠 <b>Память:</b>\n"
         f"  Факты (Layer 1): {stats.get('facts', '?')}\n"
         f"  Рынков в БД: {stats.get('markets', '?')}\n"
@@ -162,7 +207,8 @@ async def command_status_handler(message: types.Message) -> None:
         f"  Мнений агентов: {stats.get('opinions', '?')}\n"
         f"  Vault файлов: {stats.get('vault_files', '?')}\n"
         f"  Размер БД: {stats.get('db_size_kb', 0):.0f} KB\n\n"
-        f"🕒 <b>Последнее авто-сканирование:</b>\n<code>{last_scan_str}</code>"
+        f"🕒 <b>Последнее авто-сканирование:</b>\n<code>{last_scan_str}</code>\n"
+        f"🎯 <b>Последний поиск трендов:</b>\n<code>{trend_hunter_last_run}</code>"
     )
     await message.answer(status_text)
 
@@ -175,11 +221,129 @@ async def command_stats_handler(message: types.Message) -> None:
 async def command_settings_handler(message: types.Message) -> None:
     from agents.shared.python.db import get_memory
     current_edge = int((get_memory("min_edge") or 0.10) * 100)
+    try:
+        rag_level = get_memory("rag_level")
+        rag_level = int(rag_level) if rag_level is not None else 2
+    except Exception:
+        rag_level = 2
+    
+    rag_labels = {1: "Быстрый (L1)", 2: "Стандарт (L2)", 3: "Глубокий (L3)"}
+    rag_text = rag_labels.get(rag_level, "Стандарт (L2)")
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Лимит рынков (scan_limit)", callback_data="settings_limits")],
         [InlineKeyboardButton(text=f"🎯 Edge порог: {current_edge}%", callback_data="settings_edge")],
+        [InlineKeyboardButton(text=f"🧠 RAG-глубина: {rag_text}", callback_data="settings_rag")],
+        [InlineKeyboardButton(text="🔎 Настройки Trend Hunter", callback_data="settings_trend_hunter")],
     ])
     await message.answer("⚙️ <b>Настройки системы:</b>\n\nВыберите параметр для настройки:", reply_markup=keyboard)
+
+@dp.callback_query(F.data == "settings_trend_hunter")
+async def callback_settings_trend_hunter(callback: CallbackQuery) -> None:
+    from agents.shared.python.db import get_memory
+    enabled = get_memory("trend_hunter_enabled", True)
+    alerts = get_memory("trend_hunter_alerts_enabled", True)
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🎯 Охотник: {'🟢 Вкл' if enabled else '🔴 Выкл'}", callback_data="toggle_trend_hunter")],
+        [InlineKeyboardButton(text=f"🔔 Оповещения: {'🟢 Вкл' if alerts else '🔴 Выкл'}", callback_data="toggle_trend_alerts")],
+        [InlineKeyboardButton(text="🚀 Запустить поиск сейчас", callback_data="trigger_trend_hunter")],
+        [InlineKeyboardButton(text="⬅️ Назад в настройки", callback_data="back_to_settings")]
+    ])
+    
+    await callback.message.edit_text(
+        "🔎 <b>Настройки проактивного Trend Hunter:</b>\n\n"
+        "Служба автоматически парсит бесплатные ленты новостей Google News и тренды Google Trends раз в 2 часа, извлекает новые мировые события через ИИ NEXUS, ищет соответствующие рынки на Polymarket и мгновенно триггерит их точечный командный анализ.\n\n"
+        "Выберите параметр или запустите вручную:",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "toggle_trend_hunter")
+async def callback_toggle_trend_hunter(callback: CallbackQuery) -> None:
+    from agents.shared.python.db import get_memory, save_memory
+    current = get_memory("trend_hunter_enabled", True)
+    new_val = not current
+    await asyncio.to_thread(save_memory, "trend_hunter_enabled", new_val)
+    await callback_settings_trend_hunter(callback)
+
+@dp.callback_query(F.data == "toggle_trend_alerts")
+async def callback_toggle_trend_alerts(callback: CallbackQuery) -> None:
+    from agents.shared.python.db import get_memory, save_memory
+    current = get_memory("trend_hunter_alerts_enabled", True)
+    new_val = not current
+    await asyncio.to_thread(save_memory, "trend_hunter_alerts_enabled", new_val)
+    await callback_settings_trend_hunter(callback)
+
+@dp.callback_query(F.data == "trigger_trend_hunter")
+async def callback_trigger_trend_hunter(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "🚀 <b>Принудительный запуск Trend Hunter...</b>\n\n"
+        "Служба запущена в фоновом режиме. Она скачает свежие RSS Google News/Trends, извлечет тренды через NEXUS и проверит активные рынки на Polymarket.\n\n"
+        "Если найдутся новые рынки, они сразу отправятся на командный анализ ИИ и вы получите уведомление!",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад к Охотнику", callback_data="settings_trend_hunter")]
+        ])
+    )
+    await callback.answer()
+    
+    # Запускаем в фоновом потоке
+    from services.trend_hunter import run_trend_hunter
+    asyncio.create_task(asyncio.to_thread(run_trend_hunter))
+
+@dp.callback_query(F.data == "back_to_settings")
+async def callback_back_to_settings(callback: CallbackQuery) -> None:
+    from agents.shared.python.db import get_memory
+    current_edge = int((get_memory("min_edge") or 0.10) * 100)
+    try:
+        rag_level = get_memory("rag_level")
+        rag_level = int(rag_level) if rag_level is not None else 2
+    except Exception:
+        rag_level = 2
+    
+    rag_labels = {1: "Быстрый (L1)", 2: "Стандарт (L2)", 3: "Глубокий (L3)"}
+    rag_text = rag_labels.get(rag_level, "Стандарт (L2)")
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Лимит рынков (scan_limit)", callback_data="settings_limits")],
+        [InlineKeyboardButton(text=f"🎯 Edge порог: {current_edge}%", callback_data="settings_edge")],
+        [InlineKeyboardButton(text=f"🧠 RAG-глубина: {rag_text}", callback_data="settings_rag")],
+        [InlineKeyboardButton(text="🔎 Настройки Trend Hunter", callback_data="settings_trend_hunter")],
+    ])
+    await callback.message.edit_text("⚙️ <b>Настройки системы:</b>\n\nВыберите параметр для настройки:", reply_markup=keyboard)
+    await callback.answer()
+
+@dp.callback_query(F.data == "settings_rag")
+async def callback_settings_rag(callback: CallbackQuery) -> None:
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Быстрый (L1 - 2 док., 15 строк)", callback_data="setrag_1")],
+        [InlineKeyboardButton(text="Стандарт (L2 - 4 док., 30 строк)", callback_data="setrag_2")],
+        [InlineKeyboardButton(text="Глубокий (L3 - 8 док., 60 строк)", callback_data="setrag_3")]
+    ])
+    await callback.message.edit_text(
+        "🧠 <b>Глубина RAG-анализа (Obsidian):</b>\n\n"
+        "Выберите уровень детализации контекста долгосрочной памяти при принятии решений:\n\n"
+        "• <b>L1 (Быстрый):</b> Минимальный контекст, максимальная экономия токенов.\n"
+        "• <b>L2 (Стандарт):</b> Оптимальный баланс глубины и стоимости (рекомендуется).\n"
+        "• <b>L3 (Глубокий):</b> Максимальный сбор исторических параллелей и заметок.", 
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("setrag_"))
+async def callback_setrag_handler(callback: CallbackQuery) -> None:
+    level = int(callback.data.split("_")[1])
+    from agents.shared.python.db import save_memory
+    await asyncio.to_thread(save_memory, "rag_level", level)
+    
+    rag_labels = {1: "Быстрый (L1)", 2: "Стандарт (L2)", 3: "Глубокий (L3)"}
+    level_text = rag_labels.get(level, "Стандарт (L2)")
+    
+    await callback.message.edit_text(
+        f"✅ <b>Глубина RAG обновлена!</b>\n"
+        f"Теперь используется режим: <b>{level_text}</b>"
+    )
+    await callback.answer()
 
 @dp.callback_query(F.data == "settings_limits")
 async def callback_settings_limits(callback: CallbackQuery) -> None:
@@ -243,8 +407,11 @@ async def command_logs_handler(message: types.Message) -> None:
         return
     
     try:
-        # Читаем последние 10 строк
-        logs = subprocess.check_output(["tail", "-n", "10", str(LOG_PATH)]).decode("utf-8")
+        # Читаем последние 10 строк нативно (без `tail`, которого нет на Windows)
+        with open(LOG_PATH, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+            last_lines = all_lines[-10:]
+            logs = "".join(last_lines)
         # Экранируем спецсимволы для HTML
         safe_logs = logs.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         await message.answer(f"📜 <b>Последние логи:</b>\n<pre>{safe_logs}</pre>")
@@ -340,6 +507,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         cat_name = cat_map.get(category, category)
 
     await callback.message.edit_text(f"🚀 Запускаю полный цикл анализа (Категория: {cat_name})...")
+    await callback.answer("🔄 Сканирование запущено...")
     is_scanning = True
     status_msg = callback.message
     
@@ -365,10 +533,10 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
             
             # Update log status
             if log_lines and is_scanning:
-                current_text = "\\n".join(log_lines[-20:])
+                current_text = "\n".join(log_lines[-20:])
                 if current_text != last_text:
                     try:
-                        await status_msg.edit_text(f"<b>Процесс обсуждения (Категория: {cat_name}):</b>\\n<pre>{current_text}</pre>", parse_mode="HTML")
+                        await status_msg.edit_text(f"<b>Процесс обсуждения (Категория: {cat_name}):</b>\n<pre>{current_text}</pre>", parse_mode="HTML")
                         last_text = current_text
                     except Exception:
                         pass
@@ -388,8 +556,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         # Wait a bit to ensure the queue is empty before cancelling
         await asyncio.sleep(2.5)
         updater_task.cancel()
-    
-    await callback.answer()
+
 
 @dp.message(Command("ideas"))
 async def command_ideas_handler(message: types.Message) -> None:

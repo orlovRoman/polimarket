@@ -1,10 +1,8 @@
 import os
-import requests
 import json
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 from agents.shared.python.models import Market, AgentOpinion
-from agents.shared.python.db import get_connection
 
 class ShadowAgent:
     """
@@ -18,7 +16,6 @@ class ShadowAgent:
         """
         self.api_key = api_key
         self.model = model
-        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
         
         # Загружаем детальные системные инструкции из файла конфигурации агента
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -85,11 +82,21 @@ class ShadowAgent:
             if tx_lines:
                 trader_transactions_str = "=== КРУПНЫЕ СДЕЛКИ ТРЕЙДЕРОВ (SMART MONEY) ===\n" + "\n".join(tx_lines)
         
+        # Загружаем RAG-память из Obsidian
+        try:
+            from agents.shared.utils.rag import get_rag_context
+            rag_context = get_rag_context(market.title, market.description)
+        except Exception as e:
+            print(f"[SHADOW] Ошибка загрузки RAG-памяти: {e}")
+            rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
 Текущая цена: {market.price}
 Идея SCOUT: {scout_opinion}
+
+{rag_context}
 
 {orderbook_str}
 
@@ -101,36 +108,34 @@ class ShadowAgent:
 """
         
         payload = {
-            "contents": [{"role": "user", "parts": [{"text": self.system_instruction + "\n\n" + prompt}]}],
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "systemInstruction": {"parts": [{"text": self.system_instruction}]},
             "generationConfig": {"response_mime_type": "application/json"}
         }
         
+        from agents.shared.utils.gemini_client import generate_content_with_fallback
+        result, active_model = generate_content_with_fallback(
+            api_key=self.api_key,
+            payload=payload,
+            default_model=self.model,
+            agent_name="SHADOW"
+        )
+        
+        if not result:
+            return None
+            
         try:
-            response = requests.post(self.api_url, json=payload, timeout=30)
-            if response.status_code == 200:
-                result = response.json()
-                analysis = json.loads(result['candidates'][0]['content']['parts'][0]['text'])
-                
-                return AgentOpinion(
-                    agent_name="SHADOW",
-                    market_id=market.id,
-                    opinion=analysis.get("opinion", ""),
-                    confidence=analysis.get("confidence", 0.5),
-                    agree=analysis.get("agree", False)
-                )
+            analysis = json.loads(result['candidates'][0]['content']['parts'][0]['text'])
+            
+            return AgentOpinion(
+                agent_name="SHADOW",
+                market_id=market.id,
+                opinion=analysis.get("opinion", ""),
+                confidence=float(analysis.get("confidence", 0.5)),
+                agree=analysis.get("agree", False)
+            )
         except Exception as e:
             print(f"Ошибка SHADOW при анализе {market.id}: {e}")
         return None
 
-def save_opinion(opinion: AgentOpinion):
-    """
-    Сохраняет вынесенное мнение эксперта в БД SQLite.
-    """
-    from agents.shared.python.db import get_connection
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO agent_opinions (agent_name, market_id, opinion, confidence, agree)
-            VALUES (?, ?, ?, ?, ?)
-        """, (opinion.agent_name, opinion.market_id, opinion.opinion, opinion.confidence, opinion.agree))
-        conn.commit()
+

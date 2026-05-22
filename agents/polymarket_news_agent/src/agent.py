@@ -3,9 +3,9 @@ import requests
 import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from typing import Optional, List
+from urllib.parse import quote
+from typing import Optional
 from agents.shared.python.models import Market, AgentOpinion
-from agents.shared.python.db import get_connection
 
 class HeraldAgent:
     """
@@ -20,7 +20,6 @@ class HeraldAgent:
         """
         self.api_key = api_key
         self.model = model
-        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
         
         # Загружаем детальные системные инструкции из файла конфигурации агента
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,7 +34,7 @@ class HeraldAgent:
         :return: Список заголовков новостей
         """
         try:
-            url = f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
+            url = f"https://news.google.com/rss/search?q={quote(query)}&hl=en-US&gl=US&ceid=US:en"
             response = requests.get(url, timeout=10)
             if response.status_code != 200:
                 return []
@@ -62,12 +61,22 @@ class HeraldAgent:
         print(f"  HERALD ищет новости и проверяет статус по запросу: {market.title}...")
         news_titles = self.fetch_rss_news(market.title)
         
+        # Загружаем RAG-память из Obsidian
+        try:
+            from agents.shared.utils.rag import get_rag_context
+            rag_context = get_rag_context(market.title, market.description)
+        except Exception as e:
+            print(f"[HERALD] Ошибка загрузки RAG-памяти: {e}")
+            rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
+
         prompt = f"""
 Сегодняшняя дата: {datetime.now().strftime('%Y-%m-%d')}
 Рынок: {market.title}
 Описание: {market.description}
 Текущая цена: {market.price}
 Идея SCOUT: {scout_opinion}
+
+{rag_context}
 
 Последние заголовки RSS (для справки):
 {chr(10).join(news_titles) if news_titles else "RSS новостей не найдено."}
@@ -79,41 +88,50 @@ class HeraldAgent:
 """
         
         payload = {
-            "contents": [{"role": "user", "parts": [{"text": self.system_instruction + "\n\n" + prompt}]}],
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "systemInstruction": {"parts": [{"text": self.system_instruction}]},
             "tools": [{"google_search": {}}],
             # НЕ совмещаем google_search с response_mime_type: application/json (API 400)
         }
         
+        from agents.shared.utils.gemini_client import generate_content_with_fallback
+        result, active_model = generate_content_with_fallback(
+            api_key=self.api_key,
+            payload=payload,
+            default_model=self.model,
+            agent_name="HERALD"
+        )
+        
+        if not result:
+            return None
+            
         try:
-            response = requests.post(self.api_url, json=payload, timeout=45)
-            if response.status_code == 200:
-                result = response.json()
-                raw_text = result['candidates'][0]['content']['parts'][0]['text']
-                
-                # Пытаемся извлечь JSON из ответа (может быть обёрнут в markdown)
-                import re
-                json_match = re.search(r'\{[^{}]*"agree"[^{}]*\}', raw_text, re.DOTALL)
-                if json_match:
-                    analysis = json.loads(json_match.group())
-                else:
-                    # Fallback: LLM не вернул JSON — используем текст как мнение
-                    analysis = {"agree": False, "confidence": 0.3, "opinion": raw_text[:300]}
-                
-                opinion = AgentOpinion(
-                    agent_name="HERALD",
-                    market_id=market.id,
-                    opinion=analysis.get("opinion", ""),
-                    confidence=analysis.get("confidence", 0.5),
-                    agree=analysis.get("agree", False)
-                )
-                
-                # Специальная обработка для ситуаций арбитража
-                if analysis.get("is_arbitrage"):
-                    opinion.opinion = "🚨 [АРБИТРАЖ] " + opinion.opinion
-                    opinion.confidence = 1.0
-                    opinion.agree = True
-                
-                return opinion
+            raw_text = result['candidates'][0]['content']['parts'][0]['text']
+            
+            # Пытаемся извлечь JSON из ответа (может быть обёрнут в markdown)
+            import re
+            json_match = re.search(r'\{[^{}]*"agree"[^{}]*\}', raw_text, re.DOTALL)
+            if json_match:
+                analysis = json.loads(json_match.group())
+            else:
+                # Fallback: LLM не вернул JSON — используем текст как мнение
+                analysis = {"agree": False, "confidence": 0.3, "opinion": raw_text[:300]}
+            
+            opinion = AgentOpinion(
+                agent_name="HERALD",
+                market_id=market.id,
+                opinion=analysis.get("opinion", ""),
+                confidence=float(analysis.get("confidence", 0.5)),
+                agree=analysis.get("agree", False)
+            )
+            
+            # Специальная обработка для ситуаций арбитража
+            if analysis.get("is_arbitrage"):
+                opinion.opinion = "🚨 [АРБИТРАЖ] " + opinion.opinion
+                opinion.confidence = 1.0
+                opinion.agree = True
+            
+            return opinion
         except Exception as e:
             print(f"Ошибка HERALD при анализе {market.id}: {e}")
         return None

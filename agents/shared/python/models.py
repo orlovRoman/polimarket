@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 
@@ -25,7 +25,7 @@ class Signal(BaseModel):
     summary: str
     details: str
     status: Literal['PENDING', 'EXECUTED', 'REJECTED', 'ARCHIVED'] = 'PENDING'
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AgentOpinion(BaseModel):
     agent_name: str
@@ -33,7 +33,7 @@ class AgentOpinion(BaseModel):
     opinion: str
     confidence: float
     agree: bool
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class MarketCorrelation(BaseModel):
     """Обнаруженная корреляция между двумя рынками."""
@@ -44,5 +44,5 @@ class MarketCorrelation(BaseModel):
     correlation_type: Literal['causal', 'inverse', 'arbitrage', 'thematic']
     description: str
     confidence: float
-    detected_at: datetime = Field(default_factory=datetime.utcnow)
+    detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
