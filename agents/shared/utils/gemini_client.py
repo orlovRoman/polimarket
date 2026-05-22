@@ -5,7 +5,7 @@ import time
 from typing import Optional, Tuple
 from agents.shared.python.db import save_token_usage
 
-def convert_gemini_to_openai(payload: dict, model_name: str = "grok-2") -> dict:
+def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
     """
     Конвертирует payload из формата Google Gemini API в формат OpenAI (совместимый с Grok).
     """
@@ -101,7 +101,7 @@ def generate_content_with_fallback(
     :return: Кортеж (result_json, успешная_модель)
     """
     grok_key = os.getenv("GROK_API_KEY")
-    grok_model = os.getenv("GROK_MODEL", "grok-2")
+    grok_model = os.getenv("GROK_MODEL", "grok-3")
     
     # Формируем список моделей для опроса. Если есть ключ Grok, он идет ПЕРВЫМ.
     models = []
