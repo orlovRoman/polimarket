@@ -26,7 +26,7 @@ class HeraldAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def fetch_rss_news(self, query: str) -> List[str]:
+    def fetch_rss_news(self, query: str) -> list[str]:
         """
         Получает последние новости через Google News RSS для первичного ознакомления.
         
