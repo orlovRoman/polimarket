@@ -82,7 +82,7 @@ def release_process_lock():
     except Exception as e:
         print(f"[Lock] Ошибка удаления файла блокировки: {e}")
 
-def run_team_discussion(log_callback=None, summary_callback=None, category=None, market_id=None):
+def run_team_discussion(log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None):
     """
     Координирует обсуждение рынков командой AI-агентов.
     Включает двухстадийный pipeline: SCREENER (NEXUS) → SCOUT → SHADOW → HERALD.
@@ -99,12 +99,12 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None,
         return 0
     
     try:
-        return _run_team_discussion_inner(log_callback, summary_callback, category, market_id)
+        return _run_team_discussion_inner(log_callback, summary_callback, category, market_id, state_callback)
     finally:
         release_process_lock()
         _scan_lock.release()
 
-def _run_team_discussion_inner(log_callback=None, summary_callback=None, category=None, market_id=None):
+def _run_team_discussion_inner(log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None):
     """Внутренняя реализация обсуждения (защищена _scan_lock)."""
     def log(msg):
         try:
@@ -141,6 +141,27 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
 
     if not summary_callback:
         summary_callback = send_telegram_alert
+
+    state = {
+        "category": category if category else "Авто-микс",
+        "total_markets": 0,
+        "current_market_index": 0,
+        "current_market_title": "Инициализация...",
+        "current_market_url": "",
+        "scout_status": "⏳ Ожидает",
+        "shadow_status": "⏳ Ожидает",
+        "herald_status": "⏳ Ожидает",
+        "ideas_found": 0,
+        "stage": "Скрининг NEXUS"
+    }
+
+    def update_state(**kwargs):
+        state.update(kwargs)
+        if state_callback:
+            try:
+                state_callback(state.copy())
+            except Exception as e:
+                print(f"Ошибка state_callback: {e}")
 
     # Загружаем настройки и инициализируем базу данных
     load_dotenv()
@@ -222,6 +243,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
     if market_id:
         cat_msg = f" (точечный горячий анализ {market_id})"
     log(f"\n--- 1. Поиск новых рынков{cat_msg} ---")
+    update_state(stage="Отбор рынков")
     
     if market_id:
         log(f"  Загружаем конкретный рынок по запросу: {market_id}")
@@ -263,13 +285,22 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
     # ===================================================================
     log(f"\n--- 2. Обсуждение идей (SCOUT + SHADOW + HERALD) ---")
     log(f"Всего рынков для проверки: {len(markets)}")
+    update_state(total_markets=len(markets), stage="Обсуждение (SCOUT + SHADOW + HERALD)")
     
     # Получаем список рынков, которые были проанализированы за последние N часов (кулдаун)
     from config import MARKET_COOLDOWN_HOURS
     cooldown_markets = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
     
     new_markets_found = False
-    for m in markets:
+    for i, m in enumerate(markets, 1):
+        update_state(
+            current_market_index=i,
+            current_market_title=m.title,
+            current_market_url=m.url,
+            scout_status="⏳ Ожидает",
+            shadow_status="⏳ Ожидает",
+            herald_status="⏳ Ожидает"
+        )
         # Проверяем, анализировали ли мы этот рынок ранее при такой же цене (если это не точечный анализ по market_id)
         last_price = get_last_analyzed_price(m.id)
         
@@ -282,6 +313,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                 log(f"\n[РЫНОК]: {m.title} (Цена {m.price} стабильна и рынок на 6-часовом кулдауне, пропускаем)")
                 # Всё равно записываем price point для истории
                 save_price_point(m.id, m.price)
+                update_state(scout_status="⚪️ Пропущен (Кулдаун)")
                 continue
             elif not is_cooldown:
                 log(f"\n[РЫНОК]: {m.title} (Истек 6-часовой кулдаун, пересматриваем)")
@@ -300,6 +332,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
         
         # ЭТАП 1: SCOUT ищет математическую недооценку (Edge)
         log("  SCOUT оценивает...")
+        update_state(scout_status="🔄 Считает вероятности...")
         signal = scout.estimate_market(m)
         
         opinion_shadow = None
@@ -307,6 +340,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
 
         if signal:
             log(f"  SCOUT: Нашел недооценку! Ожидаемый Edge: {signal.edge:.2f}")
+            update_state(scout_status=f"🟢 Нашел Edge ({signal.edge:.2f})", shadow_status="🔄 Проверяет ордербук...")
             
             # Получаем ордербук для SHADOW (если есть token_id)
             orderbook = None
@@ -324,10 +358,14 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
             # ЭТАП 2: SHADOW анализирует ордербук и ликвидность
             log("  SHADOW проверяет...")
             opinion_shadow = shadow.analyze_idea(m, signal.details, orderbook=orderbook, price_history=price_hist)
+            status_sh = "✅ Согласен" if (opinion_shadow and opinion_shadow.agree) else "❌ Против"
+            update_state(shadow_status=f"{status_sh} (Увер: {opinion_shadow.confidence if opinion_shadow else 0})", herald_status="🔄 Ищет новости...")
             
             # ЭТАП 3: HERALD ищет новости и проверяет, не завершилось ли событие досрочно
             log("  HERALD проверяет...")
             opinion_herald = herald.analyze_idea(m, signal.details)
+            status_he = "✅ Согласен" if (opinion_herald and opinion_herald.agree) else "❌ Против"
+            update_state(herald_status=f"{status_he} (Увер: {opinion_herald.confidence if opinion_herald else 0})")
             
             # Сохраняем мнения всех агентов в базу данных для истории
             for op in [opinion_shadow, opinion_herald]:
@@ -346,10 +384,12 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                 
                 log("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ. Генерируем сигнал.")
                 save_signal(signal)
+                update_state(ideas_found=state["ideas_found"] + 1)
             else:
                 log("  --- Консенсус не достигнут. Идея отклонена экспертами.")
         else:
             log("  SCOUT: Математическое преимущество не обнаружено.")
+            update_state(scout_status="⚪️ Идея не найдена")
             
         # Формируем и отправляем краткое резюме для Telegram-интерфейса
         if summary_callback:

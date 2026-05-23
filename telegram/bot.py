@@ -533,6 +533,41 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
     def log_callback(text):
         log_lines.append(text)
 
+    current_state = {}
+    def state_callback(state):
+        nonlocal current_state
+        current_state = state
+
+    def render_dashboard(state):
+        if not state:
+            return f"🚀 <b>Запуск сканирования (Категория: {cat_name})...</b>"
+            
+        html = f"🚀 <b>Сканирование рынков</b>\n"
+        html += f"<b>Категория:</b> {state.get('category', cat_name)}\n"
+        html += f"<b>Этап:</b> {state.get('stage', 'В процессе')}\n"
+        
+        total = state.get('total_markets', 0)
+        if total > 0:
+            html += f"<b>Прогресс:</b> Рынок {state.get('current_market_index', 0)} из {total}\n\n"
+        else:
+            html += "\n"
+            
+        title = state.get('current_market_title', '')
+        url = state.get('current_market_url', '')
+        if title:
+            if url:
+                html += f"<b>Текущий рынок:</b>\n<a href='{url}'>{title}</a>\n\n"
+            else:
+                html += f"<b>Текущий рынок:</b>\n{title}\n\n"
+                
+        html += "<b>Статус агентов:</b>\n"
+        html += f"🕵️‍♂️ <b>SCOUT:</b> {state.get('scout_status', '⏳ Ожидает')}\n"
+        html += f"👤 <b>SHADOW:</b> {state.get('shadow_status', '⏳ Ожидает')}\n"
+        html += f"📰 <b>HERALD:</b> {state.get('herald_status', '⏳ Ожидает')}\n\n"
+        
+        html += f"<i>💡 Найдено идей (консенсус): {state.get('ideas_found', 0)}</i>"
+        return html
+
     summaries_queue = []
     def summary_callback(text):
         summaries_queue.append(text)
@@ -550,12 +585,12 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                     print(f"Ошибка отправки summary: {e}")
             
             # Update log status
-            if log_lines and is_scanning:
-                current_text = "\n".join(log_lines[-20:])
-                if current_text != last_text:
+            if current_state and is_scanning:
+                new_html = render_dashboard(current_state)
+                if new_html != last_text:
                     try:
-                        await status_msg.edit_text(f"<b>Процесс обсуждения (Категория: {cat_name}):</b>\n<pre>{current_text}</pre>", parse_mode="HTML")
-                        last_text = current_text
+                        await status_msg.edit_text(new_html, parse_mode="HTML", disable_web_page_preview=True)
+                        last_text = new_html
                     except Exception:
                         pass
 
@@ -563,9 +598,10 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
     
     try:
         import sys, os; sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); from run_team import run_team_discussion
-        await asyncio.to_thread(run_team_discussion, log_callback, summary_callback, category_param)
-        if log_lines:
-            await status_msg.edit_text(f"<b>Процесс обсуждения завершен (Категория: {cat_name}):</b>\\n<pre>{chr(10).join(log_lines[-20:])}</pre>", parse_mode="HTML")
+        await asyncio.to_thread(run_team_discussion, log_callback, summary_callback, category_param, None, state_callback)
+        if current_state:
+            final_html = render_dashboard(current_state)
+            await status_msg.edit_text(final_html + "\n\n<b>✅ ПРОЦЕСС ЗАВЕРШЕН</b>", parse_mode="HTML", disable_web_page_preview=True)
         await callback.message.answer("✅ Сканирование завершено! Используйте /ideas чтобы увидеть результат.")
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка во время сканирования: {e}")
