@@ -102,9 +102,13 @@ def generate_content_with_fallback(
     """
     grok_key = os.getenv("GROK_API_KEY")
     grok_model = os.getenv("GROK_MODEL", "grok-3")
+    or_key = os.getenv("OPENROUTER_API_KEY")
+    or_model = os.getenv("OPENROUTER_MODEL", "openrouter/owl-alpha")
     
-    # Формируем список моделей для опроса. Если есть ключ Grok, он идет ПЕРВЫМ.
+    # Формируем список моделей для опроса. Если есть ключ OpenRouter, он идет ПЕРВЫМ.
     models = []
+    if or_key:
+        models.append("openrouter")
     if grok_key:
         models.append("grok")
         
@@ -115,6 +119,58 @@ def generate_content_with_fallback(
             models.append(m)
             
     for current_model in models:
+        # --- ВЕТКА OPENROUTER ---
+        if current_model == "openrouter":
+            if not or_key:
+                continue
+                
+            print(f"[{agent_name}] Отправка запроса в OpenRouter API (модель {or_model})...")
+            try:
+                openai_payload = convert_gemini_to_openai(payload, model_name=or_model)
+                
+                headers = {
+                    "Authorization": f"Bearer {or_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/orlovRoman/polimarket",
+                    "X-Title": "Polymarket Bot Team"
+                }
+                
+                response = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    json=openai_payload,
+                    headers=headers,
+                    timeout=timeout
+                )
+                
+                if response.status_code == 200:
+                    openai_res = response.json()
+                    
+                    if "error" in openai_res:
+                        print(f"[{agent_name}] Ошибка в ответе OpenRouter API: {openai_res['error']}")
+                        continue
+                        
+                    if "choices" not in openai_res or not openai_res["choices"]:
+                        print(f"[{agent_name}] Ответ OpenRouter API не содержит choices: {openai_res}")
+                        continue
+                        
+                    result = convert_openai_to_gemini(openai_res)
+                    
+                    # Сохраняем токены
+                    prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
+                    completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
+                    if prompt_tokens > 0 or completion_tokens > 0:
+                        try:
+                            save_token_usage(agent_name, or_model, prompt_tokens, completion_tokens)
+                        except Exception as e:
+                            print(f"[{agent_name}] Ошибка сохранения расхода токенов OpenRouter: {e}")
+                            
+                    return result, or_model
+                else:
+                    print(f"[{agent_name}] Ошибка OpenRouter API ({response.status_code}): {response.text}")
+            except Exception as e:
+                print(f"[{agent_name}] Исключение при запросе к OpenRouter: {e}")
+            continue
+            
         # --- ВЕТКА GROK ---
         if current_model == "grok":
             if not grok_key:
