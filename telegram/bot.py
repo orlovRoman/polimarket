@@ -59,6 +59,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="model", description="Выбор языковой модели"),
         BotCommand(command="logs", description="Просмотр последних логов"),
         BotCommand(command="cleanup", description="Очистить устаревшие сигналы"),
+        BotCommand(command="restart", description="Перезапуск бота"),
     ]
     await bot.set_my_commands(commands)
 
@@ -417,6 +418,23 @@ async def command_logs_handler(message: types.Message) -> None:
         await message.answer(f"📜 <b>Последние логи:</b>\n<pre>{safe_logs}</pre>")
     except Exception as e:
         await message.answer(f"Ошибка чтения логов: {e}")
+
+@dp.message(Command("restart"))
+async def command_restart_handler(message: types.Message) -> None:
+    """Останавливает процесс бота. Менеджер процессов (systemd/PM2) автоматически его перезапустит."""
+    if _is_stale_message(message): return
+    
+    expected_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if expected_chat_id and str(message.chat.id) != expected_chat_id:
+        await message.answer("❌ Нет доступа.")
+        return
+        
+    await message.answer("🔄 <b>Перезапуск бота...</b>\nПроцесс будет завершен, операционная система автоматически поднимет его заново через пару секунд.", parse_mode="HTML")
+    logging.warning("Получена команда /restart. Завершаю процесс (os._exit(0))...")
+    
+    # Даем Telegram время на отправку сообщения перед убийством процесса
+    await asyncio.sleep(1)
+    os._exit(0)
 
 @dp.message(Command("cleanup"))
 async def command_cleanup_handler(message: types.Message) -> None:

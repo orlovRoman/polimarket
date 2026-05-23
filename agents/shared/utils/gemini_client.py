@@ -2,12 +2,29 @@ import os
 import requests
 import json
 import time
+import logging
 from typing import Optional, Tuple
 from agents.shared.python.db import save_token_usage
 
+logger = logging.getLogger("gemini_client")
+
+def _lower_types(schema):
+    """Рекурсивно приводит значения 'type' к нижнему регистру для совместимости с OpenAI."""
+    if isinstance(schema, dict):
+        new_schema = {}
+        for k, v in schema.items():
+            if k == "type" and isinstance(v, str):
+                new_schema[k] = v.lower()
+            else:
+                new_schema[k] = _lower_types(v)
+        return new_schema
+    elif isinstance(schema, list):
+        return [_lower_types(item) for item in schema]
+    return schema
+
 def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
     """
-    Конвертирует payload из формата Google Gemini API в формат OpenAI (совместимый с Grok).
+    Конвертирует payload из формата Google Gemini API в формат OpenAI (совместимый с Grok и OpenRouter).
     """
     openai_messages = []
     
@@ -25,28 +42,71 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
     contents = payload.get("contents", [])
     for msg in contents:
         role = msg.get("role", "user")
+        parts = msg.get("parts", [])
+        
+        # В Gemini ответы инструментов имеют роль 'function'
+        if role == "function":
+            for part in parts:
+                if "functionResponse" in part:
+                    fr = part["functionResponse"]
+                    openai_messages.append({
+                        "role": "tool",
+                        "tool_call_id": f"call_{fr.get('name')}", # Имитация ID
+                        "name": fr.get("name"),
+                        "content": json.dumps(fr.get("response", {}))
+                    })
+            continue
+
         # В Gemini роль для ответов модели - 'model', в OpenAI - 'assistant'
         openai_role = "assistant" if role in ["model", "assistant"] else "user"
         
-        parts = msg.get("parts", [])
         text_content = ""
+        tool_calls = []
+        
         for part in parts:
             if "text" in part:
                 text_content += part["text"]
+            elif "functionCall" in part:
+                fc = part["functionCall"]
+                tool_calls.append({
+                    "id": f"call_{fc.get('name')}", # Имитация ID
+                    "type": "function",
+                    "function": {
+                        "name": fc.get("name"),
+                        "arguments": json.dumps(fc.get("args", {}))
+                    }
+                })
                 
-        # Если сообщение пустое, но есть другие поля (например, function calls), 
-        # то для простого текстового ИИ-клиента мы просто пропускаем или пишем плейсхолдер
-        if not text_content and "functionCall" in part:
-            text_content = f"[Вызов функции: {part['functionCall'].get('name')}]"
+        message_dict = {"role": openai_role, "content": text_content if text_content else None}
+        if tool_calls:
+            message_dict["tool_calls"] = tool_calls
             
-        openai_messages.append({"role": openai_role, "content": text_content})
+        openai_messages.append(message_dict)
         
     openai_payload = {
         "model": model_name,
         "messages": openai_messages
     }
     
-    # 3. Настройка формата JSON, если требуется
+    # 3. Конвертация инструментов (tools)
+    if "tools" in payload:
+        openai_tools = []
+        for gemini_tool in payload["tools"]:
+            if "functionDeclarations" in gemini_tool:
+                for func in gemini_tool["functionDeclarations"]:
+                    # OpenAI требует lower-case для типов, Gemini обычно UPPERCASE (OBJECT, STRING)
+                    func_copy = json.loads(json.dumps(func))
+                    if "parameters" in func_copy:
+                        func_copy["parameters"] = _lower_types(func_copy["parameters"])
+                        
+                    openai_tools.append({
+                        "type": "function",
+                        "function": func_copy
+                    })
+        if openai_tools:
+            openai_payload["tools"] = openai_tools
+            
+    # 4. Настройка формата JSON, если требуется
     gen_config = payload.get("generationConfig", {})
     if gen_config.get("response_mime_type") == "application/json":
         openai_payload["response_format"] = {"type": "json_object"}
@@ -55,10 +115,32 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
 
 def convert_openai_to_gemini(openai_res: dict) -> dict:
     """
-    Конвертирует ответ из формата OpenAI API (Grok) обратно в формат Gemini.
+    Конвертирует ответ из формата OpenAI API (Grok/OpenRouter) обратно в формат Gemini.
     """
     choice = openai_res["choices"][0]
-    text = choice["message"]["content"]
+    message = choice.get("message", {})
+    text = message.get("content") or ""
+    
+    parts = []
+    if text:
+        parts.append({"text": text})
+        
+    tool_calls = message.get("tool_calls", [])
+    for tc in tool_calls:
+        if tc.get("type") == "function":
+            func = tc.get("function", {})
+            try:
+                args = json.loads(func.get("arguments", "{}"))
+            except Exception:
+                args = {}
+                
+            parts.append({
+                "functionCall": {
+                    "name": func.get("name"),
+                    "args": args
+                }
+            })
+            
     prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
     completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
     
@@ -66,11 +148,8 @@ def convert_openai_to_gemini(openai_res: dict) -> dict:
         "candidates": [
             {
                 "content": {
-                    "parts": [
-                        {
-                            "text": text
-                        }
-                    ]
+                    "parts": parts,
+                    "role": "model"
                 }
             }
         ],
@@ -85,7 +164,7 @@ def generate_content_with_fallback(
     payload: dict, 
     default_model: str = "gemini-2.5-flash", 
     agent_name: str = "AGENT",
-    timeout: int = 30
+    timeout: int = 120
 ) -> Tuple[Optional[dict], str]:
     """
     Выполняет HTTP POST запрос к API с автоматической маршрутизацией.
@@ -124,7 +203,7 @@ def generate_content_with_fallback(
             if not or_key:
                 continue
                 
-            print(f"[{agent_name}] Отправка запроса в OpenRouter API (модель {or_model})...")
+            logger.info(f"[{agent_name}] Отправка запроса в OpenRouter API (модель {or_model})...")
             try:
                 openai_payload = convert_gemini_to_openai(payload, model_name=or_model)
                 
@@ -146,11 +225,11 @@ def generate_content_with_fallback(
                     openai_res = response.json()
                     
                     if "error" in openai_res:
-                        print(f"[{agent_name}] Ошибка в ответе OpenRouter API: {openai_res['error']}")
+                        logger.error(f"[{agent_name}] Ошибка в ответе OpenRouter API: {openai_res['error']}")
                         continue
                         
                     if "choices" not in openai_res or not openai_res["choices"]:
-                        print(f"[{agent_name}] Ответ OpenRouter API не содержит choices: {openai_res}")
+                        logger.error(f"[{agent_name}] Ответ OpenRouter API не содержит choices: {openai_res}")
                         continue
                         
                     result = convert_openai_to_gemini(openai_res)
@@ -162,13 +241,13 @@ def generate_content_with_fallback(
                         try:
                             save_token_usage(agent_name, or_model, prompt_tokens, completion_tokens)
                         except Exception as e:
-                            print(f"[{agent_name}] Ошибка сохранения расхода токенов OpenRouter: {e}")
+                            logger.error(f"[{agent_name}] Ошибка сохранения расхода токенов OpenRouter: {e}")
                             
                     return result, or_model
                 else:
-                    print(f"[{agent_name}] Ошибка OpenRouter API ({response.status_code}): {response.text}")
+                    logger.error(f"[{agent_name}] Ошибка OpenRouter API ({response.status_code}): {response.text}")
             except Exception as e:
-                print(f"[{agent_name}] Исключение при запросе к OpenRouter: {e}")
+                logger.error(f"[{agent_name}] Исключение при запросе к OpenRouter: {e}")
             continue
             
         # --- ВЕТКА GROK ---
@@ -176,7 +255,7 @@ def generate_content_with_fallback(
             if not grok_key:
                 continue
                 
-            print(f"[{agent_name}] Отправка запроса в Grok API (модель {grok_model})...")
+            logger.info(f"[{agent_name}] Отправка запроса в Grok API (модель {grok_model})...")
             try:
                 openai_payload = convert_gemini_to_openai(payload, model_name=grok_model)
                 
@@ -203,19 +282,19 @@ def generate_content_with_fallback(
                         try:
                             save_token_usage(agent_name, grok_model, prompt_tokens, completion_tokens)
                         except Exception as e:
-                            print(f"[{agent_name}] Ошибка сохранения расхода токенов Grok: {e}")
+                            logger.error(f"[{agent_name}] Ошибка сохранения расхода токенов Grok: {e}")
                             
                     return result, grok_model
                 else:
-                    print(f"[{agent_name}] Ошибка Grok API ({response.status_code}): {response.text}")
+                    logger.error(f"[{agent_name}] Ошибка Grok API ({response.status_code}): {response.text}")
             except Exception as e:
-                print(f"[{agent_name}] Исключение при запросе к Grok: {e}")
+                logger.error(f"[{agent_name}] Исключение при запросе к Grok: {e}")
             continue
             
         # --- ВЕТКА GEMINI ---
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
         
-        print(f"[{agent_name}] Отправка запроса в Gemini API (модель {current_model})...")
+        logger.info(f"[{agent_name}] Отправка запроса в Gemini API (модель {current_model})...")
         try:
             response = requests.post(api_url, json=payload, timeout=timeout)
             
@@ -231,26 +310,26 @@ def generate_content_with_fallback(
                     try:
                         save_token_usage(agent_name, current_model, input_tokens, output_tokens)
                     except Exception as e:
-                        print(f"[{agent_name}] Ошибка сохранения расхода токенов для {current_model}: {e}")
+                        logger.error(f"[{agent_name}] Ошибка сохранения расхода токенов для {current_model}: {e}")
                 
                 if "candidates" in result and result["candidates"]:
                     return result, current_model
                 else:
-                    print(f"[{agent_name}] Модель {current_model} вернула успешный статус 200, но без кандидатов.")
+                    logger.warning(f"[{agent_name}] Модель {current_model} вернула успешный статус 200, но без кандидатов.")
                     continue
                     
             elif response.status_code == 429:
-                print(f"[{agent_name}] Ограничение лимита (429) для {current_model}. Пробуем альтернативу...")
+                logger.warning(f"[{agent_name}] Ограничение лимита (429) для {current_model}. Пробуем альтернативу...")
             else:
-                print(f"[{agent_name}] Ошибка API ({response.status_code}) для {current_model}: {response.text}")
+                logger.error(f"[{agent_name}] Ошибка API ({response.status_code}) для {current_model}: {response.text}")
                 
         except Exception as e:
-            print(f"[{agent_name}] Исключение при запросе к {current_model}: {e}")
+            logger.error(f"[{agent_name}] Исключение при запросе к {current_model}: {e}")
             
         # Экспоненциальный бэкоф между попытками Gemini
         attempt = models.index(current_model) if current_model in models else 0
         backoff = min(0.5 * (2 ** attempt), 5.0)
         time.sleep(backoff)
         
-    print(f"[{agent_name}] Критическая ошибка: все доступные модели (Grok и Gemini) вернули ошибку.")
+    logger.error(f"[{agent_name}] Критическая ошибка: все доступные модели (Grok и Gemini) вернули ошибку.")
     return None, default_model
