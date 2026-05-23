@@ -607,9 +607,13 @@ async def conversational_handler(message: types.Message) -> None:
     
     # Отправляем ответ пользователю
     try:
-        await message.answer(response_text)
+        await message.answer(response_text, parse_mode="HTML")
     except Exception as e:
-        print(f"Ошибка при отправке сообщения в Telegram: {e}")
+        print(f"Ошибка при отправке сообщения в HTML: {e}. Пробуем отправить как обычный текст...")
+        try:
+            await message.answer(response_text, parse_mode=None)
+        except Exception as e2:
+            print(f"Критическая ошибка при отправке сообщения в Telegram: {e2}")
 
 async def main() -> None:
     print("🤖 Бот NEXUS запускается...")
