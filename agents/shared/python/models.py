@@ -16,7 +16,7 @@ class Market(BaseModel):
 
 class Signal(BaseModel):
     id: str
-    type: Literal['undervaluation', 'arb', 'insider', 'news']
+    type: Literal['undervaluation', 'arb', 'insider', 'news', 'hype_pump']
     market_id: str
     platform: str
     edge: Optional[float] = None

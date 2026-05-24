@@ -121,7 +121,7 @@ class ScoutAgent:
             import re
             json_match = re.search(r'\{[^{}]*"estimate_probability"[^{}]*\}', content, re.DOTALL)
             if json_match:
-                analysis = json.loads(json_match.group())
+                analysis = json.loads(json_match.group(), strict=False)
             else:
                 print(f"[SCOUT] Не удалось распарсить JSON из ответа: {content[:100]}")
                 return None

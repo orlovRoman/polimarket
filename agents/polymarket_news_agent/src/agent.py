@@ -96,7 +96,7 @@ class HeraldAgent:
             import re
             json_match = re.search(r'\{[^{}]*"agree"[^{}]*\}', raw_text, re.DOTALL)
             if json_match:
-                analysis = json.loads(json_match.group())
+                analysis = json.loads(json_match.group(), strict=False)
             else:
                 # Fallback: LLM не вернул JSON — используем текст как мнение
                 analysis = {"agree": False, "confidence": 0.3, "opinion": raw_text[:300]}
