@@ -648,6 +648,20 @@ def get_new_correlations() -> list:
         """)
         return [dict(row) for row in cursor.fetchall()]
 
+def get_market_correlations(market_id: str) -> list:
+    """Возвращает все известные корреляции для конкретного рынка."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, market_id_a, market_id_b, title_a, title_b,
+                   correlation_type, description, confidence
+            FROM correlations
+            WHERE market_id_a = ? OR market_id_b = ?
+            ORDER BY detected_at DESC
+            LIMIT 5
+        """, (market_id, market_id))
+        return [dict(row) for row in cursor.fetchall()]
+
 def mark_correlations_notified(ids: list):
     """Помечает корреляции как отправленные."""
     if not ids:

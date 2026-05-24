@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from typing import Optional
 from agents.shared.python.models import Market, Signal
-from agents.shared.python.db import save_signal, get_connection, get_memory
+from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 class ScoutAgent:
@@ -42,9 +42,33 @@ class ScoutAgent:
             print(f"[SCOUT] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
 
-        print(f"  SCOUT ищет базовые данные (RSS + Reddit) для оценки вероятностей: {market.title}...")
+        print(f"  SCOUT ищет базовые данные (RSS + Reddit + Корреляции) для оценки: {market.title}...")
         news_titles = fetch_rss_news(market.title)
         reddit_posts = fetch_reddit_news(market.title)
+        
+        # Получаем известные корреляции из базы
+        correlations = get_market_correlations(market.id)
+        correlation_texts = []
+        if correlations:
+            from agents.shared.adapters.polymarket import PolymarketAdapter
+            adapter = PolymarketAdapter()
+            for corr in correlations:
+                # Определяем ID связанного рынка
+                related_id = corr["market_id_b"] if corr["market_id_a"] == market.id else corr["market_id_a"]
+                related_title = corr["title_b"] if corr["market_id_a"] == market.id else corr["title_a"]
+                
+                # Получаем свежую цену связанного рынка
+                try:
+                    related_market = adapter.get_market(related_id)
+                    related_price_text = f"АКТУАЛЬНАЯ ЦЕНА: {related_market.price}" if related_market else "Цена неизвестна"
+                except:
+                    related_price_text = "Ошибка получения цены"
+                    
+                correlation_texts.append(
+                    f"- Связанный рынок: '{related_title}' ({related_price_text})\n"
+                    f"  Тип связи: {corr['correlation_type']}\n"
+                    f"  Описание: {corr['description']}"
+                )
 
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
@@ -60,7 +84,11 @@ class ScoutAgent:
 Последние посты с Reddit (для справки):
 {chr(10).join(reddit_posts) if reddit_posts else "Постов на Reddit не найдено."}
 
-Используй инструмент google_search, чтобы найти актуальную статистику, опросы или факты, необходимые для точной оценки вероятности (например, текущие рейтинги, даты релизов, статистику игроков).
+[Известные кросс-рыночные корреляции]
+{chr(10).join(correlation_texts) if correlation_texts else "Известных корреляций нет."}
+
+Используй известные корреляции (и цены связанных рынков) как жесткую математическую базу. Если связанный рынок оценен выше или ниже, и между ними есть прямая или обратная связь — используй это для вычисления математического арбитража. 
+Используй инструмент google_search, чтобы найти актуальную статистику, если корреляций недостаточно.
 Затем выполни анализ согласно своим инструкциям.
 Ответ верни строго в формате JSON: {{"estimate_probability": 0.65, "confidence": 0.8, "priority": "high", "reasoning": "..."}}
 """
