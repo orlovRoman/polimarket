@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 from agents.shared.python.models import Market, Signal
 from agents.shared.python.db import get_memory
+from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 class SwingAgent:
     """
@@ -32,6 +33,10 @@ class SwingAgent:
             print(f"[SWING] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
 
+        print(f"  SWING ищет новости (RSS + Reddit) для оценки хайпа: {market.title}...")
+        news_titles = fetch_rss_news(market.title)
+        reddit_posts = fetch_reddit_news(market.title)
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -42,7 +47,15 @@ class SwingAgent:
 
 {rag_context}
 
-Выполни анализ хайп-потенциала согласно своим инструкциям.
+Последние заголовки RSS (для справки):
+{chr(10).join(news_titles) if news_titles else "RSS новостей не найдено."}
+
+Последние посты с Reddit (для справки):
+{chr(10).join(reddit_posts) if reddit_posts else "Постов на Reddit не найдено."}
+
+Используй инструмент google_search, чтобы узнать актуальную тональность и последние новости в сети.
+Затем выполни анализ хайп-потенциала согласно своим инструкциям.
+Ответ верни строго в формате JSON: {{"recommendation": "buy", "hype_potential": 0.8, "target_exit_price": 0.5, "confidence": 0.7, "reasoning": "..."}}
 """
         
         payload = {
@@ -50,9 +63,7 @@ class SwingAgent:
                 {"role": "user", "parts": [{"text": prompt}]}
             ],
             "systemInstruction": {"parts": [{"text": self.system_instruction}]},
-            "generationConfig": {
-                "response_mime_type": "application/json",
-            }
+            "tools": [{"google_search": {}}],
         }
         
         from agents.shared.utils.gemini_client import generate_content_with_fallback
@@ -68,7 +79,14 @@ class SwingAgent:
             
         try:
             content = result['candidates'][0]['content']['parts'][0]['text']
-            analysis = json.loads(content)
+            
+            import re
+            json_match = re.search(r'\{[^{}]*"hype_potential"[^{}]*\}', content, re.DOTALL)
+            if json_match:
+                analysis = json.loads(json_match.group())
+            else:
+                print(f"[SWING] Не удалось распарсить JSON из ответа: {content[:100]}")
+                return None
             
             recommendation = analysis.get("recommendation", "ignore").lower()
             hype_potential = float(analysis.get("hype_potential", 0))

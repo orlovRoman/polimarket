@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 from agents.shared.python.models import Market, Signal
 from agents.shared.python.db import save_signal, get_connection, get_memory
+from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 class ScoutAgent:
     """
@@ -41,6 +42,10 @@ class ScoutAgent:
             print(f"[SCOUT] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
 
+        print(f"  SCOUT ищет базовые данные (RSS + Reddit) для оценки вероятностей: {market.title}...")
+        news_titles = fetch_rss_news(market.title)
+        reddit_posts = fetch_reddit_news(market.title)
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -49,7 +54,15 @@ class ScoutAgent:
 
 {rag_context}
 
-Выполни анализ согласно своим инструкциям.
+Последние заголовки RSS (для справки):
+{chr(10).join(news_titles) if news_titles else "RSS новостей не найдено."}
+
+Последние посты с Reddit (для справки):
+{chr(10).join(reddit_posts) if reddit_posts else "Постов на Reddit не найдено."}
+
+Используй инструмент google_search, чтобы найти актуальную статистику, опросы или факты, необходимые для точной оценки вероятности (например, текущие рейтинги, даты релизов, статистику игроков).
+Затем выполни анализ согласно своим инструкциям.
+Ответ верни строго в формате JSON: {{"estimate_probability": 0.65, "confidence": 0.8, "priority": "high", "reasoning": "..."}}
 """
         
         payload = {
@@ -57,9 +70,7 @@ class ScoutAgent:
                 {"role": "user", "parts": [{"text": prompt}]}
             ],
             "systemInstruction": {"parts": [{"text": self.system_instruction}]},
-            "generationConfig": {
-                "response_mime_type": "application/json",
-            }
+            "tools": [{"google_search": {}}],
         }
         
         from agents.shared.utils.gemini_client import generate_content_with_fallback
@@ -75,7 +86,14 @@ class ScoutAgent:
             
         try:
             content = result['candidates'][0]['content']['parts'][0]['text']
-            analysis = json.loads(content)
+            
+            import re
+            json_match = re.search(r'\{[^{}]*"estimate_probability"[^{}]*\}', content, re.DOTALL)
+            if json_match:
+                analysis = json.loads(json_match.group())
+            else:
+                print(f"[SCOUT] Не удалось распарсить JSON из ответа: {content[:100]}")
+                return None
             
             # Рассчитываем математическое преимущество (Edge) на уровне Python (честный Double-Blind)
             est_prob = float(analysis.get("estimate_probability", 0))

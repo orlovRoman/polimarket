@@ -3,9 +3,9 @@ import requests
 import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from urllib.parse import quote
 from typing import Optional
 from agents.shared.python.models import Market, AgentOpinion
+from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 class HeraldAgent:
     """
@@ -26,29 +26,6 @@ class HeraldAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def fetch_rss_news(self, query: str) -> list[str]:
-        """
-        Получает последние новости через Google News RSS для первичного ознакомления.
-        
-        :param query: Поисковый запрос (обычно название рынка)
-        :return: Список заголовков новостей
-        """
-        try:
-            url = f"https://news.google.com/rss/search?q={quote(query)}&hl=en-US&gl=US&ceid=US:en"
-            response = requests.get(url, timeout=10)
-            if response.status_code != 200:
-                return []
-            
-            root = ET.fromstring(response.content)
-            news = []
-            for item in root.findall(".//item")[:5]:
-                title = item.find("title").text
-                news.append(title)
-            return news
-        except Exception as e:
-            print(f"Ошибка при получении RSS: {e}")
-            return []
-
     def analyze_idea(self, market: Market, scout_opinion: str) -> Optional[AgentOpinion]:
         """
         Анализирует идею, используя поиск в реальном времени и RSS-ленты.
@@ -58,8 +35,9 @@ class HeraldAgent:
         :return: Мнение агента (AgentOpinion) с учетом новостного фона
         """
         
-        print(f"  HERALD ищет новости и проверяет статус по запросу: {market.title}...")
-        news_titles = self.fetch_rss_news(market.title)
+        print(f"  HERALD ищет новости (RSS + Reddit) и проверяет статус по запросу: {market.title}...")
+        news_titles = fetch_rss_news(market.title)
+        reddit_posts = fetch_reddit_news(market.title)
         
         # Загружаем RAG-память из Obsidian
         try:
@@ -80,6 +58,9 @@ class HeraldAgent:
 
 Последние заголовки RSS (для справки):
 {chr(10).join(news_titles) if news_titles else "RSS новостей не найдено."}
+
+Последние посты с Reddit (для справки):
+{chr(10).join(reddit_posts) if reddit_posts else "Постов на Reddit не найдено."}
 
 Задание:
 1. Используй Google Search, чтобы узнать текущий статус этого события. Оно уже завершилось?
