@@ -33,7 +33,10 @@ class SwingAgent:
             print(f"[SWING] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
 
-        print(f"  SWING ищет новости (RSS + Reddit) для оценки хайпа: {market.title}...")
+        try:
+            print(f"  SWING ищет новости (RSS + Reddit) для оценки хайпа: {market.title}...")
+        except UnicodeEncodeError:
+            print(f"  SWING ищет новости (RSS + Reddit) для оценки хайпа: {market.title.encode('ascii', 'replace').decode('ascii')}...")
         news_titles = fetch_rss_news(market.title)
         reddit_posts = fetch_reddit_news(market.title)
 

@@ -35,7 +35,10 @@ class HeraldAgent:
         :return: Мнение агента (AgentOpinion) с учетом новостного фона
         """
         
-        print(f"  HERALD ищет новости (RSS + Reddit) и проверяет статус по запросу: {market.title}...")
+        try:
+            print(f"  HERALD ищет новости (RSS + Reddit) и проверяет статус по запросу: {market.title}...")
+        except UnicodeEncodeError:
+            print(f"  HERALD ищет новости (RSS + Reddit) и проверяет статус по запросу: {market.title.encode('ascii', 'replace').decode('ascii')}...")
         news_titles = fetch_rss_news(market.title)
         reddit_posts = fetch_reddit_news(market.title)
         
