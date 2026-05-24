@@ -118,7 +118,7 @@ class MarketSelector:
         Фильтрует рынки:
         - Убирает истёкшие (close_time в прошлом)
         - Убирает на cooldown (анализировались недавно)
-        - Убирает крайние цены (< 0.05 или > 0.95 — скорее всего верно оценены)
+        - Убирает абсолютно мертвые цены (< 0.01 или > 0.99)
         """
         now = datetime.now(timezone.utc)
         cooldown_ids = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
@@ -131,8 +131,8 @@ class MarketSelector:
             # Рынок на cooldown
             if m.id in cooldown_ids:
                 continue
-            # Крайние цены (почти наверняка верные)
-            if m.price < 0.05 or m.price > 0.95:
+            # Абсолютно мертвые цены (разрешен или 100% уверенность)
+            if m.price < 0.01 or m.price > 0.99:
                 continue
             filtered.append(m)
         
@@ -145,12 +145,16 @@ class MarketSelector:
         score = 0.0
         now = datetime.now(timezone.utc)
 
-        # Цена в зоне неопределённости (0.15–0.85) → интереснее
+        # Цена в зоне неопределённости (0.15–0.85) → интересно для SCOUT
         if PRICE_RANGE_MIN <= market.price <= PRICE_RANGE_MAX:
             score += 2.0
         # Максимальная неопределённость (0.30–0.70)
         if 0.30 <= market.price <= 0.70:
             score += 1.0
+            
+        # Сильный перекос (≤ 0.10 или ≥ 0.90) → очень интересно для SWING_TRADER (спекуляции)
+        if market.price <= 0.10 or market.price >= 0.90:
+            score += 3.0
 
         # Закрывается скоро → повышенная волатильность
         days_to_close = (market.close_time - now).total_seconds() / 86400

@@ -16,6 +16,7 @@ from agents.shared.python.db import (
 )
 from agents.shared.python.db import get_memory, save_memory
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
+from agents.polymarket_swing_agent.src.agent import SwingAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent
 from agents.polymarket_news_agent.src.agent import HeraldAgent
 from agents.orchestrator.src.agent import NexusAgent
@@ -149,6 +150,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
         "current_market_title": "Инициализация...",
         "current_market_url": "",
         "scout_status": "⏳ Ожидает",
+        "swing_status": "⏳ Ожидает",
         "shadow_status": "⏳ Ожидает",
         "herald_status": "⏳ Ожидает",
         "ideas_found": 0,
@@ -185,6 +187,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
     # Инициализируем адаптер платформы и агентов
     adapter = PolymarketAdapter()
     scout = ScoutAgent(api_key=key)
+    swing = SwingAgent(api_key=key)
     shadow = ShadowAgent(api_key=key)
     herald = HeraldAgent(api_key=key)
 
@@ -298,6 +301,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
             current_market_title=m.title,
             current_market_url=m.url,
             scout_status="⏳ Ожидает",
+            swing_status="⏳ Ожидает",
             shadow_status="⏳ Ожидает",
             herald_status="⏳ Ожидает"
         )
@@ -313,7 +317,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                 log(f"\n[РЫНОК]: {m.title} (Цена {m.price} стабильна и рынок на 6-часовом кулдауне, пропускаем)")
                 # Всё равно записываем price point для истории
                 save_price_point(m.id, m.price)
-                update_state(scout_status="⚪️ Пропущен (Кулдаун)")
+                update_state(scout_status="⚪️ Пропущен (Кулдаун)", swing_status="⚪️ Пропущен (Кулдаун)")
                 continue
             elif not is_cooldown:
                 log(f"\n[РЫНОК]: {m.title} (Истек 6-часовой кулдаун, пересматриваем)")
@@ -330,17 +334,32 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
         # Записываем текущую цену в историю
         save_price_point(m.id, m.price)
         
-        # ЭТАП 1: SCOUT ищет математическую недооценку (Edge)
-        log("  SCOUT оценивает...")
-        update_state(scout_status="🔄 Считает вероятности...")
+        # ЭТАП 1: SCOUT ищет математическую недооценку (Edge), а SWING_TRADER - хайп
+        log("  SCOUT и SWING оценивают...")
+        update_state(scout_status="🔄 Считает вероятности...", swing_status="🔄 Оценивает хайп...")
+        
         signal = scout.estimate_market(m)
+        swing_signal = swing.estimate_market(m)
         
         opinion_shadow = None
         opinion_herald = None
 
-        if signal:
-            log(f"  SCOUT: Нашел недооценку! Ожидаемый Edge: {signal.edge:.2f}")
-            update_state(scout_status=f"🟢 Нашел Edge ({signal.edge:.2f})", shadow_status="🔄 Проверяет ордербук...")
+        if signal or swing_signal:
+            active_signal = swing_signal if swing_signal else signal
+            
+            if signal:
+                log(f"  SCOUT: Нашел недооценку! Ожидаемый Edge: {signal.edge:.2f}")
+                update_state(scout_status=f"🟢 Нашел Edge ({signal.edge:.2f})")
+            else:
+                update_state(scout_status="⚪️ Нет фундамента")
+                
+            if swing_signal:
+                log(f"  SWING: Нашел хайп-потенциал!")
+                update_state(swing_status=f"🚀 Ждет памп")
+            else:
+                update_state(swing_status="⚪️ Нет хайпа")
+                
+            update_state(shadow_status="🔄 Проверяет ордербук...")
             
             # Получаем ордербук для SHADOW (если есть token_id)
             orderbook = None
@@ -357,13 +376,13 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
             
             # ЭТАП 2: SHADOW анализирует ордербук и ликвидность
             log("  SHADOW проверяет...")
-            opinion_shadow = shadow.analyze_idea(m, signal.details, orderbook=orderbook, price_history=price_hist)
+            opinion_shadow = shadow.analyze_idea(m, active_signal.details, orderbook=orderbook, price_history=price_hist)
             status_sh = "✅ Согласен" if (opinion_shadow and opinion_shadow.agree) else "❌ Против"
             update_state(shadow_status=f"{status_sh} (Увер: {opinion_shadow.confidence if opinion_shadow else 0})", herald_status="🔄 Ищет новости...")
             
             # ЭТАП 3: HERALD ищет новости и проверяет, не завершилось ли событие досрочно
             log("  HERALD проверяет...")
-            opinion_herald = herald.analyze_idea(m, signal.details)
+            opinion_herald = herald.analyze_idea(m, active_signal.details)
             status_he = "✅ Согласен" if (opinion_herald and opinion_herald.agree) else "❌ Против"
             update_state(herald_status=f"{status_he} (Увер: {opinion_herald.confidence if opinion_herald else 0})")
             
@@ -383,13 +402,14 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                opinion_shadow.confidence > 0.6 and opinion_herald.confidence > 0.6:
                 
                 log("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ. Генерируем сигнал.")
-                save_signal(signal)
+                if signal: save_signal(signal)
+                if swing_signal: save_signal(swing_signal)
                 update_state(ideas_found=state["ideas_found"] + 1)
             else:
                 log("  --- Консенсус не достигнут. Идея отклонена экспертами.")
         else:
-            log("  SCOUT: Математическое преимущество не обнаружено.")
-            update_state(scout_status="⚪️ Идея не найдена")
+            log("  SCOUT и SWING: Идей не найдено.")
+            update_state(scout_status="⚪️ Идея не найдена", swing_status="⚪️ Идея не найдена")
             
         # Формируем и отправляем краткое резюме для Telegram-интерфейса
         if summary_callback:
@@ -398,6 +418,11 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                 summary_text += f"<b>SCOUT</b> 🟢 Нашел потенциал (Edge: {signal.edge:.2f})\n\n"
             else:
                 summary_text += f"<b>SCOUT</b> ⚪️ Идея не найдена.\n\n"
+                
+            if swing_signal:
+                summary_text += f"<b>SWING</b> 🚀 Ждет памп\n\n"
+            else:
+                summary_text += f"<b>SWING</b> ⚪️ Нет хайпа.\n\n"
             
             if opinion_shadow:
                 status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
@@ -407,11 +432,11 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                 status = "✅ СОГЛАСЕН" if opinion_herald.agree else "❌ ПРОТИВ"
                 summary_text += f"<b>HERALD</b> {status} (Увер: {opinion_herald.confidence})\n<i>{opinion_herald.opinion}</i>\n\n"
             
-            if signal and opinion_shadow and opinion_herald and \
+            if (signal or swing_signal) and opinion_shadow and opinion_herald and \
                opinion_shadow.agree and opinion_herald.agree and \
                opinion_shadow.confidence > 0.6 and opinion_herald.confidence > 0.6:
                 summary_text += "✨ <b>ИТОГ: Консенсус достигнут! Идея сохранена.</b>"
-            elif signal:
+            elif (signal or swing_signal):
                 summary_text += "🛑 <b>ИТОГ: Консенсус не достигнут.</b>"
             else:
                 summary_text += "🛑 <b>ИТОГ: Нет предмета для обсуждения.</b>"

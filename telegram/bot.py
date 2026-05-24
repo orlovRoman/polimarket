@@ -562,6 +562,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                 
         html += "<b>Статус агентов:</b>\n"
         html += f"🕵️‍♂️ <b>SCOUT:</b> {state.get('scout_status', '⏳ Ожидает')}\n"
+        html += f"🚀 <b>SWING:</b> {state.get('swing_status', '⏳ Ожидает')}\n"
         html += f"👤 <b>SHADOW:</b> {state.get('shadow_status', '⏳ Ожидает')}\n"
         html += f"📰 <b>HERALD:</b> {state.get('herald_status', '⏳ Ожидает')}\n\n"
         
