@@ -143,16 +143,18 @@ def parse_whale_alert(text: str, entities=None) -> dict:
             
     return result
 
-async def trigger_nexus_scan(market_id: str, amount_usd: float):
+async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: str = "whale"):
     """
     Триггерит Orchestrator NEXUS для мгновенного точечного анализа рынка
-    при обнаружении крупной сделки.
+    при обнаружении крупной сделки или новости.
     """
     try:
-        print(f"[Listener] 🚀 ТРИГГЕР: Крупная сделка (${amount_usd:,.0f})! Запуск внеочередного сканирования для {market_id}...")
+        if source == "whale":
+            print(f"[Listener] 🚀 ТРИГГЕР: Крупная сделка (${amount_usd:,.0f})! Запуск внеочередного сканирования для {market_id}...")
+        else:
+            print(f"[Listener] 🗞 ТРИГГЕР: Важная новость ({source})! Запуск сканирования для {market_id}...")
+            
         # Запускаем run_team.py в фоновом режиме для конкретного market_id
-        # В нашем проекте run_team.py умеет запускаться с аргументом --market_id {id}
-        # Проверим это позже, а пока сделаем вызов подпроцесса.
         import subprocess
         cmd = [sys.executable, str(PROJECT_ROOT / "run_team.py"), "--market_id", market_id]
         subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
@@ -207,46 +209,66 @@ async def main():
     print(f"[Listener] Инициализация Telegram клиента (сессия: {SESSION_PATH})...")
     client = TelegramClient(SESSION_PATH, int(api_id), api_hash)
     
-    @client.on(events.NewMessage(chats='polymarketalerthub'))
+    # Инициализация NewsProcessor для новостных каналов
+    from config import GOOGLE_API_KEY
+    from agents.orchestrator.src.news_processor import NewsProcessor
+    news_processor = NewsProcessor(api_key=GOOGLE_API_KEY)
+    
+    @client.on(events.NewMessage(chats=['polymarketalerthub', 'polyradar']))
     async def handler(event):
         text = event.message.message
-        print(f"\n[Listener] 🔔 Получено новое сообщение из канала:\n{text[:120]}...")
+        
+        # Получаем имя канала
+        chat = await event.get_chat()
+        chat_name = chat.username or chat.title or str(chat.id)
+        
+        print(f"\n[Listener] 🔔 Получено новое сообщение из {chat_name}:\n{text[:120]}...")
         
         try:
-            # Разбираем алерт
-            bet_info = parse_whale_alert(text, event.message.entities)
-            
-            if not bet_info["wallet"]:
-                print("[Listener] ⚠️ Не удалось извлечь адрес кошелька трейдера.")
-                return
+            if "polymarketalerthub" in chat_name.lower():
+                # Разбираем алерт о ките
+                bet_info = parse_whale_alert(text, event.message.entities)
                 
-            if not bet_info["market_url"]:
-                print("[Listener] ⚠️ Ссылка на рынок Polymarket не найдена.")
-                return
+                if not bet_info["wallet"]:
+                    print("[Listener] ⚠️ Не удалось извлечь адрес кошелька трейдера.")
+                    return
+                    
+                if not bet_info["market_url"]:
+                    print("[Listener] ⚠️ Ссылка на рынок Polymarket не найдена.")
+                    return
+                    
+                # Ищем ID рынков по ссылке
+                market_ids = resolve_market_ids_from_url(bet_info["market_url"])
+                if not market_ids:
+                    print(f"[Listener] ⚠️ Не удалось найти market_id для URL: {bet_info['market_url']}")
+                    return
+                    
+                print(f"[Listener] Найдено {len(market_ids)} рынков для ссылки.")
                 
-            # Ищем ID рынков по ссылке
-            market_ids = resolve_market_ids_from_url(bet_info["market_url"])
-            if not market_ids:
-                print(f"[Listener] ⚠️ Не удалось найти market_id для URL: {bet_info['market_url']}")
-                return
+                for m_id in market_ids:
+                    # Записываем в БД
+                    save_trader_transaction(
+                        wallet_address=bet_info["wallet"],
+                        market_id=m_id,
+                        outcome=bet_info["outcome"] or "YES",
+                        amount_usd=bet_info["amount_usd"],
+                        price=bet_info["price"],
+                        alias=bet_info["alias"]
+                    )
+                    print(f"[Listener] ✅ Сделка сохранена: Кошелек {bet_info['wallet']} | Сумма ${bet_info['amount_usd']:,.0f} | Исход {bet_info['outcome']} | Рынок {m_id}")
+                    
+                # Триггерим мгновенный анализ только для первого рынка из списка, если сделка крупная (> $10,000 USD)
+                if bet_info["amount_usd"] >= 10000.0 and market_ids:
+                    await trigger_nexus_scan(market_ids[0], bet_info["amount_usd"], source="whale")
+            else:
+                # Ветка для Polyradar (и других новостных групп)
+                markets = news_processor.find_relevant_markets(text)
+                if not markets:
+                    print(f"[Listener] ⚪️ Для новости из {chat_name} рынки на Polymarket не найдены.")
+                    return
                 
-            print(f"[Listener] Найдено {len(market_ids)} рынков для ссылки.")
-            
-            for m_id in market_ids:
-                # Записываем в БД
-                save_trader_transaction(
-                    wallet_address=bet_info["wallet"],
-                    market_id=m_id,
-                    outcome=bet_info["outcome"] or "YES",
-                    amount_usd=bet_info["amount_usd"],
-                    price=bet_info["price"],
-                    alias=bet_info["alias"]
-                )
-                print(f"[Listener] ✅ Сделка сохранена: Кошелек {bet_info['wallet']} | Сумма ${bet_info['amount_usd']:,.0f} | Исход {bet_info['outcome']} | Рынок {m_id}")
-                
-            # Триггерим мгновенный анализ только для первого рынка из списка (одно событие), если сделка крупная (> $10,000 USD)
-            if bet_info["amount_usd"] >= 10000.0 and market_ids:
-                await trigger_nexus_scan(market_ids[0], bet_info["amount_usd"])
+                print(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
+                await trigger_nexus_scan(markets[0].id, source=chat_name)
                     
         except Exception as e:
             print(f"[Listener] ❌ Ошибка при обработке сообщения: {e}")
