@@ -85,7 +85,7 @@ class SwingAgent:
                 "swing_risk": {"type": "STRING"},
                 "swing_verdict": {"type": "STRING"}
             },
-            "required": ["hype_potential", "recommendation", "target_outcome", "target_exit_price", "confidence", "reasoning", "swing_risk", "swing_verdict"]
+            "required": ["hype_potential", "recommendation", "target_outcome", "target_exit_price", "confidence", "reasoning", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict"]
         }
         
         payload = {
@@ -143,8 +143,8 @@ class SwingAgent:
                     reasoning=analysis.get("reasoning", ""),
                     catalyst=analysis.get("catalyst", ""),
                     catalyst_absence_reason=analysis.get("catalyst_absence_reason", ""),
-                    swing_risk=analysis.get("swing_risk", "Не указан риск"),
-                    swing_verdict=analysis.get("swing_verdict", "Не указан вердикт"),
+                    swing_risk=analysis.get("swing_risk", "") or analysis.get("risk", "Не указан риск"),
+                    swing_verdict=analysis.get("swing_verdict", "") or analysis.get("verdict", "Не указан вердикт"),
                     summary=f"🚀 Памп {target_outcome} (Хайп {hype_potential*100:.0f}%, Цель {target_price:.2f})" if recommendation == "buy" else f"💤 Игнор (Хайп {hype_potential*100:.0f}%)",
                     details=f"Рекомендация: {recommendation.upper()} {target_outcome} по ~{current_price:.2f}, выход по {target_price:.2f} (ROI ~{roi:.0f}%).\nОбоснование: {analysis.get('reasoning', '')}"
                 )

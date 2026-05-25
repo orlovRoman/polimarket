@@ -175,9 +175,9 @@ class ScoutAgent:
             if edge > min_edge:
                 # === НОВЫЙ БЛОК: Читаем структурированные поля ===
                 signal_phrase = analysis.get("signal", "")
-                cause_phrase  = analysis.get("cause", "")
-                risk_phrase   = analysis.get("risk", "")
-                verdict_phrase = analysis.get("verdict", "")
+                cause_phrase  = analysis.get("cause", "") or analysis.get("reasoning", "")
+                risk_phrase   = analysis.get("risk", "") or "Риск не детализирован"
+                verdict_phrase = analysis.get("verdict", "") or "Ожидание сигнала"
                 
                 # Формируем summary по шаблону: "SCOUT: {signal}. {cause}"
                 if signal_phrase and cause_phrase:
