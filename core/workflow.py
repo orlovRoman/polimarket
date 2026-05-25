@@ -240,24 +240,27 @@ def process_consensus(m: Market, signal: Optional[Signal], swing_signal: Optiona
     from agents.shared.python.db import save_agent_episode
     if signal:
         save_agent_episode(
+            agent_name="SCOUT",
+            event_type="signal_evaluated",
+            summary=f"Opinion: {getattr(signal, 'signal_verdict', 'buy')} | Reason: {getattr(signal, 'signal_cause', getattr(signal, 'details', ''))}",
             market_id=m.id,
-            agent="SCOUT",
-            opinion=getattr(signal, 'signal_verdict', 'buy'),
-            reasoning=getattr(signal, 'signal_cause', getattr(signal, 'details', ''))
+            market_title=m.title
         )
         
     if swing_signal:
         save_agent_episode(
+            agent_name="SWING",
+            event_type="signal_evaluated",
+            summary=f"Opinion: {getattr(swing_signal, 'swing_verdict', 'buy')} | Reason: {getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))}",
             market_id=m.id,
-            agent="SWING",
-            opinion=getattr(swing_signal, 'swing_verdict', 'buy'),
-            reasoning=getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))
+            market_title=m.title
         )
         
     if opinion_shadow:
         save_agent_episode(
+            agent_name="SHADOW",
+            event_type="signal_evaluated",
+            summary=f"Opinion: {getattr(opinion_shadow, 'shadow_verdict', 'agree')} | Reason: {getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))}",
             market_id=m.id,
-            agent="SHADOW",
-            opinion=getattr(opinion_shadow, 'shadow_verdict', 'agree'),
-            reasoning=getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))
+            market_title=m.title
         )
