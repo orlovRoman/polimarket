@@ -474,7 +474,7 @@ async def command_logs_handler(message: types.Message) -> None:
     
     try:
         # Читаем последние 10 строк нативно (без `tail`, которого нет на Windows)
-        with open(LOG_PATH, "r", encoding="utf-8") as f:
+        with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
             all_lines = f.readlines()
             last_lines = all_lines[-10:]
             logs = "".join(last_lines)
