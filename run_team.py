@@ -228,7 +228,14 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                 
                 log("  SHADOW проверяет...")
                 from agents.shared.python.db import add_discussion_message
-                opinion_shadow = shadow.analyze_idea(m, active_signal.details, orderbook=orderbook, price_history=price_hist)
+                from agents.shared.adapters.onchain import get_recent_trades, get_top_positions
+                from agents.shared.utils.smart_money import analyze_smart_money
+
+                onchain_trades = get_recent_trades(m.condition_id) if m.condition_id else []
+                onchain_positions = get_top_positions(m.condition_id) if m.condition_id else []
+                smart_money = analyze_smart_money(onchain_trades, onchain_positions)
+
+                opinion_shadow = shadow.analyze_idea(m, active_signal.details, orderbook=orderbook, price_history=price_hist, smart_money=smart_money)
                 status_sh = "✅ Согласен" if (opinion_shadow and opinion_shadow.agree) else "❌ Против"
                 update_state(shadow_status=f"{status_sh} (Увер: {opinion_shadow.confidence if opinion_shadow else 0})")
                 

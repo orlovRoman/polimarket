@@ -57,7 +57,14 @@ def main(post_id: int, chat_id: str):
                     try: orderbook = adapter.get_orderbook(full_m.tokens[0])
                     except: pass
                 
-                opinion_shadow = shadow.analyze_idea(full_m, scout_opinion=getattr(active, 'summary', getattr(active, 'details', '')), orderbook=orderbook, price_history=[])
+                from agents.shared.adapters.onchain import get_recent_trades, get_top_positions
+                from agents.shared.utils.smart_money import analyze_smart_money
+
+                onchain_trades = get_recent_trades(full_m.condition_id) if full_m.condition_id else []
+                onchain_positions = get_top_positions(full_m.condition_id) if full_m.condition_id else []
+                smart_money = analyze_smart_money(onchain_trades, onchain_positions)
+
+                opinion_shadow = shadow.analyze_idea(full_m, scout_opinion=getattr(active, 'summary', getattr(active, 'details', '')), orderbook=orderbook, price_history=[], smart_money=smart_money)
                 
             # 3. Форматирование ответа
             summary_text = f"🗣 <b>Ответ на ваш пост (Рынок: {full_m.title}):</b>\n<a href='{full_m.url}'>{full_m.title}</a>\n\n"

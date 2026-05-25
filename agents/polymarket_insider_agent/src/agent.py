@@ -22,14 +22,14 @@ class ShadowAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def analyze_idea(self, market: Market, scout_opinion: str, orderbook: dict = None, price_history: list = None) -> Optional[AgentOpinion]:
+    def analyze_idea(self, market: Market, scout_opinion: str, orderbook: dict = None, price_history: list = None, smart_money: dict = None) -> Optional[AgentOpinion]:
         """
-        Проводит анализ торговой идеи на предмет ликвидности и аномалий.
-        
-        :param market: Данные о рынке
+        Анализирует идею (от SCOUT) с точки зрения ликвидности и активности трейдеров.
+        :param market: Данные рынка
         :param scout_opinion: Гипотеза от агента SCOUT
         :param orderbook: Данные ордербука от CLOB API (bid/ask depth, spread)
         :param price_history: История цен [{price, recorded_at}, ...]
+        :param smart_money: Ончейн данные активности
         :return: Мнение агента (AgentOpinion) или None
         """
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -60,27 +60,18 @@ class ShadowAgent:
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
                 
-        # Загружаем крупные сделки трейдеров (Smart Money) из БД
-        from agents.shared.python.db import get_market_trader_transactions
-        try:
-            transactions = get_market_trader_transactions(market.id)
-        except Exception as e:
-            print(f"Ошибка получения транзакций трейдеров для {market.id}: {e}")
-            transactions = []
-            
-        trader_transactions_str = "Данные о сделках крупных трейдеров отсутствуют."
-        if transactions:
-            tx_lines = []
-            for tx in transactions[:10]:  # Берем последние 10 сделок
-                alias_str = f" ({tx['alias']})" if tx.get('alias') else ""
-                win_rate_str = f" | WinRate: {tx['win_rate'] * 100:.1f}%" if tx.get('win_rate') else ""
-                price_str = f" по цене {tx['price']:.4f}" if tx.get('price') else ""
-                tx_lines.append(
-                    f"  - Кошелек: {tx['wallet_address']}{alias_str} | Ставка: {tx['outcome']} | "
-                    f"Сумма: ${tx['amount_usd']:,.0f}{price_str}{win_rate_str} | Время: {tx['timestamp']}"
-                )
-            if tx_lines:
-                trader_transactions_str = "=== КРУПНЫЕ СДЕЛКИ ТРЕЙДЕРОВ (SMART MONEY) ===\n" + "\n".join(tx_lines)
+        # ОНЧЕЙН АКТИВНОСТЬ (Smart Money)
+        sm_block = "Ончейн данные недоступны."
+        if smart_money and smart_money.get("available"):
+            sm_block = f"""
+=== ОНЧЕЙН АКТИВНОСТЬ (Smart Money) ===
+Всего объём YES: ${smart_money['total_yes_usd']:,.0f}
+Всего объём NO:  ${smart_money['total_no_usd']:,.0f}
+YES dominance:   {smart_money['yes_dominance']:.0%}
+
+Топ кошельки:
+{smart_money['summary']}
+"""
         
         # Загружаем RAG-память из Obsidian
         try:
@@ -102,9 +93,14 @@ class ShadowAgent:
 
 {price_history_str}
 
-{trader_transactions_str}
+{sm_block}
 
-Проанализируй этот рынок на предмет рисков ликвидности, сделок крупных игроков и аномалий.
+Твоя задача — проверить эту торговую идею:
+1. Хватает ли ликвидности для безопасного входа и выхода? (Смотри ордербук и спред).
+2. Поддерживают ли ставку крупные игроки (Smart Money)?
+3. Согласен ли ты с идеей SCOUT?
+
+Оценивай строго, но аргументированно.
 """
         
         schema = {

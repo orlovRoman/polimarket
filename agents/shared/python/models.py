@@ -13,6 +13,7 @@ class Market(BaseModel):
     close_time: datetime
     tokens: Optional[List[str]] = None  # clobTokenIds для CLOB API (orderbook)
     volume: Optional[float] = None      # Объём торгов (для ранжирования)
+    condition_id: Optional[str] = None  # Для Onchain аналитики
 
 class Signal(BaseModel):
     id: str

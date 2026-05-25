@@ -59,6 +59,18 @@ def init_db():
             )
         """)
         
+        # Таблица китов (ончейн-аналитика)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS known_whales (
+                address TEXT PRIMARY KEY,
+                alias TEXT,
+                win_rate REAL,
+                total_won REAL,
+                total_vol REAL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Таблица аудита идей (Idea Audit)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS idea_audit (

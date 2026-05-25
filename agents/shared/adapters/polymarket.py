@@ -138,7 +138,6 @@ class PolymarketAdapter(BaseMarketAdapter):
                 except (ValueError, TypeError):
                     volume = None
                 
-                # Создаем объект Market для основного исхода (обычно YES)
                 m = Market(
                     id=item["id"],
                     platform=self.name,
@@ -150,6 +149,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                     close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00")),
                     tokens=tokens,
                     volume=volume,
+                    condition_id=item.get("conditionId")
                 )
                 markets.append(m)
             except (KeyError, ValueError, TypeError, json.JSONDecodeError) as e:
