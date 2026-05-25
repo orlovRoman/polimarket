@@ -191,48 +191,41 @@ def init_db():
         """)
         
         # Эпизодическая память агентов (Спринт 7)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS agent_episodes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                market_id TEXT NOT NULL,
-                agent TEXT NOT NULL,
-                opinion TEXT NOT NULL,
-                reasoning TEXT NOT NULL,
-                is_correct BOOLEAN DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (market_id) REFERENCES markets(id)
-            )
-        """)
-        
+        # DROP старых триггеров и таблиц FTS, если они остались от старой схемы
+        cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ai")
+        cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ad")
+        cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_au")
+        cursor.execute("DROP TABLE IF EXISTS agent_episodes_fts")
+
         # FTS5 виртуальная таблица для быстрого поиска по эпизодам
         cursor.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS agent_episodes_fts USING fts5(
                 episode_id UNINDEXED,
-                agent,
-                opinion,
-                reasoning
+                agent_name,
+                summary,
+                context
             )
         """)
         
         # Триггеры для синхронизации FTS5 и agent_episodes
         cursor.execute("""
-            CREATE TRIGGER IF NOT EXISTS agent_episodes_ai AFTER INSERT ON agent_episodes BEGIN
-                INSERT INTO agent_episodes_fts(episode_id, agent, opinion, reasoning) 
-                VALUES (new.id, new.agent, new.opinion, new.reasoning);
+            CREATE TRIGGER IF NOT EXISTS agent_episodes_ai_v2 AFTER INSERT ON agent_episodes BEGIN
+                INSERT INTO agent_episodes_fts(episode_id, agent_name, summary, context) 
+                VALUES (new.id, new.agent_name, new.summary, new.context);
             END;
         """)
         
         cursor.execute("""
-            CREATE TRIGGER IF NOT EXISTS agent_episodes_ad AFTER DELETE ON agent_episodes BEGIN
+            CREATE TRIGGER IF NOT EXISTS agent_episodes_ad_v2 AFTER DELETE ON agent_episodes BEGIN
                 DELETE FROM agent_episodes_fts WHERE episode_id = old.id;
             END;
         """)
         
         cursor.execute("""
-            CREATE TRIGGER IF NOT EXISTS agent_episodes_au AFTER UPDATE ON agent_episodes BEGIN
+            CREATE TRIGGER IF NOT EXISTS agent_episodes_au_v2 AFTER UPDATE ON agent_episodes BEGIN
                 DELETE FROM agent_episodes_fts WHERE episode_id = old.id;
-                INSERT INTO agent_episodes_fts(episode_id, agent, opinion, reasoning) 
-                VALUES (new.id, new.agent, new.opinion, new.reasoning);
+                INSERT INTO agent_episodes_fts(episode_id, agent_name, summary, context) 
+                VALUES (new.id, new.agent_name, new.summary, new.context);
             END;
         """)
         
