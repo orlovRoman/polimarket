@@ -95,6 +95,16 @@ async def scheduled_trend_hunting():
     except Exception as e:
         logger.error(f"Ошибка при работе Trend Hunter: {e}", exc_info=True)
 
+async def scheduled_signal_evaluation():
+    """Оценивает точность сигналов по закрытым рынкам — раз в 6 часов."""
+    logger.info(">>> Оценка точности сигналов...")
+    try:
+        from services.signal_evaluator import evaluate_closed_signals
+        stats = await asyncio.to_thread(evaluate_closed_signals)
+        logger.info(f"<<< Оценка завершена: {stats}")
+    except Exception as e:
+        logger.error(f"Ошибка при оценке сигналов: {e}", exc_info=True)
+
 async def start_system():
     """
     Основная точка входа в систему. Инициализирует окружение, 
@@ -116,8 +126,11 @@ async def start_system():
     
     # Проактивный поиск трендов (Trend Hunter) — запускаем раз в 2 часа
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
-    
-    logger.info("Планировщик настроен (интервал 5 мин, GC 24 ч, Trend Hunter 2 ч).")
+
+    # Оценка точности сигналов — раз в 6 часов
+    scheduler.add_job(scheduled_signal_evaluation, 'interval', hours=6)
+
+    logger.info("Планировщик настроен (интервал 5 мин, GC 24 ч, Trend Hunter 2 ч, Evaluator 6 ч).")
     scheduler.start()
 
     # 2. Инициализация и запуск Telegram-бота (Aiogram)

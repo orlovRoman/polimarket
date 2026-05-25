@@ -46,13 +46,22 @@ class NexusAgent:
         
         # Извлекаем приоритетные факты из Layer 1 (с учётом TTL и лимита)
         try:
-            from agents.shared.python.db import get_active_facts
+            from agents.shared.python.db import get_relevant_facts, get_agent_episodes
             from config import MEMORY_FACTS_LIMIT
-            facts = get_active_facts(limit=MEMORY_FACTS_LIMIT)
+            facts = get_relevant_facts(limit=MEMORY_FACTS_LIMIT)
         except Exception:
             facts = []
-        
-        facts_str = "\n".join(facts) if facts else "Нет сохраненных фактов."
+
+        facts_str = "\n".join(facts) if facts else "Нет сохранённых фактов."
+
+        # Добавляем последние 3 эпизода как контекст
+        try:
+            recent_episodes = get_agent_episodes(limit=3)
+            if recent_episodes:
+                ep_lines = [f"  [{e['created_at'][:16]}] {e['agent_name']}: {e['summary']}" for e in recent_episodes]
+                facts_str += "\n\nПОСЛЕДНИЕ ДЕЙСТВИЯ СИСТЕМЫ:\n" + "\n".join(ep_lines)
+        except Exception:
+            pass
 
         prompt = (
             f"ТЕКУЩЕЕ ВРЕМЯ СИСТЕМЫ: {now}\n"

@@ -63,3 +63,11 @@ Thumbs.db
 *.gif
 messages.html
 result.json
+
+# Временные/отладочные файлы
+scratch/
+*.txt
+!README.txt
+test_*.py
+update_*.py
+debug_*.py

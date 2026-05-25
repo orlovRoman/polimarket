@@ -19,7 +19,45 @@ from agents.polymarket_swing_agent.src.agent import SwingAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent
 from agents.orchestrator.src.agent import NexusAgent
 
+def _prefilter_markets(markets_compact: list) -> list:
+    """
+    Уровень 1 (без LLM): базовая фильтрация по объёму, цене и времени.
+    Сокращает ~1000 рынков до ~100-150 перед передачей в NEXUS.
+    """
+    from config import PRICE_RANGE_MIN, PRICE_RANGE_MAX
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.now(timezone.utc)
+    min_close = now + timedelta(days=3)
+    filtered = []
+
+    for m in markets_compact:
+        price = m.get('price', m.get('p', 0.5))
+        volume = m.get('volume', m.get('vol', 0))
+        close_str = m.get('close_time', m.get('end', ''))
+
+        # Фильтр: цена в диапазоне интереса
+        if not (PRICE_RANGE_MIN <= price <= PRICE_RANGE_MAX):
+            continue
+        # Фильтр: объём > $5000 (есть ликвидность)
+        if volume and volume < 5000:
+            continue
+        # Фильтр: рынок закроется не раньше чем через 3 дня
+        if close_str:
+            try:
+                close_dt = datetime.fromisoformat(str(close_str).replace('Z', '+00:00'))
+                if close_dt < min_close:
+                    continue
+            except (ValueError, AttributeError):
+                pass
+
+        filtered.append(m)
+
+    return filtered
+
+
 def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, market_id: str, summary_callback=None) -> list:
+
     if category or market_id:
         return None
         
@@ -43,8 +81,12 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
         try:
             all_compact = adapter.list_all_markets_compact()
             logger.info(f"  Загружено {len(all_compact)} рынков для скрининга")
-            
-            screen_result = nexus.screen_markets(all_compact, top_n=30)
+
+            prefiltered = _prefilter_markets(all_compact)
+            logger.info(f"  Pre-filter: {len(all_compact)} → {len(prefiltered)} рынков перед NEXUS")
+
+            screen_result = nexus.screen_markets(prefiltered, top_n=30)
+
             screened_market_ids = screen_result.get("top_candidates", [])
             correlations_count = len(screen_result.get("correlations", []))
             
@@ -54,8 +96,8 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             logger.info(f"  NEXUS отобрал {len(screened_market_ids)} кандидатов, найдено {correlations_count} корреляций")
             
             if correlations_count > 0 and summary_callback:
-                from run_team import _send_correlation_alerts
-                _send_correlation_alerts(summary_callback)
+                from services.notifications import send_correlation_alerts
+                send_correlation_alerts(summary_callback)
                 
             return screened_market_ids
         except Exception as e:
@@ -128,3 +170,35 @@ def process_consensus(m, signal, swing_signal, opinion_shadow, state, update_sta
         "final_outcome": "saved" if (signal or swing_signal) and opinion_shadow and opinion_shadow.agree and opinion_shadow.confidence > 0.6 else ("no_consensus" if (signal or swing_signal) else "no_signal")
     }
     save_idea_audit(m.id, m.title, audit)
+
+    # Эпизодическая память агентов
+    from agents.shared.python.db import save_agent_episode
+    if signal:
+        save_agent_episode(
+            agent_name="SCOUT",
+            event_type="signal_found",
+            market_id=m.id,
+            market_title=m.title,
+            summary=f"Найдена недооценка: edge={signal.edge:.2f}, цена={m.price:.2f}",
+            context={"edge": signal.edge, "price": m.price, "confidence": getattr(signal, 'confidence', None)}
+        )
+
+    final = audit.get("final_outcome")
+    if final == "saved":
+        save_agent_episode(
+            agent_name="NEXUS",
+            event_type="consensus_reached",
+            market_id=m.id,
+            market_title=m.title,
+            summary=f"Консенсус достигнут. SHADOW confidence={opinion_shadow.confidence:.2f}",
+            context={"shadow_confidence": opinion_shadow.confidence, "edge": signal.edge if signal else None}
+        )
+    elif final == "no_consensus":
+        save_agent_episode(
+            agent_name="NEXUS",
+            event_type="market_rejected",
+            market_id=m.id,
+            market_title=m.title,
+            summary=f"Консенсус не достигнут. shadow_agree={opinion_shadow.agree if opinion_shadow else None}",
+            context={"shadow_agree": opinion_shadow.agree if opinion_shadow else None}
+        )

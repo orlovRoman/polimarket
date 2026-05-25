@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -28,12 +29,16 @@ def get_connection():
         conn.close()
 
 _db_initialized = False
+_db_init_lock = threading.Lock()
 
 def init_db():
-    """Инициализация таблиц базы данных (вызывается один раз)."""
+    """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
     global _db_initialized
     if _db_initialized:
         return
+    with _db_init_lock:
+        if _db_initialized:  # double-check после получения лока
+            return
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     
     with get_connection() as conn:
@@ -188,6 +193,22 @@ def init_db():
             )
         """)
 
+        # Эпизодическая память агентов
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_episodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_name TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                market_id TEXT,
+                market_title TEXT,
+                summary TEXT NOT NULL,
+                context TEXT,
+                outcome TEXT DEFAULT 'unknown',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (market_id) REFERENCES markets (id)
+            )
+        """)
+
         # Индексы для ускорения частых запросов
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at)")
@@ -197,6 +218,8 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_price_history_market ON price_history(market_id, recorded_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_correlations_new ON correlations(notified, detected_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_trader_transactions_market ON trader_transactions(market_id, timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_agent ON agent_episodes(agent_name, created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON agent_episodes(outcome, event_type)")
 
         # Миграция: добавляем новые колонки в memory (если их ещё нет)
         existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(memory)").fetchall()}
@@ -344,18 +367,50 @@ def get_chat_history(chat_id: int, limit: int = 20):
         return history
 
 def cleanup_chat_history(chat_id: int, keep_last: int = 20):
+    """Обёртка для обратной совместимости."""
+    compress_and_cleanup_chat_history(chat_id, keep_last=keep_last)
+
+def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summarize_threshold: int = 40):
     """
-    Удаляет старые сообщения из истории чата, оставляя только последние keep_last записей.
-    Согласно MEMORY_POLICY.md, мы не храним полные логи LLM-диалогов бесконечно.
+    Если сообщений > summarize_threshold — архивирует старые в memory
+    и сохраняет summary как факт перед удалением.
+    Иначе — просто обрезает до keep_last.
     """
     with get_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM chat_history WHERE chat_id = ?", (chat_id,))
+        count = cursor.fetchone()[0]
+
+    if count > summarize_threshold:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT role, content FROM chat_history
+                WHERE chat_id = ?
+                ORDER BY timestamp ASC
+                LIMIT ?
+            """, (chat_id, count - keep_last))
+            old_msgs = [f"{r['role']}: {r['content'][:200]}" for r in cursor.fetchall()]
+
+        if old_msgs:
+            summary = (f"[Архив диалога от {datetime.now().strftime('%Y-%m-%d')}]: "
+                       + " | ".join(old_msgs[:10]))
+            save_memory(
+                key=f"chat_archive_{chat_id}_{datetime.now().strftime('%Y%m%d')}",
+                value=summary,
+                category='episodic',
+                priority=5,
+                ttl=30 * 24 * 3600
+            )
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
         cursor.execute("""
-            DELETE FROM chat_history 
+            DELETE FROM chat_history
             WHERE chat_id = ? AND id NOT IN (
-                SELECT id FROM chat_history 
-                WHERE chat_id = ? 
-                ORDER BY timestamp DESC 
+                SELECT id FROM chat_history
+                WHERE chat_id = ?
+                ORDER BY timestamp DESC
                 LIMIT ?
             )
         """, (chat_id, chat_id, keep_last))
@@ -474,27 +529,54 @@ def get_memory(key: str, default: Any = None) -> Any:
         return default
 
 def get_active_facts(limit: int = 30) -> list:
+    """Загружает актуальные приоритетные факты. Обёртка для обратной совместимости."""
+    return get_relevant_facts(limit=limit)
+
+def get_relevant_facts(context_keywords: list = None, limit: int = 20) -> list:
     """
-    Загружает актуальные приоритетные факты для системного промпта.
-    Фильтрует по TTL, сортирует по приоритету. Не загружает category='cache'.
+    Возвращает факты для системного промпта, релевантные текущему контексту.
+    Всегда включает config-факты (category='config', 'preference').
+    При наличии ключевых слов добавляет релевантные факты из category='fact'.
     """
     with get_connection() as conn:
         cursor = conn.cursor()
+
+        # Всегда грузим config + preferences (высокий priority)
         cursor.execute("""
-            SELECT key, value FROM memory 
+            SELECT key, value FROM memory
             WHERE (expires_at IS NULL OR expires_at > datetime('now'))
+              AND category IN ('config', 'preference', 'fact', 'general')
               AND category != 'cache'
             ORDER BY priority DESC, updated_at DESC
             LIMIT ?
-        """, (limit,))
+        """, (limit // 2 if context_keywords else limit,))
+        base_facts = list(cursor.fetchall())
+
+        contextual = []
+        if context_keywords:
+            for kw in context_keywords[:3]:
+                cursor.execute("""
+                    SELECT key, value FROM memory
+                    WHERE (expires_at IS NULL OR expires_at > datetime('now'))
+                      AND category = 'fact'
+                      AND (key LIKE ? OR value LIKE ?)
+                    ORDER BY priority DESC LIMIT 5
+                """, (f'%{kw}%', f'%{kw}%'))
+                contextual.extend(cursor.fetchall())
+
+        all_facts = base_facts + contextual
         results = []
-        for row in cursor.fetchall():
-            try:
-                val = json.loads(row['value'])
-            except (json.JSONDecodeError, TypeError):
-                val = row['value']
-            results.append(f"- {row['key']}: {val}")
-        return results
+        seen = set()
+        for row in all_facts:
+            if row['key'] not in seen:
+                seen.add(row['key'])
+                try:
+                    val = json.loads(row['value'])
+                except (json.JSONDecodeError, TypeError):
+                    val = row['value']
+                results.append(f"- {row['key']}: {val}")
+
+        return results[:limit]
 
 def cleanup_expired_memory():
     """Удаляет записи с истёкшим TTL из таблицы memory."""
@@ -707,6 +789,91 @@ def mark_correlations_notified(ids: list):
             ids
         )
         conn.commit()
+
+# --- Episodic Memory ---
+
+def save_agent_episode(
+    agent_name: str,
+    event_type: str,
+    summary: str,
+    market_id: str = None,
+    market_title: str = None,
+    context: dict = None,
+    outcome: str = "unknown"
+) -> int:
+    """
+    Сохраняет эпизод в памяти агента.
+    event_type: 'signal_found' | 'consensus_reached' | 'market_rejected' |
+                'signal_evaluated' | 'screening_done' | 'correlation_found'
+    outcome:    'correct' | 'incorrect' | 'unknown'
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO agent_episodes
+            (agent_name, event_type, market_id, market_title, summary, context, outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            agent_name, event_type, market_id, market_title,
+            summary, json.dumps(context or {}), outcome
+        ))
+        return cursor.lastrowid
+
+def get_agent_episodes(
+    agent_name: str = None,
+    event_type: str = None,
+    outcome: str = None,
+    limit: int = 10
+) -> list:
+    """Возвращает историю эпизодов агента с фильтрами."""
+    query = "SELECT * FROM agent_episodes WHERE 1=1"
+    params = []
+    if agent_name:
+        query += " AND agent_name = ?"
+        params.append(agent_name)
+    if event_type:
+        query += " AND event_type = ?"
+        params.append(event_type)
+    if outcome:
+        query += " AND outcome = ?"
+        params.append(outcome)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+def update_episode_outcome(episode_id: int, outcome: str):
+    """Обновляет исход эпизода после закрытия рынка."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE agent_episodes SET outcome = ? WHERE id = ?",
+            (outcome, episode_id)
+        )
+
+def get_agent_accuracy(agent_name: str) -> dict:
+    """Возвращает статистику точности агента по завершённым эпизодам."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN outcome='correct' THEN 1 ELSE 0 END) as correct,
+                SUM(CASE WHEN outcome='incorrect' THEN 1 ELSE 0 END) as incorrect
+            FROM agent_episodes
+            WHERE agent_name = ? AND outcome != 'unknown'
+        """, (agent_name,))
+        row = cursor.fetchone()
+        total = row['total'] or 0
+        correct = row['correct'] or 0
+        return {
+            "total": total,
+            "correct": correct,
+            "incorrect": row['incorrect'] or 0,
+            "accuracy": round(correct / total, 3) if total > 0 else None
+        }
 
 def save_trader_transaction(wallet_address: str, market_id: str, outcome: str, amount_usd: float, price: float = None, alias: str = None):
     """
