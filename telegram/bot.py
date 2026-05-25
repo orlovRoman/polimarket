@@ -728,35 +728,61 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         updater_task.cancel()
 
 
-@dp.message(Command("ideas"))
-async def command_ideas_handler(message: types.Message) -> None:
+async def send_ideas_page(message_or_callback, page: int = 0) -> None:
     signals = await asyncio.to_thread(get_signals, 15)
     if not signals:
-        await message.answer("Пока нет новых идей. Запустите /scan.")
+        text = "Пока нет новых идей. Запустите /scan."
+        if isinstance(message_or_callback, types.Message):
+            await message_or_callback.answer(text)
+        else:
+            await message_or_callback.message.answer(text)
+            await message_or_callback.answer()
         return
 
-    # Разбиваем список на чанки (очереди) по 5 элементов
     chunk_size = 5
-    for i in range(0, len(signals), chunk_size):
-        chunk = signals[i:i + chunk_size]
+    total_pages = (len(signals) + chunk_size - 1) // chunk_size
+    
+    if page >= total_pages:
+        page = 0
         
-        # Формируем заголовок для каждого сообщения
-        start_idx = i + 1
-        end_idx = min(i + chunk_size, len(signals))
-        response = f"🚀 <b>Торговые сигналы ({start_idx}-{end_idx} из {len(signals)}):</b>\n\n"
+    start_idx = page * chunk_size
+    chunk = signals[start_idx:start_idx + chunk_size]
+    
+    response = f"🚀 <b>Торговые сигналы ({start_idx + 1}-{min(start_idx + chunk_size, len(signals))} из {len(signals)}):</b>\n\n"
+    
+    for s in chunk:
+        edge_pct = (s['edge'] or 0) * 100
+        response += (
+            f"📍 <b>{s['title']}</b>\n"
+            f"💰 Цена: {s['market_price']} | 📈 Edge: <b>+{edge_pct:.1f}%</b>\n"
+            f"🎯 Уверенность: {s['confidence']}\n"
+            f"📝 {s['summary']}\n"
+            f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
+        )
         
-        for s in chunk:
-            edge_pct = (s['edge'] or 0) * 100
-            response += (
-                f"📍 <b>{s['title']}</b>\n"
-                f"💰 Цена: {s['market_price']} | 📈 Edge: <b>+{edge_pct:.1f}%</b>\n"
-                f"🎯 Уверенность: {s['confidence']}\n"
-                f"📝 {s['summary']}\n"
-                f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
-            )
-            
-        await message.answer(response, disable_web_page_preview=True)
-        await asyncio.sleep(0.5)  # Небольшая пауза между сообщениями для избежания флуда
+    keyboard = None
+    if page + 1 < total_pages:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Показать еще 🔽", callback_data=f"ideas_page_{page + 1}")]
+        ])
+        
+    if isinstance(message_or_callback, types.Message):
+        await message_or_callback.answer(response, reply_markup=keyboard, disable_web_page_preview=True)
+    else:
+        # При нажатии кнопки мы редактируем текущее сообщение, чтобы убрать кнопку "Показать еще" с прошлого чанка,
+        # и отправляем НОВОЕ сообщение с новой порцией.
+        await message_or_callback.message.edit_reply_markup(reply_markup=None)
+        await message_or_callback.message.answer(response, reply_markup=keyboard, disable_web_page_preview=True)
+        await message_or_callback.answer()
+
+@dp.message(Command("ideas"))
+async def command_ideas_handler(message: types.Message) -> None:
+    await send_ideas_page(message, page=0)
+
+@dp.callback_query(F.data.startswith("ideas_page_"))
+async def callback_ideas_page_handler(callback: CallbackQuery) -> None:
+    page = int(callback.data.split("_")[2])
+    await send_ideas_page(callback, page=page)
 
 @dp.message(F.text)
 async def conversational_handler(message: types.Message) -> None:
