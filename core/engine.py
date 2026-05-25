@@ -207,7 +207,14 @@ class CoreEngine:
                 mark_market_analyzed(m.id, m.price)
                 
             except Exception as e:
-                log(f"[ОШИБКА] Рынок {m.title}: {e}. Пропускаем.")
+                import traceback
+                error_msg = f"[ОШИБКА] Рынок {m.title}: {e}\n<pre>{traceback.format_exc()}</pre>"
+                log(f"[ОШИБКА] Рынок {m.title}: {e}\n{traceback.format_exc()}")
+                if summary_callback:
+                    try:
+                        summary_callback(error_msg)
+                    except:
+                        pass
             finally:
                 if m.id in self.active_markets:
                     del self.active_markets[m.id]
