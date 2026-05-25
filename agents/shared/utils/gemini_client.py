@@ -220,8 +220,8 @@ def extract_prompt_from_payload(payload: dict) -> str:
 def extract_response_text(result: dict) -> str:
     try:
         return result['candidates'][0]['content']['parts'][0]['text']
-    except Exception:
-        return json.dumps(result)
+    except Exception as e:
+        raise ValueError(f"Не удалось извлечь текст ответа. API вернуло: {json.dumps(result)}") from e
 
 def generate_content_with_fallback(
     api_key: str, 
