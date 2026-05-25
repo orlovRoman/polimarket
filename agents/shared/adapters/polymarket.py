@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from typing import List, Optional
 from .base_adapter import BaseMarketAdapter
-from ..python.models import Market
+from core.models import Market
 
 class PolymarketAdapter(BaseMarketAdapter):
     def __init__(self):

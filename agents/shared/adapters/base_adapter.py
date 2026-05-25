@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List
-from ..python.models import Market
+from core.models import Market
 
 class BaseMarketAdapter(ABC):
     @property
