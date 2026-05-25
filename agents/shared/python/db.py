@@ -54,6 +54,25 @@ def init_db():
             )
         """)
         
+        # Таблица аудита идей (Idea Audit)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS idea_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_id TEXT NOT NULL,
+                market_title TEXT,
+                scout_edge REAL,
+                swing_found INTEGER,
+                shadow_agree INTEGER,
+                shadow_confidence REAL,
+                shadow_reason TEXT,
+                herald_agree INTEGER,
+                herald_confidence REAL,
+                herald_reason TEXT,
+                final_outcome TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Таблица сигналов
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS signals (
@@ -229,6 +248,27 @@ def init_db():
         conn.commit()
     _db_initialized = True
     print(f"База данных инициализирована по адресу: {DB_PATH}")
+
+def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
+    """Сохраняет аудит-запись о прохождении идеи через pipeline."""
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO idea_audit 
+            (market_id, market_title, scout_edge, swing_found, shadow_agree, shadow_confidence,
+             shadow_reason, herald_agree, herald_confidence, herald_reason, final_outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            market_id, market_title,
+            audit_data.get("scout_edge"),
+            audit_data.get("swing_found", 0),
+            audit_data.get("shadow_agree"),
+            audit_data.get("shadow_confidence"),
+            audit_data.get("shadow_reason", ""),
+            audit_data.get("herald_agree"),
+            audit_data.get("herald_confidence"),
+            audit_data.get("herald_reason", ""),
+            audit_data.get("final_outcome", "unknown")
+        ))
 
 def save_token_usage(agent_name: str, model_name: str, input_tokens: int, output_tokens: int):
     """Сохраняет запись о потреблении токенов агентом."""

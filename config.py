@@ -40,4 +40,6 @@ TG_PHONE = os.getenv("TG_PHONE", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-
+# Стратегия скана
+SCAN_LIMIT_DEFAULT = int(os.getenv("SCAN_LIMIT", "30"))
+MIN_EDGE_DEFAULT = float(os.getenv("MIN_EDGE", "0.05"))

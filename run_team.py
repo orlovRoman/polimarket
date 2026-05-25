@@ -171,7 +171,8 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
     
     # Получаем лимит сканирования из БД (Layer 1 memory)
     db = DatabaseManager()
-    scan_limit = int(db.get_memory("scan_limit") or 10)  # Дефолт: 10 рынков за цикл
+    from config import SCAN_LIMIT_DEFAULT
+    scan_limit = int(db.get_memory("scan_limit") or SCAN_LIMIT_DEFAULT)  # Дефолт из config.py
     log(f"Параметры сессии: Лимит запросов (рынков) = {scan_limit}")
 
     # Очищаем устаревшие сигналы перед новым сканом
@@ -259,15 +260,19 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
     elif screened_market_ids and not category:
         # Используем отфильтрованные NEXUS'ом рынки
         log(f"  Используем {len(screened_market_ids)} рынков от NEXUS SCREENER")
-        markets = []
-        for mid in screened_market_ids[:scan_limit]:
+        raw_markets = []
+        for mid in screened_market_ids[:scan_limit * 2]: # Берем с запасом для фильтрации
             try:
                 m = adapter.get_market(mid)
                 if m:
-                    markets.append(m)
+                    raw_markets.append(m)
             except Exception:
                 continue
-        log(f"  Загружено полных данных: {len(markets)} рынков")
+        
+        # Фильтруем через MarketSelector (чтобы отсеять кулдауны без скачков цены)
+        selector = MarketSelector(adapter)
+        markets = selector._filter(raw_markets)[:scan_limit]
+        log(f"  После фильтрации кулдаунов загружено: {len(markets)} рынков")
     else:
         # Стандартный путь: MarketSelector
         selector = MarketSelector(adapter)
@@ -289,10 +294,6 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
     
     update_state(total_markets=len(markets), stage="Обсуждение (SCOUT + SWING + SHADOW)")
     
-    # Получаем список рынков, которые были проанализированы за последние N часов (кулдаун)
-    from config import MARKET_COOLDOWN_HOURS
-    cooldown_markets = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
-    
     new_markets_found = False
     for i, m in enumerate(markets, 1):
         update_state(
@@ -308,19 +309,10 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
         
         if last_price is not None and not market_id:
             price_diff = abs(last_price - m.price)
-            is_cooldown = m.id in cooldown_markets
-            
-            # Гибридный триггер: анализируем, если цена изменилась >= 3% ИЛИ прошло >= 6 часов (не в кулдауне)
-            if price_diff < 0.03 and is_cooldown:
-                log(f"\n[РЫНОК]: {m.title} (Цена {m.price} стабильна и рынок на 6-часовом кулдауне, пропускаем)")
-                # Всё равно записываем price point для истории
-                save_price_point(m.id, m.price)
-                update_state(scout_status="⚪️ Пропущен (Кулдаун)", swing_status="⚪️ Пропущен (Кулдаун)")
-                continue
-            elif not is_cooldown:
-                log(f"\n[РЫНОК]: {m.title} (Истек 6-часовой кулдаун, пересматриваем)")
-            else:
+            if price_diff >= 0.03:
                 log(f"\n[РЫНОК]: {m.title} (Цена изменилась: {last_price} -> {m.price}, пересматриваем)")
+            else:
+                log(f"\n[РЫНОК]: {m.title} (Истек кулдаун, пересматриваем)")
         else:
             if market_id:
                 log(f"\n[РЫНОК]: {m.title} (Точечный принудительный анализ)")
@@ -439,6 +431,21 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                 
             summary_callback(summary_text)
             
+        # Сохраняем аудит прохождения идеи
+        from agents.shared.python.db import save_idea_audit
+        audit = {
+            "scout_edge": signal.edge if signal else None,
+            "swing_found": 1 if swing_signal else 0,
+            "shadow_agree": int(opinion_shadow.agree) if opinion_shadow else None,
+            "shadow_confidence": opinion_shadow.confidence if opinion_shadow else None,
+            "shadow_reason": (opinion_shadow.opinion or "")[:200] if opinion_shadow else "",
+            "herald_agree": None,
+            "herald_confidence": None,
+            "herald_reason": "",
+            "final_outcome": "saved" if (signal or swing_signal) and opinion_shadow and opinion_shadow.agree and opinion_shadow.confidence > 0.6 else ("no_consensus" if (signal or swing_signal) else "no_signal")
+        }
+        save_idea_audit(m.id, m.title, audit)
+        
         # Отмечаем рынок как проанализированный с текущей ценой
         mark_market_analyzed(m.id, m.price)
 

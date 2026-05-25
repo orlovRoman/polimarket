@@ -131,11 +131,10 @@ class ScoutAgent:
             edge = max(edge_yes, edge_no)
             target_outcome = "YES" if edge_yes > edge_no else "NO"
             
-            # Порог активации: настраиваемый через /settings (дефолт 10%)
-            min_edge = get_memory("min_edge")
-            if min_edge is None:
-                min_edge = 0.10
-                
+            # Фильтруем по минимальному edge
+            from config import MIN_EDGE_DEFAULT
+            min_edge = float(get_memory("min_edge") or MIN_EDGE_DEFAULT)
+            
             if edge > min_edge:
                 signal = Signal(
                     id=f"sig-{market.id}-{int(datetime.now().timestamp())}",

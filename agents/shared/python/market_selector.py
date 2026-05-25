@@ -14,7 +14,7 @@ from config import (
     PRICE_RANGE_MIN, PRICE_RANGE_MAX, SCAN_CATEGORIES
 )
 from agents.shared.python.db import (
-    get_memory, save_memory, get_markets_on_cooldown
+    get_memory, save_memory, get_markets_on_cooldown, get_last_analyzed_price
 )
 from agents.shared.python.models import Market
 
@@ -117,8 +117,8 @@ class MarketSelector:
         """
         Фильтрует рынки:
         - Убирает истёкшие (close_time в прошлом)
-        - Убирает на cooldown (анализировались недавно)
         - Убирает абсолютно мертвые цены (< 0.01 или > 0.99)
+        - Убирает на cooldown, ЕСЛИ их цена не изменилась значительно (>= 3%)
         """
         now = datetime.now(timezone.utc)
         cooldown_ids = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
@@ -128,12 +128,23 @@ class MarketSelector:
             # Рынок уже закрыт
             if m.close_time <= now:
                 continue
-            # Рынок на cooldown
-            if m.id in cooldown_ids:
-                continue
-            # Абсолютно мертвые цены (разрешен или 100% уверенность)
+            
+            # Абсолютно мертвые цены
             if m.price < 0.01 or m.price > 0.99:
                 continue
+                
+            # Рынок на cooldown
+            if m.id in cooldown_ids:
+                last_price = get_last_analyzed_price(m.id)
+                if last_price is not None:
+                    price_diff = abs(last_price - m.price)
+                    if price_diff < 0.03:
+                        # Цена стабильна, оставляем в кулдауне (пропускаем)
+                        continue
+                    else:
+                        # Цена изменилась >= 3%, ИГНОРИРУЕМ кулдаун и пропускаем дальше!
+                        pass
+                        
             filtered.append(m)
         
         return filtered

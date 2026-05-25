@@ -119,11 +119,12 @@ async def command_help_handler(message: types.Message) -> None:
         "<b>Основные:</b>\n"
         "🚀 /scan — запустить поиск идей (выбор из 7 категорий)\n"
         "💡 /ideas — показать последние 5 активных сигналов\n"
-        "⚙️ /status — детальный статус агентов и метрики памяти\n\n"
+        "⚙️ /status — детальный статус агентов и метрики памяти\n"
+        "📊 /audit — аудит воронки идей (отказы SHADOW)\n\n"
         "<b>Настройки:</b>\n"
         "🛠 /settings — лимит рынков + порог Edge (SCOUT)\n"
         "🧠 /model — выбрать языковую модель Gemini\n"
-        "📊 /stats — общая статистика (рынки, сигналы, мнения)\n"
+        "📈 /stats — общая статистика (рынки, сигналы)\n"
         "🧹 /cleanup — архивировать устаревшие сигналы\n"
         "📜 /logs — последние 10 строк системного лога\n\n"
         "<b>Информация:</b>\n"
@@ -215,6 +216,41 @@ async def command_status_handler(message: types.Message) -> None:
 async def command_stats_handler(message: types.Message) -> None:
     if _is_stale_message(message): return
     await message.answer(await asyncio.to_thread(get_db_stats))
+
+@dp.message(Command("audit"))
+async def command_audit_handler(message: types.Message) -> None:
+    if _is_stale_message(message): return
+    from agents.shared.python.db import get_connection
+    try:
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT final_outcome, COUNT(*) as cnt
+                FROM idea_audit
+                WHERE created_at >= datetime('now', '-24 hours')
+                GROUP BY final_outcome
+            """).fetchall()
+            
+            shadow_rejection = conn.execute("""
+                SELECT COUNT(*) FROM idea_audit
+                WHERE shadow_agree = 0 AND scout_edge IS NOT NULL
+                AND created_at >= datetime('now', '-24 hours')
+            """).fetchone()[0]
+        
+        text = "📊 <b>Audit Pipeline (24ч):</b>\n\n"
+        if not rows:
+            text += "<i>Нет данных за последние 24 часа.</i>\n"
+        for row in rows:
+            outcome_icons = {
+                "saved": "✅", "no_consensus": "🛑", 
+                "no_signal": "⚪️", "skipped_cooldown": "⏭"
+            }
+            icon = outcome_icons.get(row["final_outcome"], "❓")
+            text += f"{icon} {row['final_outcome']}: <b>{row['cnt']}</b>\n"
+        
+        text += f"\n🔴 Отклонено SHADOW: <b>{shadow_rejection}</b>"
+        await message.answer(text)
+    except Exception as e:
+        await message.answer(f"Ошибка получения аудита: {e}")
 
 @dp.message(Command("settings"))
 async def command_settings_handler(message: types.Message) -> None:
