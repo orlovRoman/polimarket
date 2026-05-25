@@ -8,7 +8,7 @@ oauth_creds.json
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.class
 *.so
 .Python
 env/
@@ -33,7 +33,11 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Базы данных и динамические данные
-vault/database.sqlite
+vault/*.sqlite
+vault/*.db
+vault/*.db-shm
+vault/*.db-wal
+vault/scan.lock
 vault/archive/
 vault/daily/
 vault/inbox/
