@@ -16,7 +16,7 @@ class Market(BaseModel):
 
 class Signal(BaseModel):
     id: str
-    type: Literal['undervaluation', 'arb', 'insider', 'news', 'hype_pump']
+    type: str  # MISPRICING, SWING, etc.
     market_id: str
     platform: str
     edge: Optional[float] = None
@@ -24,7 +24,37 @@ class Signal(BaseModel):
     priority: Literal['low', 'medium', 'high']
     summary: str
     details: str
-    status: Literal['PENDING', 'EXECUTED', 'REJECTED', 'ARCHIVED'] = 'PENDING'
+    
+    # НОВЫЕ ПОЛЯ (со значением по умолчанию — backward-compatible)
+    signal_cause: str = ""       # Причина сигнала
+    signal_risk: str = ""        # Главный риск
+    signal_verdict: str = ""     # Итог
+    
+    status: Literal['PENDING', 'EXECUTED', 'REJECTED', 'ARCHIVED', 'EVALUATED'] = 'PENDING'
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class SwingSignal(BaseModel):
+    id: str
+    market_id: str
+    platform: str
+    type: str = "SWING"
+    edge: Optional[float] = 0.0
+    priority: str = "medium"
+    summary: str = ""
+    details: str = ""
+    hype_potential: float
+    recommendation: str        # "buy" | "ignore"
+    target_outcome: str        # "YES" | "NO"
+    target_exit_price: float
+    confidence: float
+    reasoning: str             
+    
+    # НОВЫЕ ПОЛЯ
+    catalyst: str = ""                   
+    catalyst_absence_reason: str = ""    
+    swing_risk: str = ""                 
+    swing_verdict: str = ""              
+    
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AgentOpinion(BaseModel):
@@ -33,8 +63,14 @@ class AgentOpinion(BaseModel):
     opinion: str
     confidence: float
     agree: bool
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    # НОВЫЕ ПОЛЯ
+    orderbook_facts: str = ""    
+    risk_assessment: str = ""    
+    shadow_verdict: str = ""     
+    liquidity_risk: str = "medium"  # "low" | "medium" | "high"
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 class MarketCorrelation(BaseModel):
     """Обнаруженная корреляция между двумя рынками."""
     market_id_a: str

@@ -125,49 +125,70 @@ def run_agent_evaluation(m, scout, swing, update_state):
 
 def process_consensus(m, signal, swing_signal, opinion_shadow, state, update_state, summary_callback):
     if signal or swing_signal:
-        if opinion_shadow and opinion_shadow.agree and opinion_shadow.confidence > 0.6:
+        # Улучшенная логика консенсуса
+        shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"
+        
+        if shadow_ok:
             logger.info("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ.")
             if signal: save_signal(signal)
             if swing_signal: save_signal(swing_signal)
             update_state(ideas_found=state.get("ideas_found", 0) + 1)
         else:
-            logger.info("  --- Консенсус не достигнут.")
+            logger.info("  --- Консенсус не достигнут (SHADOW забраковал).")
     else:
         logger.info("  SCOUT и SWING: Идей не найдено.")
         update_state(scout_status="⚪️ Идея не найдена", swing_status="⚪️ Идея не найдена")
-        
+
     if summary_callback:
+        # Богатый формат для Telegram
         summary_text = f"🗣 <b>Обсуждение рынка:</b>\n<a href='{m.url}'>{m.title}</a>\n\n"
+        
         if signal:
-            summary_text += f"<b>SCOUT</b> 🟢 {signal.summary}\n\n"
+            summary_text += f"🧠 <b>SCOUT (Фундаментал):</b>\n"
+            summary_text += f"🎯 Причина: {getattr(signal, 'signal_cause', 'N/A')}\n"
+            summary_text += f"⚖️ Риск: {getattr(signal, 'signal_risk', 'N/A')}\n"
+            summary_text += f"📝 Вердикт: {getattr(signal, 'signal_verdict', 'N/A')}\n\n"
         else:
-            summary_text += f"<b>SCOUT</b> ⚪️ Идея не найдена.\n\n"
+            summary_text += f"🧠 <b>SCOUT:</b> ⚪️ Расхождение < MIN_EDGE\n\n"
             
         if swing_signal:
-            summary_text += f"<b>SWING</b> 🚀 Ждет памп\n\n"
+            summary_text += f"🏄‍♂️ <b>SWING (Хайп):</b>\n"
+            if getattr(swing_signal, 'recommendation', '') == 'buy':
+                summary_text += f"🔥 Катализатор: {getattr(swing_signal, 'catalyst', 'N/A')}\n"
+            else:
+                summary_text += f"💤 Почему тихо: {getattr(swing_signal, 'catalyst_absence_reason', 'N/A')}\n"
+            summary_text += f"⚖️ Риск: {getattr(swing_signal, 'swing_risk', 'N/A')}\n"
+            summary_text += f"📝 Вердикт: {getattr(swing_signal, 'swing_verdict', 'N/A')}\n\n"
         else:
-            summary_text += f"<b>SWING</b> ⚪️ Нет хайпа.\n\n"
-        
+            summary_text += f"🏄‍♂️ <b>SWING:</b> ⚪️ Сигнал не сформирован\n\n"
+            
         if opinion_shadow:
             status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
-            summary_text += f"<b>SHADOW</b> {status} (Увер: {opinion_shadow.confidence})\n<i>{opinion_shadow.opinion}</i>\n\n"
+            liq_risk = getattr(opinion_shadow, 'liquidity_risk', 'medium').upper()
+            summary_text += f"🛡 <b>SHADOW (Инфраструктура):</b> {status}\n"
+            summary_text += f"💧 Ликвидность: {liq_risk}\n"
+            summary_text += f"📊 Ордербук: {getattr(opinion_shadow, 'orderbook_facts', 'N/A')}\n"
+            summary_text += f"⚖️ Исполнение: {getattr(opinion_shadow, 'risk_assessment', 'N/A')}\n"
+            summary_text += f"📝 Вердикт: {getattr(opinion_shadow, 'shadow_verdict', 'N/A')}\n\n"
         
-        if (signal or swing_signal) and opinion_shadow and opinion_shadow.agree and opinion_shadow.confidence > 0.6:
+        shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"
+        if (signal or swing_signal) and shadow_ok:
             summary_text += "✨ <b>ИТОГ: Консенсус достигнут! Идея сохранена.</b>"
         elif (signal or swing_signal):
-            summary_text += "🛑 <b>ИТОГ: Консенсус не достигнут.</b>"
+            summary_text += "🛑 <b>ИТОГ: Консенсус не достигнут (SHADOW отклонил).</b>"
         else:
             summary_text += "🛑 <b>ИТОГ: Нет предмета для обсуждения.</b>"
             
         summary_callback(summary_text)
         
+    shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"
     audit = {
         "scout_edge": signal.edge if signal else None,
         "swing_found": 1 if swing_signal else 0,
         "shadow_agree": int(opinion_shadow.agree) if opinion_shadow else None,
         "shadow_confidence": opinion_shadow.confidence if opinion_shadow else None,
         "shadow_reason": (opinion_shadow.opinion or "")[:200] if opinion_shadow else "",
-        "final_outcome": "saved" if (signal or swing_signal) and opinion_shadow and opinion_shadow.agree and opinion_shadow.confidence > 0.6 else ("no_consensus" if (signal or swing_signal) else "no_signal")
+        "final_outcome": "saved" if (signal or swing_signal) and shadow_ok else ("no_consensus" if (signal or swing_signal) else "no_signal")
     }
     save_idea_audit(m.id, m.title, audit)
 

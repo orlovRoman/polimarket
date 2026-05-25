@@ -132,7 +132,12 @@ class ShadowAgent:
                 market_id=market.id,
                 opinion=analysis.get("opinion", ""),
                 confidence=float(analysis.get("confidence", 0.5)),
-                agree=analysis.get("agree", False)
+                agree=analysis.get("agree", False),
+                # Новые поля
+                orderbook_facts=analysis.get("orderbook_facts", ""),
+                risk_assessment=analysis.get("risk_assessment", ""),
+                shadow_verdict=analysis.get("shadow_verdict", ""),
+                liquidity_risk=analysis.get("liquidity_risk", "medium")
             )
         except Exception as e:
             print(f"Ошибка SHADOW при анализе {market.id}: {e}")

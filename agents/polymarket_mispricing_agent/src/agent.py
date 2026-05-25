@@ -122,7 +122,9 @@ class ScoutAgent:
                 return None
             
             # Рассчитываем математическое преимущество (Edge) на уровне Python (честный Double-Blind)
-            est_prob = float(analysis.get("estimate_probability", 0))
+            est_prob = float(analysis.get("estimate_probability", 0.5))
+            confidence = float(analysis.get("confidence", 0.5))
+            priority = analysis.get("priority", "medium")
             
             # Рассчитываем Edge для YES и NO
             edge_yes = est_prob - market.price
@@ -136,16 +138,32 @@ class ScoutAgent:
             min_edge = float(get_memory("min_edge") or MIN_EDGE_DEFAULT)
             
             if edge > min_edge:
+                # === НОВЫЙ БЛОК: Читаем структурированные поля ===
+                signal_phrase = analysis.get("signal", "")
+                cause_phrase  = analysis.get("cause", "")
+                risk_phrase   = analysis.get("risk", "")
+                verdict_phrase = analysis.get("verdict", "")
+                
+                # Формируем summary по шаблону: "SCOUT: {signal}. {cause}"
+                if signal_phrase and cause_phrase:
+                    summary = f"{signal_phrase}. {cause_phrase}"
+                else:
+                    summary = f"Недооценка {target_outcome} на {edge*100:.1f}%"
+                
                 signal = Signal(
-                    id=f"sig-{market.id}-{int(datetime.now().timestamp())}",
-                    type="undervaluation",
+                    id=f"scout_{market.id}_{int(datetime.now().timestamp())}",
+                    type="MISPRICING",
                     market_id=market.id,
                     platform=market.platform,
-                    edge=edge,
-                    confidence=analysis.get("confidence", 0.5),
-                    priority=analysis.get("priority", "medium"),
-                    summary=f"Недооценка {target_outcome} на {edge*100:.1f}%",
-                    details=f"Рекомендация: Покупать {target_outcome}.\n" + analysis.get("reasoning", "")
+                    edge=round(edge, 4),
+                    confidence=confidence,
+                    priority=priority,
+                    summary=summary,
+                    details=analysis.get("reasoning", ""),
+                    # Новые поля
+                    signal_cause=cause_phrase,
+                    signal_risk=risk_phrase,
+                    signal_verdict=verdict_phrase,
                 )
                 return signal
         except Exception as e:
