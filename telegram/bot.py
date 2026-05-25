@@ -169,13 +169,12 @@ async def command_status_handler(message: types.Message) -> None:
     # Загружаем используемые модели и суточный расход токенов для каждого агента
     nexus_model = get_memory("selected_model", "gemini-2.5-flash")
     scout_model = await asyncio.to_thread(get_agent_model, "SCOUT", "gemini-2.5-flash")
+    swing_model = await asyncio.to_thread(get_agent_model, "SWING", "gemini-2.5-flash")
     shadow_model = await asyncio.to_thread(get_agent_model, "SHADOW", "gemini-2.5-flash")
-    herald_model = await asyncio.to_thread(get_agent_model, "HERALD", "gemini-2.5-flash")
     
-    nexus_tokens = await asyncio.to_thread(get_token_usage_last_24h, "NEXUS")
     scout_tokens = await asyncio.to_thread(get_token_usage_last_24h, "SCOUT")
+    swing_tokens = await asyncio.to_thread(get_token_usage_last_24h, "SWING")
     shadow_tokens = await asyncio.to_thread(get_token_usage_last_24h, "SHADOW")
-    herald_tokens = await asyncio.to_thread(get_token_usage_last_24h, "HERALD")
     
     def format_tokens(t):
         tot = t.get('total_tokens', 0)
@@ -187,19 +186,18 @@ async def command_status_handler(message: types.Message) -> None:
 
     status_text = (
         "📊 <b>Статус системы (24/7 Monitoring):</b>\n\n"
-        f"● <b>Оркестратор (NEXUS):</b> 🟢 В сети\n"
-        f"● <b>Агенты (SCOUT, SHADOW, HERALD):</b> 🟢 Готовы\n"
-        f"● <b>Планировщик:</b> 🟢 Активен (5 мин)\n"
+        f"● <b>Оркестратор NEXUS:</b> 🟢 Активен (Model: <code>{nexus_model}</code>)\n"
+        f"● <b>Агенты (SCOUT, SWING, SHADOW):</b> 🟢 Готовы\n"
+        f"● <b>Telegram Слушатель:</b> 🟢 Активен (5 мин)\n"
         f"● <b>Trend Hunter:</b> {'🟢 Активен (2 ч)' if trend_hunter_enabled else '🔴 Отключен'}\n"
         f"● <b>Тренды-оповещения:</b> {'🟢 Включены' if trend_hunter_alerts else '🔴 Отключены'}\n"
         f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
         f"● <b>Лимит запросов:</b> <code>{scan_limit} рынков/цикл</code>\n"
         f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning else '🟢 Ожидание'}\n\n"
         f"🤖 <b>AI Агенты и токен-баланс (24ч):</b>\n"
-        f"  ● <b>NEXUS:</b> <code>{nexus_model}</code> | {format_tokens(nexus_tokens)}\n"
         f"  ● <b>SCOUT:</b> <code>{scout_model}</code> | {format_tokens(scout_tokens)}\n"
-        f"  ● <b>SHADOW:</b> <code>{shadow_model}</code> | {format_tokens(shadow_tokens)}\n"
-        f"  ● <b>HERALD:</b> <code>{herald_model}</code> | {format_tokens(herald_tokens)}\n\n"
+        f"  ● <b>SWING:</b> <code>{swing_model}</code> | {format_tokens(swing_tokens)}\n"
+        f"  ● <b>SHADOW:</b> <code>{shadow_model}</code> | {format_tokens(shadow_tokens)}\n\n"
         f"🧠 <b>Память:</b>\n"
         f"  Факты (Layer 1): {stats.get('facts', '?')}\n"
         f"  Рынков в БД: {stats.get('markets', '?')}\n"
@@ -391,7 +389,7 @@ async def command_model_handler(message: types.Message) -> None:
         [InlineKeyboardButton(text="🚀 Gemini 3.5 Flash (Новейшая)", callback_data="setmodel_gemini-3.5-flash")],
         [InlineKeyboardButton(text="🧠 Gemini 2.5 Pro (Дорогая, мощная)", callback_data="setmodel_gemini-2.5-pro")],
     ])
-    await message.answer("🧠 <b>Выбор языковой модели:</b>\n\nВлияет на ответы NEXUS и скрининг рынков. Агенты SCOUT/SHADOW/HERALD используют Flash по умолчанию.", reply_markup=keyboard)
+    await message.answer("🧠 <b>Выбор языковой модели:</b>\n\nВлияет на ответы NEXUS и скрининг рынков. Агенты SCOUT/SHADOW используют Flash по умолчанию.", reply_markup=keyboard)
 
 @dp.callback_query(F.data.startswith("setmodel_"))
 async def callback_setmodel_handler(callback: CallbackQuery) -> None:
@@ -563,8 +561,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         html += "<b>Статус агентов:</b>\n"
         html += f"🕵️‍♂️ <b>SCOUT:</b> {state.get('scout_status', '⏳ Ожидает')}\n"
         html += f"🚀 <b>SWING:</b> {state.get('swing_status', '⏳ Ожидает')}\n"
-        html += f"👤 <b>SHADOW:</b> {state.get('shadow_status', '⏳ Ожидает')}\n"
-        html += f"📰 <b>HERALD:</b> {state.get('herald_status', '⏳ Ожидает')}\n\n"
+        html += f"👤 <b>SHADOW:</b> {state.get('shadow_status', '⏳ Ожидает')}\n\n"
         
         html += f"<i>💡 Найдено идей (консенсус): {state.get('ideas_found', 0)}</i>"
         return html

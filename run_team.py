@@ -285,9 +285,9 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
     # ===================================================================
     # СТАДИЯ 2: ОБСУЖДЕНИЕ (SCOUT → SHADOW → HERALD)
     # ===================================================================
-    log(f"\n--- 2. Обсуждение идей (SCOUT + SHADOW + HERALD) ---")
-    log(f"Всего рынков для проверки: {len(markets)}")
-    update_state(total_markets=len(markets), stage="Обсуждение (SCOUT + SHADOW + HERALD)")
+    log(f"\n--- 2. Обсуждение идей (SCOUT + SWING + SHADOW) ---")
+    
+    update_state(total_markets=len(markets), stage="Обсуждение (SCOUT + SWING + SHADOW)")
     
     # Получаем список рынков, которые были проанализированы за последние N часов (кулдаун)
     from config import MARKET_COOLDOWN_HOURS
