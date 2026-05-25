@@ -1,7 +1,7 @@
 import os
 import json
 from typing import Optional, List
-from agents.shared.utils.gemini_client import generate_content_with_fallback
+from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from core.models import Market
 
