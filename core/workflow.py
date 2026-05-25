@@ -54,8 +54,8 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             logger.info(f"  NEXUS отобрал {len(screened_market_ids)} кандидатов, найдено {correlations_count} корреляций")
             
             if correlations_count > 0 and summary_callback:
-                from run_team import _send_correlation_alerts
-                _send_correlation_alerts(summary_callback)
+                from services.notifications import send_correlation_alerts
+                send_correlation_alerts(summary_callback)
                 
             return screened_market_ids
         except Exception as e:

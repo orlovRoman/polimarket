@@ -80,13 +80,6 @@ def release_process_lock():
     except Exception as e:
         logger.error(f"[Lock] Ошибка удаления файла блокировки: {e}")
 
-def _send_correlation_alerts(summary_callback):
-    from agents.shared.python.db import get_new_correlations, mark_correlations_notified
-    correlations = get_new_correlations()
-    for c in correlations:
-        text = f"🔗 <b>НАЙДЕНА КОРРЕЛЯЦИЯ:</b>\n<i>{c['reasoning']}</i>\n\nРынки:\n- <a href='{c['market1_url']}'>{c['market1_title']}</a>\n- <a href='{c['market2_url']}'>{c['market2_title']}</a>"
-        summary_callback(text)
-        mark_correlations_notified(c['id'])
 
 def run_team_discussion(log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None):
     if not _scan_lock.acquire(blocking=False):
@@ -104,16 +97,7 @@ def run_team_discussion(log_callback=None, summary_callback=None, category=None,
         _scan_lock.release()
 
 def _run_team_discussion_inner(log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None):
-    # Фоновая отправка в Telegram
-    def send_telegram_alert(text: str):
-        from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-        if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID: return
-        try:
-            import requests
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-            requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}, timeout=5)
-        except Exception as e:
-            logger.error(f"Ошибка отправки в Telegram: {e}")
+    from services.notifications import send_telegram as send_telegram_alert
 
     if summary_callback is None:
         summary_callback = send_telegram_alert
