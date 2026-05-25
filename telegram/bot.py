@@ -231,6 +231,18 @@ async def command_status_handler(message: types.Message) -> None:
         f"🕒 <b>Последнее авто-сканирование:</b>\n<code>{last_scan_str}</code>\n"
         f"🎯 <b>Последний поиск трендов:</b>\n<code>{trend_hunter_last_run}</code>"
     )
+
+    # Точность SCOUT
+    from agents.shared.python.db import get_memory
+    accuracy = get_memory("scout_accuracy_pct")
+    evaluated = get_memory("scout_evaluated_total") or 0
+    accuracy_line = "\n\n🎯 <b>Точность SCOUT:</b> "
+    if accuracy and evaluated > 0:
+        accuracy_line += f"<b>{accuracy}%</b> (по {evaluated} сигналам)"
+    else:
+        accuracy_line += "накапливается..."
+    status_text += accuracy_line
+
     await message.answer(status_text)
 
 @dp.message(Command("stats"))
