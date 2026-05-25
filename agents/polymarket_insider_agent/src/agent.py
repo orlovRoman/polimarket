@@ -124,7 +124,7 @@ YES dominance:   {smart_money.yes_dominance:.0%}
             }
         }
         
-        from agents.shared.utils.gemini_client import generate_content_with_fallback
+        from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
         
         for attempt in range(2):
             result, active_model = generate_content_with_fallback(
@@ -139,7 +139,7 @@ YES dominance:   {smart_money.yes_dominance:.0%}
                 continue
                 
             try:
-                content = result['candidates'][0]['content']['parts'][0]['text']
+                content = extract_response_text(result)
                 content = content.replace("```json", "").replace("```", "").strip()
                 analysis = json.loads(content, strict=False)
                 break

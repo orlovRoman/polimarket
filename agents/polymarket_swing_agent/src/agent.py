@@ -98,7 +98,7 @@ class SwingAgent:
             }
         }
         
-        from agents.shared.utils.gemini_client import generate_content_with_fallback
+        from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
         
         for attempt in range(2):
             result, active_model = generate_content_with_fallback(
@@ -113,8 +113,7 @@ class SwingAgent:
                 continue
                 
             try:
-                content = result['candidates'][0]['content']['parts'][0]['text']
-                # Из Gemini или Grok ответ уже должен быть JSON
+                content = extract_response_text(result)
                 # Очистим возможные markdown блоки, если Grok игнорирует schema
                 content = content.replace("```json", "").replace("```", "").strip()
                 analysis = json.loads(content, strict=False)

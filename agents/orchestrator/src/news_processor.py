@@ -55,7 +55,7 @@ class NewsProcessor:
             return []
             
         try:
-            content = result['candidates'][0]['content']['parts'][0]['text']
+            content = extract_response_text(result)
             data = json.loads(content)
             keywords = data.get("keywords", [])
             
