@@ -2,43 +2,44 @@ import requests
 import xml.etree.ElementTree as ET
 from urllib.parse import quote
 import time
-from functools import wraps
+import hashlib
+from threading import Lock
 
-def ttl_cache(maxsize=128, ttl=1800):
-    cache = {}
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            key = str(args) + str(kwargs)
-            now = time.time()
-            if key in cache:
-                result, timestamp = cache[key]
-                if now - timestamp < ttl:
-                    return result
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            if len(cache) > maxsize:
-                oldest = min(cache.keys(), key=lambda k: cache[k][1])
-                del cache[oldest]
-            return result
-        return wrapper
-    return decorator
+_news_cache: dict = {}
+_news_cache_lock = Lock()
+NEWS_CACHE_TTL = 900  # 15 минут
 
-@ttl_cache(maxsize=128, ttl=1800)
-def fetch_rss_news(query: str, limit: int = 5) -> list[str]:
-    """
-    Получает последние новости через Google News RSS.
-    
-    :param query: Поисковый запрос
-    :param limit: Количество заголовков
-    :return: Список заголовков новостей
-    """
+
+def _get_cached_news(query: str, fetcher_fn, *args) -> list:
+    """Универсальный thread-safe TTL-кэш для новостных запросов."""
+    key = hashlib.md5(query.lower().encode()).hexdigest()
+    now = time.time()
+
+    with _news_cache_lock:
+        if key in _news_cache:
+            result, ts = _news_cache[key]
+            if now - ts < NEWS_CACHE_TTL:
+                return result
+
+    result = fetcher_fn(*args)
+
+    with _news_cache_lock:
+        _news_cache[key] = (result, now)
+        # GC: чистим устаревшие записи
+        expired = [k for k, (_, ts) in _news_cache.items() if now - ts > NEWS_CACHE_TTL]
+        for k in expired:
+            del _news_cache[k]
+
+    return result
+
+
+def _fetch_rss_news_impl(query: str, limit: int = 5) -> list:
+    """Реальная реализация получения RSS. Не вызывать напрямую — использовать fetch_rss_news."""
     try:
         url = f"https://news.google.com/rss/search?q={quote(query)}&hl=en-US&gl=US&ceid=US:en"
         response = requests.get(url, timeout=10)
         if response.status_code != 200:
             return []
-        
         root = ET.fromstring(response.content)
         news = []
         for item in root.findall(".//item")[:limit]:
@@ -49,22 +50,15 @@ def fetch_rss_news(query: str, limit: int = 5) -> list[str]:
         print(f"Ошибка при получении RSS: {e}")
         return []
 
-@ttl_cache(maxsize=128, ttl=1800)
-def fetch_reddit_news(query: str, limit: int = 5) -> list[str]:
-    """
-    Получает последние посты с Reddit по ключевым словам.
-    
-    :param query: Поисковый запрос
-    :param limit: Количество постов
-    :return: Список заголовков постов
-    """
+
+def _fetch_reddit_news_impl(query: str, limit: int = 5) -> list:
+    """Реальная реализация получения Reddit. Не вызывать напрямую — использовать fetch_reddit_news."""
     try:
         url = f"https://www.reddit.com/search.json?q={quote(query)}&sort=new&limit={limit}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 PolymarketBot/1.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 PolymarketBot/1.0'}
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
             return []
-            
         data = response.json()
         posts = []
         for child in data.get('data', {}).get('children', []):
@@ -75,3 +69,13 @@ def fetch_reddit_news(query: str, limit: int = 5) -> list[str]:
     except Exception as e:
         print(f"Ошибка при получении Reddit: {e}")
         return []
+
+
+def fetch_rss_news(query: str, limit: int = 5) -> list:
+    """Получает последние новости через Google News RSS (с кэшированием 15 мин)."""
+    return _get_cached_news(query, _fetch_rss_news_impl, query, limit)
+
+
+def fetch_reddit_news(query: str, limit: int = 5) -> list:
+    """Получает последние посты с Reddit по ключевым словам (с кэшированием 15 мин)."""
+    return _get_cached_news(query, _fetch_reddit_news_impl, query, limit)
