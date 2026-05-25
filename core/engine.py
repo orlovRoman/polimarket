@@ -239,13 +239,13 @@ class CoreEngine:
         
         np = NewsProcessor(api_key=self.api_key)
         markets = np.find_relevant_markets(text)
-        
+        from services.notifications import send_telegram_to_chat
         if not markets:
-            send_telegram_alert("К сожалению, я не нашел связанных рынков на Polymarket для этого поста.", chat_id)
+            send_telegram_to_chat("К сожалению, я не нашел связанных рынков на Polymarket для этого поста.", chat_id)
             mark_telegram_post_status(post_id, 'NO_MARKETS')
             return
 
-        send_telegram_alert(f"Нашел {len(markets)} связанных рынков. Анализирую...", chat_id)
+        send_telegram_to_chat(f"Нашел {len(markets)} связанных рынков. Анализирую...", chat_id)
         
         def dummy_update(**kwargs):
             pass
@@ -294,7 +294,7 @@ class CoreEngine:
                 else:
                     summary_text += "К сожалению, интересного сигнала для входа не найдено (нет edge или хайпа)."
                     
-                send_telegram_alert(summary_text, chat_id)
+                send_telegram_to_chat(summary_text, chat_id)
                 mark_telegram_post_status(post_id, 'ANALYZED')
                 
             except Exception as e:
