@@ -505,11 +505,12 @@ async def callback_setlimit_handler(callback: CallbackQuery) -> None:
 @dp.message(Command("model"))
 async def command_model_handler(message: types.Message) -> None:
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚡ Gemini 2.5 Flash (Рекомендуется)", callback_data="setmodel_gemini-2.5-flash")],
-        [InlineKeyboardButton(text="🚀 Gemini 3.5 Flash (Новейшая)", callback_data="setmodel_gemini-3.5-flash")],
-        [InlineKeyboardButton(text="🧠 Gemini 2.5 Pro (Дорогая, мощная)", callback_data="setmodel_gemini-2.5-pro")],
+        [InlineKeyboardButton(text="Модель: NEXUS", callback_data="set_model_NEXUS")],
+        [InlineKeyboardButton(text="Модель: SCOUT", callback_data="set_model_SCOUT")],
+        [InlineKeyboardButton(text="Модель: SWING", callback_data="set_model_SWING")],
+        [InlineKeyboardButton(text="Модель: SHADOW", callback_data="set_model_SHADOW")]
     ])
-    await message.answer("🧠 <b>Выбор языковой модели:</b>\n\nВлияет на ответы NEXUS и скрининг рынков. Агенты SCOUT/SHADOW используют Flash по умолчанию.", reply_markup=keyboard)
+    await message.answer("🤖 <b>Настройка AI Моделей</b>\n\nВыберите агента для переназначения модели:", reply_markup=keyboard)
 
 @dp.callback_query(F.data.startswith("setmodel_"))
 async def callback_setmodel_handler(callback: CallbackQuery) -> None:
