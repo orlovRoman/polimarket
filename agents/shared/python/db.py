@@ -65,9 +65,6 @@ def init_db():
                 shadow_agree INTEGER,
                 shadow_confidence REAL,
                 shadow_reason TEXT,
-                herald_agree INTEGER,
-                herald_confidence REAL,
-                herald_reason TEXT,
                 final_outcome TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
@@ -255,8 +252,8 @@ def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
         conn.execute("""
             INSERT INTO idea_audit 
             (market_id, market_title, scout_edge, swing_found, shadow_agree, shadow_confidence,
-             shadow_reason, herald_agree, herald_confidence, herald_reason, final_outcome)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             shadow_reason, final_outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             market_id, market_title,
             audit_data.get("scout_edge"),
@@ -264,9 +261,6 @@ def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
             audit_data.get("shadow_agree"),
             audit_data.get("shadow_confidence"),
             audit_data.get("shadow_reason", ""),
-            audit_data.get("herald_agree"),
-            audit_data.get("herald_confidence"),
-            audit_data.get("herald_reason", ""),
             audit_data.get("final_outcome", "unknown")
         ))
 

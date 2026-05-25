@@ -1,6 +1,7 @@
 import os
 import requests
 import json
+import uuid
 import time
 import logging
 from typing import Optional, Tuple
@@ -38,6 +39,9 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
     if system_instruction:
         openai_messages.append({"role": "system", "content": system_instruction})
         
+    # Словарь для маппинга tool_call_id
+    tool_call_ids = {}
+
     # 2. Извлекаем сообщения (историю диалога)
     contents = payload.get("contents", [])
     for msg in contents:
@@ -49,12 +53,43 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
             for part in parts:
                 if "functionResponse" in part:
                     fr = part["functionResponse"]
+                    name = fr.get("name")
+                    # Достаем ID из словаря (первый встречный)
+                    t_id = tool_call_ids.get(name, []).pop(0) if tool_call_ids.get(name) else f"call_{name}_{uuid.uuid4().hex[:4]}"
+                    
                     openai_messages.append({
                         "role": "tool",
-                        "tool_call_id": f"call_{fr.get('name')}", # Имитация ID
-                        "name": fr.get("name"),
+                        "tool_call_id": t_id,
+                        "name": name,
                         "content": json.dumps(fr.get("response", {}))
                     })
+            continue
+
+        # В Gemini роль для ответов модели - 'model', в OpenAI - 'assistant'
+        openai_role = "assistant" if role in ["model", "assistant"] else "user"
+        
+        text_content = ""
+        tool_calls = []
+        
+        for part in parts:
+            if "text" in part:
+                text_content += part["text"]
+            elif "functionCall" in part:
+                fc = part["functionCall"]
+                name = fc.get("name")
+                t_id = f"call_{name}_{uuid.uuid4().hex[:8]}"
+                if name not in tool_call_ids:
+                    tool_call_ids[name] = []
+                tool_call_ids[name].append(t_id)
+                
+                tool_calls.append({
+                    "id": t_id,
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(fc.get("args", {}))
+                    }
+                })
             continue
 
         # В Gemini роль для ответов модели - 'model', в OpenAI - 'assistant'

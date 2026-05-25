@@ -57,7 +57,7 @@ class NexusAgent:
         prompt = (
             f"ТЕКУЩЕЕ ВРЕМЯ СИСТЕМЫ: {now}\n"
             f"ВНИМАНИЕ: Все рынки на {datetime.now().year - 1} год и ранее считаются ИСТЕКШИМИ. Не анализируй их.\n\n"
-            f"ТЫ — NEXUS, главный ИИ-координатор команды (SCOUT, SHADOW, HERALD).\n"
+            f"ТЫ — NEXUS, главный ИИ-координатор команды (SCOUT, SWING, SHADOW).\n"
             f"Твоя цель — живой диалог, управление системой и глубокая аналитика.\n\n"
             f"ЯДРО ПАМЯТИ (Layer 1 - Durable Facts):\n{facts_str}\n\n"
             f"ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ:\n{self.base_instructions}"

@@ -1,7 +1,30 @@
 import requests
 import xml.etree.ElementTree as ET
 from urllib.parse import quote
+import time
+from functools import wraps
 
+def ttl_cache(maxsize=128, ttl=1800):
+    cache = {}
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(kwargs)
+            now = time.time()
+            if key in cache:
+                result, timestamp = cache[key]
+                if now - timestamp < ttl:
+                    return result
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            if len(cache) > maxsize:
+                oldest = min(cache.keys(), key=lambda k: cache[k][1])
+                del cache[oldest]
+            return result
+        return wrapper
+    return decorator
+
+@ttl_cache(maxsize=128, ttl=1800)
 def fetch_rss_news(query: str, limit: int = 5) -> list[str]:
     """
     Получает последние новости через Google News RSS.
@@ -26,6 +49,7 @@ def fetch_rss_news(query: str, limit: int = 5) -> list[str]:
         print(f"Ошибка при получении RSS: {e}")
         return []
 
+@ttl_cache(maxsize=128, ttl=1800)
 def fetch_reddit_news(query: str, limit: int = 5) -> list[str]:
     """
     Получает последние посты с Reddit по ключевым словам.

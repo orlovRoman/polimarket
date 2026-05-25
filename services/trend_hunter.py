@@ -240,7 +240,7 @@ def run_trend_hunter(dry_run: bool = False):
                 f"💰 Текущая цена YES: <code>{int(round(m.price * 100))}¢</code>\n"
                 f"🔗 <a href='{m.url}'>Открыть на Polymarket</a>\n\n"
             )
-        alert_text += "⏳ <i>Команда агентов (SCOUT → SHADOW → HERALD) уже проводит точечный анализ. Скоро будет отчет!</i>"
+        alert_text += "⏳ <i>Команда агентов (SCOUT → SWING → SHADOW) уже проводит точечный анализ. Скоро будет отчет!</i>"
         send_telegram_notification(alert_text)
     elif dry_run:
         print(f"\n[DRY RUN] Всего обнаружено новых рынков: {found_markets_count}")

@@ -5,7 +5,7 @@ import sqlite3
 import subprocess
 import requests
 import json
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -66,22 +66,32 @@ async def set_commands(bot: Bot):
 # Глобальный флаг для предотвращения одновременных запусков сканирования
 is_scanning = False
 
-def _is_stale_message(message: types.Message, max_age_seconds: int = 30) -> bool:
-    """Проверяет, не устарело ли сообщение (защита от дублей после простоя бота)."""
-    if message.date:
-        try:
-            now = datetime.now(message.date.tzinfo)
-            return (now - message.date) > timedelta(seconds=max_age_seconds)
-        except Exception:
-            pass
-    return False
+class AuthMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        # Stale check for messages
+        if isinstance(event, types.Message):
+            if event.date:
+                try:
+                    from datetime import datetime, timedelta
+                    now = datetime.now(event.date.tzinfo)
+                    if (now - event.date) > timedelta(seconds=30):
+                        return
+                except Exception:
+                    pass
+                    
+        # Auth check
+        if AUTHORIZED_CHAT_ID:
+            chat_id = str(event.chat.id) if hasattr(event, "chat") and event.chat else None
+            if not chat_id and hasattr(event, "message") and event.message:
+                chat_id = str(event.message.chat.id)
+            if chat_id and chat_id != AUTHORIZED_CHAT_ID:
+                return
 
-def _is_authorized(message_or_callback) -> bool:
-    """Проверяет, имеет ли отправитель право использовать бот."""
-    if not AUTHORIZED_CHAT_ID:
-        return True  # Если не задан, пропускаем проверку
-    chat_id = str(getattr(message_or_callback, 'chat', getattr(message_or_callback, 'message', None)).id if hasattr(message_or_callback, 'chat') else message_or_callback.message.chat.id)
-    return chat_id == AUTHORIZED_CHAT_ID
+        return await handler(event, data)
+
+dp.message.middleware(AuthMiddleware())
+dp.callback_query.middleware(AuthMiddleware())
+
 
 def ask_gemini(text: str, history: list = None) -> str:
     """
@@ -102,7 +112,6 @@ async def command_start_handler(message: types.Message) -> None:
     """
     Обработчик команды /start. Приветствует пользователя.
     """
-    if _is_stale_message(message): return
     welcome_text = (
         f"Привет, <b>{message.from_user.full_name}</b>! 👋\n\n"
         f"Я <b>NEXUS</b> — терминал управления AI-командой Polymarket.\n\n"
@@ -113,7 +122,6 @@ async def command_start_handler(message: types.Message) -> None:
 
 @dp.message(Command("help"))
 async def command_help_handler(message: types.Message) -> None:
-    if _is_stale_message(message): return
     help_text = (
         "📚 <b>Справочник команд NEXUS:</b>\n\n"
         "<b>Основные:</b>\n"
@@ -136,7 +144,6 @@ async def command_help_handler(message: types.Message) -> None:
 
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:
-    if _is_stale_message(message): return
     from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats, get_token_usage_last_24h, get_memory, get_agent_model
     
     # Получаем настройки и метрики из БД
@@ -185,6 +192,20 @@ async def command_status_handler(message: types.Message) -> None:
             return "<code>0 токенов</code>"
         return f"<code>{tot:,}</code> ({inp:,} in + {out:,} out)"
 
+    # Реальный статус сканирования
+    import time
+    from config import LOCK_FILE, LOCK_TIMEOUT_SEC
+    is_scanning_real = False
+    if os.path.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE, "r") as f:
+                data = f.read().strip().split(",")
+                if len(data) == 2:
+                    if time.time() - float(data[0]) < LOCK_TIMEOUT_SEC:
+                        is_scanning_real = True
+        except Exception:
+            pass
+
     status_text = (
         "📊 <b>Статус системы (24/7 Monitoring):</b>\n\n"
         f"● <b>Оркестратор NEXUS:</b> 🟢 Активен (Model: <code>{nexus_model}</code>)\n"
@@ -194,7 +215,7 @@ async def command_status_handler(message: types.Message) -> None:
         f"● <b>Тренды-оповещения:</b> {'🟢 Включены' if trend_hunter_alerts else '🔴 Отключены'}\n"
         f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
         f"● <b>Лимит запросов:</b> <code>{scan_limit} рынков/цикл</code>\n"
-        f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning else '🟢 Ожидание'}\n\n"
+        f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning_real else '🟢 Ожидание'}\n\n"
         f"🤖 <b>AI Агенты и токен-баланс (24ч):</b>\n"
         f"  ● <b>SCOUT:</b> <code>{scout_model}</code> | {format_tokens(scout_tokens)}\n"
         f"  ● <b>SWING:</b> <code>{swing_model}</code> | {format_tokens(swing_tokens)}\n"
@@ -214,12 +235,10 @@ async def command_status_handler(message: types.Message) -> None:
 
 @dp.message(Command("stats"))
 async def command_stats_handler(message: types.Message) -> None:
-    if _is_stale_message(message): return
     await message.answer(await asyncio.to_thread(get_db_stats))
 
 @dp.message(Command("audit"))
 async def command_audit_handler(message: types.Message) -> None:
-    if _is_stale_message(message): return
     from agents.shared.python.db import get_connection
     try:
         with get_connection() as conn:
@@ -456,7 +475,6 @@ async def command_logs_handler(message: types.Message) -> None:
 @dp.message(Command("restart"))
 async def command_restart_handler(message: types.Message) -> None:
     """Останавливает процесс бота. Менеджер процессов (systemd/PM2) автоматически его перезапустит."""
-    if _is_stale_message(message): return
     
     expected_chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if expected_chat_id and str(message.chat.id) != expected_chat_id:
@@ -473,14 +491,12 @@ async def command_restart_handler(message: types.Message) -> None:
 @dp.message(Command("cleanup"))
 async def command_cleanup_handler(message: types.Message) -> None:
     """Очищает устаревшие сигналы (2025, истёкшие рынки)."""
-    if _is_stale_message(message): return
     count = await asyncio.to_thread(cleanup_stale_signals)
     await message.answer(f"🧹 Очистка завершена. Архивировано устаревших сигналов: {count}")
 
 @dp.message(Command("correlations"))
 async def command_correlations_handler(message: types.Message) -> None:
     """Показывает найденные корреляции между рынками."""
-    if _is_stale_message(message): return
     from agents.shared.python.db import get_connection
     
     try:
@@ -522,7 +538,6 @@ async def command_correlations_handler(message: types.Message) -> None:
 
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:
-    if _is_stale_message(message): return
     global is_scanning
     if is_scanning:
         await message.answer("⚠️ Сканирование уже запущено. Пожалуйста, подождите.")
@@ -648,7 +663,6 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
 
 @dp.message(Command("ideas"))
 async def command_ideas_handler(message: types.Message) -> None:
-    if _is_stale_message(message): return
     signals = await asyncio.to_thread(get_signals)
     if not signals:
         await message.answer("Пока нет новых идей. Запустите /scan.")

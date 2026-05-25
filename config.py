@@ -43,3 +43,35 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 # Стратегия скана
 SCAN_LIMIT_DEFAULT = int(os.getenv("SCAN_LIMIT", "30"))
 MIN_EDGE_DEFAULT = float(os.getenv("MIN_EDGE", "0.05"))
+
+# Интеграции
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+
+# Настройки блокировки
+LOCK_FILE = str(PROJECT_ROOT / "vault" / "scan.lock")
+LOCK_TIMEOUT_SEC = 600
+SCREENING_INTERVAL_SEC = 1800
+
+# Логирование
+import logging
+from logging.handlers import RotatingFileHandler
+
+LOGS_DIR = PROJECT_ROOT / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
+LOG_PATH = LOGS_DIR / "main.log"
+
+def setup_logger(name="NexusPolyBot"):
+    log = logging.getLogger(name)
+    log.setLevel(logging.INFO)
+    if not log.handlers:
+        file_handler = RotatingFileHandler(LOG_PATH, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        log.addHandler(file_handler)
+        
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        log.addHandler(console_handler)
+    return log
+
+logger = setup_logger()

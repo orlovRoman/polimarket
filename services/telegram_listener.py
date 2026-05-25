@@ -151,13 +151,23 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
     try:
         if source == "whale":
             print(f"[Listener] 🚀 ТРИГГЕР: Крупная сделка (${amount_usd:,.0f})! Запуск внеочередного сканирования для {market_id}...")
+            msg_text = f"🚀 <b>ТРИГГЕР (Whale):</b> Запущен внеочередной скан для рынка <code>{market_id}</code>"
         else:
             print(f"[Listener] 🗞 ТРИГГЕР: Важная новость ({source})! Запуск сканирования для {market_id}...")
+            msg_text = f"🗞 <b>ТРИГГЕР (News):</b> Запущен внеочередной скан для рынка <code>{market_id}</code>"
             
         # Запускаем run_team.py в фоновом режиме для конкретного market_id
         import subprocess
         cmd = [sys.executable, str(PROJECT_ROOT / "run_team.py"), "--market_id", market_id]
-        subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
+        
+        log_file_path = PROJECT_ROOT / "logs" / f"scan_{market_id.replace('/', '_')}.log"
+        with open(log_file_path, "a", encoding="utf-8") as out:
+            subprocess.Popen(cmd, cwd=str(PROJECT_ROOT), stdout=out, stderr=subprocess.STDOUT)
+            
+        # Отправляем подтверждение в Telegram
+        from agents.shared.python.db import send_telegram_notification
+        send_telegram_notification(msg_text)
+        
     except Exception as e:
         print(f"[Listener] Ошибка запуска мгновенного сканирования: {e}")
 
