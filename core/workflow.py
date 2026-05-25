@@ -192,34 +192,28 @@ def process_consensus(m, signal, swing_signal, opinion_shadow, state, update_sta
     }
     save_idea_audit(m.id, m.title, audit)
 
-    # Эпизодическая память агентов
+    # Эпизодическая память агентов (Спринт 7)
     from agents.shared.python.db import save_agent_episode
     if signal:
         save_agent_episode(
-            agent_name="SCOUT",
-            event_type="signal_found",
             market_id=m.id,
-            market_title=m.title,
-            summary=f"Найдена недооценка: edge={signal.edge:.2f}, цена={m.price:.2f}",
-            context={"edge": signal.edge, "price": m.price, "confidence": getattr(signal, 'confidence', None)}
+            agent="SCOUT",
+            opinion=getattr(signal, 'signal_verdict', 'buy'),
+            reasoning=getattr(signal, 'signal_cause', getattr(signal, 'details', ''))
         )
-
-    final = audit.get("final_outcome")
-    if final == "saved":
+        
+    if swing_signal:
         save_agent_episode(
-            agent_name="NEXUS",
-            event_type="consensus_reached",
             market_id=m.id,
-            market_title=m.title,
-            summary=f"Консенсус достигнут. SHADOW confidence={opinion_shadow.confidence:.2f}",
-            context={"shadow_confidence": opinion_shadow.confidence, "edge": signal.edge if signal else None}
+            agent="SWING",
+            opinion=getattr(swing_signal, 'swing_verdict', 'buy'),
+            reasoning=getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))
         )
-    elif final == "no_consensus":
+        
+    if opinion_shadow:
         save_agent_episode(
-            agent_name="NEXUS",
-            event_type="market_rejected",
             market_id=m.id,
-            market_title=m.title,
-            summary=f"Консенсус не достигнут. shadow_agree={opinion_shadow.agree if opinion_shadow else None}",
-            context={"shadow_agree": opinion_shadow.agree if opinion_shadow else None}
+            agent="SHADOW",
+            opinion=getattr(opinion_shadow, 'shadow_verdict', 'agree'),
+            reasoning=getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))
         )

@@ -178,6 +178,52 @@ def init_db():
             )
         """)
         
+        # Эпизодическая память агентов (Спринт 7)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_episodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_id TEXT NOT NULL,
+                agent TEXT NOT NULL,
+                opinion TEXT NOT NULL,
+                reasoning TEXT NOT NULL,
+                is_correct BOOLEAN DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (market_id) REFERENCES markets(id)
+            )
+        """)
+        
+        # FTS5 виртуальная таблица для быстрого поиска по эпизодам
+        cursor.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS agent_episodes_fts USING fts5(
+                episode_id UNINDEXED,
+                agent,
+                opinion,
+                reasoning
+            )
+        """)
+        
+        # Триггеры для синхронизации FTS5 и agent_episodes
+        cursor.execute("""
+            CREATE TRIGGER IF NOT EXISTS agent_episodes_ai AFTER INSERT ON agent_episodes BEGIN
+                INSERT INTO agent_episodes_fts(episode_id, agent, opinion, reasoning) 
+                VALUES (new.id, new.agent, new.opinion, new.reasoning);
+            END;
+        """)
+        
+        cursor.execute("""
+            CREATE TRIGGER IF NOT EXISTS agent_episodes_ad AFTER DELETE ON agent_episodes BEGIN
+                DELETE FROM agent_episodes_fts WHERE episode_id = old.id;
+            END;
+        """)
+        
+        cursor.execute("""
+            CREATE TRIGGER IF NOT EXISTS agent_episodes_au AFTER UPDATE ON agent_episodes BEGIN
+                DELETE FROM agent_episodes_fts WHERE episode_id = old.id;
+                INSERT INTO agent_episodes_fts(episode_id, agent, opinion, reasoning) 
+                VALUES (new.id, new.agent, new.opinion, new.reasoning);
+            END;
+        """)
+        
         # Таблица истории цен (для трендового анализа)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS price_history (

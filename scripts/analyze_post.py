@@ -42,8 +42,8 @@ def main(post_id: int, chat_id: str):
             # 2. Анализ с контекстом поста
             news_context = f"КОНТЕКСТ СООБЩЕНИЯ ИЗ TELEGRAM:\n{text}\n\n"
             
-            signal = scout.analyze_idea(full_m, news_context)
-            swing_signal = swing.analyze_idea(full_m, news_context)
+            signal = scout.estimate_market(full_m, news_titles=[news_context])
+            swing_signal = swing.estimate_market(full_m, news_titles=[news_context])
             
             opinion_shadow = None
             if signal or swing_signal:
@@ -53,7 +53,7 @@ def main(post_id: int, chat_id: str):
                     try: orderbook = adapter.get_orderbook(full_m.tokens[0])
                     except: pass
                 
-                opinion_shadow = shadow.analyze_idea(full_m, active.details, orderbook=orderbook, price_history=[])
+                opinion_shadow = shadow.analyze_idea(full_m, scout_opinion=getattr(active, 'summary', getattr(active, 'details', '')), orderbook=orderbook, price_history=[])
                 
             # 3. Форматирование ответа
             summary_text = f"🗣 <b>Ответ на ваш пост (Рынок: {full_m.title}):</b>\n<a href='{full_m.url}'>{full_m.title}</a>\n\n"
