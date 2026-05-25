@@ -93,6 +93,7 @@ class CoreEngine:
         from agents.shared.python.db import get_memory
         scan_limit = get_memory("scan_limit")
         if scan_limit is None: scan_limit = SCAN_LIMIT_DEFAULT
+        scan_limit = int(scan_limit)
 
         def _update_state(**kwargs):
             self.update_state(**kwargs)
