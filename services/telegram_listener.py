@@ -259,7 +259,7 @@ async def main():
                         async with httpx.AsyncClient() as client:
                             try:
                                 await client.post(
-                                    f"http://localhost:8000/api/analyze/{post_id}",
+                                    f"http://127.0.0.1:8000/api/analyze/{post_id}",
                                     json={"post_id": post_id, "chat_id": str(TELEGRAM_GROUP2_TARGET_ID)}
                                 )
                             except Exception as e:
