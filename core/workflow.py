@@ -128,3 +128,35 @@ def process_consensus(m, signal, swing_signal, opinion_shadow, state, update_sta
         "final_outcome": "saved" if (signal or swing_signal) and opinion_shadow and opinion_shadow.agree and opinion_shadow.confidence > 0.6 else ("no_consensus" if (signal or swing_signal) else "no_signal")
     }
     save_idea_audit(m.id, m.title, audit)
+
+    # Эпизодическая память агентов
+    from agents.shared.python.db import save_agent_episode
+    if signal:
+        save_agent_episode(
+            agent_name="SCOUT",
+            event_type="signal_found",
+            market_id=m.id,
+            market_title=m.title,
+            summary=f"Найдена недооценка: edge={signal.edge:.2f}, цена={m.price:.2f}",
+            context={"edge": signal.edge, "price": m.price, "confidence": getattr(signal, 'confidence', None)}
+        )
+
+    final = audit.get("final_outcome")
+    if final == "saved":
+        save_agent_episode(
+            agent_name="NEXUS",
+            event_type="consensus_reached",
+            market_id=m.id,
+            market_title=m.title,
+            summary=f"Консенсус достигнут. SHADOW confidence={opinion_shadow.confidence:.2f}",
+            context={"shadow_confidence": opinion_shadow.confidence, "edge": signal.edge if signal else None}
+        )
+    elif final == "no_consensus":
+        save_agent_episode(
+            agent_name="NEXUS",
+            event_type="market_rejected",
+            market_id=m.id,
+            market_title=m.title,
+            summary=f"Консенсус не достигнут. shadow_agree={opinion_shadow.agree if opinion_shadow else None}",
+            context={"shadow_agree": opinion_shadow.agree if opinion_shadow else None}
+        )
