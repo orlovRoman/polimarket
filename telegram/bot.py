@@ -730,22 +730,33 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
 
 @dp.message(Command("ideas"))
 async def command_ideas_handler(message: types.Message) -> None:
-    signals = await asyncio.to_thread(get_signals)
+    signals = await asyncio.to_thread(get_signals, 15)
     if not signals:
         await message.answer("Пока нет новых идей. Запустите /scan.")
         return
 
-    response = "🚀 <b>Торговые сигналы (Top 5):</b>\n\n"
-    for s in signals:
-        edge_pct = (s['edge'] or 0) * 100
-        response += (
-            f"📍 <b>{s['title']}</b>\n"
-            f"💰 Цена: {s['market_price']} | 📈 Edge: <b>+{edge_pct:.1f}%</b>\n"
-            f"🎯 Уверенность: {s['confidence']}\n"
-            f"📝 {s['summary']}\n"
-            f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
-        )
-    await message.answer(response, disable_web_page_preview=True)
+    # Разбиваем список на чанки (очереди) по 5 элементов
+    chunk_size = 5
+    for i in range(0, len(signals), chunk_size):
+        chunk = signals[i:i + chunk_size]
+        
+        # Формируем заголовок для каждого сообщения
+        start_idx = i + 1
+        end_idx = min(i + chunk_size, len(signals))
+        response = f"🚀 <b>Торговые сигналы ({start_idx}-{end_idx} из {len(signals)}):</b>\n\n"
+        
+        for s in chunk:
+            edge_pct = (s['edge'] or 0) * 100
+            response += (
+                f"📍 <b>{s['title']}</b>\n"
+                f"💰 Цена: {s['market_price']} | 📈 Edge: <b>+{edge_pct:.1f}%</b>\n"
+                f"🎯 Уверенность: {s['confidence']}\n"
+                f"📝 {s['summary']}\n"
+                f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
+            )
+            
+        await message.answer(response, disable_web_page_preview=True)
+        await asyncio.sleep(0.5)  # Небольшая пауза между сообщениями для избежания флуда
 
 @dp.message(F.text)
 async def conversational_handler(message: types.Message) -> None:
