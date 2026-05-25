@@ -88,39 +88,62 @@ class ScoutAgent:
 Используй известные корреляции (и цены связанных рынков) как жесткую математическую базу. Если связанный рынок оценен выше или ниже, и между ними есть прямая или обратная связь — используй это для вычисления математического арбитража. 
 Используй инструмент google_search, чтобы найти актуальную статистику, если корреляций недостаточно.
 Затем выполни анализ согласно своим инструкциям.
-Ответ верни строго в формате JSON: {{"estimate_probability": 0.65, "confidence": 0.8, "priority": "high", "reasoning": "..."}}
+Ответ верни строго в формате JSON согласно схеме.
 """
         
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "estimate_probability": {"type": "NUMBER"},
+                "confidence": {"type": "NUMBER"},
+                "priority": {"type": "STRING"},
+                "reasoning": {"type": "STRING"},
+                "signal": {"type": "STRING"},
+                "cause": {"type": "STRING"},
+                "risk": {"type": "STRING"},
+                "verdict": {"type": "STRING"}
+            },
+            "required": ["estimate_probability", "confidence", "priority", "reasoning", "signal", "cause", "risk", "verdict"]
+        }
+
         payload = {
             "contents": [
                 {"role": "user", "parts": [{"text": prompt}]}
             ],
             "systemInstruction": {"parts": [{"text": self.system_instruction}]},
             "tools": [{"google_search": {}}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
         }
         
         from agents.shared.utils.gemini_client import generate_content_with_fallback
-        result, active_model = generate_content_with_fallback(
-            api_key=self.api_key,
-            payload=payload,
-            default_model=self.model,
-            agent_name="SCOUT"
-        )
         
-        if not result:
+        for attempt in range(2):
+            result, active_model = generate_content_with_fallback(
+                api_key=self.api_key,
+                payload=payload,
+                default_model=self.model,
+                agent_name="SCOUT"
+            )
+            
+            if not result:
+                continue
+                
+            try:
+                content = result['candidates'][0]['content']['parts'][0]['text']
+                content = content.replace("```json", "").replace("```", "").strip()
+                analysis = json.loads(content, strict=False)
+                break
+            except json.JSONDecodeError as e:
+                print(f"[SCOUT] Не удалось распарсить JSON (попытка {attempt+1}): {e}")
+                analysis = None
+        
+        if not analysis:
             return None
             
         try:
-            content = result['candidates'][0]['content']['parts'][0]['text']
-            
-            import re
-            json_match = re.search(r'\{[^{}]*"estimate_probability"[^{}]*\}', content, re.DOTALL)
-            if json_match:
-                analysis = json.loads(json_match.group(), strict=False)
-            else:
-                print(f"[SCOUT] Не удалось распарсить JSON из ответа: {content[:100]}")
-                return None
-            
             # Рассчитываем математическое преимущество (Edge) на уровне Python (честный Double-Blind)
             est_prob = float(analysis.get("estimate_probability", 0.5))
             confidence = float(analysis.get("confidence", 0.5))

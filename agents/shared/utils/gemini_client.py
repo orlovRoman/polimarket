@@ -143,9 +143,24 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
             
     # 4. Настройка формата JSON, если требуется
     gen_config = payload.get("generationConfig", {})
-    if gen_config.get("response_mime_type") == "application/json":
-        openai_payload["response_format"] = {"type": "json_object"}
-        
+    if gen_config.get("responseMimeType") == "application/json" or gen_config.get("response_mime_type") == "application/json":
+        if "responseSchema" in gen_config:
+            schema_copy = _lower_types(gen_config["responseSchema"])
+            # Remove "additionalProperties" if it exists because OpenAI strict mode doesn't like it sometimes, 
+            # but usually it's fine. We'll set additionalProperties=False for strict mode.
+            if isinstance(schema_copy, dict):
+                schema_copy["additionalProperties"] = False
+            openai_payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_response",
+                    "schema": schema_copy,
+                    "strict": True
+                }
+            }
+        else:
+            openai_payload["response_format"] = {"type": "json_object"}
+            
     return openai_payload
 
 def convert_openai_to_gemini(openai_res: dict) -> dict:

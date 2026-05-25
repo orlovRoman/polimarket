@@ -107,25 +107,55 @@ class ShadowAgent:
 Проанализируй этот рынок на предмет рисков ликвидности, сделок крупных игроков и аномалий.
 """
         
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "opinion": {"type": "STRING"},
+                "confidence": {"type": "NUMBER"},
+                "agree": {"type": "BOOLEAN"},
+                "orderbook_facts": {"type": "STRING"},
+                "risk_assessment": {"type": "STRING"},
+                "shadow_verdict": {"type": "STRING"},
+                "liquidity_risk": {"type": "STRING"}
+            },
+            "required": ["opinion", "confidence", "agree", "orderbook_facts", "risk_assessment", "shadow_verdict", "liquidity_risk"]
+        }
+
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "systemInstruction": {"parts": [{"text": self.system_instruction}]},
-            "generationConfig": {"response_mime_type": "application/json"}
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
         }
         
         from agents.shared.utils.gemini_client import generate_content_with_fallback
-        result, active_model = generate_content_with_fallback(
-            api_key=self.api_key,
-            payload=payload,
-            default_model=self.model,
-            agent_name="SHADOW"
-        )
         
-        if not result:
+        for attempt in range(2):
+            result, active_model = generate_content_with_fallback(
+                api_key=self.api_key,
+                payload=payload,
+                default_model=self.model,
+                agent_name="SHADOW"
+            )
+            
+            if not result:
+                continue
+                
+            try:
+                content = result['candidates'][0]['content']['parts'][0]['text']
+                content = content.replace("```json", "").replace("```", "").strip()
+                analysis = json.loads(content, strict=False)
+                break
+            except json.JSONDecodeError as e:
+                print(f"[SHADOW] Ошибка парсинга JSON (попытка {attempt+1}): {e}")
+                analysis = None
+        
+        if not analysis:
             return None
             
         try:
-            analysis = json.loads(result['candidates'][0]['content']['parts'][0]['text'])
             
             return AgentOpinion(
                 agent_name="SHADOW",

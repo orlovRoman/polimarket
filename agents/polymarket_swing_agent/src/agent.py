@@ -61,59 +61,88 @@ class SwingAgent:
 Ответ верни строго в формате JSON.
 """
         
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "hype_potential": {"type": "NUMBER", "description": "0.0 to 1.0"},
+                "recommendation": {"type": "STRING", "description": "buy or ignore"},
+                "target_outcome": {"type": "STRING"},
+                "target_exit_price": {"type": "NUMBER"},
+                "confidence": {"type": "NUMBER"},
+                "reasoning": {"type": "STRING"},
+                "catalyst": {"type": "STRING"},
+                "catalyst_absence_reason": {"type": "STRING"},
+                "swing_risk": {"type": "STRING"},
+                "swing_verdict": {"type": "STRING"}
+            },
+            "required": ["hype_potential", "recommendation", "target_outcome", "target_exit_price", "confidence", "reasoning", "swing_risk", "swing_verdict"]
+        }
+        
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "systemInstruction": {"parts": [{"text": self.system_instruction}]},
             "tools": [{"google_search": {}}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
         }
         
         from agents.shared.utils.gemini_client import generate_content_with_fallback
-        result, active_model = generate_content_with_fallback(
-            api_key=self.api_key,
-            payload=payload,
-            default_model=self.model,
-            agent_name="SWING"
-        )
         
-        if not result:
-            return None
+        for attempt in range(2):
+            result, active_model = generate_content_with_fallback(
+                api_key=self.api_key,
+                payload=payload,
+                default_model=self.model,
+                agent_name="SWING"
+            )
             
-        try:
-            content = result['candidates'][0]['content']['parts'][0]['text']
-            
-            import re
-            json_match = re.search(r'\{[^{}]*"hype_potential"[^{}]*\}', content, re.DOTALL)
-            if json_match:
-                analysis = json.loads(json_match.group(), strict=False)
-            else:
-                print(f"[SWING] Не удалось распарсить JSON из ответа: {content[:100]}")
-                return None
-            
-            recommendation = analysis.get("recommendation", "ignore").lower()
-            hype_potential = float(analysis.get("hype_potential", 0))
-            
-            if recommendation == "buy" and hype_potential > 0.6:
+            if not result:
+                continue
+                
+            try:
+                content = result['candidates'][0]['content']['parts'][0]['text']
+                # Из Gemini или Grok ответ уже должен быть JSON
+                # Очистим возможные markdown блоки, если Grok игнорирует schema
+                content = content.replace("```json", "").replace("```", "").strip()
+                analysis = json.loads(content, strict=False)
+                
+                recommendation = analysis.get("recommendation", "ignore").lower()
+                hype_potential = float(analysis.get("hype_potential", 0))
                 target_outcome = analysis.get("target_outcome", "YES")
-                target_price = analysis.get("target_exit_price", 0.15)
+                target_price = float(analysis.get("target_exit_price", 0.15))
                 
                 # Расчет ROI (Return on Investment)
                 current_price = market.price if target_outcome == "YES" else (1.0 - market.price)
                 if current_price <= 0: current_price = 0.01
                 roi = ((target_price - current_price) / current_price) * 100
                 
-                signal = Signal(
+                from agents.shared.python.models import SwingSignal
+                
+                signal = SwingSignal(
                     id=f"sig-swing-{market.id}-{int(datetime.now().timestamp())}",
-                    type="hype_pump",
                     market_id=market.id,
+                    type="SWING",
                     platform=market.platform,
-                    edge=roi / 100.0,  # Записываем ROI вместо Edge для совместимости
-                    confidence=analysis.get("confidence", 0.5),
-                    priority="high" if hype_potential > 0.8 else "medium",
-                    summary=f"🚀 Памп {target_outcome} (Хайп {hype_potential*100:.0f}%, Цель {target_price:.2f})",
-                    details=f"Рекомендация: BUY {target_outcome} по ~{current_price:.2f}, выход по {target_price:.2f} (ROI ~{roi:.0f}%).\nОбоснование: {analysis.get('reasoning', '')}"
+                    recommendation=recommendation,
+                    confidence=float(analysis.get("confidence", 0.5)),
+                    hype_potential=hype_potential,
+                    target_outcome=target_outcome,
+                    target_exit_price=target_price,
+                    reasoning=analysis.get("reasoning", ""),
+                    catalyst=analysis.get("catalyst", ""),
+                    catalyst_absence_reason=analysis.get("catalyst_absence_reason", ""),
+                    swing_risk=analysis.get("swing_risk", "Не указан риск"),
+                    swing_verdict=analysis.get("swing_verdict", "Не указан вердикт"),
+                    summary=f"🚀 Памп {target_outcome} (Хайп {hype_potential*100:.0f}%, Цель {target_price:.2f})" if recommendation == "buy" else f"💤 Игнор (Хайп {hype_potential*100:.0f}%)",
+                    details=f"Рекомендация: {recommendation.upper()} {target_outcome} по ~{current_price:.2f}, выход по {target_price:.2f} (ROI ~{roi:.0f}%).\nОбоснование: {analysis.get('reasoning', '')}"
                 )
                 return signal
-        except Exception as e:
-            print(f"Ошибка при оценке рынка {market.id} агентом SWING: {e}")
-            
+                
+            except json.JSONDecodeError as e:
+                print(f"[SWING] Ошибка парсинга JSON (попытка {attempt+1}): {e}")
+            except Exception as e:
+                print(f"[SWING] Ошибка при оценке рынка {market.id} (попытка {attempt+1}): {e}")
+                
         return None
