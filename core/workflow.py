@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional, Callable
 
 from core.models import Market, Signal, SwingSignal, AgentOpinion, IdeaDecision
+from core.context import MarketContext
 from config import logger, SCREENING_INTERVAL_SEC, SCAN_LIMIT_DEFAULT, MIN_EDGE_DEFAULT
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import (
