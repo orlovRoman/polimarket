@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from typing import Optional
 from core.models import Market, Signal
+from core.context import MarketContext
 from agents.shared.python.db import get_memory
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
@@ -19,10 +20,14 @@ class SwingAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def estimate_market(self, market: Market, news_titles: list = None, reddit_posts: list = None, price_history: list = None, wiki_context: list = None) -> Optional[Signal]:
+    def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
         """
         Оценивает рынок на потенциал хайпа.
         """
+        market = context.market
+        news_titles = context.news_titles
+        reddit_posts = context.reddit_posts
+        wiki_context = context.wiki_context
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         try:

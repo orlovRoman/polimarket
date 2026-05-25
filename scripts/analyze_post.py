@@ -39,32 +39,42 @@ def main(post_id: int, chat_id: str):
             full_m = adapter.get_market(m.id)
             if not full_m: continue
             
-            # 2. Анализ с контекстом поста
             from agents.shared.utils.web_search import build_search_query, fetch_wikipedia_context
+            from core.context import MarketContext
+            
             search_query = build_search_query(full_m.title)
             wiki_context = fetch_wikipedia_context(search_query)
-            
             news_context = f"КОНТЕКСТ СООБЩЕНИЯ ИЗ TELEGRAM:\n{text}\n\n"
             
-            signal = scout.estimate_market(full_m, news_titles=[news_context], reddit_posts=[], wiki_context=wiki_context)
-            swing_signal = swing.estimate_market(full_m, news_titles=[news_context], reddit_posts=[], price_history=[], wiki_context=wiki_context)
+            context = MarketContext(
+                market=full_m,
+                news_titles=[news_context],
+                reddit_posts=[],
+                wiki_context=wiki_context
+            )
+            
+            signal = scout.estimate_market(context)
+            swing_signal = swing.estimate_market(context)
+            
+            active_signal = signal or swing_signal
             
             opinion_shadow = None
-            if signal or swing_signal:
-                active = swing_signal if swing_signal else signal
+            if active_signal:
                 orderbook = None
                 if full_m.tokens:
                     try: orderbook = adapter.get_orderbook(full_m.tokens[0])
                     except: pass
                 
-                from agents.shared.adapters.onchain import get_recent_trades, get_top_positions
-                from agents.shared.utils.smart_money import analyze_smart_money
+                from services.onchain_provider import get_recent_trades, get_top_positions
+                from core.smart_money import analyze_smart_money
 
                 onchain_trades = get_recent_trades(full_m.condition_id) if full_m.condition_id else []
                 onchain_positions = get_top_positions(full_m.condition_id) if full_m.condition_id else []
                 smart_money = analyze_smart_money(onchain_trades, onchain_positions)
+                
+                context.smart_money = smart_money
 
-                opinion_shadow = shadow.analyze_idea(full_m, scout_opinion=getattr(active, 'summary', getattr(active, 'details', '')), orderbook=orderbook, price_history=[], smart_money=smart_money)
+                opinion_shadow = shadow.analyze_idea(context, active_signal.details, orderbook=orderbook)
                 
             # 3. Форматирование ответа
             summary_text = f"🗣 <b>Ответ на ваш пост (Рынок: {full_m.title}):</b>\n<a href='{full_m.url}'>{full_m.title}</a>\n\n"

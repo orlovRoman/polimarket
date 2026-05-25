@@ -202,11 +202,11 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
             save_price_point(m.id, m.price)
             
             # Параллельный парсинг и оценка
-            signal, swing_signal = run_agent_evaluation(m, scout, swing, update_state)
+            signal, swing_signal, context = run_agent_evaluation(m, scout, swing, update_state)
             
+            active_signal = signal or swing_signal
             opinion_shadow = None
-            if signal or swing_signal:
-                active_signal = swing_signal if swing_signal else signal
+            if active_signal:
                 if signal:
                     log(f"  SCOUT: Edge: {signal.edge:.2f}")
                     update_state(scout_status=f"🟢 Edge ({signal.edge:.2f})")
@@ -228,8 +228,8 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                 
                 log("  SHADOW проверяет...")
                 from agents.shared.python.db import add_discussion_message
-                from agents.shared.adapters.onchain import get_recent_trades, get_top_positions
-                from agents.shared.utils.smart_money import analyze_smart_money
+                from services.onchain_provider import get_recent_trades, get_top_positions
+                from core.smart_money import analyze_smart_money
 
                 onchain_trades = get_recent_trades(m.condition_id) if m.condition_id else []
                 onchain_positions = get_top_positions(m.condition_id) if m.condition_id else []

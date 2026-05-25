@@ -134,16 +134,23 @@ def run_agent_evaluation(m, scout, swing, update_state):
         reddit_posts = future_reddit.result()
         wiki_context = future_wiki.result()
 
+    context = MarketContext(
+        market=m,
+        news_titles=news_titles,
+        reddit_posts=reddit_posts,
+        wiki_context=wiki_context
+    )
+
     logger.info("  SCOUT и SWING оценивают...")
     update_state(scout_status="🔄 Считает вероятности...", swing_status="🔄 Оценивает хайп...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        future_scout = executor.submit(scout.estimate_market, m, news_titles, reddit_posts, wiki_context)
-        future_swing = executor.submit(swing.estimate_market, m, news_titles, reddit_posts, None, wiki_context)
+        future_scout = executor.submit(scout.estimate_market, context)
+        future_swing = executor.submit(swing.estimate_market, context)
         signal = future_scout.result()
         swing_signal = future_swing.result()
         
-    return signal, swing_signal
+    return signal, swing_signal, context
 
 def make_consensus(m: Market, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion]) -> IdeaDecision:
     shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"

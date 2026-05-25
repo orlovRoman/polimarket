@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from typing import Optional
 from core.models import Market, Signal
+from core.context import MarketContext
 from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
@@ -24,16 +25,17 @@ class ScoutAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def estimate_market(self, market: Market, news_titles: list = None, reddit_posts: list = None, wiki_context: list = None) -> Optional[Signal]:
+    def estimate_market(self, context: 'MarketContext') -> Optional[Signal]:
         """
         Оценивает рынок на предмет математического расхождения (edge).
         
-        :param market: Данные о рынке Polymarket
-        :param news_titles: Заголовки новостей RSS
-        :param reddit_posts: Посты Reddit
-        :param wiki_context: Статистические данные Wikipedia
+        :param context: Единый контекст для рынка
         :return: Объект Signal, если Edge > 0.10, иначе None
         """
+        market = context.market
+        news_titles = context.news_titles
+        reddit_posts = context.reddit_posts
+        wiki_context = context.wiki_context
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # Загружаем RAG-память из Obsidian

@@ -1,16 +1,17 @@
 from collections import defaultdict
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from agents.shared.python.db import get_known_whales
+from core.context import SmartMoneySummary
 
-def analyze_smart_money(trades: list, positions: list) -> dict:
+def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, Any]]) -> SmartMoneySummary:
     """
     Возвращает структурированный анализ ончейн активности.
     """
     if not trades and not positions:
-        return {"available": False, "summary": "Ончейн данные недоступны."}
+        return SmartMoneySummary(available=False, summary="Ончейн данные недоступны.")
 
     # Агрегируем по кошелькам
-    wallet_stats: dict = defaultdict(lambda: {"yes_usd": 0, "no_usd": 0, "trades": 0})
+    wallet_stats: dict = defaultdict(lambda: {"yes_usd": 0.0, "no_usd": 0.0, "trades": 0})
     
     for trade in trades:
         addr = trade.get("maker_address") or trade.get("taker_address", "")
@@ -47,11 +48,11 @@ def analyze_smart_money(trades: list, positions: list) -> dict:
         vol = stats["yes_usd"] + stats["no_usd"]
         lines.append(f"  {alias}{wr_str} → {side} ${vol:,.0f}")
 
-    return {
-        "available": True,
-        "total_yes_usd": round(total_yes),
-        "total_no_usd": round(total_no),
-        "yes_dominance": round(total_yes / (total_yes + total_no), 2) if (total_yes + total_no) > 0 else 0.5,
-        "top_wallets": lines,
-        "summary": "\n".join(lines) if lines else "Крупных сделок не найдено.",
-    }
+    return SmartMoneySummary(
+        available=True,
+        total_yes_usd=round(total_yes),
+        total_no_usd=round(total_no),
+        yes_dominance=round(total_yes / (total_yes + total_no), 2) if (total_yes + total_no) > 0 else 0.5,
+        top_wallets=lines,
+        summary="\n".join(lines) if lines else "Крупных сделок не найдено."
+    )

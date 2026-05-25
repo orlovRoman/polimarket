@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from typing import Optional
 from core.models import Market, AgentOpinion
+from core.context import MarketContext
 
 class ShadowAgent:
     """
@@ -22,16 +23,13 @@ class ShadowAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def analyze_idea(self, market: Market, scout_opinion: str, orderbook: dict = None, price_history: list = None, smart_money: dict = None) -> Optional[AgentOpinion]:
+    def analyze_idea(self, context: 'MarketContext', scout_opinion: str, orderbook: dict = None, price_history: list = None) -> Optional[AgentOpinion]:
         """
         Анализирует идею (от SCOUT) с точки зрения ликвидности и активности трейдеров.
-        :param market: Данные рынка
-        :param scout_opinion: Гипотеза от агента SCOUT
-        :param orderbook: Данные ордербука от CLOB API (bid/ask depth, spread)
-        :param price_history: История цен [{price, recorded_at}, ...]
-        :param smart_money: Ончейн данные активности
-        :return: Мнение агента (AgentOpinion) или None
         """
+        market = context.market
+        smart_money = context.smart_money
+        
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # Форматируем данные ордербука
@@ -62,15 +60,15 @@ class ShadowAgent:
                 
         # ОНЧЕЙН АКТИВНОСТЬ (Smart Money)
         sm_block = "Ончейн данные недоступны."
-        if smart_money and smart_money.get("available"):
+        if smart_money and smart_money.available:
             sm_block = f"""
 === ОНЧЕЙН АКТИВНОСТЬ (Smart Money) ===
-Всего объём YES: ${smart_money['total_yes_usd']:,.0f}
-Всего объём NO:  ${smart_money['total_no_usd']:,.0f}
-YES dominance:   {smart_money['yes_dominance']:.0%}
+Всего объём YES: ${smart_money.total_yes_usd:,.0f}
+Всего объём NO:  ${smart_money.total_no_usd:,.0f}
+YES dominance:   {smart_money.yes_dominance:.0%}
 
 Топ кошельки:
-{smart_money['summary']}
+{smart_money.summary}
 """
         
         # Загружаем RAG-память из Obsidian
