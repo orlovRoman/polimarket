@@ -253,6 +253,28 @@ def generate_content_with_fallback(
         if m not in models:
             models.append(m)
             
+    # Чтение ручной настройки из БД
+    try:
+        from agents.shared.python.db import get_memory
+        config = get_memory(f"agent_config_{agent_name.upper()}")
+        if config and isinstance(config, dict):
+            provider = config.get("provider")
+            db_model = config.get("model")
+            if provider == "openrouter":
+                or_model = db_model
+                if "openrouter" in models: models.remove("openrouter")
+                models.insert(0, "openrouter")
+            elif provider == "grok":
+                grok_model = db_model
+                if "grok" in models: models.remove("grok")
+                models.insert(0, "grok")
+            elif provider == "gemini":
+                default_model = db_model
+                if db_model in models: models.remove(db_model)
+                models.insert(0, db_model)
+    except Exception as e:
+        logger.error(f"Error reading model config for {agent_name}: {e}")
+            
     prompt_text = extract_prompt_from_payload(payload)
 
     for current_model in models:

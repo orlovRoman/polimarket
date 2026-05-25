@@ -300,6 +300,7 @@ async def command_settings_handler(message: types.Message) -> None:
         [InlineKeyboardButton(text="📊 Лимит рынков (scan_limit)", callback_data="settings_limits")],
         [InlineKeyboardButton(text=f"🎯 Edge порог: {current_edge}%", callback_data="settings_edge")],
         [InlineKeyboardButton(text=f"🧠 RAG-глубина: {rag_text}", callback_data="settings_rag")],
+        [InlineKeyboardButton(text="🤖 Модели агентов (LLM)", callback_data="settings_models")],
         [InlineKeyboardButton(text="🔎 Настройки Trend Hunter", callback_data="settings_trend_hunter")],
     ])
     await message.answer("⚙️ <b>Настройки системы:</b>\n\nВыберите параметр для настройки:", reply_markup=keyboard)
@@ -397,19 +398,71 @@ async def callback_settings_rag(callback: CallbackQuery) -> None:
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("setrag_"))
-async def callback_setrag_handler(callback: CallbackQuery) -> None:
+async def callback_set_rag(callback: CallbackQuery) -> None:
     level = int(callback.data.split("_")[1])
     from agents.shared.python.db import save_memory
     await asyncio.to_thread(save_memory, "rag_level", level)
+    await callback.answer(f"RAG-уровень установлен на L{level}!")
     
-    rag_labels = {1: "Быстрый (L1)", 2: "Стандарт (L2)", 3: "Глубокий (L3)"}
-    level_text = rag_labels.get(level, "Стандарт (L2)")
+    # Эмулируем нажатие "назад"
+    callback.data = "back_to_settings"
+    await callback_back_to_settings(callback)
+
+MODELS_MAPPING = {
+    "llama33": ("openrouter", "meta-llama/llama-3.3-70b-instruct", "🦙 Llama 3.3"),
+    "ds_v4": ("openrouter", "deepseek/deepseek-v4-flash:free", "🐋 DeepSeek V4"),
+    "grok3": ("grok", "grok-3", "🧠 Grok-3"),
+    "gemini25": ("gemini", "gemini-2.5-flash", "✨ Gemini 2.5")
+}
+
+@dp.callback_query(F.data == "settings_models")
+async def callback_settings_models(callback: CallbackQuery) -> None:
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Модель: NEXUS", callback_data="set_model_NEXUS")],
+        [InlineKeyboardButton(text="Модель: SCOUT", callback_data="set_model_SCOUT")],
+        [InlineKeyboardButton(text="Модель: SWING", callback_data="set_model_SWING")],
+        [InlineKeyboardButton(text="Модель: SHADOW", callback_data="set_model_SHADOW")],
+        [InlineKeyboardButton(text="⬅️ Назад в настройки", callback_data="back_to_settings")]
+    ])
+    await callback.message.edit_text("🤖 <b>Настройка AI Моделей</b>\n\nВыберите агента для переназначения модели:", reply_markup=keyboard)
+
+@dp.callback_query(F.data.startswith("set_model_"))
+async def callback_set_agent_model(callback: CallbackQuery) -> None:
+    agent = callback.data.split("_")[2]
+    from agents.shared.python.db import get_memory
+    current_config = get_memory(f"agent_config_{agent}", {})
+    current_model = current_config.get("model", "Дефолт (.env)")
+    
+    buttons = []
+    for key, val in MODELS_MAPPING.items():
+        buttons.append([InlineKeyboardButton(text=val[2], callback_data=f"sm_{agent}_{key}")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_models")])
     
     await callback.message.edit_text(
-        f"✅ <b>Глубина RAG обновлена!</b>\n"
-        f"Теперь используется режим: <b>{level_text}</b>"
+        f"🤖 <b>Настройка модели для: {agent}</b>\n\n"
+        f"Текущая ручная модель: <code>{current_model}</code>\n\n"
+        f"Выберите новую модель:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
-    await callback.answer()
+
+@dp.callback_query(F.data.startswith("sm_"))
+async def callback_save_model(callback: CallbackQuery) -> None:
+    parts = callback.data.split("_")
+    agent = parts[1]
+    model_key = parts[2] + ("_" + parts[3] if len(parts) > 3 else "")
+    
+    provider, model_name, _ = MODELS_MAPPING.get(model_key, MODELS_MAPPING["llama33"])
+    
+    from agents.shared.python.db import save_memory
+    config = {"provider": provider, "model": model_name}
+    await asyncio.to_thread(save_memory, f"agent_config_{agent}", config)
+    
+    await callback.answer(f"✅ Модель установлена!", show_alert=True)
+    
+    # Возвращаемся в меню выбора агента
+    callback.data = "settings_models"
+    await callback_settings_models(callback)
+
 
 @dp.callback_query(F.data == "settings_limits")
 async def callback_settings_limits(callback: CallbackQuery) -> None:
