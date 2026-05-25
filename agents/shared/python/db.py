@@ -3,7 +3,7 @@ import json
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from typing import Any, List
+from typing import Any, List, Optional
 from .models import Market, Signal, MarketCorrelation
 
 # Импортируем путь из единого конфига
@@ -418,7 +418,7 @@ def mark_market_analyzed(market_id: str, price: float):
         cursor.execute("INSERT OR REPLACE INTO analyzed_markets (market_id, last_price, analyzed_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (market_id, price))
         conn.commit()
 
-def get_last_analyzed_price(market_id: str) -> float | None:
+def get_last_analyzed_price(market_id: str) -> Optional[float]:
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT last_price FROM analyzed_markets WHERE market_id = ?", (market_id,))
