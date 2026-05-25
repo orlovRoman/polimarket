@@ -68,6 +68,7 @@ result.json
 scratch/
 *.txt
 !README.txt
+!requirements.txt
 test_*.py
 update_*.py
 debug_*.py
