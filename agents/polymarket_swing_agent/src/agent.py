@@ -105,7 +105,8 @@ class SwingAgent:
                 api_key=self.api_key,
                 payload=payload,
                 default_model=self.model,
-                agent_name="SWING"
+                agent_name="SWING",
+                market_id=market.id
             )
             
             if not result:

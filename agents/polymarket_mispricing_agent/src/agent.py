@@ -136,7 +136,8 @@ class ScoutAgent:
                 api_key=self.api_key,
                 payload=payload,
                 default_model=self.model,
-                agent_name="SCOUT"
+                agent_name="SCOUT",
+                market_id=market.id
             )
             
             if not result:

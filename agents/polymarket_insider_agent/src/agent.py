@@ -131,7 +131,8 @@ YES dominance:   {smart_money.yes_dominance:.0%}
                 api_key=self.api_key,
                 payload=payload,
                 default_model=self.model,
-                agent_name="SHADOW"
+                agent_name="SHADOW",
+                market_id=market.id
             )
             
             if not result:

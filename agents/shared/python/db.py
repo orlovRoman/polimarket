@@ -308,6 +308,25 @@ def init_db():
             cursor.execute("ALTER TABLE markets ADD COLUMN tokens TEXT DEFAULT NULL")
         if 'volume' not in market_cols:
             cursor.execute("ALTER TABLE markets ADD COLUMN volume REAL DEFAULT NULL")
+        
+        # Таблица логов LLM
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS llm_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_name TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                market_id TEXT,
+                prompt TEXT,
+                response TEXT,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                latency_ms INTEGER,
+                error TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_agent_date ON llm_calls(agent_name, created_at)")
 
         # Таблица: Индекс vault (Layer 1 ↔ Layer 2/3 связь)
         cursor.execute("""
@@ -321,19 +340,7 @@ def init_db():
                 content_hash TEXT
             )
         """)
-        # Таблица расхода токенов
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS token_usage (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_name TEXT NOT NULL,
-                model_name TEXT NOT NULL,
-                input_tokens INTEGER NOT NULL,
-                output_tokens INTEGER NOT NULL,
-                total_tokens INTEGER NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_token_usage_agent_date ON token_usage(agent_name, created_at)")
+        # Удален token_usage
 
         conn.commit()
     _db_initialized = True
@@ -358,39 +365,12 @@ def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
         ))
 
 def save_token_usage(agent_name: str, model_name: str, input_tokens: int, output_tokens: int):
-    """Сохраняет запись о потреблении токенов агентом."""
-    total_tokens = input_tokens + output_tokens
-    try:
-        with get_connection() as conn:
-            conn.execute(
-                "INSERT INTO token_usage (agent_name, model_name, input_tokens, output_tokens, total_tokens) VALUES (?, ?, ?, ?, ?)",
-                (agent_name, model_name, input_tokens, output_tokens, total_tokens)
-            )
-            conn.commit()
-    except Exception as e:
-        print(f"[DB] Ошибка при сохранении расхода токенов: {e}")
+    # Устарело. Используйте LLMLogger.log_call
+    pass
 
 def get_token_usage_last_24h(agent_name: str) -> dict:
-    """Возвращает статистику потребления токенов агентом за последние 24 часа."""
-    try:
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """SELECT SUM(input_tokens) as in_t, SUM(output_tokens) as out_t, SUM(total_tokens) as tot_t 
-                   FROM token_usage 
-                   WHERE agent_name = ? AND created_at >= datetime('now', '-1 day')""",
-                (agent_name,)
-            )
-            row = cursor.fetchone()
-            if row and row['tot_t'] is not None:
-                return {
-                    "input_tokens": int(row['in_t']),
-                    "output_tokens": int(row['out_t']),
-                    "total_tokens": int(row['tot_t'])
-                }
-    except Exception as e:
-        print(f"[DB] Ошибка получения статистики токенов: {e}")
-    return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    from core.logger import LLMLogger
+    return LLMLogger.get_token_usage_last_24h(agent_name)
 
 def get_agent_model(agent_name: str, default_model: str = "gemini-2.5-flash") -> str:
     """Возвращает последнюю использованную модель для агента из логов токенов."""
@@ -398,7 +378,7 @@ def get_agent_model(agent_name: str, default_model: str = "gemini-2.5-flash") ->
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT model_name FROM token_usage WHERE agent_name = ? ORDER BY created_at DESC LIMIT 1",
+                "SELECT model_name FROM llm_calls WHERE agent_name = ? ORDER BY created_at DESC LIMIT 1",
                 (agent_name,)
             )
             row = cursor.fetchone()

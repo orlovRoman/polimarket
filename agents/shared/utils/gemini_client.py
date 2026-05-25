@@ -209,45 +209,52 @@ def convert_openai_to_gemini(openai_res: dict) -> dict:
         }
     }
 
+from core.logger import LLMLogger
+
+def extract_prompt_from_payload(payload: dict) -> str:
+    try:
+        return payload.get("contents", [])[0].get("parts", [])[0].get("text", "")
+    except Exception:
+        return json.dumps(payload)
+
+def extract_response_text(result: dict) -> str:
+    try:
+        return result['candidates'][0]['content']['parts'][0]['text']
+    except Exception:
+        return json.dumps(result)
+
 def generate_content_with_fallback(
     api_key: str, 
     payload: dict, 
     default_model: str = "gemini-2.5-flash", 
     agent_name: str = "AGENT",
-    timeout: int = 120
+    timeout: int = 120,
+    market_id: Optional[str] = None
 ) -> Tuple[Optional[dict], str]:
     """
     Выполняет HTTP POST запрос к API с автоматической маршрутизацией.
-    Если в окружении задан GROK_API_KEY, то все запросы в первую очередь направляются 
-    в Grok API (модель grok-2). Модели Gemini используются как фолбек (резерв).
-    
-    При успешном выполнении автоматически сохраняет расход токенов в БД.
-    
-    :param api_key: Google API Key (используется для Gemini)
-    :param payload: Тело запроса в формате Gemini API
-    :param default_model: Модель Gemini по умолчанию
-    :param agent_name: Имя агента для логирования токенов и ошибок
-    :return: Кортеж (result_json, успешная_модель)
     """
     grok_key = os.getenv("GROK_API_KEY")
     grok_model = os.getenv("GROK_MODEL", "grok-3")
     or_key = os.getenv("OPENROUTER_API_KEY")
     or_model = os.getenv("OPENROUTER_MODEL", "openrouter/owl-alpha")
     
-    # Формируем список моделей для опроса. Если есть ключ OpenRouter, он идет ПЕРВЫМ.
     models = []
     if or_key:
         models.append("openrouter")
     if grok_key:
         models.append("grok")
         
-    # Добавляем модели Gemini в список
     gemini_models = [default_model, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro"]
     for m in gemini_models:
         if m not in models:
             models.append(m)
             
+    prompt_text = extract_prompt_from_payload(payload)
+
     for current_model in models:
+        start_time = time.time()
+        
         # --- ВЕТКА OPENROUTER ---
         if current_model == "openrouter":
             if not or_key:
@@ -271,33 +278,41 @@ def generate_content_with_fallback(
                     timeout=timeout
                 )
                 
+                latency_ms = int((time.time() - start_time) * 1000)
                 if response.status_code == 200:
                     openai_res = response.json()
                     
                     if "error" in openai_res:
                         logger.error(f"[{agent_name}] Ошибка в ответе OpenRouter API: {openai_res['error']}")
+                        LLMLogger.log_call(agent_name, or_model, prompt_text, error=str(openai_res['error']), latency_ms=latency_ms, market_id=market_id)
                         continue
                         
                     if "choices" not in openai_res or not openai_res["choices"]:
                         logger.error(f"[{agent_name}] Ответ OpenRouter API не содержит choices: {openai_res}")
+                        LLMLogger.log_call(agent_name, or_model, prompt_text, error="No choices", latency_ms=latency_ms, market_id=market_id)
                         continue
                         
                     result = convert_openai_to_gemini(openai_res)
                     
-                    # Сохраняем токены
                     prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
                     completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
-                    if prompt_tokens > 0 or completion_tokens > 0:
-                        try:
-                            save_token_usage(agent_name, or_model, prompt_tokens, completion_tokens)
-                        except Exception as e:
-                            logger.error(f"[{agent_name}] Ошибка сохранения расхода токенов OpenRouter: {e}")
+                    total_tokens = prompt_tokens + completion_tokens
+                    
+                    response_text = extract_response_text(result)
+                    LLMLogger.log_call(
+                        agent_name, or_model, prompt_text, response=response_text,
+                        input_tokens=prompt_tokens, output_tokens=completion_tokens, total_tokens=total_tokens,
+                        latency_ms=latency_ms, market_id=market_id
+                    )
                             
                     return result, or_model
                 else:
                     logger.error(f"[{agent_name}] Ошибка OpenRouter API ({response.status_code}): {response.text}")
+                    LLMLogger.log_call(agent_name, or_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
             except Exception as e:
                 logger.error(f"[{agent_name}] Исключение при запросе к OpenRouter: {e}")
+                latency_ms = int((time.time() - start_time) * 1000)
+                LLMLogger.log_call(agent_name, or_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
             continue
             
         # --- ВЕТКА GROK ---
@@ -321,24 +336,30 @@ def generate_content_with_fallback(
                     timeout=timeout
                 )
                 
+                latency_ms = int((time.time() - start_time) * 1000)
                 if response.status_code == 200:
                     openai_res = response.json()
                     result = convert_openai_to_gemini(openai_res)
                     
-                    # Сохраняем токены
                     prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
                     completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
-                    if prompt_tokens > 0 or completion_tokens > 0:
-                        try:
-                            save_token_usage(agent_name, grok_model, prompt_tokens, completion_tokens)
-                        except Exception as e:
-                            logger.error(f"[{agent_name}] Ошибка сохранения расхода токенов Grok: {e}")
+                    total_tokens = prompt_tokens + completion_tokens
+                    
+                    response_text = extract_response_text(result)
+                    LLMLogger.log_call(
+                        agent_name, grok_model, prompt_text, response=response_text,
+                        input_tokens=prompt_tokens, output_tokens=completion_tokens, total_tokens=total_tokens,
+                        latency_ms=latency_ms, market_id=market_id
+                    )
                             
                     return result, grok_model
                 else:
                     logger.error(f"[{agent_name}] Ошибка Grok API ({response.status_code}): {response.text}")
+                    LLMLogger.log_call(agent_name, grok_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
             except Exception as e:
                 logger.error(f"[{agent_name}] Исключение при запросе к Grok: {e}")
+                latency_ms = int((time.time() - start_time) * 1000)
+                LLMLogger.log_call(agent_name, grok_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
             continue
             
         # --- ВЕТКА GEMINI ---
@@ -347,34 +368,40 @@ def generate_content_with_fallback(
         logger.info(f"[{agent_name}] Отправка запроса в Gemini API (модель {current_model})...")
         try:
             response = requests.post(api_url, json=payload, timeout=timeout)
+            latency_ms = int((time.time() - start_time) * 1000)
             
             if response.status_code == 200:
                 result = response.json()
                 
-                # Логируем расход токенов
                 usage_meta = result.get("usageMetadata", {})
                 input_tokens = usage_meta.get("promptTokenCount", 0)
                 output_tokens = usage_meta.get("candidatesTokenCount", 0)
-                
-                if input_tokens > 0 or output_tokens > 0:
-                    try:
-                        save_token_usage(agent_name, current_model, input_tokens, output_tokens)
-                    except Exception as e:
-                        logger.error(f"[{agent_name}] Ошибка сохранения расхода токенов для {current_model}: {e}")
+                total_tokens = input_tokens + output_tokens
                 
                 if "candidates" in result and result["candidates"]:
+                    response_text = extract_response_text(result)
+                    LLMLogger.log_call(
+                        agent_name, current_model, prompt_text, response=response_text,
+                        input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens,
+                        latency_ms=latency_ms, market_id=market_id
+                    )
                     return result, current_model
                 else:
                     logger.warning(f"[{agent_name}] Модель {current_model} вернула успешный статус 200, но без кандидатов.")
+                    LLMLogger.log_call(agent_name, current_model, prompt_text, error="No candidates", latency_ms=latency_ms, market_id=market_id)
                     continue
                     
             elif response.status_code == 429:
                 logger.warning(f"[{agent_name}] Ограничение лимита (429) для {current_model}. Пробуем альтернативу...")
+                LLMLogger.log_call(agent_name, current_model, prompt_text, error="HTTP 429", latency_ms=latency_ms, market_id=market_id)
             else:
                 logger.error(f"[{agent_name}] Ошибка API ({response.status_code}) для {current_model}: {response.text}")
+                LLMLogger.log_call(agent_name, current_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
                 
         except Exception as e:
             logger.error(f"[{agent_name}] Исключение при запросе к {current_model}: {e}")
+            latency_ms = int((time.time() - start_time) * 1000)
+            LLMLogger.log_call(agent_name, current_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
             
         # Экспоненциальный бэкоф между попытками Gemini
         attempt = models.index(current_model) if current_model in models else 0
