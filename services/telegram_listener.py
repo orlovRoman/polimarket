@@ -220,14 +220,20 @@ async def main():
     client = TelegramClient(SESSION_PATH, int(api_id), api_hash)
     
     # Инициализация NewsProcessor для новостных каналов
-    from config import GOOGLE_API_KEY
+    from config import GOOGLE_API_KEY, TELEGRAM_GROUP2_SOURCE, TELEGRAM_GROUP2_TARGET_ID
     from agents.orchestrator.src.news_processor import NewsProcessor
     news_processor = NewsProcessor(api_key=GOOGLE_API_KEY)
     
-    @client.on(events.NewMessage(chats=['polymarketalerthub', 'polyradar']))
+    chats_to_listen = ['polymarketalerthub', 'polyradar']
+    if TELEGRAM_GROUP2_SOURCE and TELEGRAM_GROUP2_SOURCE != "group2_source":
+        chats_to_listen.append(TELEGRAM_GROUP2_SOURCE)
+        
+    @client.on(events.NewMessage(chats=chats_to_listen))
     async def handler(event):
         text = event.message.message
-        
+        if not text:
+            return
+            
         # Получаем имя канала
         chat = await event.get_chat()
         chat_name = chat.username or chat.title or str(chat.id)
@@ -235,6 +241,19 @@ async def main():
         print(f"\n[Listener] 🔔 Получено новое сообщение из {chat_name}:\n{text[:120]}...")
         
         try:
+            # 1. Если это наша вторая группа (Event-Driven анализ постов)
+            if TELEGRAM_GROUP2_SOURCE and TELEGRAM_GROUP2_SOURCE != "group2_source" and (TELEGRAM_GROUP2_SOURCE.lower() in chat_name.lower() or str(chat.id) == TELEGRAM_GROUP2_SOURCE):
+                from agents.shared.python.db import save_telegram_post
+                post_id = save_telegram_post(str(chat.id), event.message.id, text)
+                if post_id and TELEGRAM_GROUP2_TARGET_ID:
+                    print(f"[Listener] 🧠 Триггерим глубокий анализ поста из {chat_name} (ID: {post_id})...")
+                    import subprocess
+                    cmd = [sys.executable, str(PROJECT_ROOT / "scripts" / "analyze_post.py"), "--post_id", str(post_id), "--chat_id", str(TELEGRAM_GROUP2_TARGET_ID)]
+                    log_file_path = PROJECT_ROOT / "logs" / f"post_analysis_{post_id}.log"
+                    with open(log_file_path, "a", encoding="utf-8") as out:
+                        subprocess.Popen(cmd, cwd=str(PROJECT_ROOT), stdout=out, stderr=subprocess.STDOUT)
+                return
+
             if "polymarketalerthub" in chat_name.lower():
                 # Разбираем алерт о ките
                 bet_info = parse_whale_alert(text, event.message.entities)

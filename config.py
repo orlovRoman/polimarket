@@ -40,6 +40,10 @@ TG_PHONE = os.getenv("TG_PHONE", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
+# Настройки для второй группы (Event-driven)
+TELEGRAM_GROUP2_SOURCE = os.getenv("TELEGRAM_GROUP2_SOURCE", "group2_source") # Канал, который слушает Telethon
+TELEGRAM_GROUP2_TARGET_ID = os.getenv("TELEGRAM_GROUP2_TARGET_ID", "") # Чат, куда бот отправляет аналитику
+
 # Стратегия скана
 SCAN_LIMIT_DEFAULT = int(os.getenv("SCAN_LIMIT", "30"))
 MIN_EDGE_DEFAULT = float(os.getenv("MIN_EDGE", "0.05"))

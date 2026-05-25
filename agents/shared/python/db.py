@@ -164,7 +164,19 @@ def init_db():
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
+        # Таблица входящих постов Telegram (для event-driven анализа)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS telegram_posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id TEXT NOT NULL,
+                message_id INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'NEW',
+                UNIQUE(chat_id, message_id)
+            )
+        """)
         
         # Таблица истории цен (для трендового анализа)
         cursor.execute("""
@@ -483,6 +495,32 @@ def get_markets_on_cooldown(cooldown_hours: int = 4) -> set:
             WHERE analyzed_at > datetime('now', '-' || ? || ' hours')
         """, (cooldown_hours,))
         return {row['market_id'] for row in cursor.fetchall()}
+
+def save_telegram_post(chat_id: str, message_id: int, text: str) -> int:
+    """Сохраняет пост из Telegram и возвращает его ID."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO telegram_posts (chat_id, message_id, text) VALUES (?, ?, ?)",
+            (chat_id, message_id, text)
+        )
+        if cursor.rowcount > 0:
+            return cursor.lastrowid
+        else:
+            # Если уже существует
+            cursor.execute("SELECT id FROM telegram_posts WHERE chat_id = ? AND message_id = ?", (chat_id, message_id))
+            row = cursor.fetchone()
+            return row['id'] if row else None
+
+def get_telegram_post_text(post_id: int) -> Optional[str]:
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT text FROM telegram_posts WHERE id = ?", (post_id,))
+        row = cursor.fetchone()
+        return row['text'] if row else None
+
+def mark_telegram_post_status(post_id: int, status: str):
+    with get_connection() as conn:
+        conn.execute("UPDATE telegram_posts SET status = ? WHERE id = ?", (status, post_id))
 
 def save_memory(key: str, value: Any, category: str = 'general', ttl: int = None, priority: int = 0):
     """

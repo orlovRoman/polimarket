@@ -27,6 +27,25 @@ def send_telegram(text: str, parse_mode: str = "HTML") -> bool:
         return False
 
 
+def send_telegram_to_chat(text: str, chat_id: str, parse_mode: str = "HTML") -> bool:
+    """Отправка сообщения в конкретный чат (используется для event-driven). Возвращает True при успехе."""
+    if not TELEGRAM_BOT_TOKEN or not chat_id:
+        logger.warning(f"[Notifier] TELEGRAM_BOT_TOKEN или chat_id ({chat_id}) не задан.")
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        resp = requests.post(url, json={
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": True
+        }, timeout=10)
+        resp.raise_for_status()
+        return True
+    except Exception as e:
+        logger.error(f"[Notifier] Ошибка отправки в чат {chat_id}: {e}")
+        return False
+
 def send_correlation_alerts(summary_callback=None) -> None:
     """Отправляет алерты о новых корреляциях. Перенесено из run_team.py."""
     from agents.shared.python.db import get_new_correlations, mark_correlations_notified
