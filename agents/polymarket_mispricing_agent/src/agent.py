@@ -131,6 +131,7 @@ class ScoutAgent:
         
         from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
         
+        analysis = None
         for attempt in range(2):
             result, active_model = generate_content_with_fallback(
                 api_key=self.api_key,
