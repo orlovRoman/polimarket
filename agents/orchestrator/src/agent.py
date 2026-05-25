@@ -144,7 +144,7 @@ class NexusAgent:
             
             # Сохраняем корреляции в БД
             from agents.shared.python.db import save_correlation
-            from agents.shared.python.models import MarketCorrelation
+            from core.models import MarketCorrelation
             
             for corr in result.get("correlations", []):
                 try:

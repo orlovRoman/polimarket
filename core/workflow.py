@@ -2,7 +2,9 @@ import os
 import sys
 import concurrent.futures
 from datetime import datetime
+from typing import Optional, Callable
 
+from core.models import Market, Signal, SwingSignal, AgentOpinion, IdeaDecision
 from config import logger, SCREENING_INTERVAL_SEC, SCAN_LIMIT_DEFAULT, MIN_EDGE_DEFAULT
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import (
@@ -143,18 +145,34 @@ def run_agent_evaluation(m, scout, swing, update_state):
         
     return signal, swing_signal
 
-def process_consensus(m, signal, swing_signal, opinion_shadow, state, update_state, summary_callback):
-    if signal or swing_signal:
-        # Улучшенная логика консенсуса
-        shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"
+def make_consensus(m: Market, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion]) -> IdeaDecision:
+    shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"
+    
+    if (signal or swing_signal) and shadow_ok:
+        status = 'saved'
+    elif (signal or swing_signal):
+        status = 'no_consensus'
+    else:
+        status = 'no_signal'
         
-        if shadow_ok:
-            logger.info("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ.")
-            if signal: save_signal(signal)
-            if swing_signal: save_signal(swing_signal)
-            update_state(ideas_found=state.get("ideas_found", 0) + 1)
-        else:
-            logger.info("  --- Консенсус не достигнут (SHADOW забраковал).")
+    return IdeaDecision(
+        market_id=m.id,
+        status=status,
+        scout_signal=signal,
+        swing_signal=swing_signal,
+        shadow_opinion=opinion_shadow
+    )
+
+def process_consensus(m: Market, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion], state: dict, update_state: Callable, summary_callback: Optional[Callable]):
+    decision = make_consensus(m, signal, swing_signal, opinion_shadow)
+    
+    if decision.status == 'saved':
+        logger.info("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ.")
+        if signal: save_signal(signal)
+        if swing_signal: save_signal(swing_signal)
+        update_state(ideas_found=state.get("ideas_found", 0) + 1)
+    elif decision.status == 'no_consensus':
+        logger.info("  --- Консенсус не достигнут (SHADOW забраковал).")
     else:
         logger.info("  SCOUT и SWING: Идей не найдено.")
         update_state(scout_status="⚪️ Идея не найдена", swing_status="⚪️ Идея не найдена")
@@ -191,24 +209,22 @@ def process_consensus(m, signal, swing_signal, opinion_shadow, state, update_sta
             summary_text += f"⚖️ Исполнение: {getattr(opinion_shadow, 'risk_assessment', 'N/A')}\n"
             summary_text += f"📝 Вердикт: {getattr(opinion_shadow, 'shadow_verdict', 'N/A')}\n\n"
         
-        shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"
-        if (signal or swing_signal) and shadow_ok:
+        if decision.status == 'saved':
             summary_text += "✨ <b>ИТОГ: Консенсус достигнут! Идея сохранена.</b>"
-        elif (signal or swing_signal):
+        elif decision.status == 'no_consensus':
             summary_text += "🛑 <b>ИТОГ: Консенсус не достигнут (SHADOW отклонил).</b>"
         else:
             summary_text += "🛑 <b>ИТОГ: Нет предмета для обсуждения.</b>"
             
         summary_callback(summary_text)
         
-    shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"
     audit = {
         "scout_edge": signal.edge if signal else None,
         "swing_found": 1 if swing_signal else 0,
         "shadow_agree": int(opinion_shadow.agree) if opinion_shadow else None,
         "shadow_confidence": opinion_shadow.confidence if opinion_shadow else None,
         "shadow_reason": (opinion_shadow.opinion or "")[:200] if opinion_shadow else "",
-        "final_outcome": "saved" if (signal or swing_signal) and shadow_ok else ("no_consensus" if (signal or swing_signal) else "no_signal")
+        "final_outcome": decision.status
     }
     save_idea_audit(m.id, m.title, audit)
 

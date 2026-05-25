@@ -8,7 +8,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from agents.shared.utils.obsidian_adapter import ObsidianAdapter
 from agents.shared.python.db import update_vault_index, get_connection, init_db
-from agents.shared.python.models import Market
+from core.models import Market
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
 from agents.shared.utils.rag import get_rag_context, search_memories
 

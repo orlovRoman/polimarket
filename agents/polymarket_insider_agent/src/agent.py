@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 from typing import Optional
-from agents.shared.python.models import Market, AgentOpinion
+from core.models import Market, AgentOpinion
 
 class ShadowAgent:
     """

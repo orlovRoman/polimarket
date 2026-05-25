@@ -3,7 +3,7 @@ import json
 from typing import Optional, List
 from agents.shared.utils.gemini_client import generate_content_with_fallback
 from agents.shared.adapters.polymarket import PolymarketAdapter
-from agents.shared.python.models import Market
+from core.models import Market
 
 class NewsProcessor:
     """

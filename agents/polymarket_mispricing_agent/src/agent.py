@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 from typing import Optional
-from agents.shared.python.models import Market, Signal
+from core.models import Market, Signal
 from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 

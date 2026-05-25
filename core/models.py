@@ -60,7 +60,7 @@ class SwingSignal(BaseModel):
 
 class AgentOpinion(BaseModel):
     agent_name: str
-    market_id: str
+    market_id: str = ""
     opinion: str
     confidence: float
     agree: bool
@@ -72,6 +72,7 @@ class AgentOpinion(BaseModel):
     liquidity_risk: str = "medium"  # "low" | "medium" | "high"
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 class MarketCorrelation(BaseModel):
     """Обнаруженная корреляция между двумя рынками."""
     market_id_a: str
@@ -83,3 +84,11 @@ class MarketCorrelation(BaseModel):
     confidence: float
     detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class IdeaDecision(BaseModel):
+    """Финальный результат консенсуса по рынку."""
+    market_id: str
+    status: Literal['saved', 'no_consensus', 'no_signal']
+    scout_signal: Optional[Signal] = None
+    swing_signal: Optional[SwingSignal] = None
+    shadow_opinion: Optional[AgentOpinion] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

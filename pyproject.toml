@@ -1,0 +1,11 @@
+[project]
+name = "polymarket-bot"
+version = "1.0.0"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501"] # line too long is handled by our line-length setting, but sometimes we want to allow it

@@ -16,7 +16,7 @@ from config import (
 from agents.shared.python.db import (
     get_memory, save_memory, get_markets_on_cooldown, get_last_analyzed_price
 )
-from agents.shared.python.models import Market
+from core.models import Market
 
 
 class MarketSelector:

@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 from typing import Optional
-from agents.shared.python.models import Market, Signal
+from core.models import Market, Signal
 from agents.shared.python.db import get_memory
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
@@ -123,7 +123,7 @@ class SwingAgent:
                 if current_price <= 0: current_price = 0.01
                 roi = ((target_price - current_price) / current_price) * 100
                 
-                from agents.shared.python.models import SwingSignal
+                from core.models import SwingSignal
                 
                 signal = SwingSignal(
                     id=f"sig-swing-{market.id}-{int(datetime.now().timestamp())}",

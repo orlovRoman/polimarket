@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
-from .models import Market, Signal, MarketCorrelation
+from core.models import Market, Signal, MarketCorrelation
 
 # Импортируем путь из единого конфига
 import sys
