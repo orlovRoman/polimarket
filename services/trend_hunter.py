@@ -220,13 +220,18 @@ def run_trend_hunter(dry_run: bool = False):
                     # Сохраняем рынок в БД
                     save_market(m)
                     # Запускаем фоновый точечный командный анализ
-                    cmd = [sys.executable, "run_team.py", "--market_id", m_id]
+                    # Запуск через движок
+                    import threading
+                    from core.engine import CoreEngine
+                    def _run_trend_hunter_scan():
+                        eng = CoreEngine()
+                        eng.run_team_discussion(market_id=m_id)
+                    threading.Thread(target=_run_trend_hunter_scan, daemon=True).start()
                     try:
-                        subprocess.Popen(cmd)
                         new_markets_triggered.append(m)
                         print(f"      [RUN] Запущен фоновый анализ для рынка {m_id}!")
                     except Exception as ex:
-                        print(f"      [ERROR] Ошибка запуска run_team.py для {m_id}: {ex}")
+                        print(f"      [ERROR] Ошибка запуска для {m_id}: {ex}")
 
     # 4. Отправляем сводное оповещение в Telegram (если были новые рынки)
     if new_markets_triggered and not dry_run:

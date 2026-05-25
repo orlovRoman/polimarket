@@ -658,8 +658,9 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
     updater_task = asyncio.create_task(update_message())
     
     try:
-        import sys, os; sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); from run_team import run_team_discussion
-        await asyncio.to_thread(run_team_discussion, log_callback, summary_callback, category_param, None, state_callback)
+        from core.engine import CoreEngine
+        engine = CoreEngine()
+        await asyncio.to_thread(engine.run_team_discussion, log_callback, summary_callback, category_param, None, state_callback)
         if current_state:
             final_html = render_dashboard(current_state)
             await status_msg.edit_text(final_html + "\n\n<b>✅ ПРОЦЕСС ЗАВЕРШЕН</b>", parse_mode="HTML", disable_web_page_preview=True)

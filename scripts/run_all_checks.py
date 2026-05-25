@@ -18,11 +18,10 @@ def main():
     # 1. Проверка синтаксиса критичных файлов
     critical_files = [
         "main.py",
-        "run_team.py",
+        "core/engine.py",
         "core/workflow.py",
         "agents/shared/python/db.py",
-        "scripts/resolve_markets.py",
-        "scripts/analyze_post.py"
+        "scripts/resolve_markets.py"
     ]
     for f in critical_files:
         run_cmd(f"{sys.executable} -m py_compile {f}")
