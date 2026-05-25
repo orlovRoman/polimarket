@@ -133,7 +133,7 @@ def run_agent_evaluation(m, scout, swing, update_state):
         
         news_titles = future_rss.result()
         reddit_posts = future_reddit.result()
-        wiki_context = future_wiki.result()
+        wiki_context = "\n".join(future_wiki.result())
 
     context = MarketContext(
         market=m,
