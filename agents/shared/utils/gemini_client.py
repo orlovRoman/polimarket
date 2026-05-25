@@ -235,9 +235,12 @@ def generate_content_with_fallback(
     Выполняет HTTP POST запрос к API с автоматической маршрутизацией.
     """
     grok_key = os.getenv("GROK_API_KEY")
-    grok_model = os.getenv("GROK_MODEL", "grok-3")
+    grok_model_default = os.getenv("GROK_MODEL", "grok-3")
+    grok_model = os.getenv(f"GROK_MODEL_{agent_name.upper()}", grok_model_default)
+    
     or_key = os.getenv("OPENROUTER_API_KEY")
-    or_model = os.getenv("OPENROUTER_MODEL", "openrouter/owl-alpha")
+    or_model_default = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
+    or_model = os.getenv(f"OPENROUTER_MODEL_{agent_name.upper()}", or_model_default)
     
     models = []
     if or_key:
