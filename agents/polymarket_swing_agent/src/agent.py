@@ -19,10 +19,9 @@ class SwingAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def estimate_market(self, market: Market) -> Optional[Signal]:
+    def estimate_market(self, market: Market, news_titles: list = None, reddit_posts: list = None, price_history: list = None) -> Optional[Signal]:
         """
         Оценивает рынок на потенциал хайпа.
-        В отличие от SCOUT, получает текущую цену для принятия решения о покупке.
         """
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -33,38 +32,37 @@ class SwingAgent:
             print(f"[SWING] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
 
-        try:
-            print(f"  SWING ищет новости (RSS + Reddit) для оценки хайпа: {market.title}...")
-        except UnicodeEncodeError:
-            print(f"  SWING ищет новости (RSS + Reddit) для оценки хайпа: {market.title.encode('ascii', 'replace').decode('ascii')}...")
-        news_titles = fetch_rss_news(market.title)
-        reddit_posts = fetch_reddit_news(market.title)
+        price_history_str = "История цен недоступна."
+        if price_history:
+            lines = [f"  {p['recorded_at']}: {p['price']:.4f}" for p in price_history[-6:]]
+            if lines:
+                price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
 
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
 Описание: {market.description}
 Исход: {market.outcome}
-Текущая цена исхода: {market.price}
+Текущая цена исхода (YES): {market.price}
 Дата закрытия рынка: {market.close_time.strftime("%Y-%m-%d %H:%M:%S")}
 
 {rag_context}
 
-Последние заголовки RSS (для справки):
-{chr(10).join(news_titles) if news_titles else "RSS новостей не найдено."}
+{price_history_str}
 
-Последние посты с Reddit (для справки):
-{chr(10).join(reddit_posts) if reddit_posts else "Постов на Reddit не найдено."}
+Последние заголовки RSS:
+{chr(10).join(news_titles) if news_titles else "Нет свежих новостей."}
 
-Используй инструмент google_search, чтобы узнать актуальную тональность и последние новости в сети.
-Затем выполни анализ хайп-потенциала согласно своим инструкциям.
-Ответ верни строго в формате JSON: {{"recommendation": "buy", "hype_potential": 0.8, "target_exit_price": 0.5, "confidence": 0.7, "reasoning": "..."}}
+Последние посты с Reddit:
+{chr(10).join(reddit_posts) if reddit_posts else "Нет постов на Reddit."}
+
+Используй инструмент google_search, чтобы узнать актуальную тональность.
+Затем выполни анализ хайп-потенциала.
+Ответ верни строго в формате JSON.
 """
         
         payload = {
-            "contents": [
-                {"role": "user", "parts": [{"text": prompt}]}
-            ],
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "systemInstruction": {"parts": [{"text": self.system_instruction}]},
             "tools": [{"google_search": {}}],
         }
@@ -95,19 +93,24 @@ class SwingAgent:
             hype_potential = float(analysis.get("hype_potential", 0))
             
             if recommendation == "buy" and hype_potential > 0.6:
-                target_price = analysis.get("target_exit_price", market.price + 0.10)
-                edge_proxy = target_price - market.price # Имитация edge для совместимости
+                target_outcome = analysis.get("target_outcome", "YES")
+                target_price = analysis.get("target_exit_price", 0.15)
+                
+                # Расчет ROI (Return on Investment)
+                current_price = market.price if target_outcome == "YES" else (1.0 - market.price)
+                if current_price <= 0: current_price = 0.01
+                roi = ((target_price - current_price) / current_price) * 100
                 
                 signal = Signal(
                     id=f"sig-swing-{market.id}-{int(datetime.now().timestamp())}",
                     type="hype_pump",
                     market_id=market.id,
                     platform=market.platform,
-                    edge=edge_proxy,
+                    edge=roi / 100.0,  # Записываем ROI вместо Edge для совместимости
                     confidence=analysis.get("confidence", 0.5),
                     priority="high" if hype_potential > 0.8 else "medium",
-                    summary=f"🚀 Ожидание пампа (Хайп {hype_potential*100:.0f}%): {market.title}",
-                    details=f"Вход по {market.price}, выход по {target_price}.\nОбоснование: {analysis.get('reasoning', '')}"
+                    summary=f"🚀 Памп {target_outcome} (Хайп {hype_potential*100:.0f}%, Цель {target_price:.2f})",
+                    details=f"Рекомендация: BUY {target_outcome} по ~{current_price:.2f}, выход по {target_price:.2f} (ROI ~{roi:.0f}%).\nОбоснование: {analysis.get('reasoning', '')}"
                 )
                 return signal
         except Exception as e:

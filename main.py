@@ -15,13 +15,16 @@ from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup
 
 
 
+import logging
+from logging.handlers import RotatingFileHandler
+
 # Глобальная настройка системы логирования
 # Логи выводятся в файл и в консоль для удобства мониторинга
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("logs/main.log", encoding="utf-8"),
+        RotatingFileHandler("logs/main.log", maxBytes=10*1024*1024, backupCount=5, encoding="utf-8"),
         logging.StreamHandler()
     ]
 )

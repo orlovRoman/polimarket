@@ -24,12 +24,14 @@ class ScoutAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def estimate_market(self, market: Market) -> Optional[Signal]:
+    def estimate_market(self, market: Market, news_titles: list = None, reddit_posts: list = None) -> Optional[Signal]:
         """
         Оценивает рынок и формирует торговый сигнал, если найдена недооценка.
         Честный Double-Blind: оценка производится без передачи цены в LLM.
         
         :param market: Данные о рынке Polymarket
+        :param news_titles: Заголовки новостей RSS
+        :param reddit_posts: Посты Reddit
         :return: Объект Signal, если Edge > 0.10, иначе None
         """
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -41,13 +43,6 @@ class ScoutAgent:
         except Exception as e:
             print(f"[SCOUT] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
-
-        try:
-            print(f"  SCOUT ищет базовые данные (RSS + Reddit + Корреляции) для оценки: {market.title}...")
-        except UnicodeEncodeError:
-            print(f"  SCOUT ищет базовые данные (RSS + Reddit + Корреляции) для оценки: {market.title.encode('ascii', 'replace').decode('ascii')}...")
-        news_titles = fetch_rss_news(market.title)
-        reddit_posts = fetch_reddit_news(market.title)
         
         # Получаем известные корреляции из базы
         correlations = get_market_correlations(market.id)
@@ -128,12 +123,19 @@ class ScoutAgent:
             
             # Рассчитываем математическое преимущество (Edge) на уровне Python (честный Double-Blind)
             est_prob = float(analysis.get("estimate_probability", 0))
-            edge = est_prob - market.price
+            
+            # Рассчитываем Edge для YES и NO
+            edge_yes = est_prob - market.price
+            edge_no = (1.0 - est_prob) - (1.0 - market.price)
+            
+            edge = max(edge_yes, edge_no)
+            target_outcome = "YES" if edge_yes > edge_no else "NO"
             
             # Порог активации: настраиваемый через /settings (дефолт 10%)
             min_edge = get_memory("min_edge")
             if min_edge is None:
                 min_edge = 0.10
+                
             if edge > min_edge:
                 signal = Signal(
                     id=f"sig-{market.id}-{int(datetime.now().timestamp())}",
@@ -143,8 +145,8 @@ class ScoutAgent:
                     edge=edge,
                     confidence=analysis.get("confidence", 0.5),
                     priority=analysis.get("priority", "medium"),
-                    summary=f"Недооценка на {edge*100:.1f}%: {market.title}",
-                    details=analysis.get("reasoning", "")
+                    summary=f"Недооценка {target_outcome} на {edge*100:.1f}%",
+                    details=f"Рекомендация: Покупать {target_outcome}.\n" + analysis.get("reasoning", "")
                 )
                 return signal
         except Exception as e:

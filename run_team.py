@@ -18,8 +18,8 @@ from agents.shared.python.db import get_memory, save_memory
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
 from agents.polymarket_swing_agent.src.agent import SwingAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent
-from agents.polymarket_news_agent.src.agent import HeraldAgent
 from agents.orchestrator.src.agent import NexusAgent
+from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 from agents.shared.utils.database import DatabaseManager
 from agents.shared.python.market_selector import MarketSelector
 
@@ -189,7 +189,6 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
     scout = ScoutAgent(api_key=key)
     swing = SwingAgent(api_key=key)
     shadow = ShadowAgent(api_key=key)
-    herald = HeraldAgent(api_key=key)
 
     # ===================================================================
     # СТАДИЯ 0: СКРИНИНГ (NEXUS) — каждые 30 минут
@@ -302,8 +301,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
             current_market_url=m.url,
             scout_status="⏳ Ожидает",
             swing_status="⏳ Ожидает",
-            shadow_status="⏳ Ожидает",
-            herald_status="⏳ Ожидает"
+            shadow_status="⏳ Ожидает"
         )
         # Проверяем, анализировали ли мы этот рынок ранее при такой же цене (если это не точечный анализ по market_id)
         last_price = get_last_analyzed_price(m.id)
@@ -334,15 +332,19 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
         # Записываем текущую цену в историю
         save_price_point(m.id, m.price)
         
+        # Централизованный сбор новостей
+        log("  Скачиваем новости (RSS + Reddit)...")
+        news_titles = fetch_rss_news(m.title)
+        reddit_posts = fetch_reddit_news(m.title)
+        
         # ЭТАП 1: SCOUT ищет математическую недооценку (Edge), а SWING_TRADER - хайп
         log("  SCOUT и SWING оценивают...")
         update_state(scout_status="🔄 Считает вероятности...", swing_status="🔄 Оценивает хайп...")
         
-        signal = scout.estimate_market(m)
-        swing_signal = swing.estimate_market(m)
+        signal = scout.estimate_market(m, news_titles, reddit_posts)
+        swing_signal = swing.estimate_market(m, news_titles, reddit_posts)
         
         opinion_shadow = None
-        opinion_herald = None
 
         if signal or swing_signal:
             active_signal = swing_signal if swing_signal else signal
@@ -415,7 +417,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
         if summary_callback:
             summary_text = f"🗣 <b>Обсуждение рынка:</b>\n<a href='{m.url}'>{m.title}</a>\n\n"
             if signal:
-                summary_text += f"<b>SCOUT</b> 🟢 Нашел потенциал (Edge: {signal.edge:.2f})\n\n"
+                summary_text += f"<b>SCOUT</b> 🟢 {signal.summary}\n\n"
             else:
                 summary_text += f"<b>SCOUT</b> ⚪️ Идея не найдена.\n\n"
                 
@@ -428,13 +430,7 @@ def _run_team_discussion_inner(log_callback=None, summary_callback=None, categor
                 status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
                 summary_text += f"<b>SHADOW</b> {status} (Увер: {opinion_shadow.confidence})\n<i>{opinion_shadow.opinion}</i>\n\n"
             
-            if opinion_herald:
-                status = "✅ СОГЛАСЕН" if opinion_herald.agree else "❌ ПРОТИВ"
-                summary_text += f"<b>HERALD</b> {status} (Увер: {opinion_herald.confidence})\n<i>{opinion_herald.opinion}</i>\n\n"
-            
-            if (signal or swing_signal) and opinion_shadow and opinion_herald and \
-               opinion_shadow.agree and opinion_herald.agree and \
-               opinion_shadow.confidence > 0.6 and opinion_herald.confidence > 0.6:
+            if (signal or swing_signal) and opinion_shadow and opinion_shadow.agree and opinion_shadow.confidence > 0.6:
                 summary_text += "✨ <b>ИТОГ: Консенсус достигнут! Идея сохранена.</b>"
             elif (signal or swing_signal):
                 summary_text += "🛑 <b>ИТОГ: Консенсус не достигнут.</b>"
