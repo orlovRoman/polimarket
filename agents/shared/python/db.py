@@ -1021,6 +1021,23 @@ def get_market_trader_transactions(market_id: str, limit: int = 50) -> list:
         """, (market_id, limit))
         return [dict(row) for row in cursor.fetchall()]
 
+def get_known_whales() -> dict:
+    """Возвращает словарь {address: {alias, win_rate, total_won, total_vol}} известных китов."""
+    whales = {}
+    with get_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT address, alias, win_rate, total_won, total_vol FROM known_whales")
+            for row in cursor.fetchall():
+                whales[row["address"]] = {
+                    "alias": row["alias"],
+                    "win_rate": row["win_rate"],
+                    "total_won": row["total_won"],
+                    "total_vol": row["total_vol"]
+                }
+        except Exception as e:
+            print(f"[DB] Ошибка при чтении known_whales: {e}")
+    return whales
 
 if __name__ == "__main__":
     init_db()
