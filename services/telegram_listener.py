@@ -253,11 +253,18 @@ async def main():
                 post_id = save_telegram_post(str(chat.id), event.message.id, text)
                 if post_id and TELEGRAM_GROUP2_TARGET_ID:
                     print(f"[Listener] 🧠 Триггерим глубокий анализ поста из {chat_name} (ID: {post_id})...")
-                    import subprocess
-                    cmd = [sys.executable, str(PROJECT_ROOT / "scripts" / "analyze_post.py"), "--post_id", str(post_id), "--chat_id", str(TELEGRAM_GROUP2_TARGET_ID)]
-                    log_file_path = PROJECT_ROOT / "logs" / f"post_analysis_{post_id}.log"
-                    with open(log_file_path, "a", encoding="utf-8") as out:
-                        subprocess.Popen(cmd, cwd=str(PROJECT_ROOT), stdout=out, stderr=subprocess.STDOUT)
+                    import httpx
+                    import asyncio
+                    async def trigger_analysis():
+                        async with httpx.AsyncClient() as client:
+                            try:
+                                await client.post(
+                                    f"http://localhost:8000/api/analyze/{post_id}",
+                                    json={"post_id": post_id, "chat_id": str(TELEGRAM_GROUP2_TARGET_ID)}
+                                )
+                            except Exception as e:
+                                print(f"[Listener] Ошибка вызова API: {e}")
+                    asyncio.create_task(trigger_analysis())
 
             if "polymarketalerthub" in chat_name.lower():
                 # 2. Сохраняем алерт о ките в БД в любом случае
