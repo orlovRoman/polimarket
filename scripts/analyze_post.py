@@ -40,10 +40,14 @@ def main(post_id: int, chat_id: str):
             if not full_m: continue
             
             # 2. Анализ с контекстом поста
+            from agents.shared.utils.web_search import build_search_query, fetch_wikipedia_context
+            search_query = build_search_query(full_m.title)
+            wiki_context = fetch_wikipedia_context(search_query)
+            
             news_context = f"КОНТЕКСТ СООБЩЕНИЯ ИЗ TELEGRAM:\n{text}\n\n"
             
-            signal = scout.estimate_market(full_m, news_titles=[news_context])
-            swing_signal = swing.estimate_market(full_m, news_titles=[news_context])
+            signal = scout.estimate_market(full_m, news_titles=[news_context], reddit_posts=[], wiki_context=wiki_context)
+            swing_signal = swing.estimate_market(full_m, news_titles=[news_context], reddit_posts=[], price_history=[], wiki_context=wiki_context)
             
             opinion_shadow = None
             if signal or swing_signal:

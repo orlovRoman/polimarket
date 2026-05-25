@@ -19,7 +19,7 @@ class SwingAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def estimate_market(self, market: Market, news_titles: list = None, reddit_posts: list = None, price_history: list = None) -> Optional[Signal]:
+    def estimate_market(self, market: Market, news_titles: list = None, reddit_posts: list = None, price_history: list = None, wiki_context: list = None) -> Optional[Signal]:
         """
         Оценивает рынок на потенциал хайпа.
         """
@@ -38,6 +38,8 @@ class SwingAgent:
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
 
+        wiki_block = "\n".join(wiki_context) if wiki_context else "Wikipedia-данных нет."
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -47,6 +49,9 @@ class SwingAgent:
 Дата закрытия рынка: {market.close_time.strftime("%Y-%m-%d %H:%M:%S")}
 
 {rag_context}
+
+Данные из Wikipedia (состав турниров, участники, статистика):
+{wiki_block}
 
 {price_history_str}
 

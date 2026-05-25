@@ -104,20 +104,40 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             logger.error(f"Ошибка скрининга: {e}")
     return None
 
+def _build_search_query(market_title: str) -> str:
+    """Строит короткий поисковый запрос из заголовка рынка."""
+    import re
+    # Убираем вопросительные слова и стоп-слова
+    stopwords = ["will", "who", "what", "when", "is", "are", "does", "can",
+                 "the", "a", "an", "in", "of", "to", "by", "for",
+                 "будет", "ли", "что", "кто", "когда", "выиграет"]
+    words = re.sub(r'[^\w\s]', '', market_title.lower()).split()
+    keywords = [w for w in words if w not in stopwords and len(w) > 2]
+    return " ".join(keywords[:6])
+
 def run_agent_evaluation(m, scout, swing, update_state):
-    logger.info("  Скачиваем новости (RSS + Reddit)...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        future_rss = executor.submit(fetch_rss_news, m.title)
-        future_reddit = executor.submit(fetch_reddit_news, m.title)
+    logger.info("  Скачиваем новости (RSS + Reddit + Wikipedia)...")
+    
+    search_query = _build_search_query(m.title)
+    logger.info(f"  Поисковый запрос: '{search_query}' (оригинал: '{m.title}')")
+    
+    from agents.shared.utils.web_search import fetch_wikipedia_context
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        future_rss = executor.submit(fetch_rss_news, search_query)
+        future_reddit = executor.submit(fetch_reddit_news, search_query)
+        future_wiki = executor.submit(fetch_wikipedia_context, search_query)
+        
         news_titles = future_rss.result()
         reddit_posts = future_reddit.result()
+        wiki_context = future_wiki.result()
 
     logger.info("  SCOUT и SWING оценивают...")
     update_state(scout_status="🔄 Считает вероятности...", swing_status="🔄 Оценивает хайп...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        future_scout = executor.submit(scout.estimate_market, m, news_titles, reddit_posts)
-        future_swing = executor.submit(swing.estimate_market, m, news_titles, reddit_posts)
+        future_scout = executor.submit(scout.estimate_market, m, news_titles, reddit_posts, wiki_context)
+        future_swing = executor.submit(swing.estimate_market, m, news_titles, reddit_posts, None, wiki_context)
         signal = future_scout.result()
         swing_signal = future_swing.result()
         

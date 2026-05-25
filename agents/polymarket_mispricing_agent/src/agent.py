@@ -24,14 +24,14 @@ class ScoutAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def estimate_market(self, market: Market, news_titles: list = None, reddit_posts: list = None) -> Optional[Signal]:
+    def estimate_market(self, market: Market, news_titles: list = None, reddit_posts: list = None, wiki_context: list = None) -> Optional[Signal]:
         """
-        Оценивает рынок и формирует торговый сигнал, если найдена недооценка.
-        Честный Double-Blind: оценка производится без передачи цены в LLM.
+        Оценивает рынок на предмет математического расхождения (edge).
         
         :param market: Данные о рынке Polymarket
         :param news_titles: Заголовки новостей RSS
         :param reddit_posts: Посты Reddit
+        :param wiki_context: Статистические данные Wikipedia
         :return: Объект Signal, если Edge > 0.10, иначе None
         """
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -68,6 +68,8 @@ class ScoutAgent:
                     f"  Описание: {corr['description']}"
                 )
 
+        wiki_block = "\n".join(wiki_context) if wiki_context else "Wikipedia-данных нет."
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -75,6 +77,9 @@ class ScoutAgent:
 Исход: {market.outcome}
 
 {rag_context}
+
+Данные из Wikipedia (состав турниров, участники, статистика):
+{wiki_block}
 
 Последние заголовки RSS (для справки):
 {chr(10).join(news_titles) if news_titles else "RSS новостей не найдено."}
@@ -84,6 +89,10 @@ class ScoutAgent:
 
 [Известные кросс-рыночные корреляции]
 {chr(10).join(correlation_texts) if correlation_texts else "Известных корреляций нет."}
+
+КРИТИЧЕСКОЕ ПРАВИЛО: Если в блоках RSS и Reddit написано "не найдено" или список пустой — 
+ты ОБЯЗАН использовать инструмент google_search для поиска актуальной информации по теме рынка 
+перед тем как формировать оценку. Никогда не пиши "нет информации" без попытки поиска.
 
 Используй известные корреляции (и цены связанных рынков) как жесткую математическую базу. Если связанный рынок оценен выше или ниже, и между ними есть прямая или обратная связь — используй это для вычисления математического арбитража. 
 Используй инструмент google_search, чтобы найти актуальную статистику, если корреляций недостаточно.
