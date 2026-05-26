@@ -156,9 +156,12 @@ def run_agent_evaluation(m, scout, swing, update_state):
 def make_consensus(m: Market, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion]) -> IdeaDecision:
     shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"
     
-    if (signal or swing_signal) and shadow_ok:
+    valid_scout = signal is not None
+    valid_swing = swing_signal is not None and getattr(swing_signal, 'recommendation', '') == 'buy'
+    
+    if (valid_scout or valid_swing) and shadow_ok:
         status = 'saved'
-    elif (signal or swing_signal):
+    elif (valid_scout or valid_swing):
         status = 'no_consensus'
     else:
         status = 'no_signal'
@@ -177,7 +180,7 @@ def process_consensus(m: Market, signal: Optional[Signal], swing_signal: Optiona
     if decision.status == 'saved':
         logger.info("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ.")
         if signal: save_signal(signal)
-        if swing_signal: save_signal(swing_signal)
+        if swing_signal and getattr(swing_signal, 'recommendation', '') == 'buy': save_signal(swing_signal)
         update_state(ideas_found=state.get("ideas_found", 0) + 1)
     elif decision.status == 'no_consensus':
         logger.info("  --- Консенсус не достигнут (SHADOW забраковал).")
