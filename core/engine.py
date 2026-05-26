@@ -86,7 +86,7 @@ class CoreEngine:
             logger.info(msg)
             if log_callback:
                 try: log_callback(msg)
-                except Exception: pass
+                except Exception as e: logger.error(f"log_callback error: {e}")
 
         cleanup_stale_signals()
 
@@ -99,7 +99,7 @@ class CoreEngine:
             self.update_state(**kwargs)
             if state_callback:
                 try: state_callback(self.state)
-                except Exception: pass
+                except Exception as e: logger.error(f"state_callback error: {e}")
 
         _update_state(category=category or "Авто-микс", stage="Скрининг рынков", total_markets=0, ideas_found=0)
 
@@ -125,7 +125,9 @@ class CoreEngine:
                 try:
                     m = self.adapter.get_market(mid)
                     if m: raw_markets.append(m)
-                except Exception: continue
+                except Exception as e:
+                    logger.debug(f"Failed to fetch market {mid}: {e}")
+                    continue
             selector = MarketSelector(self.adapter)
             markets = selector._filter(raw_markets)[:scan_limit]
         else:
@@ -185,7 +187,7 @@ class CoreEngine:
                     if m.tokens:
                         try:
                             orderbook = self.adapter.get_orderbook(m.tokens[0])
-                        except Exception: pass
+                        except Exception as e: logger.error(f"Failed to fetch orderbook: {e}")
                     
                     from agents.shared.python.db import get_price_history
                     price_hist = get_price_history(m.id, hours=24)
@@ -218,8 +220,8 @@ class CoreEngine:
                 if summary_callback:
                     try:
                         summary_callback(error_msg)
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.error(f"summary_callback error: {e}")
             finally:
                 if m.id in self.active_markets:
                     del self.active_markets[m.id]
@@ -281,7 +283,7 @@ class CoreEngine:
                     orderbook = None
                     if full_m.tokens:
                         try: orderbook = self.adapter.get_orderbook(full_m.tokens[0])
-                        except: pass
+                        except Exception as e: logger.error(f"Failed to fetch orderbook: {e}")
                     
                     from services.onchain_provider import get_recent_trades, get_top_positions
                     from core.smart_money import analyze_smart_money

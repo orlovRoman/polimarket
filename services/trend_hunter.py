@@ -20,35 +20,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import save_market, get_connection, save_memory, get_memory, save_token_usage
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from services.notifications import send_telegram
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 GOOGLE_NEWS_RSS = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
 GOOGLE_TRENDS_RSS = "https://trends.google.com/trending/rss?geo=US"
 
-def send_telegram_notification(text: str):
-    """Отправляет оповещение в Telegram, если они включены в настройках."""
-    # Проверяем, включены ли оповещения в БД
-    alerts_enabled = get_memory("trend_hunter_alerts_enabled", True)
-    if not alerts_enabled:
-        print("[Trend Hunter] Оповещения в Telegram отключены пользователем.")
-        return
-
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[Trend Hunter] Переменные Telegram не настроены.")
-        return
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True
-        }
-        resp = requests.post(url, json=payload, timeout=10)
-        resp.raise_for_status()
-    except Exception as e:
-        print(f"[Trend Hunter] Ошибка отправки уведомления в Telegram: {e}")
 
 def fetch_rss_titles(url: str, limit: int = 15) -> List[str]:
     """Скачивает и парсит заголовки из RSS-ленты."""
@@ -77,15 +55,8 @@ def extract_trends_with_llm(titles: List[str]) -> List[Dict[str, Any]]:
         print("[Trend Hunter] Критическая ошибка: GOOGLE_API_KEY не задан!")
         return []
 
-    # Получаем выбранную модель из настроек (по умолчанию gemini-2.5-flash)
-    selected_model = get_memory("selected_model", "gemini-2.5-flash")
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
     
-    # Резервные модели на случай исчерпания лимитов (429/503)
-    models_to_try = [selected_model]
-    for m in ["gemini-2.0-flash", "gemini-flash-latest"]:
-        if m != selected_model:
-            models_to_try.append(m)
-
     titles_text = "\n".join(f"- {title}" for title in titles)
 
     prompt = f"""
@@ -99,7 +70,7 @@ def extract_trends_with_llm(titles: List[str]) -> List[Dict[str, Any]]:
 1. Выделите 3-5 наиболее актуальных, резонансных и конкретных событий или трендов из этого списка, по которым с высокой вероятностью могут быть открыты рынки прогнозов (политика, наука, технологии, бизнес, крупные мировые события).
 2. Для каждого из выделенных трендов составьте 2-3 коротких, точных поисковых запроса на английском языке (search queries) для поиска соответствующих рынков на платформе Polymarket. 
    Примеры хороших запросов: "Trump trial", "Starship flight", "Apple Vision Pro", "OpenAI GPT-5", "fed interest rate", "inflation".
-   Избегайте слишком длинных фраз или общих слов (например, вместо "what will happen to biden next", пишите "biden", "election").
+   Избегайте слишком длинных фраз или общих слов.
 
 Ответьте строго в формате JSON по следующей схеме:
 {{
@@ -121,34 +92,25 @@ def extract_trends_with_llm(titles: List[str]) -> List[Dict[str, Any]]:
         }
     }
 
-    for model in models_to_try:
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GOOGLE_API_KEY}"
-        print(f"[Trend Hunter] Попытка обращения к Gemini через модель: {model}...")
-        try:
-            resp = requests.post(api_url, json=payload, timeout=60)
-            resp.raise_for_status()
-            res_json = resp.json()
-            
-            # Логируем расход токенов
-            usage_meta = res_json.get('usageMetadata', {})
-            input_tokens = usage_meta.get('promptTokenCount', 0)
-            output_tokens = usage_meta.get('candidatesTokenCount', 0)
-            if input_tokens > 0 or output_tokens > 0:
-                try:
-                    save_token_usage("NEXUS", model, input_tokens, output_tokens)
-                except Exception as e:
-                    print(f"[Trend Hunter] Ошибка при сохранении расхода токенов: {e}")
+    res_json, model_used = generate_content_with_fallback(
+        api_key=GOOGLE_API_KEY,
+        payload=payload,
+        default_model="gemini-2.5-flash",
+        agent_name="TREND_HUNTER"
+    )
 
-            text = res_json['candidates'][0]['content']['parts'][0]['text']
-            data = json.loads(text)
-            print(f"[Trend Hunter] Успешно получены тренды от модели {model}.")
-            return data.get("trends", [])
-        except Exception as e:
-            print(f"[Trend Hunter] Предупреждение: модель {model} вернула ошибку: {e}")
-            continue
+    if not res_json:
+        print("[Trend Hunter] Ошибка: LLM не вернул ответ.")
+        return []
 
-    print("[Trend Hunter] Ошибка: все доступные модели Gemini вернули ошибку!")
-    return []
+    try:
+        text = extract_response_text(res_json)
+        data = json.loads(text)
+        print(f"[Trend Hunter] Успешно получены тренды от модели {model_used}.")
+        return data.get("trends", [])
+    except Exception as e:
+        print(f"[Trend Hunter] Ошибка при разборе ответа: {e}")
+        return []
 
 def is_market_analyzed(market_id: str) -> bool:
     """Проверяет, анализировался ли рынок ранее (есть ли он в analyzed_markets)."""
@@ -246,7 +208,11 @@ def run_trend_hunter(dry_run: bool = False):
                 f"🔗 <a href='{m.url}'>Открыть на Polymarket</a>\n\n"
             )
         alert_text += "⏳ <i>Команда агентов (SCOUT → SWING → SHADOW) уже проводит точечный анализ. Скоро будет отчет!</i>"
-        send_telegram_notification(alert_text)
+        alerts_enabled = get_memory("trend_hunter_alerts_enabled", True)
+        if alerts_enabled:
+            send_telegram(alert_text)
+        else:
+            print("[Trend Hunter] Оповещения в Telegram отключены пользователем.")
     elif dry_run:
         print(f"\n[DRY RUN] Всего обнаружено новых рынков: {found_markets_count}")
 

@@ -47,6 +47,7 @@ TELEGRAM_GROUP2_TARGET_ID = os.getenv("TELEGRAM_GROUP2_TARGET_ID", "") # Чат,
 # Стратегия скана
 SCAN_LIMIT_DEFAULT = int(os.getenv("SCAN_LIMIT", "30"))
 MIN_EDGE_DEFAULT = float(os.getenv("MIN_EDGE", "0.05"))
+WHALE_ALERT_MIN_USD = float(os.getenv("WHALE_ALERT_MIN_USD", "10000"))  # Мин. сумма для whale-алерта
 
 # Интеграции
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")

@@ -1,7 +1,6 @@
 import os
 import sys
 import asyncio
-import logging
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
@@ -14,20 +13,7 @@ from telegram.bot import dp, bot
 from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history
 import uvicorn
 from core.api import app as fastapi_app
-
-import logging
-from logging.handlers import RotatingFileHandler
-
-# Глобальная настройка системы логирования
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        RotatingFileHandler("logs/main.log", maxBytes=10*1024*1024, backupCount=5, encoding="utf-8"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger("NEXUS_SYSTEM")
+from config import logger  # Единый логгер из config.py — не дублируем basicConfig
 
 engine = CoreEngine()
 

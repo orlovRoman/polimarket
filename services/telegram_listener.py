@@ -165,8 +165,8 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
         threading.Thread(target=_trigger_scan, daemon=True).start()
             
         # Отправляем подтверждение в Telegram
-        from agents.shared.python.db import send_telegram_notification
-        send_telegram_notification(msg_text)
+        from services.notifications import send_telegram
+        send_telegram(msg_text)
         
     except Exception as e:
         print(f"[Listener] Ошибка запуска мгновенного сканирования: {e}")
@@ -220,7 +220,7 @@ async def main():
     client = TelegramClient(SESSION_PATH, int(api_id), api_hash)
     
     # Инициализация NewsProcessor для новостных каналов
-    from config import GOOGLE_API_KEY, TELEGRAM_GROUP2_SOURCE, TELEGRAM_GROUP2_TARGET_ID
+    from config import GOOGLE_API_KEY, TELEGRAM_GROUP2_SOURCE, TELEGRAM_GROUP2_TARGET_ID, WHALE_ALERT_MIN_USD
     from agents.orchestrator.src.news_processor import NewsProcessor
     news_processor = NewsProcessor(api_key=GOOGLE_API_KEY)
     
@@ -285,7 +285,7 @@ async def main():
                             print(f"[Listener] ✅ Сделка сохранена: Кошелек {bet_info['wallet']} | Сумма ${bet_info['amount_usd']:,.0f} | Исход {bet_info['outcome']} | Рынок {m_id}")
                         
                         # Если это НЕ целевой канал для глубокого анализа, запускаем старый точечный скан
-                        if bet_info["amount_usd"] >= 10000.0 and market_ids and not is_target_source:
+                        if bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and market_ids and not is_target_source:
                             await trigger_nexus_scan(market_ids[0], bet_info["amount_usd"], source="whale")
             else:
                 # 3. Ветка для других новостных групп (если они не попали в глубокий анализ)

@@ -92,7 +92,7 @@ def send_correlation_alerts(summary_callback=None) -> None:
             return
             
         adapter = PolymarketAdapter()
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             logger.error("[Notifier] Нет API ключа для Арбитражника.")
             return

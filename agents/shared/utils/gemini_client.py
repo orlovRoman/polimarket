@@ -92,32 +92,12 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
                 })
             continue
 
-        # В Gemini роль для ответов модели - 'model', в OpenAI - 'assistant'
-        openai_role = "assistant" if role in ["model", "assistant"] else "user"
-        
-        text_content = ""
-        tool_calls = []
-        
-        for part in parts:
-            if "text" in part:
-                text_content += part["text"]
-            elif "functionCall" in part:
-                fc = part["functionCall"]
-                tool_calls.append({
-                    "id": f"call_{fc.get('name')}", # Имитация ID
-                    "type": "function",
-                    "function": {
-                        "name": fc.get("name"),
-                        "arguments": json.dumps(fc.get("args", {}))
-                    }
-                })
-                
         message_dict = {"role": openai_role, "content": text_content if text_content else None}
         if tool_calls:
             message_dict["tool_calls"] = tool_calls
-            
+
         openai_messages.append(message_dict)
-        
+
     openai_payload = {
         "model": model_name,
         "messages": openai_messages

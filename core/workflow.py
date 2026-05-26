@@ -1,7 +1,7 @@
 import os
 import sys
 import concurrent.futures
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Callable
 
 from core.models import Market, Signal, SwingSignal, AgentOpinion, IdeaDecision
@@ -15,7 +15,7 @@ from agents.shared.python.db import (
     get_memory, save_memory, save_idea_audit
 )
 from agents.shared.python.market_selector import MarketSelector
-from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
+from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news, build_search_query
 
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
 from agents.polymarket_swing_agent.src.agent import SwingAgent
@@ -65,7 +65,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
         return None
         
     last_screen_raw = get_memory("last_screen_time")
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     needs_screening = True
     
     if last_screen_raw:
@@ -107,21 +107,12 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             logger.error(f"Ошибка скрининга: {e}")
     return None
 
-def _build_search_query(market_title: str) -> str:
-    """Строит короткий поисковый запрос из заголовка рынка."""
-    import re
-    # Убираем вопросительные слова и стоп-слова
-    stopwords = ["will", "who", "what", "when", "is", "are", "does", "can",
-                 "the", "a", "an", "in", "of", "to", "by", "for",
-                 "будет", "ли", "что", "кто", "когда", "выиграет"]
-    words = re.sub(r'[^\w\s]', '', market_title.lower()).split()
-    keywords = [w for w in words if w not in stopwords and len(w) > 2]
-    return " ".join(keywords[:6])
+
 
 def run_agent_evaluation(m, scout, swing, update_state):
     logger.info("  Скачиваем новости (RSS + Reddit + Wikipedia)...")
     
-    search_query = _build_search_query(m.title)
+    search_query = build_search_query(m.title)
     logger.info(f"  Поисковый запрос: '{search_query}' (оригинал: '{m.title}')")
     
     from agents.shared.utils.web_search import fetch_wikipedia_context
