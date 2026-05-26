@@ -96,6 +96,8 @@ class ScoutAgent:
 ты ОБЯЗАН использовать инструмент google_search для поиска актуальной информации по теме рынка 
 перед тем как формировать оценку. Никогда не пиши "нет информации" без попытки поиска.
 
+КРИТИЧЕСКОЕ ПРАВИЛО: Внимательно вчитайся в правила разрешения рынка (Описание). Оцени риски оракула: есть ли двусмысленности в формулировках? Можно ли интерпретировать исход двояко? Опиши расплывчатость формулировки в поле oracle_risk.
+
 Используй известные корреляции (и цены связанных рынков) как жесткую математическую базу. Если связанный рынок оценен выше или ниже, и между ними есть прямая или обратная связь — используй это для вычисления математического арбитража. 
 Используй инструмент google_search, чтобы найти актуальную статистику, если корреляций недостаточно.
 Затем выполни анализ согласно своим инструкциям.
@@ -112,9 +114,10 @@ class ScoutAgent:
                 "signal": {"type": "STRING"},
                 "cause": {"type": "STRING"},
                 "risk": {"type": "STRING"},
+                "oracle_risk": {"type": "STRING"},
                 "verdict": {"type": "STRING"}
             },
-            "required": ["estimate_probability", "confidence", "priority", "reasoning", "signal", "cause", "risk", "verdict"]
+            "required": ["estimate_probability", "confidence", "priority", "reasoning", "signal", "cause", "risk", "oracle_risk", "verdict"]
         }
 
         payload = {
@@ -178,6 +181,7 @@ class ScoutAgent:
                 signal_phrase = analysis.get("signal", "")
                 cause_phrase  = analysis.get("cause", "") or analysis.get("reasoning", "")
                 risk_phrase   = analysis.get("risk", "") or "Риск не детализирован"
+                oracle_risk_phrase = analysis.get("oracle_risk", "") or "Нет данных по оракулу"
                 verdict_phrase = analysis.get("verdict", "") or "Ожидание сигнала"
                 
                 # Формируем summary по шаблону: "SCOUT: {signal}. {cause}"
@@ -200,6 +204,7 @@ class ScoutAgent:
                     signal_cause=cause_phrase,
                     signal_risk=risk_phrase,
                     signal_verdict=verdict_phrase,
+                    oracle_risk=oracle_risk_phrase
                 )
                 return signal
         except Exception as e:

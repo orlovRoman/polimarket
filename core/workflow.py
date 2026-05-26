@@ -196,6 +196,8 @@ def process_consensus(m: Market, signal: Optional[Signal], swing_signal: Optiona
             summary_text += f"🧠 <b>SCOUT (Фундаментал):</b>\n"
             summary_text += f"🎯 Причина: {getattr(signal, 'signal_cause', 'N/A')}\n"
             summary_text += f"⚖️ Риск: {getattr(signal, 'signal_risk', 'N/A')}\n"
+            if getattr(signal, 'oracle_risk', ''):
+                summary_text += f"👁 Оракул-риск: {getattr(signal, 'oracle_risk', '')}\n"
             summary_text += f"📝 Вердикт: {getattr(signal, 'signal_verdict', 'N/A')}\n\n"
         else:
             summary_text += f"🧠 <b>SCOUT:</b> ⚪️ Расхождение < MIN_EDGE\n\n"
