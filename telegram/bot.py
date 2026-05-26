@@ -758,7 +758,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
             while summaries_queue:
                 summary = summaries_queue.pop(0)
                 try:
-                    await callback.message.answer(summary, disable_web_page_preview=True)
+                    await callback.message.answer(summary, parse_mode="HTML", disable_web_page_preview=True)
                 except Exception as e:
                     print(f"Ошибка отправки summary: {e}")
             
