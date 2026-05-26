@@ -129,28 +129,7 @@ async def start_system():
         await bot.session.close()
 
 if __name__ == "__main__":
-    import os
-    import atexit
     import sys
-    
-    # Создаем файл блокировки в папке проекта (а не в системном /tmp/), чтобы избежать ошибок прав доступа
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    LOCK_FILE = os.path.join(BASE_DIR, "polymarket_bot.lock")
-    try:
-        if os.name == 'nt':
-            import msvcrt
-            fd = os.open(LOCK_FILE, os.O_RDWR | os.O_CREAT | os.O_TRUNC)
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-            atexit.register(os.close, fd)
-        else:
-            import fcntl
-            fd = os.open(LOCK_FILE, os.O_RDWR | os.O_CREAT | os.O_TRUNC)
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            atexit.register(os.close, fd)
-    except OSError:
-        logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Бот уже запущен в другом окне или фоновом сервисе! Вторая копия заблокирована во избежание конфликта (TelegramConflictError).")
-        sys.exit(1)
-
     try:
         asyncio.run(start_system())
     except (KeyboardInterrupt, SystemExit):
