@@ -440,10 +440,20 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
     
     # Пытаемся найти красивое имя модели
     nice_model_name = current_model_id
+    is_default = False
+    
+    if current_model_id == "Дефолт (.env)":
+        # Если ручная модель не задана, по умолчанию используется Gemini 2.5 Flash
+        current_model_id = "gemini-2.5-flash"
+        is_default = True
+        
     for k, v in MODELS_MAPPING.items():
         if v[1] == current_model_id:
             nice_model_name = v[2]
             break
+            
+    if is_default:
+        nice_model_name += " (По умолчанию)"
             
     buttons = []
     for key, val in MODELS_MAPPING.items():
