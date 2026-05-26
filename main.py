@@ -122,6 +122,8 @@ async def start_system():
 
     logger.info("🤖 Бот NEXUS запускается...")
     try:
+        from telegram.bot import set_commands
+        await set_commands(bot)
         await dp.start_polling(bot)
     except Exception as e:
         logger.error(f"Критическая ошибка бота: {e}")
