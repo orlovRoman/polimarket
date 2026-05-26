@@ -46,7 +46,7 @@ class MarketSelector:
             raw = self._fetch_mixed(total_limit * 3)
 
         # Фильтрация
-        filtered = self._filter(raw)
+        filtered = self._filter(raw, category)
 
         # Scoring + дедупликация
         seen_ids = set()
@@ -54,7 +54,7 @@ class MarketSelector:
         for m in filtered:
             if m.id not in seen_ids:
                 seen_ids.add(m.id)
-                scored.append((self._score_market(m), m))
+                scored.append((self._score_market(m, category), m))
 
         # Сортируем по убыванию скора
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -108,12 +108,18 @@ class MarketSelector:
     def _fetch_category(self, category: str, limit: int) -> List[Market]:
         """Получает рынки по категории."""
         try:
+            if category == "penny_stocks":
+                # Забираем больше рынков, чтобы было из чего фильтровать
+                all_markets = self.adapter.list_markets_paged(limit=max(limit * 5, 50), offset=0, order="volume")
+                penny = [m for m in all_markets if 0.01 <= m.price <= 0.05 or 0.95 <= m.price <= 0.99]
+                return penny[:limit]
+            
             return self.adapter.list_markets(limit=limit, category=category)
         except Exception as e:
             print(f"[MarketSelector] Ошибка загрузки категории '{category}': {e}")
             return []
 
-    def _filter(self, markets: List[Market]) -> List[Market]:
+    def _filter(self, markets: List[Market], scan_category: str = None) -> List[Market]:
         """
         Фильтрует рынки:
         - Убирает истёкшие (close_time в прошлом)
@@ -129,9 +135,10 @@ class MarketSelector:
             if m.close_time <= now:
                 continue
             
-            # Абсолютно мертвые цены
-            if m.price < 0.01 or m.price > 0.99:
-                continue
+            # Абсолютно мертвые цены (кроме penny_stocks)
+            if scan_category != "penny_stocks":
+                if m.price < 0.01 or m.price > 0.99:
+                    continue
                 
             # Рынок на cooldown
             if m.id in cooldown_ids:
@@ -149,23 +156,28 @@ class MarketSelector:
         
         return filtered
 
-    def _score_market(self, market: Market) -> float:
+    def _score_market(self, market: Market, scan_category: str = None) -> float:
         """
         Scoring-функция. Чем выше скор — тем интереснее рынок для анализа.
         """
         score = 0.0
         now = datetime.now(timezone.utc)
 
-        # Цена в зоне неопределённости (0.15–0.85) → интересно для SCOUT
-        if PRICE_RANGE_MIN <= market.price <= PRICE_RANGE_MAX:
-            score += 2.0
-        # Максимальная неопределённость (0.30–0.70)
-        if 0.30 <= market.price <= 0.70:
-            score += 1.0
+        # Если это режим penny_stocks, даем им максимальный приоритет
+        if scan_category == "penny_stocks":
+            if 0.01 <= market.price <= 0.05 or 0.95 <= market.price <= 0.99:
+                score += 10.0
+        else:
+            # Обычный режим: Цена в зоне неопределённости (0.15–0.85) → интересно для SCOUT
+            if PRICE_RANGE_MIN <= market.price <= PRICE_RANGE_MAX:
+                score += 10.0
+            else:
+                # Рынки < 0.15 или > 0.85 получают меньший приоритет
+                score += 2.0
             
-        # Сильный перекос (≤ 0.10 или ≥ 0.90) → очень интересно для SWING_TRADER (спекуляции)
-        if market.price <= 0.10 or market.price >= 0.90:
-            score += 3.0
+            # Сильный перекос (≤ 0.10 или ≥ 0.90) → очень интересно для SWING_TRADER
+            if market.price <= 0.10 or market.price >= 0.90:
+                score += 3.0
 
         # Закрывается скоро → повышенная волатильность
         days_to_close = (market.close_time - now).total_seconds() / 86400

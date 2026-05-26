@@ -616,7 +616,8 @@ async def command_scan_handler(message: types.Message) -> None:
          InlineKeyboardButton(text="₿ Крипто", callback_data="scan_crypto")],
         [InlineKeyboardButton(text="⚽ Спорт", callback_data="scan_sports"),
          InlineKeyboardButton(text="🔬 Наука", callback_data="scan_science")],
-        [InlineKeyboardButton(text="💼 Бизнес", callback_data="scan_business")]
+        [InlineKeyboardButton(text="💼 Бизнес", callback_data="scan_business")],
+        [InlineKeyboardButton(text="🪙 Penny Stocks (1-5%)", callback_data="scan_penny_stocks")]
     ])
     await message.answer("🔍 <b>Выберите категорию для сканирования:</b>", reply_markup=keyboard)
 
@@ -636,7 +637,8 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         cat_map = {
             "politics": "🏛 Политика", "crypto": "₿ Крипто",
             "sports": "⚽ Спорт", "science": "🔬 Наука",
-            "culture": "🎬 Культура", "business": "💼 Бизнес"
+            "culture": "🎬 Культура", "business": "💼 Бизнес",
+            "penny_stocks": "🪙 Penny Stocks"
         }
         cat_name = cat_map.get(category, category)
 
@@ -767,6 +769,57 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
             [InlineKeyboardButton(text="Показать еще 🔽", callback_data=f"ideas_page_{page + 1}")]
         ])
         
+        
+    if isinstance(message_or_callback, types.Message):
+        await message_or_callback.answer(response, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+    else:
+        await message_or_callback.message.edit_text(response, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+        await message_or_callback.answer()
+
+async def send_penny_page(message_or_callback, page: int = 0) -> None:
+    signals = await asyncio.to_thread(get_signals, 100)
+    # Фильтруем только дешевые
+    penny_signals = [s for s in signals if s.get('market_price') and (0.01 <= s['market_price'] <= 0.05 or 0.95 <= s['market_price'] <= 0.99)]
+    
+    if not penny_signals:
+        text = "🪙 Пока нет дешевых опционов в базе. Запустите сканирование."
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Запустить сканирование Penny Stocks", callback_data="scan_penny_stocks")]
+        ])
+        if isinstance(message_or_callback, types.Message):
+            await message_or_callback.answer(text, reply_markup=keyboard)
+        else:
+            await message_or_callback.message.edit_text(text, reply_markup=keyboard)
+            await message_or_callback.answer()
+        return
+
+    chunk_size = 5
+    total_pages = (len(penny_signals) + chunk_size - 1) // chunk_size
+    
+    if page >= total_pages:
+        page = 0
+        
+    start_idx = page * chunk_size
+    chunk = penny_signals[start_idx:start_idx + chunk_size]
+    
+    response = f"🪙 <b>Penny Stocks ({start_idx + 1}-{min(start_idx + chunk_size, len(penny_signals))} из {len(penny_signals)}):</b>\n\n"
+    
+    for s in chunk:
+        edge_pct = (s['edge'] or 0) * 100
+        response += (
+            f"📍 <b>{s['title']}</b>\n"
+            f"💰 Цена: {s['market_price']} | 📈 Edge: <b>+{edge_pct:.1f}%</b>\n"
+            f"🎯 Уверенность: {s['confidence']}\n"
+            f"📝 {s['summary']}\n"
+            f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
+        )
+        
+    inline_kb = []
+    if page + 1 < total_pages:
+        inline_kb.append([InlineKeyboardButton(text="Показать еще 🔽", callback_data=f"penny_page_{page + 1}")])
+    inline_kb.append([InlineKeyboardButton(text="🚀 Искать новые", callback_data="scan_penny_stocks")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=inline_kb)
+        
     if isinstance(message_or_callback, types.Message):
         await message_or_callback.answer(response, reply_markup=keyboard, disable_web_page_preview=True)
     else:
@@ -784,6 +837,15 @@ async def command_ideas_handler(message: types.Message) -> None:
 async def callback_ideas_page_handler(callback: CallbackQuery) -> None:
     page = int(callback.data.split("_")[2])
     await send_ideas_page(callback, page=page)
+
+@dp.message(Command("penny"))
+async def command_penny_handler(message: types.Message) -> None:
+    await send_penny_page(message, page=0)
+
+@dp.callback_query(F.data.startswith("penny_page_"))
+async def callback_penny_page_handler(callback: CallbackQuery) -> None:
+    page = int(callback.data.split("_")[2])
+    await send_penny_page(callback, page=page)
 
 @dp.message(F.text)
 async def conversational_handler(message: types.Message) -> None:
