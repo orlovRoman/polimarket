@@ -428,14 +428,22 @@ async def callback_settings_models(callback: CallbackQuery) -> None:
         [InlineKeyboardButton(text="⬅️ Назад в настройки", callback_data="back_to_settings")]
     ])
     await callback.message.edit_text("🤖 <b>Настройка AI Моделей</b>\n\nВыберите агента для переназначения модели:", reply_markup=keyboard)
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("set_model_"))
 async def callback_set_agent_model(callback: CallbackQuery) -> None:
     agent = callback.data.split("_")[2]
     from agents.shared.python.db import get_memory
     current_config = get_memory(f"agent_config_{agent}", {})
-    current_model = current_config.get("model", "Дефолт (.env)")
+    current_model_id = current_config.get("model", "Дефолт (.env)")
     
+    # Пытаемся найти красивое имя модели
+    nice_model_name = current_model_id
+    for k, v in MODELS_MAPPING.items():
+        if v[1] == current_model_id:
+            nice_model_name = v[2]
+            break
+            
     buttons = []
     for key, val in MODELS_MAPPING.items():
         buttons.append([InlineKeyboardButton(text=val[2], callback_data=f"sm_{agent}_{key}")])
@@ -443,10 +451,11 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
     
     await callback.message.edit_text(
         f"🤖 <b>Настройка модели для: {agent}</b>\n\n"
-        f"Текущая ручная модель: <code>{current_model}</code>\n\n"
+        f"Текущая ручная модель: <code>{nice_model_name}</code>\n\n"
         f"Выберите новую модель:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("sm_"))
 async def callback_save_model(callback: CallbackQuery) -> None:
