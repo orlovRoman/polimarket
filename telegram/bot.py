@@ -223,7 +223,8 @@ async def command_status_handler(message: types.Message) -> None:
         f"🤖 <b>AI Агенты и токен-баланс (24ч):</b>\n"
         f"  ● <b>SCOUT:</b> <code>{scout_model}</code> | {format_tokens(scout_tokens)}\n"
         f"  ● <b>SWING:</b> <code>{swing_model}</code> | {format_tokens(swing_tokens)}\n"
-        f"  ● <b>SHADOW:</b> <code>{shadow_model}</code> | {format_tokens(shadow_tokens)}\n\n"
+        f"  ● <b>SHADOW:</b> <code>{shadow_model}</code> | {format_tokens(shadow_tokens)}\n"
+        f"  ● <b>ARBITRAGE:</b> <code>{get_memory('agent_config_ARBITRAGE', {}).get('model', 'gemini-2.5-flash')}</code>\n\n"
         f"🧠 <b>Память:</b>\n"
         f"  Факты (Layer 1): {stats.get('facts', '?')}\n"
         f"  Рынков в БД: {stats.get('markets', '?')}\n"
@@ -535,7 +536,8 @@ async def command_model_handler(message: types.Message) -> None:
         [InlineKeyboardButton(text="Модель: NEXUS", callback_data="set_model_NEXUS")],
         [InlineKeyboardButton(text="Модель: SCOUT", callback_data="set_model_SCOUT")],
         [InlineKeyboardButton(text="Модель: SWING", callback_data="set_model_SWING")],
-        [InlineKeyboardButton(text="Модель: SHADOW", callback_data="set_model_SHADOW")]
+        [InlineKeyboardButton(text="Модель: SHADOW", callback_data="set_model_SHADOW")],
+        [InlineKeyboardButton(text="Модель: ARBITRAGE", callback_data="set_model_ARBITRAGE")]
     ])
     await message.answer("🤖 <b>Настройка AI Моделей</b>\n\nВыберите агента для переназначения модели:", reply_markup=keyboard)
 
