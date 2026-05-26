@@ -93,3 +93,37 @@ class IdeaDecision(BaseModel):
     swing_signal: Optional[SwingSignal] = None
     shadow_opinion: Optional[AgentOpinion] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class CrossArbitrageSignal(BaseModel):
+    """Арбитражный сигнал между рынками с разных платформ."""
+
+    # Рынок A
+    market_a_id: str
+    market_a_platform: str
+    market_a_title: str
+    market_a_price: float
+    market_a_url: str
+
+    # Рынок B
+    market_b_id: str
+    market_b_platform: str
+    market_b_title: str
+    market_b_price: float
+    market_b_url: str
+
+    # Арбитраж
+    has_arbitrage: bool
+    arbitrage_type: Literal[
+        "price_divergence",       # Тип 1: прямое ценовое расхождение
+        "logical_contradiction",  # Тип 2: логическое противоречие
+        "pair_trade",             # Тип 3: парный трейд
+        "none"
+    ]
+    spread_percent: float
+    reasoning: str
+    trade_instruction: str
+
+    # Мета
+    match_score: float
+    status: Literal["new", "alerted", "expired"] = "new"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

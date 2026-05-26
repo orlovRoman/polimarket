@@ -335,9 +335,84 @@ def init_db():
         """)
         # Удален token_usage
 
+        # Таблица: Кросс-платформенные арбитражные сигналы (Polymarket ↔ Kalshi и др.)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cross_arbitrage_signals (
+                id TEXT PRIMARY KEY,
+                market_a_id TEXT NOT NULL,
+                market_a_platform TEXT NOT NULL,
+                market_a_title TEXT NOT NULL,
+                market_a_price REAL NOT NULL,
+                market_a_url TEXT NOT NULL,
+                market_b_id TEXT NOT NULL,
+                market_b_platform TEXT NOT NULL,
+                market_b_title TEXT NOT NULL,
+                market_b_price REAL NOT NULL,
+                market_b_url TEXT NOT NULL,
+                has_arbitrage INTEGER NOT NULL,
+                arbitrage_type TEXT NOT NULL,
+                spread_percent REAL NOT NULL,
+                reasoning TEXT,
+                trade_instruction TEXT,
+                match_score REAL NOT NULL,
+                status TEXT DEFAULT 'new',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cross_arb_status "
+            "ON cross_arbitrage_signals(status, created_at)"
+        )
+
         conn.commit()
     _db_initialized = True
     print(f"База данных инициализирована по адресу: {DB_PATH}")
+
+def save_cross_arbitrage(signal) -> None:
+    """Сохраняет или обновляет кросс-платформенный арбитражный сигнал."""
+    init_db()
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO cross_arbitrage_signals
+            (id, market_a_id, market_a_platform, market_a_title, market_a_price, market_a_url,
+             market_b_id, market_b_platform, market_b_title, market_b_price, market_b_url,
+             has_arbitrage, arbitrage_type, spread_percent, reasoning, trade_instruction,
+             match_score, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            f"{signal.market_a_id}__{signal.market_b_id}",
+            signal.market_a_id, signal.market_a_platform, signal.market_a_title,
+            signal.market_a_price, signal.market_a_url,
+            signal.market_b_id, signal.market_b_platform, signal.market_b_title,
+            signal.market_b_price, signal.market_b_url,
+            int(signal.has_arbitrage), signal.arbitrage_type, signal.spread_percent,
+            signal.reasoning, signal.trade_instruction,
+            signal.match_score, signal.status,
+        ))
+
+
+def get_new_cross_arbitrage_signals(min_spread: float = 5.0) -> list:
+    """Возвращает новые алерты с достаточным спредом для отправки в Telegram."""
+    init_db()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM cross_arbitrage_signals
+            WHERE status = 'new' AND has_arbitrage = 1 AND spread_percent >= ?
+            ORDER BY spread_percent DESC
+        """, (min_spread,))
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def mark_cross_arbitrage_alerted(signal_id: str) -> None:
+    """Помечает сигнал как отправленный в Telegram."""
+    init_db()
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE cross_arbitrage_signals SET status = 'alerted' WHERE id = ?",
+            (signal_id,)
+        )
+
 
 def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
     """Сохраняет аудит-запись о прохождении идеи через pipeline."""

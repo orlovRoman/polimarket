@@ -90,6 +90,26 @@ async def scheduled_signal_evaluation():
     except Exception as e:
         logger.error(f"Ошибка при оценке сигналов: {e}", exc_info=True)
 
+async def scheduled_cross_arbitrage_scan():
+    """Автоматический кросс-платформенный арбитражный скан (Polymarket ↔ Kalshi)."""
+    logger.info(">>> Кросс-арбитраж: запуск скана...")
+    try:
+        from core.arbitrage_workflow import run_cross_platform_scan
+        from services.notifications import send_cross_arbitrage_alerts
+        import os
+        api_key = os.getenv("GOOGLE_API_KEY")
+        found = await asyncio.to_thread(
+            run_cross_platform_scan,
+            api_key=api_key,
+            poly_limit=100,
+            kalshi_limit=100,
+        )
+        if found:
+            await asyncio.to_thread(send_cross_arbitrage_alerts)
+        logger.info(f"<<< Кросс-арбитраж: найдено {len(found)} алертов")
+    except Exception as e:
+        logger.error(f"Ошибка кросс-арбитражного скана: {e}", exc_info=True)
+
 async def start_fastapi():
     """Запуск FastAPI сервера в фоне (через asyncio)"""
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
@@ -102,10 +122,11 @@ async def start_system():
     
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scheduled_job, 'interval', minutes=5)
-    scheduler.add_job(scheduled_job) 
+    scheduler.add_job(scheduled_job)  # немедленный запуск при старте
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
     scheduler.add_job(scheduled_signal_evaluation, 'interval', hours=6)
+    scheduler.add_job(scheduled_cross_arbitrage_scan, 'interval', hours=4)  # кросс-арбитраж каждые 4 ч
 
     logger.info("Планировщик настроен.")
     scheduler.start()

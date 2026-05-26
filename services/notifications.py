@@ -130,3 +130,61 @@ def send_correlation_alerts(summary_callback=None) -> None:
         mark_correlations_notified([c['id'] for c in new_corrs[:5]])
     except Exception as e:
         logger.error(f"[Notifier] Ошибка отправки корреляций: {e}")
+
+
+# ─── Кросс-платформенный арбитраж (Polymarket ↔ Kalshi и др.) ──────────────
+
+ARBITRAGE_TYPE_LABELS = {
+    "price_divergence":      "💰 Прямое ценовое расхождение",
+    "logical_contradiction": "🧠 Логическое противоречие",
+    "pair_trade":            "🔗 Парный трейд",
+}
+
+
+def format_cross_arbitrage_alert(signal) -> str:
+    """Форматирует CrossArbitrageSignal в красивое HTML-сообщение для Telegram."""
+    emoji = "🔥" if signal.spread_percent >= 10 else "⚡️"
+    type_label = ARBITRAGE_TYPE_LABELS.get(signal.arbitrage_type, signal.arbitrage_type)
+
+    return (
+        f"{emoji} <b>КРОСС-АРБИТРАЖ</b> | {type_label}\n\n"
+        f"📊 Спред: <b>{signal.spread_percent:.1f}%</b> | "
+        f"Match: {int(signal.match_score * 100)}%\n\n"
+        f"<b>{signal.market_a_platform.upper()}</b>\n"
+        f"<a href='{signal.market_a_url}'>{signal.market_a_title[:70]}</a>\n"
+        f"Цена YES: <b>{int(signal.market_a_price * 100)}¢</b>\n\n"
+        f"<b>{signal.market_b_platform.upper()}</b>\n"
+        f"<a href='{signal.market_b_url}'>{signal.market_b_title[:70]}</a>\n"
+        f"Цена YES: <b>{int(signal.market_b_price * 100)}¢</b>\n\n"
+        f"💡 <b>Действие:</b>\n{signal.trade_instruction}\n\n"
+        f"📝 <i>{signal.reasoning[:300]}</i>"
+    )
+
+
+def send_cross_arbitrage_alerts(min_spread: float = 5.0) -> None:
+    """
+    Отправляет в Telegram все новые кросс-арбитражные алерты из БД.
+    Вызывать после run_cross_platform_scan().
+    """
+    try:
+        from agents.shared.python.db import get_new_cross_arbitrage_signals, mark_cross_arbitrage_alerted
+        from core.models import CrossArbitrageSignal
+
+        new_signals = get_new_cross_arbitrage_signals(min_spread=min_spread)
+        if not new_signals:
+            return
+
+        for row in new_signals:
+            signal = CrossArbitrageSignal(**{k: row[k] for k in row if k != "id"})
+            signal_id = row["id"]
+
+            text = format_cross_arbitrage_alert(signal)
+            success = send_telegram(text)
+
+            if success:
+                mark_cross_arbitrage_alerted(signal_id)
+                logger.info(f"[Notifier] Кросс-арбитраж отправлен: {signal_id}")
+            else:
+                logger.warning(f"[Notifier] Не удалось отправить кросс-арбитраж: {signal_id}")
+    except Exception as e:
+        logger.error(f"[Notifier] Ошибка отправки кросс-арбитража: {e}")
