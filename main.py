@@ -129,11 +129,13 @@ async def start_system():
         await bot.session.close()
 
 if __name__ == "__main__":
-    import tempfile
+    import os
     import atexit
     import sys
     
-    LOCK_FILE = os.path.join(tempfile.gettempdir(), "polymarket_bot.lock")
+    # Создаем файл блокировки в папке проекта (а не в системном /tmp/), чтобы избежать ошибок прав доступа
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    LOCK_FILE = os.path.join(BASE_DIR, "polymarket_bot.lock")
     try:
         if os.name == 'nt':
             import msvcrt

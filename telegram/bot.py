@@ -576,12 +576,17 @@ async def command_restart_handler(message: types.Message) -> None:
         await message.answer("❌ Нет доступа.")
         return
         
-    await message.answer("🔄 <b>Перезапуск бота...</b>\nПроцесс будет завершен, операционная система автоматически поднимет его заново через пару секунд.", parse_mode="HTML")
-    logging.warning("Получена команда /restart. Завершаю процесс (os._exit(0))...")
+    await message.answer("🔄 <b>Перезапуск бота...</b>\nСлужба завершает процессы и перезапустится через пару секунд.", parse_mode="HTML")
+    logging.warning("Получена команда /restart. Закрываю сессию и завершаю процесс...")
     
-    # Даем Telegram время на отправку сообщения перед убийством процесса
-    await asyncio.sleep(1)
-    os._exit(0)
+    # Изящное завершение: закрываем сессию Telegram, чтобы ОС успела снять файловую блокировку
+    try:
+        await bot.session.close()
+    except Exception:
+        pass
+        
+    import sys
+    sys.exit(0)
 
 @dp.message(Command("arbitrage"))
 async def command_arbitrage_handler(message: types.Message) -> None:
