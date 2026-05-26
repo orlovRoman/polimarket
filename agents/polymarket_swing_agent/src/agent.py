@@ -49,7 +49,7 @@ class SwingAgent:
         episodes = get_agent_episodes("SWING", event_type="signal_evaluated", limit=3)
         episodes_text = "Нет недавних оценок."
         if episodes:
-            episodes_text = "\n".join([f"- {ep['content']}" for ep in episodes])
+            episodes_text = "\n".join([f"- {ep['summary']}" for ep in episodes])
 
         prompt = f"""
 Сегодняшняя дата и время: {now_str}

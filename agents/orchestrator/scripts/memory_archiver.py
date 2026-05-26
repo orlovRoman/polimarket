@@ -95,7 +95,7 @@ def main():
                 discussions = [dict(row) for row in cursor.fetchall()]
                 
                 # Fetch ground truth evaluations
-                cursor.execute("SELECT content FROM agent_episodes WHERE market_id = ? AND event_type = 'signal_evaluated'", (market_id,))
+                cursor.execute("SELECT summary FROM agent_episodes WHERE market_id = ? AND event_type = 'signal_evaluated'", (market_id,))
                 evaluations = [row[0] for row in cursor.fetchall()]
         except Exception as e:
             print(f"Ошибка при получении данных для {market_id}: {e}")
