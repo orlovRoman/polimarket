@@ -82,24 +82,33 @@ class ObsidianAdapter:
 
         filepath = self.vault_path / "memory" / category / filename
         
-        # Формируем frontmatter
         import json
         now = datetime.now()
-        frontmatter = (
-            f"---\n"
-            f"created: {now.isoformat()}\n"
-            f"category: {category}\n"
-            f"tags: {json.dumps(tags or [])}\n"
-            f"---\n\n"
-        )
         
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(frontmatter + content)
+        if filepath.exists():
+            # Если файл существует, дописываем в конец
+            with open(filepath, "a", encoding="utf-8") as f:
+                f.write(f"\n\n---\n*Добавлено {now.strftime('%Y-%m-%d %H:%M')}*:\n\n{content}")
+            
+            with open(filepath, "r", encoding="utf-8") as f:
+                full_content = f.read()
+        else:
+            # Создаем новый файл с frontmatter
+            frontmatter = (
+                f"---\n"
+                f"created: {now.isoformat()}\n"
+                f"category: {category}\n"
+                f"tags: {json.dumps(tags or [])}\n"
+                f"---\n\n"
+            )
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(frontmatter + content)
+            full_content = frontmatter + content
         
         # Индексируем в SQLite для быстрого поиска (Layer 1 ↔ Layer 3 связь)
         try:
             import hashlib
-            content_hash = hashlib.md5(content.encode()).hexdigest()
+            content_hash = hashlib.md5(full_content.encode()).hexdigest()
             from agents.shared.python.db import update_vault_index
             rel_path = str(filepath.relative_to(self.vault_path))
             update_vault_index(rel_path, category, filename.replace(".md", ""), tags, content_hash)
