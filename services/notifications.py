@@ -20,6 +20,15 @@ def send_telegram(text: str, parse_mode: str = "HTML") -> bool:
             "parse_mode": parse_mode,
             "disable_web_page_preview": True
         }, timeout=10)
+        
+        # Если ошибка парсинга HTML, пробуем без форматирования
+        if resp.status_code == 400 and parse_mode == "HTML":
+            resp = requests.post(url, json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": text,
+                "disable_web_page_preview": True
+            }, timeout=10)
+            
         resp.raise_for_status()
         return True
     except Exception as e:
@@ -40,6 +49,15 @@ def send_telegram_to_chat(text: str, chat_id: str, parse_mode: str = "HTML") -> 
             "parse_mode": parse_mode,
             "disable_web_page_preview": True
         }, timeout=10)
+        
+        # Если ошибка парсинга HTML, пробуем без форматирования
+        if resp.status_code == 400 and parse_mode == "HTML":
+            resp = requests.post(url, json={
+                "chat_id": chat_id,
+                "text": text,
+                "disable_web_page_preview": True
+            }, timeout=10)
+            
         resp.raise_for_status()
         return True
     except Exception as e:
