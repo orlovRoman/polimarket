@@ -628,7 +628,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         await callback.answer("⚠️ Сканирование уже запущено. Пожалуйста, подождите.", show_alert=True)
         return
 
-    category = callback.data.split("_")[1]
+    category = callback.data.replace("scan_", "")
     if category == "all":
         category_param = None
         cat_name = "Все рынки (авто-микс)"
