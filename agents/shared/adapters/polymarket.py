@@ -8,6 +8,7 @@ from core.models import Market
 class PolymarketAdapter(BaseMarketAdapter):
     def __init__(self):
         self.api_url = "https://gamma-api.polymarket.com"
+        self.session = requests.Session()
 
     @property
     def name(self) -> str:
@@ -79,7 +80,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 "limit": limit,
                 "tag_slug": category
             }
-            response = requests.get(f"{self.api_url}/events", params=params, timeout=15)
+            response = self.session.get(f"{self.api_url}/events", params=params, timeout=15)
             response.raise_for_status()
             data = response.json()
             
@@ -102,7 +103,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 "order": "volume",
                 "ascending": "false"
             }
-            response = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
+            response = self.session.get(f"{self.api_url}/markets", params=params, timeout=15)
             response.raise_for_status()
             items = response.json()
         
@@ -165,7 +166,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             "limit": limit, "offset": offset,
             "order": order, "ascending": "false"
         }
-        response = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
+        response = self.session.get(f"{self.api_url}/markets", params=params, timeout=15)
         response.raise_for_status()
         return self._parse_markets(response.json(), limit)
 
@@ -176,7 +177,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             "limit": limit,
             "order": "endDate", "ascending": "true"
         }
-        response = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
+        response = self.session.get(f"{self.api_url}/markets", params=params, timeout=15)
         response.raise_for_status()
         return self._parse_markets(response.json(), limit)
 
@@ -229,7 +230,7 @@ class PolymarketAdapter(BaseMarketAdapter):
         return markets
 
     def get_market(self, market_id: str) -> Market:
-        response = requests.get(f"{self.api_url}/markets/{market_id}", timeout=15)
+        response = self.session.get(f"{self.api_url}/markets/{market_id}", timeout=15)
         response.raise_for_status()
         item = response.json()
         
@@ -273,7 +274,7 @@ class PolymarketAdapter(BaseMarketAdapter):
     def get_orderbook(self, token_id: str) -> dict:
         """Получает ордербук с CLOB API (без авторизации — read-only)."""
         try:
-            resp = requests.get(
+            resp = self.session.get(
                 "https://clob.polymarket.com/book",
                 params={"token_id": token_id},
                 timeout=10
@@ -316,7 +317,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                     "order": "volume",
                     "ascending": "false"
                 }
-                resp = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
+                resp = self.session.get(f"{self.api_url}/markets", params=params, timeout=15)
                 resp.raise_for_status()
                 items = resp.json()
                 
@@ -358,6 +359,6 @@ class PolymarketAdapter(BaseMarketAdapter):
             "limit": limit,
             "query": query
         }
-        response = requests.get(f"{self.api_url}/markets", params=params, timeout=15)
+        response = self.session.get(f"{self.api_url}/markets", params=params, timeout=15)
         response.raise_for_status()
         return self._parse_markets(response.json(), limit)
