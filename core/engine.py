@@ -135,6 +135,11 @@ class CoreEngine:
                 log(f"  Категория ротации: {selector.get_auto_category()}")
                 
         log(f"  Отобрано рынков: {len(markets)}")
+        if not markets:
+            log("⚠️ Рынки по заданным фильтрам не найдены. Цикл завершен для экономии токенов.")
+            _update_state(stage="Завершено (Рынков не найдено)")
+            return
+            
         for m in markets: save_market(m)
 
         # 3. Обсуждение

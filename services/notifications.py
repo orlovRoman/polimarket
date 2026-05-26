@@ -79,27 +79,54 @@ def send_telegram_to_chat(text: str, chat_id: str, parse_mode: str = "HTML", rep
         return False
 
 def send_correlation_alerts(summary_callback=None) -> None:
-    """Отправляет алерты о новых корреляциях. Перенесено из run_team.py."""
+    """Анализирует новые корреляции на наличие кросс-рыночного арбитража."""
     from agents.shared.python.db import get_new_correlations, mark_correlations_notified
+    from agents.polymarket_arbitrage_agent.src.agent import ArbitrageAgent
+    from agents.shared.adapters.polymarket import PolymarketAdapter
+    import os
+    
     notify = summary_callback or send_telegram
     try:
         new_corrs = get_new_correlations()
         if not new_corrs:
             return
-        type_icons = {
-            'causal': '🔄 ПРИЧИННАЯ', 'inverse': '↕️ ОБРАТНАЯ',
-            'arbitrage': '⚡ АРБИТРАЖ', 'thematic': '🔗 ТЕМАТИЧЕСКАЯ'
-        }
-        alert_text = f"🔗 <b>Обнаружено {len(new_corrs)} корреляций между рынками:</b>\n\n"
-        for i, c in enumerate(new_corrs[:5], 1):
-            corr_type = type_icons.get(c.get('correlation_type', ''), c.get('correlation_type', ''))
-            alert_text += (
-                f"<b>{i}. {corr_type}</b> ({c.get('confidence', 0):.0%})\n"
-                f"  📍 {c.get('title_a', c.get('market1_title', ''))}\n"
-                f"  📍 {c.get('title_b', c.get('market2_title', ''))}\n"
-                f"  → <i>{c.get('description', c.get('reasoning', ''))}</i>\n\n"
+            
+        adapter = PolymarketAdapter()
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            logger.error("[Notifier] Нет API ключа для Арбитражника.")
+            return
+            
+        arbitrage_agent = ArbitrageAgent(api_key=api_key, model="gemini-2.5-flash")
+        
+        for c in new_corrs[:5]:
+            # Получаем свежие данные о рынках
+            market_a = adapter.get_market(c['market1_id'])
+            market_b = adapter.get_market(c['market2_id'])
+            
+            if not market_a or not market_b:
+                continue
+                
+            signal = arbitrage_agent.analyze_correlation(
+                market_a=market_a, 
+                market_b=market_b, 
+                correlation_type=c.get('correlation_type', 'thematic'),
+                score=int(c.get('confidence', 0) * 100)
             )
-        notify(alert_text)
+            
+            if signal and signal.has_arbitrage:
+                alert_text = (
+                    f"🚨 <b>НАЙДЕН КРОСС-РЫНОЧНЫЙ АРБИТРАЖ</b> 🚨\n\n"
+                    f"📍 <b>Рынок A:</b> <a href='{market_a.url}'>{market_a.title}</a> (Цена: {market_a.price})\n"
+                    f"📍 <b>Рынок B:</b> <a href='{market_b.url}'>{market_b.title}</a> (Цена: {market_b.price})\n\n"
+                    f"💡 <b>Тип:</b> {signal.arbitrage_type}\n"
+                    f"📈 <b>Разрыв (Spread):</b> {signal.spread_percent}%\n\n"
+                    f"🧠 <b>Логика:</b> {signal.reasoning}\n\n"
+                    f"⚡ <b>Трейд:</b> {signal.trade_instruction}\n"
+                )
+                notify(alert_text)
+                
+        # Отмечаем как прочитанные, даже если арбитража нет (чтобы не спамить)
         mark_correlations_notified([c['id'] for c in new_corrs[:5]])
     except Exception as e:
         logger.error(f"[Notifier] Ошибка отправки корреляций: {e}")
