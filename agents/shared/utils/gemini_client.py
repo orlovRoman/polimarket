@@ -5,7 +5,7 @@ import uuid
 import time
 import logging
 from typing import Optional, Tuple
-from agents.shared.python.db import save_token_usage
+from agents.shared.python.db import save_token_usage, save_memory, get_memory
 
 logger = logging.getLogger("gemini_client")
 
@@ -374,8 +374,9 @@ def generate_content_with_fallback(
                     LLMLogger.log_call(
                         agent_name, grok_model, prompt_text, response=response_text,
                         input_tokens=prompt_tokens, output_tokens=completion_tokens, total_tokens=total_tokens,
-                        latency_ms=latency_ms, market_id=market_id
                     )
+                    
+                    save_memory(f"consecutive_failures_{agent_name}", 0)
                             
                     return result, grok_model
                 else:
@@ -410,6 +411,7 @@ def generate_content_with_fallback(
                         input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens,
                         latency_ms=latency_ms, market_id=market_id
                     )
+                    save_memory(f"consecutive_failures_{agent_name}", 0)
                     return result, current_model
                 else:
                     logger.warning(f"[{agent_name}] Модель {current_model} вернула успешный статус 200, но без кандидатов.")
@@ -434,4 +436,19 @@ def generate_content_with_fallback(
         time.sleep(backoff)
         
     logger.error(f"[{agent_name}] Критическая ошибка: все доступные модели (Grok и Gemini) вернули ошибку.")
+    
+    # Обработка длительной недоступности
+    fail_key = f"consecutive_failures_{agent_name}"
+    failures = int(get_memory(fail_key) or 0) + 1
+    save_memory(fail_key, failures)
+    
+    if failures >= 3:
+        logger.warning(f"[{agent_name}] Достигнут лимит последовательных ошибок ({failures}). Отправка уведомления.")
+        from services.notifications import send_telegram
+        send_telegram(
+            text=f"⚠️ <b>СБОЙ LLM-МОДЕЛИ</b>\n\nАгент <b>{agent_name}</b> не смог получить ответ от моделей {failures} раза подряд.\nВозможно, модель недоступна или исчерпан лимит запросов.\nВыберите другую модель:",
+            reply_markup={"inline_keyboard": [[{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]]}
+        )
+        save_memory(fail_key, 0) # Сброс после уведомления, чтобы не спамить
+        
     return None, default_model
