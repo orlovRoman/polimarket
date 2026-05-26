@@ -184,9 +184,11 @@ class CoreEngine:
                     _update_state(shadow_status="🔄 Проверяет ордербук...")
                     
                     orderbook = None
+                    target_outcome = getattr(active_signal, 'target_outcome', 'YES')
                     if m.tokens:
                         try:
-                            orderbook = self.adapter.get_orderbook(m.tokens[0])
+                            token_idx = 1 if target_outcome.upper() == 'NO' and len(m.tokens) > 1 else 0
+                            orderbook = self.adapter.get_orderbook(m.tokens[token_idx])
                         except Exception as e: logger.error(f"Failed to fetch orderbook: {e}")
                     
                     from agents.shared.python.db import get_price_history

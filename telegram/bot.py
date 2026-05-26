@@ -777,10 +777,15 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
     
     for s in chunk:
         edge_pct = (s['edge'] or 0) * 100
+        target = s.get('target_outcome', 'YES')
+        price = s['market_price']
+        if target.upper() == 'NO':
+            price = 1.0 - price
+            
         response += (
             f"📍 <b>{s['title']}</b>\n"
-            f"💰 Цена: {s['market_price']} | 📈 Edge: <b>+{edge_pct:.1f}%</b>\n"
-            f"🎯 Уверенность: {s['confidence']}\n"
+            f"🎯 <b>Рекомендация: Покупать {target}</b> (по цене ~{price:.3f})\n"
+            f"📈 Edge (преимущество): <b>+{edge_pct:.1f}%</b> | Уверенность: {s['confidence']}\n"
             f"📝 {s['summary']}\n"
             f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
         )

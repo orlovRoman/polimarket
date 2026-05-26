@@ -211,7 +211,8 @@ class ScoutAgent:
                     confidence=confidence,
                     priority=priority,
                     summary=summary,
-                    details=analysis.get("reasoning", ""),
+                    details=f"Рекомендация: Покупать {target_outcome}\nОбоснование: {analysis.get('reasoning', '')}",
+                    target_outcome=target_outcome,
                     # Новые поля
                     signal_cause=cause_phrase,
                     signal_risk=risk_phrase,
