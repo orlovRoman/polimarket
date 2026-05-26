@@ -414,7 +414,9 @@ MODELS_MAPPING = {
     "ds_v4": ("openrouter", "deepseek/deepseek-v4-flash:free", "🐋 DeepSeek V4"),
     "nemotron": ("openrouter", "nvidia/nemotron-3-super-120b-a12b:free", "🟢 Nemotron 3 (Free)"),
     "glm_45": ("openrouter", "z-ai/glm-4.5-air:free", "🟣 GLM 4.5 Air (Free)"),
-    "gemini25": ("gemini", "gemini-2.5-flash", "✨ Gemini 2.5")
+    "gemini25": ("gemini", "gemini-2.5-flash", "✨ Gemini 2.5 Flash"),
+    "gemini25pro": ("gemini", "gemini-2.5-pro", "🧠 Gemini 2.5 Pro"),
+    "geminithink": ("gemini", "gemini-2.0-flash-thinking-exp-01-21", "🤔 Gemini Thinking")
 }
 
 @dp.callback_query(F.data == "settings_models")
