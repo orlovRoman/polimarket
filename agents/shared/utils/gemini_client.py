@@ -429,6 +429,11 @@ def generate_content_with_fallback(
                         save_memory(f"consecutive_failures_{agent_name}", 0)
                         save_memory("cer_rr_index", cer_idx + 1)
                         return result, cer_model
+                    elif response.status_code == 429:
+                        logger.warning(f"[{agent_name}] Ошибка 429 от Cerebras ({cer_model}). Ждем 20 секунд сброса лимита...")
+                        time.sleep(20)
+                        logger.error(f"[{agent_name}] Ошибка Cerebras API ({response.status_code}) для {cer_model}: {response.text}")
+                        LLMLogger.log_call(agent_name, cer_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
                     else:
                         logger.error(f"[{agent_name}] Ошибка Cerebras API ({response.status_code}) для {cer_model}: {response.text}")
                         LLMLogger.log_call(agent_name, cer_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)

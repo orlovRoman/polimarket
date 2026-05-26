@@ -136,11 +136,9 @@ def run_agent_evaluation(m, scout, swing, update_state):
     logger.info("  SCOUT и SWING оценивают...")
     update_state(scout_status="🔄 Считает вероятности...", swing_status="🔄 Оценивает хайп...")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        future_scout = executor.submit(scout.estimate_market, context)
-        future_swing = executor.submit(swing.estimate_market, context)
-        signal = future_scout.result()
-        swing_signal = future_swing.result()
+    # Выполняем запросы последовательно, чтобы избежать ошибки 429 Too Many Requests от Cerebras
+    signal = scout.estimate_market(context)
+    swing_signal = swing.estimate_market(context)
         
     return signal, swing_signal, context
 
