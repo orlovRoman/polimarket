@@ -410,7 +410,7 @@ async def callback_set_rag(callback: CallbackQuery) -> None:
     await callback_back_to_settings(callback)
 
 MODELS_MAPPING = {
-    "llama33": ("openrouter", "meta-llama/llama-3.3-70b-instruct", "🦙 Llama 3.3"),
+    "llama33": ("openrouter", "meta-llama/llama-3.3-70b-instruct:free", "🦙 Llama 3.3"),
     "ds_v4": ("openrouter", "deepseek/deepseek-v4-flash:free", "🐋 DeepSeek V4"),
     "nemotron": ("openrouter", "nvidia/nemotron-3-super-120b-a12b:free", "🟢 Nemotron 3 (Free)"),
     "glm_45": ("openrouter", "z-ai/glm-4.5-air:free", "🟣 GLM 4.5 Air (Free)"),
