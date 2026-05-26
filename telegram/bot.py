@@ -60,6 +60,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="logs", description="Просмотр последних логов"),
         BotCommand(command="cleanup", description="Очистить устаревшие сигналы"),
         BotCommand(command="restart", description="Перезапуск бота"),
+        BotCommand(command="arbitrage", description="Запуск кросс-платформенного арбитража (PM ↔ Kalshi)"),
     ]
     await bot.set_my_commands(commands)
 
@@ -426,6 +427,7 @@ async def callback_settings_models(callback: CallbackQuery) -> None:
         [InlineKeyboardButton(text="Модель: SCOUT", callback_data="set_model_SCOUT")],
         [InlineKeyboardButton(text="Модель: SWING", callback_data="set_model_SWING")],
         [InlineKeyboardButton(text="Модель: SHADOW", callback_data="set_model_SHADOW")],
+        [InlineKeyboardButton(text="Модель: ARBITRAGE", callback_data="set_model_ARBITRAGE")],
         [InlineKeyboardButton(text="⬅️ Назад в настройки", callback_data="back_to_settings")]
     ])
     await callback.message.edit_text("🤖 <b>Настройка AI Моделей</b>\n\nВыберите агента для переназначения модели:", reply_markup=keyboard)
@@ -576,6 +578,42 @@ async def command_restart_handler(message: types.Message) -> None:
     # Даем Telegram время на отправку сообщения перед убийством процесса
     await asyncio.sleep(1)
     os._exit(0)
+
+@dp.message(Command("arbitrage"))
+async def command_arbitrage_handler(message: types.Message) -> None:
+    if _is_stale_message(message): return
+    
+    status_msg = await message.answer("🔄 <b>Запускаю кросс-сканирование Polymarket ↔ Kalshi...</b>\n\n<i>Этот процесс занимает 1-2 минуты, так как агент ARBITRAGE сверяет десятки пар.</i>", parse_mode="HTML")
+    
+    try:
+        from core.arbitrage_workflow import run_cross_platform_scan
+        import os
+        api_key = os.getenv("GOOGLE_API_KEY")
+        found = await asyncio.to_thread(
+            run_cross_platform_scan,
+            api_key=api_key,
+            poly_limit=100,
+            kalshi_limit=100,
+            min_spread_alert=3.0,
+        )
+        
+        if not found:
+            await status_msg.edit_text("⚖️ Сканирование завершено. <b>Безрисковых арбитражных связок с достаточным спредом не найдено.</b>", parse_mode="HTML")
+            return
+            
+        response = f"🔥 <b>НАЙДЕНО КРОСС-АРБИТРАЖНЫХ ИДЕЙ: {len(found)}</b>\n\n"
+        for i, s in enumerate(found[:10]):
+            response += (
+                f"<b>{i+1}. {s.arbitrage_type}</b> (Спред: <b>{s.spread_percent:.1f}%</b>)\n"
+                f"🔵 PM: <a href='{s.market_a_url}'>{s.market_a_price*100:.0f}¢</a> | 🟢 Kalshi: <a href='{s.market_b_url}'>{s.market_b_price*100:.0f}¢</a>\n"
+                f"💡 Обоснование: {s.reasoning}\n"
+                f"🎯 Действие: <b>{s.trade_instruction}</b>\n\n"
+            )
+            
+        await status_msg.edit_text(response, parse_mode="HTML", disable_web_page_preview=True)
+        
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Ошибка при сканировании арбитража: {e}")
 
 @dp.message(Command("cleanup"))
 async def command_cleanup_handler(message: types.Message) -> None:
