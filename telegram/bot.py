@@ -411,7 +411,7 @@ async def callback_set_rag(callback: CallbackQuery) -> None:
 MODELS_MAPPING = {
     "llama33": ("openrouter", "meta-llama/llama-3.3-70b-instruct", "🦙 Llama 3.3"),
     "ds_v4": ("openrouter", "deepseek/deepseek-v4-flash:free", "🐋 DeepSeek V4"),
-    "grok3": ("grok", "grok-3", "🧠 Grok-3"),
+    "nemotron": ("openrouter", "nvidia/nemotron-3-super-120b-a12b:free", "🟢 Nemotron 3 (Free)"),
     "gemini25": ("gemini", "gemini-2.5-flash", "✨ Gemini 2.5")
 }
 
