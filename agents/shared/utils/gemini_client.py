@@ -23,7 +23,7 @@ def _lower_types(schema):
         return [_lower_types(item) for item in schema]
     return schema
 
-def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
+def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3", strict_json: bool = True) -> dict:
     """
     Конвертирует payload из формата Google Gemini API в формат OpenAI (совместимый с Grok и OpenRouter).
     """
@@ -124,10 +124,8 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
     # 4. Настройка формата JSON, если требуется
     gen_config = payload.get("generationConfig", {})
     if gen_config.get("responseMimeType") == "application/json" or gen_config.get("response_mime_type") == "application/json":
-        if "responseSchema" in gen_config:
+        if "responseSchema" in gen_config and strict_json:
             schema_copy = _lower_types(gen_config["responseSchema"])
-            # Remove "additionalProperties" if it exists because OpenAI strict mode doesn't like it sometimes, 
-            # but usually it's fine. We'll set additionalProperties=False for strict mode.
             if isinstance(schema_copy, dict):
                 schema_copy["additionalProperties"] = False
             openai_payload["response_format"] = {
@@ -139,6 +137,7 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3") -> dict:
                 }
             }
         else:
+            # Cerebras и другие провайдеры не поддерживают strict json_schema — используем простой json_object
             openai_payload["response_format"] = {"type": "json_object"}
             
     return openai_payload
@@ -396,7 +395,8 @@ def generate_content_with_fallback(
                 logger.info(f"[{agent_name}] Отправка запроса в Cerebras API (модель {cer_model})...")
                 cer_start_time = time.time()
                 try:
-                    openai_payload = convert_gemini_to_openai(payload, model_name=cer_model)
+                    # strict_json=False: Cerebras не поддерживает OpenAI json_schema strict mode
+                    openai_payload = convert_gemini_to_openai(payload, model_name=cer_model, strict_json=False)
                     
                     headers = {
                         "Authorization": f"Bearer {cer_key}",
