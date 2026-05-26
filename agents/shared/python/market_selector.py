@@ -109,8 +109,9 @@ class MarketSelector:
         """Получает рынки по категории."""
         try:
             if category == "penny_stocks":
-                # Забираем больше рынков, чтобы было из чего фильтровать
-                all_markets = self.adapter.list_markets_paged(limit=max(limit * 5, 50), offset=0, order="volume")
+                # Ищем среди топ-1000 рынков по объему, так как дешевые редко в топе
+                all_markets = self.adapter.list_markets_paged(limit=500, offset=0, order="volume")
+                all_markets += self.adapter.list_markets_paged(limit=500, offset=500, order="volume")
                 penny = [m for m in all_markets if 0.01 <= m.price <= 0.05 or 0.95 <= m.price <= 0.99]
                 return penny[:limit]
             
