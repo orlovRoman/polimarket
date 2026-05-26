@@ -206,7 +206,7 @@ def process_consensus(m: Market, signal: Optional[Signal], swing_signal: Optiona
             status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
             liq_risk = getattr(opinion_shadow, 'liquidity_risk', 'medium').upper()
             summary_text += f"🛡 <b>SHADOW (Инфраструктура):</b> {status}\n"
-            summary_text += f"💧 Ликвидность: {liq_risk}\n"
+            summary_text += f"💧 Риск ликвидности: {liq_risk}\n"
             summary_text += f"📊 Ордербук: {getattr(opinion_shadow, 'orderbook_facts', 'N/A')}\n"
             summary_text += f"⚖️ Исполнение: {getattr(opinion_shadow, 'risk_assessment', 'N/A')}\n"
             summary_text += f"📝 Вердикт: {getattr(opinion_shadow, 'shadow_verdict', 'N/A')}\n\n"
