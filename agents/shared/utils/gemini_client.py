@@ -245,7 +245,12 @@ def generate_content_with_fallback(
     models = []
     
     cer_key = os.getenv("CEREBRAS_API_KEY")
-    cer_models = ["llama3.3-70b", "llama3.1-8b"]
+    cer_models = [
+        "qwen-3-235b-a22b-instruct-2507",
+        "gpt-oss-120b",
+        "zai-glm-4.7",
+        "llama3.1-8b"
+    ]
     
     if cer_key:
         models.append("cerebras")
