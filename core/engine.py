@@ -261,14 +261,15 @@ class CoreEngine:
                 if not full_m: continue
                 
                 search_query = build_search_query(full_m.title)
-                wiki_context = fetch_wikipedia_context(search_query)
+                wiki_context_list = fetch_wikipedia_context(search_query)
+                wiki_context_str = "\n".join(wiki_context_list) if wiki_context_list else ""
                 news_context = f"КОНТЕКСТ СООБЩЕНИЯ ИЗ TELEGRAM:\n{text}\n\n"
                 
                 context = MarketContext(
                     market=full_m,
                     news_titles=[news_context],
                     reddit_posts=[],
-                    wiki_context=wiki_context
+                    wiki_context=wiki_context_str
                 )
                 
                 signal = self.scout.estimate_market(context)
