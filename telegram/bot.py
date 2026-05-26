@@ -583,8 +583,6 @@ async def command_restart_handler(message: types.Message) -> None:
 
 @dp.message(Command("arbitrage"))
 async def command_arbitrage_handler(message: types.Message) -> None:
-    if _is_stale_message(message): return
-    
     status_msg = await message.answer("🔄 <b>Запускаю кросс-сканирование Polymarket ↔ Kalshi...</b>\n\n<i>Этот процесс занимает 1-2 минуты, так как агент ARBITRAGE сверяет десятки пар.</i>", parse_mode="HTML")
     
     try:
