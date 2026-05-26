@@ -415,7 +415,8 @@ MODELS_MAPPING = {
     "glm_45": ("openrouter", "z-ai/glm-4.5-air:free", "🟣 GLM 4.5 Air (Free)"),
     "gemini25": ("gemini", "gemini-2.5-flash", "✨ Gemini 2.5 Flash"),
     "gemini25pro": ("gemini", "gemini-2.5-pro", "🧠 Gemini 2.5 Pro"),
-    "geminithink": ("gemini", "gemini-2.0-flash-thinking-exp-01-21", "🤔 Gemini Thinking")
+    "geminithink": ("gemini", "gemini-2.0-flash-thinking-exp-01-21", "🤔 Gemini Thinking"),
+    "cerebras": ("cerebras", "cerebras_round_robin", "⚡ Cerebras (Round Robin)")
 }
 
 @dp.callback_query(F.data == "settings_models")

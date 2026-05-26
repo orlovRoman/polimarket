@@ -243,6 +243,12 @@ def generate_content_with_fallback(
     or_model = os.getenv(f"OPENROUTER_MODEL_{agent_name.upper()}", or_model_default)
     
     models = []
+    
+    cer_key = os.getenv("CEREBRAS_API_KEY")
+    cer_models = ["llama3.3-70b", "llama3.1-8b"]
+    
+    if cer_key:
+        models.append("cerebras")
     if or_key:
         models.append("openrouter")
     if grok_key:
@@ -268,6 +274,10 @@ def generate_content_with_fallback(
                 grok_model = db_model
                 if "grok" in models: models.remove("grok")
                 models.insert(0, "grok")
+            elif provider == "cerebras":
+                # db_model can be ignored for cerebras since we cycle through cer_models anyway
+                if "cerebras" in models: models.remove("cerebras")
+                models.insert(0, "cerebras")
             elif provider == "gemini":
                 default_model = db_model
                 if db_model in models: models.remove(db_model)
@@ -387,6 +397,63 @@ def generate_content_with_fallback(
                 latency_ms = int((time.time() - start_time) * 1000)
                 LLMLogger.log_call(agent_name, grok_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
             continue
+            
+        # --- ВЕТКА CEREBRAS ---
+        if current_model == "cerebras":
+            if not cer_key:
+                continue
+                
+            cer_idx = int(get_memory("cer_rr_index", 0))
+            
+            success = False
+            for i in range(len(cer_models)):
+                cer_model = cer_models[(cer_idx + i) % len(cer_models)]
+                logger.info(f"[{agent_name}] Отправка запроса в Cerebras API (модель {cer_model})...")
+                cer_start_time = time.time()
+                try:
+                    openai_payload = convert_gemini_to_openai(payload, model_name=cer_model)
+                    
+                    headers = {
+                        "Authorization": f"Bearer {cer_key}",
+                        "Content-Type": "application/json"
+                    }
+                    
+                    response = requests.post(
+                        "https://api.cerebras.ai/v1/chat/completions",
+                        json=openai_payload,
+                        headers=headers,
+                        timeout=timeout
+                    )
+                    
+                    latency_ms = int((time.time() - cer_start_time) * 1000)
+                    if response.status_code == 200:
+                        openai_res = response.json()
+                        result = convert_openai_to_gemini(openai_res)
+                        
+                        prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
+                        completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
+                        total_tokens = prompt_tokens + completion_tokens
+                        
+                        response_text = extract_response_text(result)
+                        LLMLogger.log_call(
+                            agent_name, cer_model, prompt_text, response=response_text,
+                            input_tokens=prompt_tokens, output_tokens=completion_tokens, total_tokens=total_tokens,
+                            latency_ms=latency_ms, market_id=market_id
+                        )
+                        
+                        save_memory(f"consecutive_failures_{agent_name}", 0)
+                        save_memory("cer_rr_index", cer_idx + 1)
+                        return result, cer_model
+                    else:
+                        logger.error(f"[{agent_name}] Ошибка Cerebras API ({response.status_code}) для {cer_model}: {response.text}")
+                        LLMLogger.log_call(agent_name, cer_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
+                except Exception as e:
+                    logger.error(f"[{agent_name}] Исключение при запросе к Cerebras ({cer_model}): {e}")
+                    latency_ms = int((time.time() - cer_start_time) * 1000)
+                    LLMLogger.log_call(agent_name, cer_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
+                    
+            if not success:
+                continue
             
         # --- ВЕТКА GEMINI ---
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
