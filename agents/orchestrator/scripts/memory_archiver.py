@@ -63,19 +63,19 @@ def main():
     except Exception as e:
         print(f"Ошибка при обновлении статуса просроченных сигналов: {e}")
 
-    # 2. Ищем сигналы со статусом EXECUTED для архивации
+    # 2. Ищем сигналы со статусом EXECUTED или EVALUATED для архивации
     executed_signals = []
     try:
         with db_manager._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM signals WHERE status = 'EXECUTED'")
+            cursor.execute("SELECT * FROM signals WHERE status IN ('EXECUTED', 'EVALUATED')")
             executed_signals = [dict(row) for row in cursor.fetchall()]
     except Exception as e:
         print(f"Ошибка при чтении сигналов: {e}")
         return
 
     if not executed_signals:
-        print("Нет исполненных (EXECUTED) сигналов для архивации.")
+        print("Нет исполненных (EXECUTED/EVALUATED) сигналов для архивации.")
         return
 
     print(f"Найдено сигналов для архивации: {len(executed_signals)}")
@@ -87,19 +87,25 @@ def main():
         
         # Получаем все обсуждения по этому маркету из agent_opinions
         discussions = []
+        evaluations = []
         try:
             with db_manager._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT * FROM agent_opinions WHERE market_id = ?", (market_id,))
                 discussions = [dict(row) for row in cursor.fetchall()]
+                
+                # Fetch ground truth evaluations
+                cursor.execute("SELECT content FROM agent_episodes WHERE market_id = ? AND event_type = 'signal_evaluated'", (market_id,))
+                evaluations = [row[0] for row in cursor.fetchall()]
         except Exception as e:
-            print(f"Ошибка при получении обсуждений для {market_id}: {e}")
+            print(f"Ошибка при получении данных для {market_id}: {e}")
             continue
 
         prompt = f"""
 Ты — Nexus, главный Оркестратор. 
-Сделка (сигнал) по маркету {market_id} была исполнена или срок её действия истёк. 
-Твоя задача — проанализировать сырые данные и сгенерировать "постмортем" (post-mortem) заметку, объясняющую, почему идея сработала (или не сработала), какие паттерны были замечены и какой урок можно извлечь на будущее.
+Сделка (сигнал) по маркету {market_id} была оценена или срок её действия истёк. 
+Твоя задача — проанализировать сырые данные и сгенерировать "постмортем" (post-mortem) заметку.
+Объясни, почему идея сработала (или не сработала), какие паттерны были замечены и какой урок можно извлечь на будущее.
 
 Данные сигнала:
 {json.dumps(signal, ensure_ascii=False, indent=2)}
@@ -107,9 +113,12 @@ def main():
 История обсуждений агентов:
 {json.dumps(discussions, ensure_ascii=False, indent=2)}
 
+Результаты реальной проверки (Ground Truth):
+{chr(10).join(evaluations) if evaluations else "Рынок закрылся без явной оценки."}
+
 Сгенерируй полезную заметку в формате Markdown и вызови инструмент promote_to_memory, чтобы сохранить ее:
 - category: "durable" (или "market-patterns", если это явный рыночный паттерн).
-- filename: "{market_id}-postmortem.md"
+- filename: "{market_id}-postmortem.md" (или добавь к существующему тематическому файлу, например "crypto-regulation.md", если это относится к общей теме).
 - content: <твой текст заметки>
 
 Твой ответ может быть кратким подтверждением, главное — вызвать инструмент записи.

@@ -185,13 +185,15 @@ def get_rag_context(market_title: str, market_description: str = "") -> str:
     if not results:
         return "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
         
-    context_lines = [f"=== ИЗВЛЕЧЕННАЯ ПАМЯТЬ ИЗ ОБСИДИАН (RAG - Режим: {level_str}) ==="]
+    context_lines = [
+        f"=== ИЗВЛЕЧЕННАЯ ПАМЯТЬ ИЗ ОБСИДИАН (RAG - Режим: {level_str}) ===",
+        "<archival_memory>"
+    ]
     for i, res in enumerate(results, 1):
-        context_lines.append(
-            f"Заметка {i}: {res['title']} (Категория: {res['category']}, Релевантность: {res['score']:.1f})"
-        )
+        context_lines.append(f"  <memory_entry category=\"{res['category']}\" relevance=\"{res['score']:.1f}\">")
+        context_lines.append(f"    <title>{res['title']}</title>")
         if res['tags']:
-            context_lines.append(f"Теги: {', '.join(res['tags'])}")
+            context_lines.append(f"    <tags>{', '.join(res['tags'])}</tags>")
             
         # Усекаем слишком длинные заметки во избежание переполнения контекста
         content_lines = res['content'].split('\n')
@@ -199,6 +201,8 @@ def get_rag_context(market_title: str, market_description: str = "") -> str:
         if len(content_lines) > max_lines:
             truncated += f"\n[...содержимое заметки усечено до {max_lines} строк для экономии токенов...]"
             
-        context_lines.append(f"Содержимое:\n{truncated}\n")
+        context_lines.append(f"    <content>\n{truncated}\n    </content>")
+        context_lines.append("  </memory_entry>")
         
+    context_lines.append("</archival_memory>")
     return '\n'.join(context_lines) + "\n"

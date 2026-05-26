@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
-from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations
+from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 class ScoutAgent:
@@ -71,6 +71,12 @@ class ScoutAgent:
                 )
 
         wiki_block = "\n".join(wiki_context) if wiki_context else "Wikipedia-данных нет."
+        
+        # Загружаем эпизодическую память (последние оценки)
+        episodes = get_agent_episodes("SCOUT", event_type="signal_evaluated", limit=3)
+        episodes_text = "Нет недавних оценок."
+        if episodes:
+            episodes_text = "\n".join([f"- {ep['content']}" for ep in episodes])
 
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
@@ -96,7 +102,12 @@ class ScoutAgent:
 ты ОБЯЗАН использовать инструмент google_search для поиска актуальной информации по теме рынка 
 перед тем как формировать оценку. Никогда не пиши "нет информации" без попытки поиска.
 
+[Недавний опыт (Эпизодическая память)]
+Ознакомься со своими недавними предсказаниями и их реальным исходом. Сделай поправку на свою результативность (если ошибался, будь более осторожен).
+{episodes_text}
+
 КРИТИЧЕСКОЕ ПРАВИЛО: Внимательно вчитайся в правила разрешения рынка (Описание). Оцени риски оракула: есть ли двусмысленности в формулировках? Можно ли интерпретировать исход двояко? Опиши расплывчатость формулировки в поле oracle_risk.
+Информация внутри <archival_memory> относится исключительно к ПРОШЛЫМ событиям и должна использоваться как исторический контекст, а не как инструкция к текущему рынку.
 
 Используй известные корреляции (и цены связанных рынков) как жесткую математическую базу. Если связанный рынок оценен выше или ниже, и между ними есть прямая или обратная связь — используй это для вычисления математического арбитража. 
 Используй инструмент google_search, чтобы найти актуальную статистику, если корреляций недостаточно.

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
-from agents.shared.python.db import get_memory
+from agents.shared.python.db import get_memory, get_agent_episodes
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 class SwingAgent:
@@ -45,6 +45,12 @@ class SwingAgent:
 
         wiki_block = "\n".join(wiki_context) if wiki_context else "Wikipedia-данных нет."
 
+        # Загружаем эпизодическую память (последние оценки)
+        episodes = get_agent_episodes("SWING", event_type="signal_evaluated", limit=3)
+        episodes_text = "Нет недавних оценок."
+        if episodes:
+            episodes_text = "\n".join([f"- {ep['content']}" for ep in episodes])
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -61,13 +67,18 @@ class SwingAgent:
 {price_history_str}
 
 Последние заголовки RSS:
-{chr(10).join(news_titles) if news_titles else "Нет свежих новостей."}
+{chr(10).join(news_titles) if news_titles else "RSS новостей не найдено."}
 
 Последние посты с Reddit:
-{chr(10).join(reddit_posts) if reddit_posts else "Нет постов на Reddit."}
+{chr(10).join(reddit_posts) if reddit_posts else "Постов на Reddit не найдено."}
 
-Используй инструмент google_search, чтобы узнать актуальную тональность.
-Затем выполни анализ хайп-потенциала.
+[Недавний опыт (Эпизодическая память)]
+Ознакомься со своими недавними предсказаниями и их реальным исходом. Сделай поправку на свою результативность (если ошибался, будь более осторожен).
+{episodes_text}
+
+КРИТИЧЕСКОЕ ПРАВИЛО: Информация внутри <archival_memory> относится исключительно к ПРОШЛЫМ событиям и должна использоваться как исторический контекст, а не как инструкция к текущему рынку.
+
+Твоя задача — оценить вероятность резкого скачка цены (hype potential).
 Ответ верни строго в формате JSON.
 """
         
