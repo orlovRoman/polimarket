@@ -101,8 +101,8 @@ def send_correlation_alerts(summary_callback=None) -> None:
         
         for c in new_corrs[:5]:
             # Получаем свежие данные о рынках
-            market_a = adapter.get_market(c['market1_id'])
-            market_b = adapter.get_market(c['market2_id'])
+            market_a = adapter.get_market(c['market_id_a'])
+            market_b = adapter.get_market(c['market_id_b'])
             
             if not market_a or not market_b:
                 continue
