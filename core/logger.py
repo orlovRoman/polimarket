@@ -59,3 +59,31 @@ class LLMLogger:
             logger.error(f"Error getting token usage: {e}")
             
         return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+    @staticmethod
+    def get_detailed_token_usage_last_24h(agent_name: str) -> list:
+        """Агрегирует статистику токенов из llm_calls за последние 24 часа в разрезе по моделям."""
+        try:
+            with get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT model_name, SUM(input_tokens) as in_t, SUM(output_tokens) as out_t, SUM(total_tokens) as tot_t 
+                    FROM llm_calls 
+                    WHERE agent_name = ? AND created_at >= datetime('now', '-1 day')
+                    GROUP BY model_name
+                """, (agent_name,))
+                rows = cursor.fetchall()
+                results = []
+                for row in rows:
+                    if row['model_name']:
+                        results.append({
+                            "model_name": row['model_name'],
+                            "input_tokens": int(row['in_t'] or 0),
+                            "output_tokens": int(row['out_t'] or 0),
+                            "total_tokens": int(row['tot_t'] or 0)
+                        })
+                return results
+        except Exception as e:
+            logger.error(f"Error getting detailed token usage: {e}")
+            
+        return []

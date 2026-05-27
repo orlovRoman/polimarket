@@ -457,6 +457,10 @@ def get_token_usage_last_24h(agent_name: str) -> dict:
     from core.logger import LLMLogger
     return LLMLogger.get_token_usage_last_24h(agent_name)
 
+def get_detailed_token_usage_last_24h(agent_name: str) -> list:
+    from core.logger import LLMLogger
+    return LLMLogger.get_detailed_token_usage_last_24h(agent_name)
+
 def get_agent_model(agent_name: str, default_model: str = "gemini-2.5-flash") -> str:
     """Возвращает последнюю использованную модель для агента из логов токенов."""
     try:

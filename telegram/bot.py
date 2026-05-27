@@ -118,6 +118,42 @@ def ask_gemini(text: str, history: list = None) -> str:
     except Exception as e:
         return f"Ошибка при обращении к NEXUS: {e}"
 
+def estimate_llm_cost(model_name: str, input_tokens: int, output_tokens: int) -> float:
+    """
+    Рассчитывает ориентировочную стоимость вызова LLM в USD на основе количества токенов.
+    """
+    model = model_name.lower().strip()
+    
+    # 1. Бесплатные модели (содержат free или :free)
+    if "free" in model:
+        return 0.0
+        
+    # 2. Тарифы Gemini Flash (2.5 / 2.0)
+    if "gemini-2.5-flash" in model or "gemini-2.0-flash" in model or "flash" in model:
+        # $0.075 / 1M input, $0.30 / 1M output
+        return (input_tokens * 0.075 / 1_000_000) + (output_tokens * 0.30 / 1_000_000)
+        
+    # 3. Тарифы Gemini Pro (2.5 / 1.5)
+    if "gemini-2.5-pro" in model or "gemini-1.5-pro" in model or "pro" in model:
+        # $1.25 / 1M input, $5.00 / 1M output
+        return (input_tokens * 1.25 / 1_000_000) + (output_tokens * 5.00 / 1_000_000)
+        
+    # 4. Тарифы Grok (Grok-3, Grok-beta, etc.)
+    if "grok" in model:
+        # $2.00 / 1M input, $10.00 / 1M output
+        return (input_tokens * 2.00 / 1_000_000) + (output_tokens * 10.00 / 1_000_000)
+        
+    # 5. Модели Cerebras/OpenRouter (Qwen, Llama без free)
+    if "cerebras" in model or "qwen" in model or "llama" in model:
+        if "nemotron" in model or "glm" in model:
+            return 0.0
+        # Если не free, используем средний тариф $0.15 / 1M input, $0.60 / 1M output
+        return (input_tokens * 0.15 / 1_000_000) + (output_tokens * 0.60 / 1_000_000)
+        
+    # 6. Fallback по умолчанию для прочих платных моделей (OpenRouter, etc.)
+    # $0.50 / 1M input, $1.50 / 1M output
+    return (input_tokens * 0.50 / 1_000_000) + (output_tokens * 1.50 / 1_000_000)
+
 def build_paginated_keyboard(page: int, total_pages: int, prefix: str) -> InlineKeyboardMarkup:
     """Создает клавиатуру с пагинацией."""
     nav_row = []
@@ -176,7 +212,7 @@ async def command_help_handler(message: types.Message) -> None:
 
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:
-    from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats, get_token_usage_last_24h, get_memory, get_agent_model
+    from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats, get_memory
     
     # Получаем настройки и метрики из БД
     last_scan_str = "Неизвестно"
@@ -205,24 +241,6 @@ async def command_status_handler(message: types.Message) -> None:
 
     # Получаем метрики памяти
     stats = await asyncio.to_thread(get_memory_stats)
-    
-    # Загружаем используемые модели и суточный расход токенов для каждого агента
-    nexus_model = get_memory("selected_model", "gemini-2.5-flash")
-    scout_model = await asyncio.to_thread(get_agent_model, "SCOUT", "gemini-2.5-flash")
-    swing_model = await asyncio.to_thread(get_agent_model, "SWING", "gemini-2.5-flash")
-    shadow_model = await asyncio.to_thread(get_agent_model, "SHADOW", "gemini-2.5-flash")
-    
-    scout_tokens = await asyncio.to_thread(get_token_usage_last_24h, "SCOUT")
-    swing_tokens = await asyncio.to_thread(get_token_usage_last_24h, "SWING")
-    shadow_tokens = await asyncio.to_thread(get_token_usage_last_24h, "SHADOW")
-    
-    def format_tokens(t):
-        tot = t.get('total_tokens', 0)
-        inp = t.get('input_tokens', 0)
-        out = t.get('output_tokens', 0)
-        if tot == 0:
-            return "<code>0 токенов</code>"
-        return f"<code>{tot:,}</code> ({inp:,} in + {out:,} out)"
 
     # Реальный статус сканирования
     import time
@@ -240,19 +258,14 @@ async def command_status_handler(message: types.Message) -> None:
 
     status_text = (
         "📊 <b>Статус системы (24/7 Monitoring):</b>\n\n"
-        f"● <b>Оркестратор NEXUS:</b> 🟢 Активен (Model: <code>{nexus_model}</code>)\n"
-        f"● <b>Агенты (SCOUT, SWING, SHADOW):</b> 🟢 Готовы\n"
+        "● <b>Оркестратор NEXUS:</b> 🟢 Активен\n"
+        "● <b>Агенты (SCOUT, SWING, SHADOW, ARBITRAGE):</b> 🟢 Готовы\n"
         f"● <b>Telegram Слушатель:</b> 🟢 Активен (5 мин)\n"
         f"● <b>Trend Hunter:</b> {'🟢 Активен (2 ч)' if trend_hunter_enabled else '🔴 Отключен'}\n"
         f"● <b>Тренды-оповещения:</b> {'🟢 Включены' if trend_hunter_alerts else '🔴 Отключены'}\n"
         f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
         f"● <b>Лимит запросов:</b> <code>{scan_limit} рынков/цикл</code>\n"
         f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning_real else '🟢 Ожидание'}\n\n"
-        f"🤖 <b>AI Агенты и токен-баланс (24ч):</b>\n"
-        f"  ● <b>SCOUT:</b> <code>{scout_model}</code> | {format_tokens(scout_tokens)}\n"
-        f"  ● <b>SWING:</b> <code>{swing_model}</code> | {format_tokens(swing_tokens)}\n"
-        f"  ● <b>SHADOW:</b> <code>{shadow_model}</code> | {format_tokens(shadow_tokens)}\n"
-        f"  ● <b>ARBITRAGE:</b> <code>{get_memory('agent_config_ARBITRAGE', {}).get('model', 'gemini-2.5-flash')}</code>\n\n"
         f"🧠 <b>Память:</b>\n"
         f"  Факты (Layer 1): {stats.get('facts', '?')}\n"
         f"  Рынков в БД: {stats.get('markets', '?')}\n"
@@ -469,15 +482,74 @@ MODELS_MAPPING = {
 }
 
 async def send_models_menu(message_or_callback):
+    from agents.shared.python.db import get_memory, get_agent_model, get_detailed_token_usage_last_24h
+    
+    agents = ["NEXUS", "SCOUT", "SWING", "SHADOW", "ARBITRAGE"]
+    default_models = {
+        "NEXUS": "gemini-2.5-flash",
+        "SCOUT": "gemini-2.5-flash",
+        "SWING": "gemini-2.5-flash",
+        "SHADOW": "gemini-2.5-flash",
+        "ARBITRAGE": "gemini-2.5-pro"
+    }
+    
+    dashboard_lines = []
+    dashboard_lines.append("🤖 <b>Панель AI Моделей и Расходов (24ч):</b>\n")
+    
+    for agent in agents:
+        # Получаем активную модель
+        if agent == "NEXUS":
+            active_model = get_memory("selected_model", "gemini-2.5-flash")
+        else:
+            active_model = await asyncio.to_thread(get_agent_model, agent, default_models[agent])
+            
+        dashboard_lines.append(f"● <b>Агент {agent}</b>")
+        dashboard_lines.append(f"  Активная модель: <code>{active_model}</code>")
+        
+        # Получаем детальный расход за 24 часа
+        usage = await asyncio.to_thread(get_detailed_token_usage_last_24h, agent)
+        
+        agent_cost = 0.0
+        if not usage:
+            dashboard_lines.append("  <i>Нет вызовов за последние 24ч</i>")
+        else:
+            for item in usage:
+                m_name = item["model_name"]
+                in_t = item["input_tokens"]
+                out_t = item["output_tokens"]
+                tot_t = item["total_tokens"]
+                
+                cost = estimate_llm_cost(m_name, in_t, out_t)
+                agent_cost += cost
+                
+                # Сокращаем длинные имена моделей для аккуратности
+                display_name = m_name.split("/")[-1] if "/" in m_name else m_name
+                if len(display_name) > 28:
+                    display_name = display_name[:25] + "..."
+                
+                dashboard_lines.append(f"  - <code>{display_name}</code>: {tot_t:,} токенов (${cost:.4f})")
+                
+        dashboard_lines.append(f"  <b>Всего за сутки:</b> <code>${agent_cost:.4f}</code>\n")
+
+    dashboard_lines.append("Выберите агента для переназначения активной LLM:")
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Модель: NEXUS", callback_data="set_model_NEXUS")],
-        [InlineKeyboardButton(text="Модель: SCOUT", callback_data="set_model_SCOUT")],
-        [InlineKeyboardButton(text="Модель: SWING", callback_data="set_model_SWING")],
-        [InlineKeyboardButton(text="Модель: SHADOW", callback_data="set_model_SHADOW")],
-        [InlineKeyboardButton(text="Модель: ARBITRAGE", callback_data="set_model_ARBITRAGE")],
+        [
+            InlineKeyboardButton(text="🔄 NEXUS", callback_data="set_model_NEXUS"),
+            InlineKeyboardButton(text="🔄 SCOUT", callback_data="set_model_SCOUT"),
+        ],
+        [
+            InlineKeyboardButton(text="🔄 SWING", callback_data="set_model_SWING"),
+            InlineKeyboardButton(text="🔄 SHADOW", callback_data="set_model_SHADOW"),
+        ],
+        [
+            InlineKeyboardButton(text="🔄 ARBITRAGE", callback_data="set_model_ARBITRAGE"),
+        ],
         [InlineKeyboardButton(text="⬅️ Назад в настройки", callback_data="back_to_settings")]
     ])
-    await send_or_edit(message_or_callback, "🤖 <b>Настройка AI Моделей</b>\n\nВыберите агента для переназначения модели:", keyboard)
+    
+    text = "\n".join(dashboard_lines)
+    await send_or_edit(message_or_callback, text, keyboard)
 
 @dp.callback_query(F.data == "settings_models")
 async def callback_settings_models(callback: CallbackQuery) -> None:
