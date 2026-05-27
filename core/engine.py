@@ -301,7 +301,7 @@ class CoreEngine:
 
                     opinion_shadow = self.shadow.analyze_idea(context, active_signal.details, orderbook=orderbook)
                     
-                summary_text = f"🗣 <b>Ответ на ваш пост (Рынок: {full_m.title}):</b>\n<a href='{full_m.url}'>{full_m.title}</a>\n\n"
+                summary_text = f"🗣 <b>Event-Driven Анализ (Рынок: {full_m.title}):</b>\n<a href='{full_m.url}'>{full_m.title}</a>\n\n"
                 if active_signal:
                     summary_text += f"💡 <b>Идея:</b> {active_signal.details}\n"
                     if opinion_shadow:
