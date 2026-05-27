@@ -193,12 +193,43 @@ def init_db():
                 )
             """)
             
+            # Эпизодическая память агентов
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agent_episodes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_name TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    market_id TEXT,
+                    market_title TEXT,
+                    summary TEXT NOT NULL,
+                    context TEXT,
+                    outcome TEXT DEFAULT 'unknown',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            """)
+            
             # Эпизодическая память агентов (Спринт 7)
             # DROP старых триггеров и таблиц FTS, если они остались от старой схемы
             cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ai")
             cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ad")
             cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_au")
             cursor.execute("DROP TABLE IF EXISTS agent_episodes_fts")
+            # Create agent_episodes table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agent_episodes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_name TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    market_id TEXT,
+                    market_title TEXT,
+                    summary TEXT NOT NULL,
+                    context TEXT,
+                    outcome TEXT DEFAULT 'unknown',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            """)
 
             # FTS5 виртуальная таблица для быстрого поиска по эпизодам
             cursor.execute("""
@@ -287,7 +318,7 @@ def init_db():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_agent ON agent_episodes(agent_name, created_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON agent_episodes(outcome, event_type)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_idea_audit_created_at ON idea_audit (created_at)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals (status)")
+            # Duplicate idx_signals_status index removed
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_category ON memory (category)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close_time ON markets (close_time)")
 

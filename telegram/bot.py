@@ -33,8 +33,36 @@ if not TELEGRAM_BOT_TOKEN:
 # Инициализируем БД при старте
 init_db()
 
-# Инициализируем NexusAgent
-nexus_agent = NexusAgent()
+# --- Option A+: NexusAgent не создаётся при импорте ---
+# Инициализация происходит явно через init_nexus_agent() в start_system() (main.py).
+# Это исключает тяжёлую синхронную работу (загрузка промпта, инициализация Gemini)
+# внутри импорта и при конкурентных запросах нет нескольких экземпляров агента.
+_nexus_agent: NexusAgent | None = None
+
+
+def get_nexus_agent() -> NexusAgent:
+    """Возвращает единственный экземпляр NexusAgent. Если он ещё не инициализирован,
+    поднимает RuntimeError (не должно происходить после корректного старта)."""
+    if _nexus_agent is None:
+        raise RuntimeError(
+            "NexusAgent не инициализирован. "
+            "Убедитесь, что await init_nexus_agent() вызван в start_system() до polling."
+        )
+    return _nexus_agent
+
+
+async def init_nexus_agent() -> None:
+    """Асинхронная инициализация NexusAgent при старте системы.
+    Вызывается один раз из start_system() в main.py."""
+    global _nexus_agent
+    if _nexus_agent is not None:
+        return  # Уже инициализирован — ничего не делаем
+    import logging
+    log = logging.getLogger("NexusPolyBot")
+    log.info("Инициализация NexusAgent...")
+    # Инициализируем в отдельном потоке, чтобы не блокировать event loop
+    _nexus_agent = await asyncio.to_thread(NexusAgent)
+    log.info("✅ NexusAgent инициализирован успешно.")
 
 # Инициализируем бота и диспетчер событий aiogram
 bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -114,7 +142,7 @@ def ask_gemini(text: str, history: list = None) -> str:
     """
     try:
         # NexusAgent.process_prompt уже содержит логику системных инструкций и инструментов
-        return nexus_agent.process_prompt(text, history)
+        return get_nexus_agent().process_prompt(text, history)
     except Exception as e:
         return f"Ошибка при обращении к NEXUS: {e}"
 
@@ -457,8 +485,6 @@ async def callback_set_rag(callback: CallbackQuery) -> None:
     level = int(callback.data.split("_")[1])
     from agents.shared.python.db import save_memory
     await asyncio.to_thread(save_memory, "rag_level", level)
-    await callback.answer(f"RAG-уровень установлен на L{level}!")
-    
     await callback.answer(f"RAG-уровень установлен на L{level}!")
     await send_settings_menu(callback)
 

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 sys.path.append(os.getcwd())
 
 from core.engine import CoreEngine
-from telegram.bot import dp, bot
+from telegram.bot import dp, bot, init_nexus_agent
 from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history
 import uvicorn
 from core.api import app as fastapi_app
@@ -105,9 +105,16 @@ def ensure_single_instance():
     Это надежнее файловых локов (особенно на сетевых дисках CIFS/SMB)."""
     global _lock_socket
     _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Позволяем быстрому повторному привязыванию порта
+    _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # SO_REUSEPORT может отсутствовать в Windows, проверяем наличие
+    if hasattr(socket, "SO_REUSEPORT"):
+        _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     try:
-        # Пытаемся занять случайный, но фиксированный локальный порт
+        # Пытаемся занять фиксированный локальный порт
         _lock_socket.bind(("127.0.0.1", 61234))
+        # Захватываем порт эксклюзивно
+        _lock_socket.listen(0)
     except OSError:
         logger.error("[КРИТИЧЕСКАЯ ОШИБКА] Другая копия бота уже работает! Экстренное завершение...")
         sys.exit(1)
@@ -120,6 +127,29 @@ async def start_system():
     
     # Жесткая блокировка повторных запусков
     ensure_single_instance()
+    
+    # Обработчики завершения процесса (асинхронный graceful shutdown)
+    import signal
+    loop = asyncio.get_running_loop()
+
+    async def _shutdown():
+        """Корректно завершает polling и закрывает соединения."""
+        logger.info("🔧 Graceful shutdown: останавливаем polling...")
+        await dp.stop_polling()
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
+        await asyncio.sleep(0.25)  # даём event loop завершить очередь задач
+        logger.info("✅ Shutdown завершён.")
+
+    def _request_shutdown():
+        """Планирует асинхронный shutdown из синхронного обработчика сигнала."""
+        logger.info("🚨 Получен сигнал завершения, запускаем shutdown...")
+        loop.create_task(_shutdown())
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _request_shutdown)
     
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scheduled_job, 'interval', minutes=5)
@@ -150,13 +180,18 @@ async def start_system():
 
     logger.info("🤖 Бот NEXUS запускается...")
     try:
+        # Option A+: явная асинхронная инициализация NexusAgent ДО начала polling
+        await init_nexus_agent()
         from telegram.bot import set_commands
         await set_commands(bot)
         await dp.start_polling(bot)
     except Exception as e:
         logger.error(f"Критическая ошибка бота: {e}")
     finally:
-        await bot.session.close()
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     import sys
