@@ -165,17 +165,23 @@ YES dominance:   {smart_money.yes_dominance:.0%}
             return None
             
         try:
+            op_text = analysis.get("opinion", "").strip()
+            verdict = analysis.get("shadow_verdict", "").strip()
+            if not op_text:
+                op_text = verdict
+            elif verdict and verdict not in op_text:
+                op_text += f"\nВердикт: {verdict}"
             
             return AgentOpinion(
                 agent_name="SHADOW",
                 market_id=market.id,
-                opinion=analysis.get("opinion", ""),
+                opinion=op_text,
                 confidence=float(analysis.get("confidence", 0.5)),
                 agree=analysis.get("agree", False),
                 # Новые поля
                 orderbook_facts=analysis.get("orderbook_facts", ""),
                 risk_assessment=analysis.get("risk_assessment", ""),
-                shadow_verdict=analysis.get("shadow_verdict", ""),
+                shadow_verdict=verdict,
                 liquidity_risk=analysis.get("liquidity_risk", "medium")
             )
         except Exception as e:
