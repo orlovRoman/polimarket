@@ -24,6 +24,7 @@ class ScoutAgent:
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
+        self._adapter = None
 
     def estimate_market(self, context: 'MarketContext') -> Optional[Signal]:
         """
@@ -50,8 +51,9 @@ class ScoutAgent:
         correlations = get_market_correlations(market.id)
         correlation_texts = []
         if correlations:
-            from agents.shared.adapters.polymarket import PolymarketAdapter
-            adapter = PolymarketAdapter()
+            if self._adapter is None:
+                from agents.shared.adapters.polymarket import PolymarketAdapter
+                self._adapter = PolymarketAdapter()
             for corr in correlations:
                 # Определяем ID связанного рынка
                 related_id = corr["market_id_b"] if corr["market_id_a"] == market.id else corr["market_id_a"]
@@ -59,7 +61,7 @@ class ScoutAgent:
                 
                 # Получаем свежую цену связанного рынка
                 try:
-                    related_market = adapter.get_market(related_id)
+                    related_market = self._adapter.get_market(related_id)
                     if related_market is None:
                         related_price_text = "Рынок не найден"
                     else:
