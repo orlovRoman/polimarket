@@ -42,6 +42,9 @@ async def scheduled_job():
             logger.info(f"Очищено старых записей истории цен: {old_prices}")
 
         logger.info("<<< Сканирование завершено успешно.")
+    except asyncio.CancelledError:
+        logger.info("<<< Сканирование прервано: получен сигнал завершения (CancelledError).")
+        raise
     except NoMarketsFoundError as e:
         logger.info(f"<<< Сканирование завершено: {e}")
     except RuntimeError as e:
@@ -98,14 +101,11 @@ async def scheduled_cross_arbitrage_scan():
     except Exception as e:
         logger.error(f"Ошибка кросс-арбитражного скана: {e}", exc_info=True)
 
-class NoSignalServer(uvicorn.Server):
-    def install_signal_handlers(self) -> None:
-        pass
-
 async def start_fastapi():
     """Запуск FastAPI сервера в фоне (через asyncio)"""
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
-    server = NoSignalServer(config)
+    server = uvicorn.Server(config)
+    server.install_signal_handlers = lambda: None  # отключаем перехват сигналов uvicorn'ом
     await server.serve()
 
 import socket
