@@ -965,24 +965,30 @@ def save_agent_episode(
     summary: str,
     market_id: str = None,
     market_title: str = None,
-    context: dict = None,
+    context=None,
     outcome: str = "unknown"
 ) -> int:
-    """
-    Сохраняет эпизод в памяти агента.
-    event_type: 'signal_found' | 'consensus_reached' | 'market_rejected' |
-                'signal_evaluated' | 'screening_done' | 'correlation_found'
-    outcome:    'correct' | 'incorrect' | 'unknown'
-    """
+    import json
+    if isinstance(context, dict):
+        context_str = json.dumps(context, ensure_ascii=False)
+    elif isinstance(context, str):
+        try:
+            json.loads(context)
+            context_str = context
+        except (json.JSONDecodeError, TypeError):
+            context_str = json.dumps(context)
+    else:
+        context_str = json.dumps({})
+
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute('''
             INSERT INTO agent_episodes
             (agent_name, event_type, market_id, market_title, summary, context, outcome)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
+        ''', (
             agent_name, event_type, market_id, market_title,
-            summary, json.dumps(context or {}), outcome
+            summary, context_str, outcome
         ))
         return cursor.lastrowid
 
@@ -1109,8 +1115,7 @@ def get_known_whales() -> dict:
             print(f"[DB] Ошибка при чтении known_whales: {e}")
     return whales
 
-if __name__ == "__main__":
-    init_db()
+
 def get_performance_summary(agent_name: str, limit: int = 20) -> str:
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -1155,23 +1160,6 @@ def get_performance_summary(agent_name: str, limit: int = 20) -> str:
     
     return "\n".join(lines)
 
-def get_agent_accuracy(agent_name: str) -> dict:
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN outcome='correct' THEN 1 ELSE 0 END) as correct
-            FROM agent_episodes
-            WHERE agent_name = ? AND event_type = 'signal_resolved'
-              AND outcome IN ('correct', 'incorrect')
-        """, (agent_name,))
-        row = cursor.fetchone()
-        
-        total = row['total'] or 0
-        correct = row['correct'] or 0
-        accuracy = correct / total if total > 0 else 0.0
-        return {'total': total, 'correct': correct, 'accuracy': accuracy}
 
 def get_learning_impact() -> dict:
     with get_connection() as conn:
@@ -1198,3 +1186,6 @@ def get_learning_impact() -> dict:
             "accuracy": round(correct / total, 3) if total > 0 else None
         }
     return result
+
+if __name__ == "__main__":
+    init_db()

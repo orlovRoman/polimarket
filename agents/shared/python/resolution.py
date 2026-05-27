@@ -93,12 +93,12 @@ def resolve_closed_markets():
                     summary=f"Рынок '{row['title'][:50]}...' закрылся как {resolved_outcome}. Прогноз агента: {predicted_prob:.0%}. Результат: {new_status}",
                     market_id=m_id,
                     market_title=row['title'],
-                    context=json.dumps({
+                    context={
                         'predicted_prob': predicted_prob,
                         'target': target,
                         'winner_index': winner_index,
                         'resolved_as': resolved_outcome
-                    }),
+                    },
                     outcome=outcome_label
                 )
                 
@@ -122,5 +122,5 @@ def resolve_closed_markets():
             except Exception as e:
                 logger.error(f"Error resolving {sig_id}: {e}")
                 
-        conn.commit()
+
     return count_resolved
