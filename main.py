@@ -197,12 +197,21 @@ async def start_system():
 
     polling_task = asyncio.create_task(dp.start_polling(bot))
     try:
-        await asyncio.wait(
+        done, pending = await asyncio.wait(
             [polling_task, api_task],
             return_when=asyncio.FIRST_COMPLETED
         )
+        for task in done:
+            try:
+                exc = task.exception()
+                if exc:
+                    logger.error(f"Задача завершилась с ошибкой: {exc}", exc_info=exc)
+                else:
+                    logger.info("Задача успешно завершилась.")
+            except asyncio.CancelledError:
+                logger.info("Задача была отменена.")
     except Exception as e:
-        logger.error(f"Критическая ошибка в главном цикле: {e}")
+        logger.error(f"Критическая ошибка в главном цикле: {e}", exc_info=True)
     finally:
         logger.info("🔧 Graceful shutdown: останавливаем все фоновые задачи...")
         await dp.stop_polling()
