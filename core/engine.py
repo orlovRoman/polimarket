@@ -88,7 +88,7 @@ class CoreEngine:
                 try: log_callback(msg)
                 except Exception as e: logger.error(f"log_callback error: {e}")
 
-        cleanup_stale_signals()
+        # cleanup_stale_signals() удалено, перенесено в еженедельный cron и /cleanup
 
         from agents.shared.python.db import get_memory
         scan_limit = get_memory("scan_limit")

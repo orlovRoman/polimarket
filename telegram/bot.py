@@ -53,6 +53,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="status", description="Проверка статуса системы"),
         BotCommand(command="scan", description="Запуск анализа рынков"),
         BotCommand(command="ideas", description="Просмотр найденных идей"),
+        BotCommand(command="history", description="Архив закрытых рынков"),
         BotCommand(command="correlations", description="Корреляции между рынками"),
         BotCommand(command="stats", description="Статистика базы данных"),
         BotCommand(command="settings", description="Настройка лимитов запросов"),
@@ -919,6 +920,61 @@ async def send_penny_page(message_or_callback, page: int = 0) -> None:
         await message_or_callback.message.edit_text(response, reply_markup=keyboard, disable_web_page_preview=True)
         await message_or_callback.answer()
 
+async def send_history_page(message_or_callback, page: int = 0) -> None:
+    from agents.shared.python.db import get_history_signals
+    signals = await asyncio.to_thread(get_history_signals, 100)
+    if not signals:
+        text = "🗄 История пуста. Закрытые рынки появятся здесь позже."
+        if isinstance(message_or_callback, types.Message):
+            await message_or_callback.answer(text)
+        else:
+            await message_or_callback.message.answer(text)
+            await message_or_callback.answer()
+        return
+
+    chunk_size = 5
+    total_pages = (len(signals) + chunk_size - 1) // chunk_size
+    
+    if page >= total_pages:
+        page = 0
+        
+    start_idx = page * chunk_size
+    chunk = signals[start_idx:start_idx + chunk_size]
+    
+    response = f"🗄 <b>История (закрытые/истёкшие рынки) ({start_idx + 1}-{min(start_idx + chunk_size, len(signals))} из {len(signals)}):</b>\n\n"
+    
+    for s in chunk:
+        target = s.get('target_outcome', 'YES')
+        status = s.get('status', 'ARCHIVED')
+        
+        status_emoji = "✅" if status == 'WIN' else "❌" if status == 'LOSS' else "🗄"
+            
+        response += (
+            f"{status_emoji} <b>{s['title']}</b>\n"
+            f"🎯 Была рекомендация: <b>{target}</b> (Уверенность: {s['confidence']})\n"
+            f"📝 {s['summary']}\n"
+            f"🔗 <a href='{s['url']}'>Смотреть итог</a>\n\n"
+        )
+        
+    inline_kb = []
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"history_page_{page - 1}"))
+        
+    nav_row.append(InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message"))
+    
+    if page + 1 < total_pages:
+        nav_row.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"history_page_{page + 1}"))
+        
+    inline_kb.append(nav_row)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=inline_kb)
+        
+    if isinstance(message_or_callback, types.Message):
+        await message_or_callback.answer(response, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+    else:
+        await message_or_callback.message.edit_text(response, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+        await message_or_callback.answer()
+
 @dp.message(Command("ideas"))
 async def command_ideas_handler(message: types.Message) -> None:
     await send_ideas_page(message, page=0)
@@ -927,6 +983,15 @@ async def command_ideas_handler(message: types.Message) -> None:
 async def callback_ideas_page_handler(callback: CallbackQuery) -> None:
     page = int(callback.data.split("_")[2])
     await send_ideas_page(callback, page=page)
+
+@dp.message(Command("history"))
+async def command_history_handler(message: types.Message) -> None:
+    await send_history_page(message, page=0)
+
+@dp.callback_query(F.data.startswith("history_page_"))
+async def callback_history_page_handler(callback: CallbackQuery) -> None:
+    page = int(callback.data.split("_")[2])
+    await send_history_page(callback, page=page)
 
 @dp.message(Command("penny"))
 async def command_penny_handler(message: types.Message) -> None:

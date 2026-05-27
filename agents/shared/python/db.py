@@ -768,10 +768,15 @@ def get_market_discussions(market_id: str):
         return [dict(row) for row in cursor.fetchall()]
 
 def cleanup_stale_signals():
-    """Архивирует устаревшие сигналы (рынки 2025 года и истёкшие рынки)."""
+    """Переносит истёкшие рынки в историю и удаляет сигналы старше 1 года."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        # Архивируем сигналы рынков, которые уже закрыты
+        
+        # 1. Жесткое удаление старше 1 года (365 дней)
+        cursor.execute("DELETE FROM signals WHERE created_at < datetime('now', '-365 days')")
+        deleted_old = cursor.rowcount
+        
+        # 2. Перенос закрытых рынков в историю (status = ARCHIVED)
         cursor.execute("""
             UPDATE signals SET status = 'ARCHIVED'
             WHERE status = 'PENDING' AND market_id IN (
@@ -779,7 +784,8 @@ def cleanup_stale_signals():
             )
         """)
         archived_expired = cursor.rowcount
-        # Архивируем сигналы с прошлогодним годом в названии рынка (fallback)
+        
+        # 3. Перенос прошлогодних (fallback)
         stale_year = str(datetime.now(timezone.utc).year - 1)
         cursor.execute("""
             UPDATE signals SET status = 'ARCHIVED'
@@ -788,8 +794,23 @@ def cleanup_stale_signals():
             )
         """, (f'%{stale_year}%',))
         archived_year = cursor.rowcount
+        
         conn.commit()
     return archived_expired + archived_year
+
+def get_history_signals(limit: int = 100):
+    """Получает завершенные сигналы (ARCHIVED, WIN, LOSS) для команды /history"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT s.*, m.title, m.url, m.price as market_price 
+            FROM signals s 
+            JOIN markets m ON s.market_id = m.id 
+            WHERE s.status IN ('ARCHIVED', 'WIN', 'LOSS')
+            ORDER BY s.created_at DESC LIMIT ?
+        """, (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+
 
 
 def update_vault_index(path: str, category: str, title: str, tags: list = None, content_hash: str = None):
