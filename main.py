@@ -172,21 +172,26 @@ async def start_system():
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
     scheduler.add_job(scheduled_cross_arbitrage_scan, 'interval', hours=4)  # кросс-арбитраж каждые 4 ч
 
+    logger.info("🤖 Бот NEXUS запускается...")
+    try:
+        # Option A+: явная асинхронная инициализация NexusAgent ДО начала polling и планировщика
+        await init_nexus_agent()
+        from telegram.bot import set_commands
+        await set_commands(bot)
+    except Exception as e:
+        logger.error(f"Критическая ошибка инициализации бота/агента: {e}")
+        sys.exit(1)
+
     logger.info("Планировщик настроен.")
     scheduler.start()
 
     logger.info("Запуск FastAPI...")
     api_task = asyncio.create_task(start_fastapi())
 
-    logger.info("🤖 Бот NEXUS запускается...")
     try:
-        # Option A+: явная асинхронная инициализация NexusAgent ДО начала polling
-        await init_nexus_agent()
-        from telegram.bot import set_commands
-        await set_commands(bot)
         await dp.start_polling(bot)
     except Exception as e:
-        logger.error(f"Критическая ошибка бота: {e}")
+        logger.error(f"Критическая ошибка при polling: {e}")
     finally:
         # C-02: корректно отменяем FastAPI-таску при завершении
         api_task.cancel()
