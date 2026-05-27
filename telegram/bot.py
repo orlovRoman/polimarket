@@ -903,13 +903,21 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         updater_task = asyncio.create_task(update_message())
         
         try:
-            from core.engine import CoreEngine
+            from core.engine import CoreEngine, NoMarketsFoundError
             engine = CoreEngine()
             await asyncio.to_thread(engine.run_team_discussion, log_callback, summary_callback, category_param, None, state_callback)
             if current_state:
                 final_html = render_dashboard(current_state)
                 await status_msg.edit_text(final_html + "\n\n<b>✅ ПРОЦЕСС ЗАВЕРШЕН</b>", parse_mode="HTML", disable_web_page_preview=True)
             await callback.message.answer("✅ Сканирование завершено! Используйте /ideas чтобы увидеть результат.")
+        except NoMarketsFoundError as e:
+            if current_state:
+                final_html = render_dashboard(current_state)
+                try:
+                    await status_msg.edit_text(final_html + f"\n\n<b>⚠️ {e}</b>", parse_mode="HTML", disable_web_page_preview=True)
+                except Exception:
+                    pass
+            await callback.message.answer(f"⚠️ {e}")
         except Exception as e:
             await callback.message.answer(f"❌ Ошибка во время сканирования: {e}")
         # Wait a bit to ensure the queue is empty before cancelling

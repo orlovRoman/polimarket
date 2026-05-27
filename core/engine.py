@@ -21,6 +21,10 @@ from services.notifications import send_telegram as send_telegram_alert
 
 logger = logging.getLogger("CoreEngine")
 
+class NoMarketsFoundError(Exception):
+    """Исключение, выбрасываемое когда активные рынки по фильтрам не найдены."""
+    pass
+
 class CoreEngine:
     _instance = None
     _lock = threading.Lock()
@@ -141,7 +145,7 @@ class CoreEngine:
             msg = "Рынки по заданным фильтрам не найдены (возможно, в этой категории сейчас нет активных подходящих рынков)."
             log(f"⚠️ {msg}")
             _update_state(stage="Завершено (Рынков не найдено)")
-            raise RuntimeError(msg)
+            raise NoMarketsFoundError(msg)
             
         for m in markets: save_market(m)
 

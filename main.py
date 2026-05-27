@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 # Добавляем корень проекта в путь поиска модулей для корректного импорта внутренних пакетов
 sys.path.append(os.getcwd())
 
-from core.engine import CoreEngine
+from core.engine import CoreEngine, NoMarketsFoundError
 from telegram.bot import dp, bot, init_nexus_agent, get_nexus_agent
 from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history
 import uvicorn
@@ -42,6 +42,8 @@ async def scheduled_job():
             logger.info(f"Очищено старых записей истории цен: {old_prices}")
 
         logger.info("<<< Сканирование завершено успешно.")
+    except NoMarketsFoundError as e:
+        logger.info(f"<<< Сканирование завершено: {e}")
     except Exception as e:
         logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)
 
