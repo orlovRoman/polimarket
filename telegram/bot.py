@@ -66,8 +66,8 @@ async def set_commands(bot: Bot):
     ]
     await bot.set_my_commands(commands)
 
-# Глобальный флаг для предотвращения одновременных запусков сканирования
-is_scanning = False
+# Глобальный лок для предотвращения одновременных запусков сканирования
+_scan_lock = asyncio.Lock()
 
 class AuthMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
@@ -391,7 +391,20 @@ async def callback_trigger_trend_hunter(callback: CallbackQuery) -> None:
     
     # Запускаем в фоновом потоке
     from services.trend_hunter import run_trend_hunter
-    asyncio.create_task(asyncio.to_thread(run_trend_hunter))
+    async def _run_trend_hunter_safe():
+        try:
+            await asyncio.to_thread(run_trend_hunter)
+        except Exception as e:
+            logging.error(f"[TrendHunter] Необработанное исключение: {e}", exc_info=True)
+            from agents.shared.python.db import get_memory
+            chat_id = os.getenv("TELEGRAM_CHAT_ID")
+            if chat_id:
+                try:
+                    await bot.send_message(chat_id=chat_id, text=f"⚠️ TrendHunter упал: {e}")
+                except:
+                    pass
+
+    asyncio.create_task(_run_trend_hunter_safe())
 
 @dp.callback_query(F.data == "back_to_settings")
 async def callback_back_to_settings(callback: CallbackQuery) -> None:
@@ -710,8 +723,7 @@ async def command_correlations_handler(message: types.Message) -> None:
 
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:
-    global is_scanning
-    if is_scanning:
+    if _scan_lock.locked():
         await message.answer("⚠️ Сканирование уже запущено. Пожалуйста, подождите.")
         return
 
@@ -728,8 +740,7 @@ async def command_scan_handler(message: types.Message) -> None:
 
 @dp.callback_query(F.data.startswith("scan_"))
 async def callback_scan_handler(callback: CallbackQuery) -> None:
-    global is_scanning
-    if is_scanning:
+    if _scan_lock.locked():
         await callback.answer("⚠️ Сканирование уже запущено. Пожалуйста, подождите.", show_alert=True)
         return
 
@@ -749,88 +760,86 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
 
     await callback.message.edit_text(f"🚀 Запускаю полный цикл анализа (Категория: {cat_name})...")
     await callback.answer("🔄 Сканирование запущено...")
-    is_scanning = True
     status_msg = callback.message
     
-    log_lines = []
-    def log_callback(text):
-        log_lines.append(text)
-
-    current_state = {}
-    def state_callback(state):
-        nonlocal current_state
-        current_state = state
-
-    def render_dashboard(state):
-        if not state:
-            return f"🚀 <b>Запуск сканирования (Категория: {cat_name})...</b>"
-            
-        html = f"🚀 <b>Сканирование рынков</b>\n"
-        html += f"<b>Категория:</b> {state.get('category', cat_name)}\n"
-        html += f"<b>Этап:</b> {state.get('stage', 'В процессе')}\n"
-        
-        total = state.get('total_markets', 0)
-        if total > 0:
-            html += f"<b>Прогресс:</b> Рынок {state.get('current_market_index', 0)} из {total}\n\n"
-        else:
-            html += "\n"
-            
-        title = state.get('current_market_title', '')
-        url = state.get('current_market_url', '')
-        if title:
-            if url:
-                html += f"<b>Текущий рынок:</b>\n<a href='{url}'>{title}</a>\n\n"
-            else:
-                html += f"<b>Текущий рынок:</b>\n{title}\n\n"
-                
-        html += "<b>Статус агентов:</b>\n"
-        html += f"🕵️‍♂️ <b>SCOUT:</b> {state.get('scout_status', '⏳ Ожидает')}\n"
-        html += f"🚀 <b>SWING:</b> {state.get('swing_status', '⏳ Ожидает')}\n"
-        html += f"👤 <b>SHADOW:</b> {state.get('shadow_status', '⏳ Ожидает')}\n\n"
-        
-        html += f"<i>💡 Найдено идей (консенсус): {state.get('ideas_found', 0)}</i>"
-        return html
-
-    summaries_queue = []
-    def summary_callback(text):
-        summaries_queue.append(text)
-
-    async def update_message():
-        last_text = ""
-        while is_scanning or summaries_queue:
-            await asyncio.sleep(2)
-            # Send all pending summaries
-            while summaries_queue:
-                summary = summaries_queue.pop(0)
-                try:
-                    await callback.message.answer(summary, parse_mode="HTML", disable_web_page_preview=True)
-                except Exception as e:
-                    print(f"Ошибка отправки summary: {e}")
-            
-            # Update log status
-            if current_state and is_scanning:
-                new_html = render_dashboard(current_state)
-                if new_html != last_text:
-                    try:
-                        await status_msg.edit_text(new_html, parse_mode="HTML", disable_web_page_preview=True)
-                        last_text = new_html
-                    except Exception:
-                        pass
-
-    updater_task = asyncio.create_task(update_message())
+    async with _scan_lock:
+        log_lines = []
+        def log_callback(text):
+            log_lines.append(text)
     
-    try:
-        from core.engine import CoreEngine
-        engine = CoreEngine()
-        await asyncio.to_thread(engine.run_team_discussion, log_callback, summary_callback, category_param, None, state_callback)
-        if current_state:
-            final_html = render_dashboard(current_state)
-            await status_msg.edit_text(final_html + "\n\n<b>✅ ПРОЦЕСС ЗАВЕРШЕН</b>", parse_mode="HTML", disable_web_page_preview=True)
-        await callback.message.answer("✅ Сканирование завершено! Используйте /ideas чтобы увидеть результат.")
-    except Exception as e:
-        await callback.message.answer(f"❌ Ошибка во время сканирования: {e}")
-    finally:
-        is_scanning = False
+        current_state = {}
+        def state_callback(state):
+            nonlocal current_state
+            current_state = state
+    
+        def render_dashboard(state):
+            if not state:
+                return f"🚀 <b>Запуск сканирования (Категория: {cat_name})...</b>"
+                
+            html = f"🚀 <b>Сканирование рынков</b>\n"
+            html += f"<b>Категория:</b> {state.get('category', cat_name)}\n"
+            html += f"<b>Этап:</b> {state.get('stage', 'В процессе')}\n"
+            
+            total = state.get('total_markets', 0)
+            if total > 0:
+                html += f"<b>Прогресс:</b> Рынок {state.get('current_market_index', 0)} из {total}\n\n"
+            else:
+                html += "\n"
+                
+            title = state.get('current_market_title', '')
+            url = state.get('current_market_url', '')
+            if title:
+                if url:
+                    html += f"<b>Текущий рынок:</b>\n<a href='{url}'>{title}</a>\n\n"
+                else:
+                    html += f"<b>Текущий рынок:</b>\n{title}\n\n"
+                    
+            html += "<b>Статус агентов:</b>\n"
+            html += f"🕵️‍♂️ <b>SCOUT:</b> {state.get('scout_status', '⏳ Ожидает')}\n"
+            html += f"🚀 <b>SWING:</b> {state.get('swing_status', '⏳ Ожидает')}\n"
+            html += f"👤 <b>SHADOW:</b> {state.get('shadow_status', '⏳ Ожидает')}\n\n"
+            
+            html += f"<i>💡 Найдено идей (консенсус): {state.get('ideas_found', 0)}</i>"
+            return html
+    
+        summaries_queue = []
+        def summary_callback(text):
+            summaries_queue.append(text)
+    
+        async def update_message():
+            last_text = ""
+            while _scan_lock.locked() or summaries_queue:
+                await asyncio.sleep(2)
+                # Send all pending summaries
+                while summaries_queue:
+                    summary = summaries_queue.pop(0)
+                    try:
+                        await callback.message.answer(summary, parse_mode="HTML", disable_web_page_preview=True)
+                    except Exception as e:
+                        print(f"Ошибка отправки summary: {e}")
+                
+                # Update log status
+                if current_state and _scan_lock.locked():
+                    new_html = render_dashboard(current_state)
+                    if new_html != last_text:
+                        try:
+                            await status_msg.edit_text(new_html, parse_mode="HTML", disable_web_page_preview=True)
+                            last_text = new_html
+                        except Exception:
+                            pass
+    
+        updater_task = asyncio.create_task(update_message())
+        
+        try:
+            from core.engine import CoreEngine
+            engine = CoreEngine()
+            await asyncio.to_thread(engine.run_team_discussion, log_callback, summary_callback, category_param, None, state_callback)
+            if current_state:
+                final_html = render_dashboard(current_state)
+                await status_msg.edit_text(final_html + "\n\n<b>✅ ПРОЦЕСС ЗАВЕРШЕН</b>", parse_mode="HTML", disable_web_page_preview=True)
+            await callback.message.answer("✅ Сканирование завершено! Используйте /ideas чтобы увидеть результат.")
+        except Exception as e:
+            await callback.message.answer(f"❌ Ошибка во время сканирования: {e}")
         # Wait a bit to ensure the queue is empty before cancelling
         await asyncio.sleep(2.5)
         updater_task.cancel()
