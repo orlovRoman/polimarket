@@ -102,9 +102,29 @@ async def start_fastapi():
     server = uvicorn.Server(config)
     await server.serve()
 
+import socket
+import sys
+
+_lock_socket = None
+
+def ensure_single_instance():
+    """Гарантирует, что запущена только одна копия бота через привязку к уникальному порту.
+    Это надежнее файловых локов (особенно на сетевых дисках CIFS/SMB)."""
+    global _lock_socket
+    _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        # Пытаемся занять случайный, но фиксированный локальный порт
+        _lock_socket.bind(("127.0.0.1", 61234))
+    except OSError:
+        logger.error("[КРИТИЧЕСКАЯ ОШИБКА] Другая копия бота уже работает! Экстренное завершение...")
+        sys.exit(1)
+
 async def start_system():
     load_dotenv()
     os.makedirs("logs", exist_ok=True)
+    
+    # Жесткая блокировка повторных запусков
+    ensure_single_instance()
     
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scheduled_job, 'interval', minutes=5)
