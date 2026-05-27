@@ -28,6 +28,10 @@ def get_connection():
     finally:
         conn.close()
 
+def _escape_like(pattern: str) -> str:
+    """Экранирует спецсимволы для оператора SQL LIKE."""
+    return pattern.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
 _db_initialized = False
 _db_init_lock = threading.Lock()
 
@@ -137,7 +141,6 @@ def init_db():
                     FOREIGN KEY (market_id) REFERENCES markets (id)
                 )
             """)
-            
             # Таблица: Профили кошельков (Smart Money Tracker)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS wallets (
@@ -283,6 +286,10 @@ def init_db():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_trader_transactions_market ON trader_transactions(market_id, timestamp)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_agent ON agent_episodes(agent_name, created_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON agent_episodes(outcome, event_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_idea_audit_created_at ON idea_audit (created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals (status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_category ON memory (category)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close_time ON markets (close_time)")
 
             # Миграция: добавляем новые колонки в memory (если их ещё нет)
             existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(memory)").fetchall()}
@@ -712,9 +719,9 @@ def get_relevant_facts(context_keywords: list = None, limit: int = 20) -> list:
                     SELECT key, value FROM memory
                     WHERE (expires_at IS NULL OR expires_at > datetime('now'))
                       AND category = 'fact'
-                      AND (key LIKE ? OR value LIKE ?)
+                      AND (key LIKE ? ESCAPE '\' OR value LIKE ? ESCAPE '\')
                     ORDER BY priority DESC LIMIT 5
-                """, (f'%{kw}%', f'%{kw}%'))
+                """, (f'%{_escape_like(kw)}%', f'%{_escape_like(kw)}%'))
                 contextual.extend(cursor.fetchall())
 
         all_facts = base_facts + contextual
@@ -795,9 +802,9 @@ def cleanup_stale_signals():
         cursor.execute("""
             UPDATE signals SET status = 'ARCHIVED'
             WHERE status = 'PENDING' AND market_id IN (
-                SELECT id FROM markets WHERE title LIKE ?
+                SELECT id FROM markets WHERE title LIKE ? ESCAPE '\'
             )
-        """, (f'%{stale_year}%',))
+        """, (f'%{_escape_like(stale_year)}%',))
         archived_year = cursor.rowcount
         
     return archived_expired + archived_year
@@ -839,10 +846,10 @@ def search_vault_index(query: str, limit: int = 10) -> list:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT path, category, title, tags FROM vault_index
-            WHERE title LIKE ? OR tags LIKE ? OR path LIKE ?
+            WHERE title LIKE ? ESCAPE '\' OR tags LIKE ? ESCAPE '\' OR path LIKE ? ESCAPE '\'
             ORDER BY updated_at DESC
             LIMIT ?
-        """, (f'%{query}%', f'%{query}%', f'%{query}%', limit))
+        """, (f'%{_escape_like(query)}%', f'%{_escape_like(query)}%', f'%{_escape_like(query)}%', limit))
         return [dict(row) for row in cursor.fetchall()]
 
 def get_memory_stats() -> dict:
