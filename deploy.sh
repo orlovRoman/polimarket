@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Скрипт автоматического обновления и перезапуска бота Polymarket
 echo "🚀 Начинаем обновление бота..."
@@ -14,15 +15,12 @@ git pull origin main
 chmod +x deploy.sh
 chmod +x create-agent-structure.sh
 
-# 4. Убиваем зомби-процессы, чтобы systemctl stop не зависал на 90 секунд
-echo "🧹 Зачистка процессов..."
-sudo pkill -9 -f main.py > /dev/null 2>&1
-
-# 5. Останавливаем сервис
+# 4. Останавливаем systemd сервис без небезопасного pkill
 echo "🔄 Останавливаем systemd сервис..."
-sudo systemctl stop polymarket-bot.service
+sudo systemctl stop polymarket-bot.service || true
 
-# 6. Запускаем начисто
+# 5. Запускаем начисто
+echo "▶️  Запускаем сервис..."
 sudo systemctl start polymarket-bot.service
 
 echo "✅ Готово! Бот успешно обновлен и запущен."
