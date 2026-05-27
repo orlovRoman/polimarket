@@ -1159,8 +1159,8 @@ def get_performance_summary(agent_name: str, limit: int = 20) -> str:
         icon = "✅" if ep['outcome'] == 'correct' else "❌"
         raw_ctx = ep['context'] or '{}'
         try:
-            ctx = json.loads(raw_ctx)
-            if isinstance(ctx, str):
+            ctx = raw_ctx
+            while isinstance(ctx, str):
                 ctx = json.loads(ctx)
             if not isinstance(ctx, dict):
                 ctx = {}
