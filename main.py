@@ -67,14 +67,7 @@ async def scheduled_trend_hunting():
     except Exception as e:
         logger.error(f"Ошибка при работе Trend Hunter: {e}", exc_info=True)
 
-async def scheduled_signal_evaluation():
-    logger.info(">>> Оценка точности сигналов...")
-    try:
-        from services.signal_evaluator import evaluate_closed_signals
-        stats = await asyncio.to_thread(evaluate_closed_signals)
-        logger.info(f"<<< Оценка завершена: {stats}")
-    except Exception as e:
-        logger.error(f"Ошибка при оценке сигналов: {e}", exc_info=True)
+
 
 async def scheduled_cross_arbitrage_scan():
     """Автоматический кросс-платформенный арбитражный скан (Polymarket ↔ Kalshi)."""
@@ -145,7 +138,6 @@ async def start_system():
     scheduler.add_job(scheduled_job)  # немедленный запуск при старте
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
-    scheduler.add_job(scheduled_signal_evaluation, 'interval', hours=6)
     scheduler.add_job(scheduled_cross_arbitrage_scan, 'interval', hours=4)  # кросс-арбитраж каждые 4 ч
 
     logger.info("Планировщик настроен.")

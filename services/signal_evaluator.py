@@ -24,7 +24,7 @@ def evaluate_closed_signals() -> dict:
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT s.id, s.market_id, s.type, s.edge, s.confidence,
+                SELECT s.id, s.market_id, s.type, s.edge, s.confidence, s.details,
                        m.title, m.close_time, m.price as last_known_price
                 FROM signals s
                 JOIN markets m ON s.market_id = m.id
@@ -47,9 +47,23 @@ def evaluate_closed_signals() -> dict:
                 if not (resolved_yes or resolved_no):
                     continue  # Ещё не разрешён
 
-                # Тип MISPRICING/SWING: мы считали что YES недооценён
                 signal_type = sig.get('type', 'MISPRICING')
-                correct = resolved_yes  # В нашей стратегии мы покупаем YES
+                
+                import json as _json
+                target = 'YES'
+                try:
+                    # Пробуем достать target_outcome из details сигнала
+                    details_data = _json.loads(sig.get('details') or '{}')
+                    target = details_data.get('target_outcome', 'YES').upper()
+                except (ValueError, TypeError, KeyError):
+                    pass
+                
+                if target == 'YES':
+                    correct = resolved_yes
+                elif target == 'NO':
+                    correct = resolved_no
+                else:
+                    correct = resolved_yes  # fallback
 
                 outcome = 'correct' if correct else 'incorrect'
                 stats["evaluated"] += 1

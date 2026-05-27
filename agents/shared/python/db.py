@@ -544,7 +544,6 @@ def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summari
                 LIMIT ?
             )
         """, (chat_id, chat_id, keep_last))
-        conn.commit()
 
 def get_db_stats():
     """Получает статистику из БД"""
@@ -668,7 +667,6 @@ def save_memory(key: str, value: Any, category: str = 'general', ttl: int = None
                    priority=excluded.priority, expires_at=excluded.expires_at""",
             (key, json.dumps(value), now, category, ttl, priority, expires_at)
         )
-        conn.commit()
 
 def get_memory(key: str, default: Any = None) -> Any:
     """Извлекает данные из долгосрочной памяти. Пропускает истёкшие записи."""
@@ -742,7 +740,6 @@ def cleanup_expired_memory():
         cursor = conn.cursor()
         cursor.execute("DELETE FROM memory WHERE expires_at IS NOT NULL AND expires_at < datetime('now')")
         count = cursor.rowcount
-        conn.commit()
     return count
 
 def add_wallet(address: str, alias: str = None, is_insider: bool = False):
@@ -752,7 +749,6 @@ def add_wallet(address: str, alias: str = None, is_insider: bool = False):
             "INSERT OR IGNORE INTO wallets (address, alias, is_insider, last_seen) VALUES (?, ?, ?, ?)",
             (address, alias, is_insider, datetime.now(timezone.utc))
         )
-        conn.commit()
 
 def update_wallet_stats(address: str, win_rate: float, total_profit: float):
     """Обновляет статистику кошелька (Win Rate) для фильтра Smart Money."""
@@ -761,7 +757,6 @@ def update_wallet_stats(address: str, win_rate: float, total_profit: float):
             "UPDATE wallets SET win_rate = ?, total_profit = ?, last_seen = ? WHERE address = ?",
             (win_rate, total_profit, datetime.now(timezone.utc), address)
         )
-        conn.commit()
 
 def add_discussion_message(market_id: str, agent_name: str, message: str, confidence: float = None, agree: bool = True):
     """Записывает мнение агента в общий журнал обсуждений."""
@@ -770,7 +765,6 @@ def add_discussion_message(market_id: str, agent_name: str, message: str, confid
             "INSERT INTO agent_opinions (market_id, agent_name, opinion, confidence, agree) VALUES (?, ?, ?, ?, ?)",
             (market_id, agent_name, message, confidence, agree)
         )
-        conn.commit()
 
 def get_market_discussions(market_id: str):
     """Получает всю историю обсуждений агентов по конкретному рынку."""
@@ -809,7 +803,6 @@ def cleanup_stale_signals():
         """, (f'%{stale_year}%',))
         archived_year = cursor.rowcount
         
-        conn.commit()
     return archived_expired + archived_year
 
 def get_history_signals(limit: int = 100):
@@ -839,7 +832,6 @@ def update_vault_index(path: str, category: str, title: str, tags: list = None, 
                 tags=excluded.tags, updated_at=excluded.updated_at,
                 content_hash=excluded.content_hash
         """, (path, category, title, _json.dumps(tags or []), content_hash))
-        conn.commit()
 
 def search_vault_index(query: str, limit: int = 10) -> list:
     """
@@ -893,7 +885,6 @@ def save_price_point(market_id: str, price: float):
             "INSERT INTO price_history (market_id, price) VALUES (?, ?)",
             (market_id, price)
         )
-        conn.commit()
 
 def get_price_history(market_id: str, hours: int = 24) -> list:
     """Возвращает историю цен за последние N часов."""
@@ -915,7 +906,6 @@ def cleanup_old_price_history(days: int = 7) -> int:
             (days,)
         )
         count = cursor.rowcount
-        conn.commit()
     return count
 
 # --- Correlations ---
@@ -928,7 +918,6 @@ def save_correlation(corr: MarketCorrelation):
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (corr.market_id_a, corr.market_id_b, corr.title_a, corr.title_b,
               corr.correlation_type, corr.description, corr.confidence))
-        conn.commit()
 
 def get_new_correlations() -> list:
     """Возвращает непрочитанные корреляции (для алертов в Telegram)."""
@@ -967,7 +956,6 @@ def mark_correlations_notified(ids: list):
             f"UPDATE correlations SET notified = TRUE WHERE id IN ({placeholders})",
             ids
         )
-        conn.commit()
 
 # --- Episodic Memory ---
 
@@ -1086,7 +1074,6 @@ def save_trader_transaction(wallet_address: str, market_id: str, outcome: str, a
             VALUES (?, ?, ?, ?, ?)
         """, (wallet_address, market_id, outcome, amount_usd, price))
         
-        conn.commit()
 
 def get_market_trader_transactions(market_id: str, limit: int = 50) -> list:
     """

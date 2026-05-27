@@ -55,6 +55,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="ideas", description="Просмотр найденных идей"),
         BotCommand(command="history", description="Архив закрытых рынков"),
         BotCommand(command="correlations", description="Корреляции между рынками"),
+        BotCommand(command="performance", description="Точность агентов и история прогнозов"),
         BotCommand(command="stats", description="Статистика базы данных"),
         BotCommand(command="settings", description="Настройка лимитов запросов"),
         BotCommand(command="model", description="Выбор языковой модели"),
