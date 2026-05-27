@@ -1153,7 +1153,15 @@ def get_performance_summary(agent_name: str, limit: int = 20) -> str:
     ]
     for ep in episodes[:10]:
         icon = "✅" if ep['outcome'] == 'correct' else "❌"
-        ctx = json.loads(ep['context'] or '{}')
+        raw_ctx = ep['context'] or '{}'
+        try:
+            ctx = json.loads(raw_ctx)
+            if isinstance(ctx, str):
+                ctx = json.loads(ctx)
+            if not isinstance(ctx, dict):
+                ctx = {}
+        except (json.JSONDecodeError, TypeError):
+            ctx = {}
         prob = ctx.get('predicted_prob', '?')
         prob_str = f"{prob:.0%}" if isinstance(prob, float) else str(prob)
         lines.append(f"{icon} {ep['summary'][:120]} [прогноз был: {prob_str}]")
