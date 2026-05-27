@@ -193,29 +193,13 @@ def init_db():
                 )
             """)
             
-            # Эпизодическая память агентов
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS agent_episodes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    agent_name TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    market_id TEXT,
-                    market_title TEXT,
-                    summary TEXT NOT NULL,
-                    context TEXT,
-                    outcome TEXT DEFAULT 'unknown',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (market_id) REFERENCES markets (id)
-                )
-            """)
-            
-            # Эпизодическая память агентов (Спринт 7)
-            # DROP старых триггеров и таблиц FTS, если они остались от старой схемы
+            # 1. ── Сначала ВСЕ DROP старых триггеров и таблиц ──
             cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ai")
             cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ad")
             cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_au")
             cursor.execute("DROP TABLE IF EXISTS agent_episodes_fts")
-            # Create agent_episodes table
+
+            # 2. ── Таблица agent_episodes (должна быть ДО FTS и триггеров) ──
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS agent_episodes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,7 +215,7 @@ def init_db():
                 )
             """)
 
-            # FTS5 виртуальная таблица для быстрого поиска по эпизодам
+            # 3. ── FTS5 виртуальная таблица (ПОСЛЕ agent_episodes) ──
             cursor.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS agent_episodes_fts USING fts5(
                     episode_id UNINDEXED,
@@ -241,7 +225,7 @@ def init_db():
                 )
             """)
             
-            # Триггеры для синхронизации FTS5 и agent_episodes
+            # 4. ── Триггеры (ПОСЛЕ обеих таблиц) ──
             cursor.execute("""
                 CREATE TRIGGER IF NOT EXISTS agent_episodes_ai_v2 AFTER INSERT ON agent_episodes BEGIN
                     INSERT INTO agent_episodes_fts(episode_id, agent_name, summary, context) 
@@ -287,22 +271,6 @@ def init_db():
                     confidence REAL,
                     detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     notified BOOLEAN DEFAULT FALSE
-                )
-            """)
-
-            # Эпизодическая память агентов
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS agent_episodes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    agent_name TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    market_id TEXT,
-                    market_title TEXT,
-                    summary TEXT NOT NULL,
-                    context TEXT,
-                    outcome TEXT DEFAULT 'unknown',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (market_id) REFERENCES markets (id)
                 )
             """)
 

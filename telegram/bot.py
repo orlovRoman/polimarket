@@ -72,6 +72,13 @@ dp = Dispatcher()
 # ID чата, авторизованного для управления ботом
 AUTHORIZED_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
+if not AUTHORIZED_CHAT_ID:
+    raise EnvironmentError(
+        "CRITICAL: TELEGRAM_CHAT_ID не задан в .env!\n"
+        "Без него бот доступен ЛЮБОМУ пользователю Telegram.\n"
+        "Добавьте строку: TELEGRAM_CHAT_ID=<ваш_chat_id>"
+    )
+
 async def set_commands(bot: Bot):
     """
     Настраивает меню команд в интерфейсе Telegram-бота.
