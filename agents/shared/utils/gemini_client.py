@@ -395,7 +395,18 @@ def generate_content_with_fallback(
         
         logger.info(f"[{agent_name}] Отправка запроса в Gemini API (модель {current_model})...")
         try:
-            response = requests.post(api_url, json=payload, timeout=timeout)
+            # Копируем payload, чтобы не модифицировать его для других провайдеров в цикле
+            gemini_payload = json.loads(json.dumps(payload))
+            if "tools" in gemini_payload and "generationConfig" in gemini_payload:
+                gen_cfg = gemini_payload["generationConfig"]
+                if "responseMimeType" in gen_cfg or "response_mime_type" in gen_cfg:
+                    logger.info(f"[{agent_name}] Обнаружены tools. Удаляем responseMimeType из generationConfig для Gemini...")
+                    gen_cfg.pop("responseMimeType", None)
+                    gen_cfg.pop("response_mime_type", None)
+                    gen_cfg.pop("responseSchema", None)
+                    gen_cfg.pop("response_schema", None)
+            
+            response = requests.post(api_url, json=gemini_payload, timeout=timeout)
             latency_ms = int((time.time() - start_time) * 1000)
             
             if response.status_code == 200:
