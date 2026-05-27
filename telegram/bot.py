@@ -1111,6 +1111,8 @@ async def conversational_handler(message: types.Message) -> None:
             print(f"Критическая ошибка при отправке сообщения в Telegram: {e2}")
 
 async def main() -> None:
+    from config import startup_check
+    startup_check()
     print("🤖 Бот NEXUS запускается...")
     await set_commands(bot)
     await dp.start_polling(bot)

@@ -87,3 +87,22 @@ def setup_logger(name="NexusPolyBot"):
     return log
 
 logger = setup_logger()
+
+def startup_check():
+    """
+    Валидация окружения перед стартом приложения.
+    """
+    missing = []
+    if not GOOGLE_API_KEY:
+        missing.append("GOOGLE_API_KEY")
+    if not TELEGRAM_BOT_TOKEN:
+        missing.append("TELEGRAM_BOT_TOKEN")
+        
+    if missing:
+        msg = f"КРИТИЧЕСКАЯ ОШИБКА: Не заданы обязательные переменные окружения: {', '.join(missing)}. Проверьте .env файл."
+        logger.error(msg)
+        raise RuntimeError(msg)
+        
+    # Убеждаемся, что системные папки существуют
+    VAULT_PATH.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)

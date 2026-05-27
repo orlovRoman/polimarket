@@ -114,6 +114,8 @@ def ensure_single_instance():
 
 async def start_system():
     load_dotenv()
+    from config import startup_check
+    startup_check()
     os.makedirs("logs", exist_ok=True)
     
     # Жесткая блокировка повторных запусков
