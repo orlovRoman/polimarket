@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import Literal, Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 class Market(BaseModel):
     id: str
@@ -20,7 +20,16 @@ class Signal(BaseModel):
     type: str  # MISPRICING, SWING, etc.
     market_id: str
     platform: str
+    target_outcome: str = "YES"
     edge: Optional[float] = None
+    
+    @field_validator('confidence', 'edge')
+    @classmethod
+    def clamp_percentages(cls, v):
+        if v is None:
+            return v
+        return max(0.0, min(1.0, float(v)))
+
     confidence: float
     priority: Literal['low', 'medium', 'high']
     summary: str
