@@ -16,6 +16,8 @@ ExecStart=/home/orlovrp/polymarket-bot/venv/bin/python3 main.py
 Restart=always
 # Пауза перед перезапуском (10 секунд)
 RestartSec=10
+TimeoutStopSec=15
+KillMode=mixed
 # Логирование вывода в системный журнал journald
 StandardOutput=journal
 StandardError=journal
