@@ -129,9 +129,18 @@ async def start_system():
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scheduled_job, 'interval', minutes=5)
     
-    # Запускаем очистку старых рынков (перенос в историю и проверка WIN/LOSS) раз в неделю
+    # Запускаем резолюцию рынков (и обновление episodes) каждые 6 часов
     from agents.shared.python.resolution import resolve_closed_markets
-    scheduler.add_job(resolve_closed_markets, 'interval', weeks=1)
+    
+    def scheduled_resolution():
+        try:
+            logger.info(">>> Запуск автоматической резолюции закрытых рынков...")
+            resolved = resolve_closed_markets()
+            logger.info(f"<<< Резолюция завершена. Разрешено рынков: {resolved}")
+        except Exception as e:
+            logger.error(f"Ошибка при резолюции: {e}")
+
+    scheduler.add_job(scheduled_resolution, 'interval', hours=6)
     
     scheduler.add_job(scheduled_job)  # немедленный запуск при старте
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)

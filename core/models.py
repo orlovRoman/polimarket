@@ -127,3 +127,10 @@ class CrossArbitrageSignal(BaseModel):
     match_score: float
     status: Literal["new", "alerted", "expired"] = "new"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class SignalDetails(BaseModel):
+    agent_name: str = "SCOUT"
+    target_outcome: Literal['YES', 'NO'] = "YES"
+    estimated_probability: float = 0.5
+    prompt_version: str = "v1"
+    reasoning: str = ""

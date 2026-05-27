@@ -39,334 +39,347 @@ def init_db():
     with _db_init_lock:
         if _db_initialized:  # double-check после получения лока
             return
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    
-    with get_connection() as conn:
-        cursor = conn.cursor()
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         
-        # Таблица рынков
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS markets (
-                id TEXT PRIMARY KEY,
-                platform TEXT NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT,
-                url TEXT NOT NULL,
-                outcome TEXT NOT NULL,
-                price REAL NOT NULL,
-                close_time TIMESTAMP NOT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Таблица китов (ончейн-аналитика)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS known_whales (
-                address TEXT PRIMARY KEY,
-                alias TEXT,
-                win_rate REAL,
-                total_won REAL,
-                total_vol REAL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Таблица аудита идей (Idea Audit)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS idea_audit (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                market_id TEXT NOT NULL,
-                market_title TEXT,
-                scout_edge REAL,
-                swing_found INTEGER,
-                shadow_agree INTEGER,
-                shadow_confidence REAL,
-                shadow_reason TEXT,
-                final_outcome TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Таблица сигналов
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS signals (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                market_id TEXT NOT NULL,
-                platform TEXT NOT NULL,
-                edge REAL,
-                confidence REAL NOT NULL,
-                priority TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                details TEXT NOT NULL,
-                status TEXT DEFAULT 'PENDING',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (market_id) REFERENCES markets (id)
-            )
-        """)
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Таблица рынков
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS markets (
+                    id TEXT PRIMARY KEY,
+                    platform TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    url TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    close_time TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Таблица китов (ончейн-аналитика)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS known_whales (
+                    address TEXT PRIMARY KEY,
+                    alias TEXT,
+                    win_rate REAL,
+                    total_won REAL,
+                    total_vol REAL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Таблица аудита идей (Idea Audit)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS idea_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    market_id TEXT NOT NULL,
+                    market_title TEXT,
+                    scout_edge REAL,
+                    swing_found INTEGER,
+                    shadow_agree INTEGER,
+                    shadow_confidence REAL,
+                    shadow_reason TEXT,
+                    final_outcome TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Таблица сигналов
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS signals (
+                    id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    market_id TEXT NOT NULL,
+                    platform TEXT NOT NULL,
+                    edge REAL,
+                    confidence REAL NOT NULL,
+                    priority TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    details TEXT NOT NULL,
+                    status TEXT DEFAULT 'PENDING',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            """)
 
-        # Таблица: Долгосрочная память (Key-Value)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS memory (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL, -- JSON string
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+            # Таблица: Долгосрочная память (Key-Value)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS memory (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL, -- JSON string
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
 
-        # Таблица проанализированных рынков
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS agent_opinions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_name TEXT NOT NULL,
-                market_id TEXT NOT NULL,
-                opinion TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                agree BOOLEAN NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (market_id) REFERENCES markets (id)
-            )
-        """)
-        
-        # Таблица проанализированных рынков
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS analyzed_markets (
-                market_id TEXT PRIMARY KEY,
-                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_price REAL,
-                FOREIGN KEY (market_id) REFERENCES markets (id)
-            )
-        """)
-        
-        # Таблица: Профили кошельков (Smart Money Tracker)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS wallets (
-                address TEXT PRIMARY KEY,
-                alias TEXT,
-                win_rate REAL DEFAULT 0.0,
-                total_profit REAL DEFAULT 0.0,
-                is_insider BOOLEAN DEFAULT FALSE,
-                last_seen DATETIME,
-                notes TEXT
-            )
-        ''')
+            # Таблица проанализированных рынков
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agent_opinions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_name TEXT NOT NULL,
+                    market_id TEXT NOT NULL,
+                    opinion TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    agree BOOLEAN NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            """)
+            
+            # Таблица проанализированных рынков
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS analyzed_markets (
+                    market_id TEXT PRIMARY KEY,
+                    analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_price REAL,
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            """)
+            
+            # Таблица: Профили кошельков (Smart Money Tracker)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS wallets (
+                    address TEXT PRIMARY KEY,
+                    alias TEXT,
+                    win_rate REAL DEFAULT 0.0,
+                    total_profit REAL DEFAULT 0.0,
+                    is_insider BOOLEAN DEFAULT FALSE,
+                    last_seen DATETIME,
+                    notes TEXT
+                )
+            ''')
 
-        # Таблица: Крупные сделки трейдеров (Smart Money Bets)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS trader_transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                wallet_address TEXT NOT NULL,
-                market_id TEXT NOT NULL,
-                outcome TEXT NOT NULL,
-                amount_usd REAL NOT NULL,
-                price REAL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (wallet_address) REFERENCES wallets (address),
-                FOREIGN KEY (market_id) REFERENCES markets (id)
-            )
-        ''')
-        
-        # Таблица истории чата Telegram
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS chat_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+            # Таблица: Крупные сделки трейдеров (Smart Money Bets)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS trader_transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    wallet_address TEXT NOT NULL,
+                    market_id TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    amount_usd REAL NOT NULL,
+                    price REAL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (wallet_address) REFERENCES wallets (address),
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            ''')
+            
+            # Таблица истории чата Telegram
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-        # Таблица входящих постов Telegram (для event-driven анализа)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS telegram_posts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id TEXT NOT NULL,
-                message_id INTEGER NOT NULL,
-                text TEXT NOT NULL,
-                received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                status TEXT DEFAULT 'NEW',
-                UNIQUE(chat_id, message_id)
+            # Таблица входящих постов Telegram (для event-driven анализа)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS telegram_posts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT NOT NULL,
+                    message_id INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'NEW',
+                    UNIQUE(chat_id, message_id)
+                )
+            """)
+            
+            # Эпизодическая память агентов (Спринт 7)
+            # DROP старых триггеров и таблиц FTS, если они остались от старой схемы
+            cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ai")
+            cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ad")
+            cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_au")
+            cursor.execute("DROP TABLE IF EXISTS agent_episodes_fts")
+
+            # FTS5 виртуальная таблица для быстрого поиска по эпизодам
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS agent_episodes_fts USING fts5(
+                    episode_id UNINDEXED,
+                    agent_name,
+                    summary,
+                    context
+                )
+            """)
+            
+            # Триггеры для синхронизации FTS5 и agent_episodes
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS agent_episodes_ai_v2 AFTER INSERT ON agent_episodes BEGIN
+                    INSERT INTO agent_episodes_fts(episode_id, agent_name, summary, context) 
+                    VALUES (new.id, new.agent_name, new.summary, new.context);
+                END;
+            """)
+            
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS agent_episodes_ad_v2 AFTER DELETE ON agent_episodes BEGIN
+                    DELETE FROM agent_episodes_fts WHERE episode_id = old.id;
+                END;
+            """)
+            
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS agent_episodes_au_v2 AFTER UPDATE ON agent_episodes BEGIN
+                    DELETE FROM agent_episodes_fts WHERE episode_id = old.id;
+                    INSERT INTO agent_episodes_fts(episode_id, agent_name, summary, context) 
+                    VALUES (new.id, new.agent_name, new.summary, new.context);
+                END;
+            """)
+            
+            # Таблица истории цен (для трендового анализа)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS price_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    market_id TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            """)
+
+            # Таблица корреляций между рынками
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS correlations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    market_id_a TEXT NOT NULL,
+                    market_id_b TEXT NOT NULL,
+                    title_a TEXT,
+                    title_b TEXT,
+                    correlation_type TEXT NOT NULL,
+                    description TEXT,
+                    confidence REAL,
+                    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notified BOOLEAN DEFAULT FALSE
+                )
+            """)
+
+            # Эпизодическая память агентов
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agent_episodes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_name TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    market_id TEXT,
+                    market_title TEXT,
+                    summary TEXT NOT NULL,
+                    context TEXT,
+                    outcome TEXT DEFAULT 'unknown',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            """)
+
+            # Индексы для ускорения частых запросов
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_opinions_market ON agent_opinions(market_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_chat ON chat_history(chat_id, timestamp)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close ON markets(close_time)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_price_history_market ON price_history(market_id, recorded_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_correlations_new ON correlations(notified, detected_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_trader_transactions_market ON trader_transactions(market_id, timestamp)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_agent ON agent_episodes(agent_name, created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON agent_episodes(outcome, event_type)")
+
+            # Миграция: добавляем новые колонки в memory (если их ещё нет)
+            existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(memory)").fetchall()}
+            if 'category' not in existing_cols:
+                cursor.execute("ALTER TABLE memory ADD COLUMN category TEXT DEFAULT 'general'")
+            if 'ttl' not in existing_cols:
+                cursor.execute("ALTER TABLE memory ADD COLUMN ttl INTEGER DEFAULT NULL")
+            if 'priority' not in existing_cols:
+                cursor.execute("ALTER TABLE memory ADD COLUMN priority INTEGER DEFAULT 0")
+            if 'expires_at' not in existing_cols:
+                cursor.execute("ALTER TABLE memory ADD COLUMN expires_at DATETIME DEFAULT NULL")
+
+            # Миграция: добавляем новые колонки в markets (tokens, volume)
+            market_cols = {row[1] for row in cursor.execute("PRAGMA table_info(markets)").fetchall()}
+            if 'tokens' not in market_cols:
+                cursor.execute("ALTER TABLE markets ADD COLUMN tokens TEXT DEFAULT NULL")
+            if 'volume' not in market_cols:
+                cursor.execute("ALTER TABLE markets ADD COLUMN volume REAL DEFAULT NULL")
+            
+            # Таблица логов LLM
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS llm_calls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_name TEXT NOT NULL,
+                    model_name TEXT NOT NULL,
+                    market_id TEXT,
+                    prompt TEXT,
+                    response TEXT,
+                    input_tokens INTEGER NOT NULL,
+                    output_tokens INTEGER NOT NULL,
+                    total_tokens INTEGER NOT NULL,
+                    latency_ms INTEGER,
+                    error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_agent_date ON llm_calls(agent_name, created_at)")
+
+            # Таблица: Индекс vault (Layer 1 ↔ Layer 2/3 связь)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS vault_index (
+                    path TEXT PRIMARY KEY,
+                    category TEXT,
+                    title TEXT,
+                    tags TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    content_hash TEXT
+                )
+            """)
+            # Удален token_usage
+
+            # Таблица: Кросс-платформенные арбитражные сигналы (Polymarket ↔ Kalshi и др.)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cross_arbitrage_signals (
+                    id TEXT PRIMARY KEY,
+                    market_a_id TEXT NOT NULL,
+                    market_a_platform TEXT NOT NULL,
+                    market_a_title TEXT NOT NULL,
+                    market_a_price REAL NOT NULL,
+                    market_a_url TEXT NOT NULL,
+                    market_b_id TEXT NOT NULL,
+                    market_b_platform TEXT NOT NULL,
+                    market_b_title TEXT NOT NULL,
+                    market_b_price REAL NOT NULL,
+                    market_b_url TEXT NOT NULL,
+                    has_arbitrage INTEGER NOT NULL,
+                    arbitrage_type TEXT NOT NULL,
+                    spread_percent REAL NOT NULL,
+                    reasoning TEXT,
+                    trade_instruction TEXT,
+                    match_score REAL NOT NULL,
+                    status TEXT DEFAULT 'new',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cross_arb_status "
+                "ON cross_arbitrage_signals(status, created_at)"
             )
-        """)
-        
-        # Эпизодическая память агентов (Спринт 7)
-        # DROP старых триггеров и таблиц FTS, если они остались от старой схемы
-        cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ai")
-        cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_ad")
-        cursor.execute("DROP TRIGGER IF EXISTS agent_episodes_au")
-        cursor.execute("DROP TABLE IF EXISTS agent_episodes_fts")
 
-        # FTS5 виртуальная таблица для быстрого поиска по эпизодам
-        cursor.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS agent_episodes_fts USING fts5(
-                episode_id UNINDEXED,
-                agent_name,
-                summary,
-                context
-            )
-        """)
-        
-        # Триггеры для синхронизации FTS5 и agent_episodes
-        cursor.execute("""
-            CREATE TRIGGER IF NOT EXISTS agent_episodes_ai_v2 AFTER INSERT ON agent_episodes BEGIN
-                INSERT INTO agent_episodes_fts(episode_id, agent_name, summary, context) 
-                VALUES (new.id, new.agent_name, new.summary, new.context);
-            END;
-        """)
-        
-        cursor.execute("""
-            CREATE TRIGGER IF NOT EXISTS agent_episodes_ad_v2 AFTER DELETE ON agent_episodes BEGIN
-                DELETE FROM agent_episodes_fts WHERE episode_id = old.id;
-            END;
-        """)
-        
-        cursor.execute("""
-            CREATE TRIGGER IF NOT EXISTS agent_episodes_au_v2 AFTER UPDATE ON agent_episodes BEGIN
-                DELETE FROM agent_episodes_fts WHERE episode_id = old.id;
-                INSERT INTO agent_episodes_fts(episode_id, agent_name, summary, context) 
-                VALUES (new.id, new.agent_name, new.summary, new.context);
-            END;
-        """)
-        
-        # Таблица истории цен (для трендового анализа)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS price_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                market_id TEXT NOT NULL,
-                price REAL NOT NULL,
-                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (market_id) REFERENCES markets (id)
-            )
-        """)
+            # Миграция: target_outcome и estimated_probability в signals
+            signal_cols = {row[1] for row in cursor.execute("PRAGMA table_info(signals)").fetchall()}
+            if 'target_outcome' not in signal_cols:
+                cursor.execute("ALTER TABLE signals ADD COLUMN target_outcome TEXT DEFAULT 'YES'")
+            if 'estimated_probability' not in signal_cols:
+                cursor.execute("ALTER TABLE signals ADD COLUMN estimated_probability REAL DEFAULT NULL")
+                
+            # Миграция: prompt_version и had_performance_ctx в llm_calls
+            llm_cols = {row[1] for row in cursor.execute("PRAGMA table_info(llm_calls)").fetchall()}
+            if 'prompt_version' not in llm_cols:
+                cursor.execute("ALTER TABLE llm_calls ADD COLUMN prompt_version TEXT DEFAULT 'v1'")
+            if 'had_performance_ctx' not in llm_cols:
+                cursor.execute("ALTER TABLE llm_calls ADD COLUMN had_performance_ctx INTEGER DEFAULT 0")
 
-        # Таблица корреляций между рынками
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS correlations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                market_id_a TEXT NOT NULL,
-                market_id_b TEXT NOT NULL,
-                title_a TEXT,
-                title_b TEXT,
-                correlation_type TEXT NOT NULL,
-                description TEXT,
-                confidence REAL,
-                detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                notified BOOLEAN DEFAULT FALSE
-            )
-        """)
-
-        # Эпизодическая память агентов
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS agent_episodes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_name TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                market_id TEXT,
-                market_title TEXT,
-                summary TEXT NOT NULL,
-                context TEXT,
-                outcome TEXT DEFAULT 'unknown',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (market_id) REFERENCES markets (id)
-            )
-        """)
-
-        # Индексы для ускорения частых запросов
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_opinions_market ON agent_opinions(market_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_chat ON chat_history(chat_id, timestamp)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close ON markets(close_time)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_price_history_market ON price_history(market_id, recorded_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_correlations_new ON correlations(notified, detected_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_trader_transactions_market ON trader_transactions(market_id, timestamp)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_agent ON agent_episodes(agent_name, created_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON agent_episodes(outcome, event_type)")
-
-        # Миграция: добавляем новые колонки в memory (если их ещё нет)
-        existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(memory)").fetchall()}
-        if 'category' not in existing_cols:
-            cursor.execute("ALTER TABLE memory ADD COLUMN category TEXT DEFAULT 'general'")
-        if 'ttl' not in existing_cols:
-            cursor.execute("ALTER TABLE memory ADD COLUMN ttl INTEGER DEFAULT NULL")
-        if 'priority' not in existing_cols:
-            cursor.execute("ALTER TABLE memory ADD COLUMN priority INTEGER DEFAULT 0")
-        if 'expires_at' not in existing_cols:
-            cursor.execute("ALTER TABLE memory ADD COLUMN expires_at DATETIME DEFAULT NULL")
-
-        # Миграция: добавляем новые колонки в markets (tokens, volume)
-        market_cols = {row[1] for row in cursor.execute("PRAGMA table_info(markets)").fetchall()}
-        if 'tokens' not in market_cols:
-            cursor.execute("ALTER TABLE markets ADD COLUMN tokens TEXT DEFAULT NULL")
-        if 'volume' not in market_cols:
-            cursor.execute("ALTER TABLE markets ADD COLUMN volume REAL DEFAULT NULL")
-        
-        # Таблица логов LLM
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS llm_calls (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_name TEXT NOT NULL,
-                model_name TEXT NOT NULL,
-                market_id TEXT,
-                prompt TEXT,
-                response TEXT,
-                input_tokens INTEGER NOT NULL,
-                output_tokens INTEGER NOT NULL,
-                total_tokens INTEGER NOT NULL,
-                latency_ms INTEGER,
-                error TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_agent_date ON llm_calls(agent_name, created_at)")
-
-        # Таблица: Индекс vault (Layer 1 ↔ Layer 2/3 связь)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS vault_index (
-                path TEXT PRIMARY KEY,
-                category TEXT,
-                title TEXT,
-                tags TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                content_hash TEXT
-            )
-        """)
-        # Удален token_usage
-
-        # Таблица: Кросс-платформенные арбитражные сигналы (Polymarket ↔ Kalshi и др.)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS cross_arbitrage_signals (
-                id TEXT PRIMARY KEY,
-                market_a_id TEXT NOT NULL,
-                market_a_platform TEXT NOT NULL,
-                market_a_title TEXT NOT NULL,
-                market_a_price REAL NOT NULL,
-                market_a_url TEXT NOT NULL,
-                market_b_id TEXT NOT NULL,
-                market_b_platform TEXT NOT NULL,
-                market_b_title TEXT NOT NULL,
-                market_b_price REAL NOT NULL,
-                market_b_url TEXT NOT NULL,
-                has_arbitrage INTEGER NOT NULL,
-                arbitrage_type TEXT NOT NULL,
-                spread_percent REAL NOT NULL,
-                reasoning TEXT,
-                trade_instruction TEXT,
-                match_score REAL NOT NULL,
-                status TEXT DEFAULT 'new',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_cross_arb_status "
-            "ON cross_arbitrage_signals(status, created_at)"
-        )
-
-        conn.commit()
-    _db_initialized = True
-    print(f"База данных инициализирована по адресу: {DB_PATH}")
+        _db_initialized = True
+        print(f"База данных инициализирована по адресу: {DB_PATH}")
 
 def save_cross_arbitrage(signal) -> None:
     """Сохраняет или обновляет кросс-платформенный арбитражный сигнал."""
@@ -463,7 +476,6 @@ def save_chat_message(chat_id: int, role: str, content: str):
             INSERT INTO chat_history (chat_id, role, content)
             VALUES (?, ?, ?)
         """, (chat_id, role, content))
-        conn.commit()
 
 def get_chat_history(chat_id: int, limit: int = 20):
     with get_connection() as conn:
@@ -568,22 +580,24 @@ def save_market(market: Market):
             INSERT OR REPLACE INTO markets (id, platform, title, description, url, outcome, price, close_time, tokens, volume)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (market.id, market.platform, market.title, market.description, market.url, market.outcome, market.price, market.close_time.isoformat(), tokens_json, market.volume))
-        conn.commit()
 
-def save_signal(signal: Signal):
+def save_signal(signal: Signal, details_obj=None):
     with get_connection() as conn:
         cursor = conn.cursor()
+        details_str = details_obj.model_dump_json() if details_obj else signal.details
+        
+        target_outcome = details_obj.target_outcome if details_obj else 'YES'
+        estimated_prob = details_obj.estimated_probability if details_obj else signal.confidence
+        
         cursor.execute("""
-            INSERT OR REPLACE INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, signal.details, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat()))
-        conn.commit()
+            INSERT OR REPLACE INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob))
 
 def mark_market_analyzed(market_id: str, price: float):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("INSERT OR REPLACE INTO analyzed_markets (market_id, last_price, analyzed_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (market_id, price))
-        conn.commit()
 
 def get_last_analyzed_price(market_id: str) -> Optional[float]:
     with get_connection() as conn:
@@ -1110,3 +1124,90 @@ def get_known_whales() -> dict:
 
 if __name__ == "__main__":
     init_db()
+def get_performance_summary(agent_name: str, limit: int = 20) -> str:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT summary, outcome, context, created_at
+            FROM agent_episodes
+            WHERE agent_name = ? AND event_type = 'signal_resolved'
+              AND outcome IN ('correct', 'incorrect')
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (agent_name, limit))
+        episodes = cursor.fetchall()
+        
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN outcome='correct' THEN 1 ELSE 0 END) as correct
+            FROM agent_episodes
+            WHERE agent_name = ? AND event_type = 'signal_resolved'
+              AND outcome IN ('correct', 'incorrect')
+        """, (agent_name,))
+        stats = cursor.fetchone()
+
+    if not episodes:
+        return ""
+    
+    total = stats['total'] or 0
+    correct = stats['correct'] or 0
+    accuracy = correct / total if total > 0 else 0
+    
+    lines = [
+        f"## Твоя история прогнозов (последние {len(episodes)} из {total} разрешённых):",
+        f"Точность: {correct}/{total} = {accuracy:.0%}\n",
+        "Последние результаты:"
+    ]
+    for ep in episodes[:10]:
+        icon = "🍅" if ep['outcome'] == 'correct' else "𝍌"
+        ctx = json.loads(ep['context'] or '{}')
+        prob = ctx.get('predicted_prob', '?')
+        prob_str = f"{prob:.0%}" if isinstance(prob, float) else str(prob)
+        lines.append(f"{icon} {ep['summary'][:120]} [прогноз был: {prob_str}]")
+    
+    return "\n".join(lines)
+
+def get_agent_accuracy(agent_name: str) -> dict:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN outcome='correct' THEN 1 ELSE 0 END) as correct
+            FROM agent_episodes
+            WHERE agent_name = ? AND event_type = 'signal_resolved'
+              AND outcome IN ('correct', 'incorrect')
+        """, (agent_name,))
+        row = cursor.fetchone()
+        
+        total = row['total'] or 0
+        correct = row['correct'] or 0
+        accuracy = correct / total if total > 0 else 0.0
+        return {'total': total, 'correct': correct, 'accuracy': accuracy}
+
+def get_learning_impact() -> dict:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                lc.had_performance_ctx,
+                COUNT(*) as total,
+                SUM(CASE WHEN ae.outcome='correct' THEN 1 ELSE 0 END) as correct
+            FROM llm_calls lc
+            JOIN agent_episodes ae ON lc.market_id = ae.market_id
+            WHERE ae.outcome IN ('correct', 'incorrect')
+              AND lc.agent_name = ae.agent_name
+            GROUP BY lc.had_performance_ctx
+        """)
+        rows = cursor.fetchall()
+    result = {}
+    for row in rows:
+        key = "with_ctx" if row['had_performance_ctx'] else "without_ctx"
+        total = row['total'] or 0
+        correct = row['correct'] or 0
+        result[key] = {
+            "total": total, "correct": correct,
+            "accuracy": round(correct / total, 3) if total > 0 else None
+        }
+    return result

@@ -1,6 +1,6 @@
 import json
 import logging
-from agents.shared.python.db import get_connection, cleanup_stale_signals
+from agents.shared.python.db import get_connection, cleanup_stale_signals, save_agent_episode
 from agents.shared.adapters.polymarket import PolymarketAdapter
 
 logger = logging.getLogger("ResolutionCheck")
@@ -29,7 +29,7 @@ def resolve_closed_markets():
             FROM signals s
             JOIN markets m ON s.market_id = m.id
             WHERE s.status IN ('PENDING', 'ARCHIVED') 
-              AND m.close_time < datetime('now', '+1 days')
+              AND m.close_time < datetime('now', '+1 hours')
               AND s.platform = 'polymarket'
         """)
         pending = cursor.fetchall()
@@ -62,13 +62,16 @@ def resolve_closed_markets():
                 # Поскольку target_outcome не хранится прямо, а всегда подразумевается YES для первого токена в боте
                 target = 'YES'
                 
-                # Если в details есть прямое указание
                 try:
-                    details = json.loads(row['details'])
-                    if 'target_outcome' in details:
-                        target = details['target_outcome'].upper()
-                except:
-                    pass
+                    details_data = json.loads(row['details'])
+                    if 'target_outcome' in details_data:
+                        target = details_data['target_outcome'].upper()
+                    
+                    agent_name = details_data.get('agent_name', 'SCOUT')
+                    predicted_prob = details_data.get('estimated_probability', 0.5)
+                except (json.JSONDecodeError, TypeError, KeyError):
+                    agent_name = 'SCOUT'
+                    predicted_prob = 0.5
                 
                 is_win = False
                 if target == 'YES' and winner_index == 0:
@@ -81,6 +84,23 @@ def resolve_closed_markets():
                 cursor.execute("UPDATE signals SET status = ? WHERE id = ?", (new_status, sig_id))
                 count_resolved += 1
                 logger.info(f"Signal {sig_id} resolved as {new_status} (Market: {row['title']})")
+                
+                resolved_outcome = 'YES' if winner_index == 0 else 'NO'
+                outcome_label = 'correct' if is_win else 'incorrect'
+                save_agent_episode(
+                    agent_name=agent_name,
+                    event_type='signal_resolved',
+                    summary=f"Рынок '{row['title'][:50]}...' закрылся как {resolved_outcome}. Прогноз агента: {predicted_prob:.0%}. Результат: {new_status}",
+                    market_id=m_id,
+                    market_title=row['title'],
+                    context=json.dumps({
+                        'predicted_prob': predicted_prob,
+                        'target': target,
+                        'winner_index': winner_index,
+                        'resolved_as': resolved_outcome
+                    }),
+                    outcome=outcome_label
+                )
                 
             except Exception as e:
                 logger.error(f"Error resolving {sig_id}: {e}")

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
-from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes
+from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes, get_performance_summary
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 class ScoutAgent:
@@ -77,12 +77,17 @@ class ScoutAgent:
         episodes_text = "Нет недавних оценок."
         if episodes:
             episodes_text = "\n".join([f"- {ep['summary']}" for ep in episodes])
+            
+        perf_summary = get_performance_summary("SCOUT", 10)
 
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
 Описание: {market.description}
 Исход: {market.outcome}
+
+[Твоя производительность и работа над ошибками]
+{perf_summary}
 
 {rag_context}
 

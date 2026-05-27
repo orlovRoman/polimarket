@@ -83,10 +83,18 @@ class AuthMiddleware(BaseMiddleware):
                     
         # Auth check
         if AUTHORIZED_CHAT_ID:
+            user_id = str(event.from_user.id) if hasattr(event, "from_user") and event.from_user else None
             chat_id = str(event.chat.id) if hasattr(event, "chat") and event.chat else None
             if not chat_id and hasattr(event, "message") and event.message:
                 chat_id = str(event.message.chat.id)
-            if chat_id and chat_id != AUTHORIZED_CHAT_ID:
+            
+            allowed = False
+            if chat_id and chat_id == AUTHORIZED_CHAT_ID:
+                allowed = True
+            elif user_id and user_id == AUTHORIZED_CHAT_ID:
+                allowed = True
+                
+            if not allowed:
                 return
 
         return await handler(event, data)
@@ -250,6 +258,26 @@ async def command_status_handler(message: types.Message) -> None:
     status_text += accuracy_line
 
     await message.answer(status_text)
+
+@dp.message(Command("performance"))
+async def cmd_performance(message: types.Message):
+    from agents.shared.python.db import get_performance_summary
+    scout_stats = await asyncio.to_thread(get_performance_summary, "SCOUT", 10)
+    swing_stats = await asyncio.to_thread(get_performance_summary, "SWING", 10)
+    shadow_stats = await asyncio.to_thread(get_performance_summary, "SHADOW", 10)
+    
+    text = "📊 <b>Производительность агентов:</b>\n\n"
+    if scout_stats:
+        text += f"<b>SCOUT:</b>\n{scout_stats}\n\n"
+    if swing_stats:
+        text += f"<b>SWING:</b>\n{swing_stats}\n\n"
+    if shadow_stats:
+        text += f"<b>SHADOW:</b>\n{shadow_stats}\n\n"
+        
+    if text == "📊 <b>Производительность агентов:</b>\n\n":
+        text += "Пока нет завершённых прогнозов."
+    
+    await message.answer(text, parse_mode="HTML")
 
 @dp.message(Command("stats"))
 async def command_stats_handler(message: types.Message) -> None:
@@ -802,6 +830,10 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         # Wait a bit to ensure the queue is empty before cancelling
         await asyncio.sleep(2.5)
         updater_task.cancel()
+        try:
+            await updater_task
+        except asyncio.CancelledError:
+            pass
 
 
 async def send_ideas_page(message_or_callback, page: int = 0) -> None:

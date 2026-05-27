@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 from core.models import Market, AgentOpinion
 from core.context import MarketContext
+from agents.shared.python.db import get_agent_episodes, get_performance_summary
 
 class ShadowAgent:
     """
@@ -79,11 +80,22 @@ YES dominance:   {smart_money.yes_dominance:.0%}
             print(f"[SHADOW] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
 
+        # Загружаем эпизодическую память (последние оценки)
+        episodes = get_agent_episodes("SHADOW", event_type="signal_evaluated", limit=3)
+        episodes_text = "Нет недавних оценок."
+        if episodes:
+            episodes_text = "\n".join([f"- {ep['summary']}" for ep in episodes])
+            
+        perf_summary = get_performance_summary("SHADOW", 10)
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
 Текущая цена: {market.price}
 Идея SCOUT: {scout_opinion}
+
+[Твоя производительность и работа над ошибками]
+{perf_summary}
 
 {rag_context}
 
