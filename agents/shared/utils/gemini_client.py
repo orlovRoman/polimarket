@@ -91,7 +91,7 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3", strict_j
                     }
                 })
 
-        message_dict = {"role": openai_role, "content": text_content if text_content else None}
+        message_dict = {"role": openai_role, "content": text_content or ""}
         if tool_calls:
             message_dict["tool_calls"] = tool_calls
 
@@ -201,7 +201,9 @@ def extract_response_text(result: dict) -> str:
     try:
         return result['candidates'][0]['content']['parts'][0]['text']
     except Exception as e:
-        raise ValueError(f"Не удалось извлечь текст ответа. API вернуло: {json.dumps(result)}") from e
+        MAX_ERR_DUMP = 500
+        raw = json.dumps(result)
+        raise ValueError(f"Не удалось извлечь текст ответа. API вернуло: {raw[:MAX_ERR_DUMP]}{'...' if len(raw) > MAX_ERR_DUMP else ''}") from e
 
 def generate_content_with_fallback(
     api_key: str, 
@@ -272,6 +274,7 @@ def generate_content_with_fallback(
             
     prompt_text = extract_prompt_from_payload(payload)
 
+    gemini_attempt = 0
     for current_model in models:
         start_time = time.time()
         
@@ -391,7 +394,6 @@ def generate_content_with_fallback(
                 
             cer_idx = int(get_memory("cer_rr_index", 0))
             
-            success = False
             for i in range(len(cer_models)):
                 cer_model = cer_models[(cer_idx + i) % len(cer_models)]
                 logger.info(f"[{agent_name}] Отправка запроса в Cerebras API (модель {cer_model})...")
@@ -444,9 +446,7 @@ def generate_content_with_fallback(
                     logger.error(f"[{agent_name}] Исключение при запросе к Cerebras ({cer_model}): {e}")
                     latency_ms = int((time.time() - cer_start_time) * 1000)
                     LLMLogger.log_call(agent_name, cer_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
-                    
-            if not success:
-                continue
+            continue
             
         # --- ВЕТКА GEMINI ---
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
@@ -491,9 +491,9 @@ def generate_content_with_fallback(
             LLMLogger.log_call(agent_name, current_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
             
         # Экспоненциальный бэкоф между попытками Gemini
-        attempt = models.index(current_model) if current_model in models else 0
-        backoff = min(0.5 * (2 ** attempt), 5.0)
+        backoff = min(0.5 * (2 ** gemini_attempt), 5.0)
         time.sleep(backoff)
+        gemini_attempt += 1
         
     logger.error(f"[{agent_name}] Критическая ошибка: все доступные модели (Grok и Gemini) вернули ошибку.")
     

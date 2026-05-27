@@ -58,9 +58,9 @@ class DatabaseManager:
         """Сохраняет данные в долгосрочную Key-Value память с полным набором параметров."""
         _db.save_memory(key, value, category=category, ttl=ttl, priority=priority)
 
-    def get_memory(self, key: str) -> Optional[Any]:
+    def get_memory(self, key: str, default: Any = None) -> Optional[Any]:
         """Извлекает данные из долгосрочной памяти."""
-        return _db.get_memory(key)
+        return _db.get_memory(key, default)
 
     # --- Токены и модели ---
     def get_token_usage_last_24h(self, agent_name: str) -> Dict[str, int]:
