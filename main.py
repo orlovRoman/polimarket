@@ -95,7 +95,7 @@ async def scheduled_cross_arbitrage_scan():
 
 async def start_fastapi():
     """Запуск FastAPI сервера в фоне (через asyncio)"""
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info", install_signal_handlers=False)
     server = uvicorn.Server(config)
     await server.serve()
 
