@@ -7,6 +7,10 @@ from core.context import MarketContext
 from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes, get_performance_summary
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
+import logging
+
+logger = logging.getLogger("scout_agent")
+
 class ScoutAgent:
     """
     Агент SCOUT — основной аналитический модуль для поиска недооцененных рынков.
@@ -44,7 +48,7 @@ class ScoutAgent:
             from agents.shared.utils.rag import get_rag_context
             rag_context = get_rag_context(market.title, market.description)
         except Exception as e:
-            print(f"[SCOUT] Ошибка загрузки RAG-памяти: {e}")
+            logger.error(f"[SCOUT] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
         
         # Получаем известные корреляции из базы
@@ -66,7 +70,8 @@ class ScoutAgent:
                         related_price_text = "Рынок не найден"
                     else:
                         related_price_text = f"АКТУАЛЬНАЯ ЦЕНА: {related_market.price}"
-                except:
+                except Exception as e:
+                    logger.warning(f"[{self.name}] Не удалось получить цену связанного рынка {related_id}: {e}")
                     related_price_text = "Ошибка получения цены"
                     
                 correlation_texts.append(
@@ -175,7 +180,7 @@ class ScoutAgent:
                 analysis = json.loads(content, strict=False)
                 break
             except json.JSONDecodeError as e:
-                print(f"[SCOUT] Не удалось распарсить JSON (попытка {attempt+1}): {e}")
+                logger.warning(f"[{self.name}] Не удалось распарсить JSON (попытка {attempt+1}): {e}")
                 analysis = None
         
         if not analysis:
@@ -231,7 +236,7 @@ class ScoutAgent:
                 )
                 return signal
         except Exception as e:
-            print(f"Ошибка при оценке рынка {market.id}: {e}")
+            logger.error(f"Ошибка при оценке рынка {context.market.id}: {e}")
             
         return None
 
@@ -246,7 +251,7 @@ class ScoutAgent:
             cursor.execute("SELECT * FROM markets ORDER BY updated_at DESC LIMIT ?", (limit,))
             rows = cursor.fetchall()
         
-        print(f"Запуск сканирования {len(rows)} рынков...")
+        logger.info(f"Запуск сканирования {len(rows)} рынков...")
         
         for row in rows:
             market = Market(
@@ -260,13 +265,14 @@ class ScoutAgent:
                 close_time=datetime.fromisoformat(row['close_time'])
             )
             
-            print(f"Анализируем: {market.title} (Цена: {market.price})...")
-            signal = self.estimate_market(market)
+            logger.info(f"Анализируем: {market.title} (Цена: {market.price})...")
+            context = MarketContext(market=market)
+            signal = self.estimate_market(context)
             if signal:
-                print(f"!!! НАЙДЕН СИГНАЛ: {signal.summary} (Edge: {signal.edge:.2f}, Conf: {signal.confidence})")
+                logger.info(f"!!! НАЙДЕН СИГНАЛ: {signal.summary} (Edge: {signal.edge:.2f}, Conf: {signal.confidence})")
                 save_signal(signal)
             else:
-                print("--- Сигнал не найден.")
+                logger.info("--- Сигнал не найден.")
 
 if __name__ == "__main__":
     # Локальный запуск агента для тестов

@@ -118,6 +118,24 @@ def ask_gemini(text: str, history: list = None) -> str:
     except Exception as e:
         return f"Ошибка при обращении к NEXUS: {e}"
 
+def build_paginated_keyboard(page: int, total_pages: int, prefix: str) -> InlineKeyboardMarkup:
+    """Создает клавиатуру с пагинацией."""
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"{prefix}_{page - 1}"))
+    nav_row.append(InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message"))
+    if page + 1 < total_pages:
+        nav_row.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"{prefix}_{page + 1}"))
+    return InlineKeyboardMarkup(inline_keyboard=[nav_row])
+
+async def send_or_edit(message_or_callback, text: str, keyboard: InlineKeyboardMarkup = None) -> None:
+    """Вспомогательная функция для отправки нового или редактирования существующего сообщения."""
+    if isinstance(message_or_callback, types.Message):
+        await message_or_callback.answer(text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+    else:
+        await message_or_callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+        await message_or_callback.answer()
+
 @dp.message(CommandStart())
 async def command_start_handler(message: types.Message) -> None:
     """
@@ -318,8 +336,7 @@ async def command_audit_handler(message: types.Message) -> None:
     except Exception as e:
         await message.answer(f"Ошибка получения аудита: {e}")
 
-@dp.message(Command("settings"))
-async def command_settings_handler(message: types.Message) -> None:
+async def send_settings_menu(message_or_callback):
     from agents.shared.python.db import get_memory
     current_edge = int((get_memory("min_edge") or 0.10) * 100)
     try:
@@ -338,7 +355,11 @@ async def command_settings_handler(message: types.Message) -> None:
         [InlineKeyboardButton(text="🤖 Модели агентов (LLM)", callback_data="settings_models")],
         [InlineKeyboardButton(text="🔎 Настройки Trend Hunter", callback_data="settings_trend_hunter")],
     ])
-    await message.answer("⚙️ <b>Настройки системы:</b>\n\nВыберите параметр для настройки:", reply_markup=keyboard)
+    await send_or_edit(message_or_callback, "⚙️ <b>Настройки системы:</b>\n\nВыберите параметр для настройки:", keyboard)
+
+@dp.message(Command("settings"))
+async def command_settings_handler(message: types.Message) -> None:
+    await send_settings_menu(message)
 
 @dp.callback_query(F.data == "settings_trend_hunter")
 async def callback_settings_trend_hunter(callback: CallbackQuery) -> None:
@@ -408,25 +429,7 @@ async def callback_trigger_trend_hunter(callback: CallbackQuery) -> None:
 
 @dp.callback_query(F.data == "back_to_settings")
 async def callback_back_to_settings(callback: CallbackQuery) -> None:
-    from agents.shared.python.db import get_memory
-    current_edge = int((get_memory("min_edge") or 0.10) * 100)
-    try:
-        rag_level = get_memory("rag_level")
-        rag_level = int(rag_level) if rag_level is not None else 2
-    except Exception:
-        rag_level = 2
-    
-    rag_labels = {1: "Быстрый (L1)", 2: "Стандарт (L2)", 3: "Глубокий (L3)"}
-    rag_text = rag_labels.get(rag_level, "Стандарт (L2)")
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Лимит рынков (scan_limit)", callback_data="settings_limits")],
-        [InlineKeyboardButton(text=f"🎯 Edge порог: {current_edge}%", callback_data="settings_edge")],
-        [InlineKeyboardButton(text=f"🧠 RAG-глубина: {rag_text}", callback_data="settings_rag")],
-        [InlineKeyboardButton(text="🔎 Настройки Trend Hunter", callback_data="settings_trend_hunter")],
-    ])
-    await callback.message.edit_text("⚙️ <b>Настройки системы:</b>\n\nВыберите параметр для настройки:", reply_markup=keyboard)
-    await callback.answer()
+    await send_settings_menu(callback)
 
 @dp.callback_query(F.data == "settings_rag")
 async def callback_settings_rag(callback: CallbackQuery) -> None:
@@ -452,9 +455,8 @@ async def callback_set_rag(callback: CallbackQuery) -> None:
     await asyncio.to_thread(save_memory, "rag_level", level)
     await callback.answer(f"RAG-уровень установлен на L{level}!")
     
-    # Эмулируем нажатие "назад"
-    callback.data = "back_to_settings"
-    await callback_back_to_settings(callback)
+    await callback.answer(f"RAG-уровень установлен на L{level}!")
+    await send_settings_menu(callback)
 
 MODELS_MAPPING = {
     "llama33": ("openrouter", "meta-llama/llama-3.3-70b-instruct:free", "🦙 Llama 3.3"),
@@ -466,8 +468,7 @@ MODELS_MAPPING = {
     "cerebras": ("cerebras", "cerebras_round_robin", "⚡ Cerebras (Round Robin)")
 }
 
-@dp.callback_query(F.data == "settings_models")
-async def callback_settings_models(callback: CallbackQuery) -> None:
+async def send_models_menu(message_or_callback):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Модель: NEXUS", callback_data="set_model_NEXUS")],
         [InlineKeyboardButton(text="Модель: SCOUT", callback_data="set_model_SCOUT")],
@@ -476,8 +477,11 @@ async def callback_settings_models(callback: CallbackQuery) -> None:
         [InlineKeyboardButton(text="Модель: ARBITRAGE", callback_data="set_model_ARBITRAGE")],
         [InlineKeyboardButton(text="⬅️ Назад в настройки", callback_data="back_to_settings")]
     ])
-    await callback.message.edit_text("🤖 <b>Настройка AI Моделей</b>\n\nВыберите агента для переназначения модели:", reply_markup=keyboard)
-    await callback.answer()
+    await send_or_edit(message_or_callback, "🤖 <b>Настройка AI Моделей</b>\n\nВыберите агента для переназначения модели:", keyboard)
+
+@dp.callback_query(F.data == "settings_models")
+async def callback_settings_models(callback: CallbackQuery) -> None:
+    await send_models_menu(callback)
 
 @dp.callback_query(F.data.startswith("set_model_"))
 async def callback_set_agent_model(callback: CallbackQuery) -> None:
@@ -529,10 +533,7 @@ async def callback_save_model(callback: CallbackQuery) -> None:
     await asyncio.to_thread(save_memory, f"agent_config_{agent}", config)
     
     await callback.answer(f"✅ Модель установлена!", show_alert=True)
-    
-    # Возвращаемся в меню выбора агента
-    callback.data = "settings_models"
-    await callback_settings_models(callback)
+    await send_models_menu(callback)
 
 
 @dp.callback_query(F.data == "settings_limits")
@@ -575,14 +576,7 @@ async def callback_setlimit_handler(callback: CallbackQuery) -> None:
 
 @dp.message(Command("model"))
 async def command_model_handler(message: types.Message) -> None:
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Модель: NEXUS", callback_data="set_model_NEXUS")],
-        [InlineKeyboardButton(text="Модель: SCOUT", callback_data="set_model_SCOUT")],
-        [InlineKeyboardButton(text="Модель: SWING", callback_data="set_model_SWING")],
-        [InlineKeyboardButton(text="Модель: SHADOW", callback_data="set_model_SHADOW")],
-        [InlineKeyboardButton(text="Модель: ARBITRAGE", callback_data="set_model_ARBITRAGE")]
-    ])
-    await message.answer("🤖 <b>Настройка AI Моделей</b>\n\nВыберите агента для переназначения модели:", reply_markup=keyboard)
+    await send_models_menu(message)
 
 @dp.callback_query(F.data.startswith("setmodel_"))
 async def callback_setmodel_handler(callback: CallbackQuery) -> None:
@@ -758,11 +752,11 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         }
         cat_name = cat_map.get(category, category)
 
-    await callback.message.edit_text(f"🚀 Запускаю полный цикл анализа (Категория: {cat_name})...")
-    await callback.answer("🔄 Сканирование запущено...")
-    status_msg = callback.message
-    
     async with _scan_lock:
+        await callback.message.edit_text(f"🚀 Запускаю полный цикл анализа (Категория: {cat_name})...")
+        await callback.answer("🔄 Сканирование запущено...")
+        status_msg = callback.message
+        
         log_lines = []
         def log_callback(text):
             log_lines.append(text)
@@ -891,24 +885,8 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
             f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
         )
         
-    inline_kb = []
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"ideas_page_{page - 1}"))
-        
-    nav_row.append(InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message"))
-    
-    if page + 1 < total_pages:
-        nav_row.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"ideas_page_{page + 1}"))
-        
-    inline_kb.append(nav_row)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=inline_kb)
-        
-    if isinstance(message_or_callback, types.Message):
-        await message_or_callback.answer(response, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
-    else:
-        await message_or_callback.message.edit_text(response, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
-        await message_or_callback.answer()
+    keyboard = build_paginated_keyboard(page, total_pages, "ideas_page")
+    await send_or_edit(message_or_callback, response, keyboard)
 
 async def send_penny_page(message_or_callback, page: int = 0) -> None:
     signals = await asyncio.to_thread(get_signals, 100)
@@ -958,25 +936,9 @@ async def send_penny_page(message_or_callback, page: int = 0) -> None:
             f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
         )
         
-    inline_kb = []
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"penny_page_{page - 1}"))
-        
-    nav_row.append(InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message"))
-    
-    if page + 1 < total_pages:
-        nav_row.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"penny_page_{page + 1}"))
-        
-    inline_kb.append(nav_row)
-    inline_kb.append([InlineKeyboardButton(text="🚀 Искать новые", callback_data="scan_penny_stocks")])
-    keyboard = InlineKeyboardMarkup(inline_keyboard=inline_kb)
-        
-    if isinstance(message_or_callback, types.Message):
-        await message_or_callback.answer(response, reply_markup=keyboard, disable_web_page_preview=True)
-    else:
-        await message_or_callback.message.edit_text(response, reply_markup=keyboard, disable_web_page_preview=True)
-        await message_or_callback.answer()
+    keyboard = build_paginated_keyboard(page, total_pages, "penny_page")
+    keyboard.inline_keyboard.append([InlineKeyboardButton(text="🚀 Искать новые", callback_data="scan_penny_stocks")])
+    await send_or_edit(message_or_callback, response, keyboard)
 
 async def send_history_page(message_or_callback, page: int = 0) -> None:
     from agents.shared.python.db import get_history_signals
@@ -1019,24 +981,8 @@ async def send_history_page(message_or_callback, page: int = 0) -> None:
             f"🔗 <a href='{s['url']}'>Смотреть итог</a>\n\n"
         )
         
-    inline_kb = []
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"history_page_{page - 1}"))
-        
-    nav_row.append(InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message"))
-    
-    if page + 1 < total_pages:
-        nav_row.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"history_page_{page + 1}"))
-        
-    inline_kb.append(nav_row)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=inline_kb)
-        
-    if isinstance(message_or_callback, types.Message):
-        await message_or_callback.answer(response, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
-    else:
-        await message_or_callback.message.edit_text(response, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
-        await message_or_callback.answer()
+    keyboard = build_paginated_keyboard(page, total_pages, "history_page")
+    await send_or_edit(message_or_callback, response, keyboard)
 
 @dp.message(Command("ideas"))
 async def command_ideas_handler(message: types.Message) -> None:

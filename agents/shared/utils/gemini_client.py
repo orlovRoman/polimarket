@@ -193,7 +193,9 @@ def extract_prompt_from_payload(payload: dict) -> str:
     try:
         return payload.get("contents", [])[0].get("parts", [])[0].get("text", "")
     except Exception:
-        return json.dumps(payload)
+        MAX_PROMPT_LOG_CHARS = 2000
+        raw = json.dumps(payload)
+        return raw[:MAX_PROMPT_LOG_CHARS] + ("..." if len(raw) > MAX_PROMPT_LOG_CHARS else "")
 
 def extract_response_text(result: dict) -> str:
     try:
@@ -367,6 +369,7 @@ def generate_content_with_fallback(
                     LLMLogger.log_call(
                         agent_name, grok_model, prompt_text, response=response_text,
                         input_tokens=prompt_tokens, output_tokens=completion_tokens, total_tokens=total_tokens,
+                        latency_ms=latency_ms, market_id=market_id
                     )
                     
                     save_memory(f"consecutive_failures_{agent_name}", 0)
@@ -429,8 +432,9 @@ def generate_content_with_fallback(
                         save_memory("cer_rr_index", cer_idx + 1)
                         return result, cer_model
                     elif response.status_code == 429:
-                        logger.warning(f"[{agent_name}] Ошибка 429 от Cerebras ({cer_model}). Ждем 20 секунд сброса лимита...")
-                        time.sleep(20)
+                        CEREBRAS_RATE_LIMIT_WAIT_SEC = 20
+                        logger.warning(f"[{agent_name}] Ошибка 429 от Cerebras ({cer_model}). Ждем {CEREBRAS_RATE_LIMIT_WAIT_SEC} секунд сброса лимита...")
+                        time.sleep(CEREBRAS_RATE_LIMIT_WAIT_SEC)
                         logger.error(f"[{agent_name}] Ошибка Cerebras API ({response.status_code}) для {cer_model}: {response.text}")
                         LLMLogger.log_call(agent_name, cer_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
                     else:
