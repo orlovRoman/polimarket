@@ -833,11 +833,16 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
         if target.upper() == 'NO':
             price = 1.0 - price
             
+        title_safe = s['title'].replace('<', '&lt;').replace('>', '&gt;')
+        summary_safe = s['summary'].replace('<', '&lt;').replace('>', '&gt;')
+        if len(summary_safe) > 500:
+            summary_safe = summary_safe[:500] + "..."
+            
         response += (
-            f"📍 <b>{s['title']}</b>\n"
+            f"📍 <b>{title_safe}</b>\n"
             f"🎯 <b>Рекомендация: Покупать {target}</b> (по цене ~{price:.3f})\n"
             f"📈 Edge (преимущество): <b>+{edge_pct:.1f}%</b> | Уверенность: {s['confidence']}\n"
-            f"📝 {s['summary']}\n"
+            f"📝 {summary_safe}\n"
             f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
         )
         
@@ -895,11 +900,16 @@ async def send_penny_page(message_or_callback, page: int = 0) -> None:
         if target.upper() == 'NO':
             price = 1.0 - price
             
+        title_safe = s['title'].replace('<', '&lt;').replace('>', '&gt;')
+        summary_safe = s['summary'].replace('<', '&lt;').replace('>', '&gt;')
+        if len(summary_safe) > 500:
+            summary_safe = summary_safe[:500] + "..."
+            
         response += (
-            f"📍 <b>{s['title']}</b>\n"
+            f"📍 <b>{title_safe}</b>\n"
             f"🎯 <b>Рекомендация: Покупать {target}</b> (по цене ~{price:.3f})\n"
             f"📈 Edge (преимущество): <b>+{edge_pct:.1f}%</b> | Уверенность: {s['confidence']}\n"
-            f"📝 {s['summary']}\n"
+            f"📝 {summary_safe}\n"
             f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
         )
         
@@ -951,11 +961,16 @@ async def send_history_page(message_or_callback, page: int = 0) -> None:
         status = s.get('status', 'ARCHIVED')
         
         status_emoji = "✅" if status == 'WIN' else "❌" if status == 'LOSS' else "🗄"
+        
+        title_safe = s['title'].replace('<', '&lt;').replace('>', '&gt;')
+        summary_safe = s['summary'].replace('<', '&lt;').replace('>', '&gt;')
+        if len(summary_safe) > 500:
+            summary_safe = summary_safe[:500] + "..."
             
         response += (
-            f"{status_emoji} <b>{s['title']}</b>\n"
+            f"{status_emoji} <b>{title_safe}</b>\n"
             f"🎯 Была рекомендация: <b>{target}</b> (Уверенность: {s['confidence']})\n"
-            f"📝 {s['summary']}\n"
+            f"📝 {summary_safe}\n"
             f"🔗 <a href='{s['url']}'>Смотреть итог</a>\n\n"
         )
         
