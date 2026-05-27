@@ -195,21 +195,25 @@ async def start_system():
     logger.info("Запуск FastAPI...")
     api_task = asyncio.create_task(start_fastapi())
 
+    polling_task = asyncio.create_task(dp.start_polling(bot))
     try:
-        await dp.start_polling(bot)
+        await asyncio.wait(
+            [polling_task, api_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
     except Exception as e:
-        logger.error(f"Критическая ошибка при polling: {e}")
+        logger.error(f"Критическая ошибка в главном цикле: {e}")
     finally:
-        # C-02: корректно отменяем FastAPI-таску при завершении
+        logger.info("🔧 Graceful shutdown: останавливаем все фоновые задачи...")
+        await dp.stop_polling()
+        polling_task.cancel()
         api_task.cancel()
-        try:
-            await api_task
-        except asyncio.CancelledError:
-            pass
+        await asyncio.gather(polling_task, api_task, return_exceptions=True)
         try:
             await bot.session.close()
         except Exception:
             pass
+        logger.info("✅ Shutdown завершён.")
 
 if __name__ == "__main__":
     import sys
