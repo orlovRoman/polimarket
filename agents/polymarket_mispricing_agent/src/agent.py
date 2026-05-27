@@ -60,7 +60,10 @@ class ScoutAgent:
                 # Получаем свежую цену связанного рынка
                 try:
                     related_market = adapter.get_market(related_id)
-                    related_price_text = f"АКТУАЛЬНАЯ ЦЕНА: {related_market.price}" if related_market else "Цена неизвестна"
+                    if related_market is None:
+                        related_price_text = "Рынок не найден"
+                    else:
+                        related_price_text = f"АКТУАЛЬНАЯ ЦЕНА: {related_market.price}"
                 except:
                     related_price_text = "Ошибка получения цены"
                     

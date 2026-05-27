@@ -246,7 +246,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 continue
         return markets
 
-    def get_market(self, market_id: str) -> Market:
+    def get_market(self, market_id: str) -> Optional[Market]:
         response = self.session.get(f"{self.api_url}/markets/{market_id}", timeout=15)
         response.raise_for_status()
         item = response.json()

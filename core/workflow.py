@@ -88,8 +88,10 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             prefiltered = _prefilter_markets(all_compact)
             logger.info(f"  Pre-filter: {len(all_compact)} → {len(prefiltered)} рынков перед NEXUS")
 
-            screen_result = nexus.screen_markets(prefiltered, top_n=30)
+            if not prefiltered:
+                return []
 
+            screen_result = nexus.screen_markets(prefiltered, top_n=30)
             screened_market_ids = screen_result.get("top_candidates", [])
             correlations_count = len(screen_result.get("correlations", []))
             
