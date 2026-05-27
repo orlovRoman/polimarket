@@ -1,5 +1,7 @@
 import os
 import sys
+import socket
+import signal
 import asyncio
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -96,7 +98,6 @@ async def start_fastapi():
     await server.serve()
 
 import socket
-import sys
 
 _lock_socket = None
 
@@ -129,7 +130,6 @@ async def start_system():
     ensure_single_instance()
     
     # Обработчики завершения процесса (асинхронный graceful shutdown)
-    import signal
     loop = asyncio.get_running_loop()
 
     async def _shutdown():
@@ -188,6 +188,12 @@ async def start_system():
     except Exception as e:
         logger.error(f"Критическая ошибка бота: {e}")
     finally:
+        # C-02: корректно отменяем FastAPI-таску при завершении
+        api_task.cancel()
+        try:
+            await api_task
+        except asyncio.CancelledError:
+            pass
         try:
             await bot.session.close()
         except Exception:
