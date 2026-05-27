@@ -24,7 +24,7 @@ class ShadowAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    def analyze_idea(self, context: 'MarketContext', scout_opinion: str, orderbook: dict = None, price_history: list = None) -> Optional[AgentOpinion]:
+    def analyze_idea(self, context: 'MarketContext', scout_opinion: str, orderbook: Optional[dict] = None, price_history: list = None) -> Optional[AgentOpinion]:
         """
         Анализирует идею (от SCOUT) с точки зрения ликвидности и активности трейдеров.
         """

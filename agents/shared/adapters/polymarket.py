@@ -288,7 +288,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             volume=volume,
         )
 
-    def get_orderbook(self, token_id: str) -> dict:
+    def get_orderbook(self, token_id: str) -> Optional[dict]:
         """Получает ордербук с CLOB API (без авторизации — read-only)."""
         try:
             resp = self.session.get(
@@ -313,7 +313,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             }
         except Exception as e:
             print(f"Ошибка при получении ордербука для {token_id}: {e}")
-            return {}
+            return None
 
     def list_all_markets_compact(self) -> list:
         """
