@@ -1,5 +1,6 @@
 import asyncio
 import logging
+logger = logging.getLogger("NexusPolyBot")
 import os
 import sqlite3
 import subprocess
@@ -1147,11 +1148,11 @@ async def conversational_handler(message: types.Message) -> None:
     try:
         await message.answer(response_text, parse_mode="HTML")
     except Exception as e:
-        print(f"Ошибка при отправке сообщения в HTML: {e}. Пробуем отправить как обычный текст...")
+        logger.warning(f"Ошибка при отправке сообщения в HTML: {e}. Пробуем отправить как обычный текст...")
         try:
             await message.answer(response_text, parse_mode=None)
         except Exception as e2:
-            print(f"Критическая ошибка при отправке сообщения в Telegram: {e2}")
+            logger.error(f"Критическая ошибка при отправке сообщения в Telegram: {e2}")
 
 async def main() -> None:
     from config import startup_check
