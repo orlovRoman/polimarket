@@ -159,13 +159,10 @@ async def start_system():
             api_task.cancel()
         logger.info("✅ Задачи отменены, ждём завершения...")
 
-    def _request_shutdown():
+    def _request_shutdown(*args):
         """Планирует асинхронный shutdown из синхронного обработчика сигнала."""
         logger.info("🚨 Получен сигнал завершения, запускаем shutdown...")
         loop.create_task(_shutdown())
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, _request_shutdown)
     
     scheduler.add_job(scheduled_job, 'interval', minutes=5)
     
@@ -204,6 +201,15 @@ async def start_system():
     api_task = asyncio.create_task(start_fastapi())
 
     polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
+    
+    # Устанавливаем обработчики сигналов в самом конце, чтобы переопределить обработчики Playwright/Uvicorn
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, lambda: _request_shutdown())
+        except NotImplementedError:
+            # Fallback for systems where add_signal_handler is not fully supported
+            signal.signal(sig, _request_shutdown)
+
     try:
         done, pending = await asyncio.wait(
             [polling_task, api_task],
