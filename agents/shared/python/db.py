@@ -1152,7 +1152,7 @@ def get_performance_summary(agent_name: str, limit: int = 20) -> str:
         "Последние результаты:"
     ]
     for ep in episodes[:10]:
-        icon = "🍅" if ep['outcome'] == 'correct' else "𝍌"
+        icon = "✅" if ep['outcome'] == 'correct' else "❌"
         ctx = json.loads(ep['context'] or '{}')
         prob = ctx.get('predicted_prob', '?')
         prob_str = f"{prob:.0%}" if isinstance(prob, float) else str(prob)
