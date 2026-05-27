@@ -328,6 +328,7 @@ def generate_content_with_fallback(
                         latency_ms=latency_ms, market_id=market_id
                     )
                             
+                    save_memory(f"consecutive_failures_{agent_name}", 0)
                     return result, or_model
                 else:
                     logger.error(f"[{agent_name}] Ошибка OpenRouter API ({response.status_code}): {response.text}")
@@ -362,6 +363,10 @@ def generate_content_with_fallback(
                 latency_ms = int((time.time() - start_time) * 1000)
                 if response.status_code == 200:
                     openai_res = response.json()
+                    if "choices" not in openai_res or not openai_res["choices"]:
+                        logger.error(f"[{agent_name}] Grok вернул 200 без choices: {openai_res}")
+                        LLMLogger.log_call(agent_name, grok_model, prompt_text, error="No choices", latency_ms=latency_ms, market_id=market_id)
+                        continue
                     result = convert_openai_to_gemini(openai_res)
                     
                     prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
