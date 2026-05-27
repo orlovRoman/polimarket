@@ -143,7 +143,9 @@ def run_agent_evaluation(m, scout, swing, update_state):
     return signal, swing_signal, context
 
 def make_consensus(m: Market, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion]) -> IdeaDecision:
-    shadow_ok = opinion_shadow and opinion_shadow.agree and getattr(opinion_shadow, 'liquidity_risk', 'medium') != "high"
+    # Решение принимает SHADOW через поле agree. Проверка liquidity_risk убрана,
+    # т.к. пользователь оперирует микро-банком ($10-100) и high liquidity_risk — норма.
+    shadow_ok = opinion_shadow and opinion_shadow.agree
     
     valid_scout = signal is not None
     valid_swing = swing_signal is not None and getattr(swing_signal, 'recommendation', '') == 'buy'
