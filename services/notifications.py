@@ -115,10 +115,12 @@ def send_correlation_alerts(summary_callback=None) -> None:
             )
             
             if signal and signal.has_arbitrage:
+                platform_a = getattr(market_a, "platform", "Polymarket").upper()
+                platform_b = getattr(market_b, "platform", "Polymarket").upper()
                 alert_text = (
-                    f"🚨 <b>НАЙДЕН КРОСС-РЫНОЧНЫЙ АРБИТРАЖ</b> 🚨\n\n"
-                    f"📍 <b>Рынок A:</b> <a href='{market_a.url}'>{market_a.title}</a> (Цена: {market_a.price})\n"
-                    f"📍 <b>Рынок B:</b> <a href='{market_b.url}'>{market_b.title}</a> (Цена: {market_b.price})\n\n"
+                    f"🚨 <b>НАЙДЕН КРОСС-РЫНОЧНЫЙ АРБИТРАЖ ({platform_a} ↔ {platform_b})</b> 🚨\n\n"
+                    f"📍 <b>Рынок A ({platform_a}):</b> <a href='{market_a.url}'>{market_a.title}</a> (Цена: {market_a.price})\n"
+                    f"📍 <b>Рынок B ({platform_b}):</b> <a href='{market_b.url}'>{market_b.title}</a> (Цена: {market_b.price})\n\n"
                     f"💡 <b>Тип:</b> {signal.arbitrage_type}\n"
                     f"📈 <b>Разрыв (Spread):</b> {signal.spread_percent}%\n\n"
                     f"🧠 <b>Логика:</b> {signal.reasoning}\n\n"
@@ -145,15 +147,17 @@ def format_cross_arbitrage_alert(signal) -> str:
     """Форматирует CrossArbitrageSignal в красивое HTML-сообщение для Telegram."""
     emoji = "🔥" if signal.spread_percent >= 10 else "⚡️"
     type_label = ARBITRAGE_TYPE_LABELS.get(signal.arbitrage_type, signal.arbitrage_type)
+    platform_a = signal.market_a_platform.upper()
+    platform_b = signal.market_b_platform.upper()
 
     return (
-        f"{emoji} <b>КРОСС-АРБИТРАЖ</b> | {type_label}\n\n"
+        f"{emoji} <b>КРОСС-АРБИТРАЖ ({platform_a} ↔ {platform_b})</b> | {type_label}\n\n"
         f"📊 Спред: <b>{signal.spread_percent:.1f}%</b> | "
         f"Match: {int(signal.match_score * 100)}%\n\n"
-        f"<b>{signal.market_a_platform.upper()}</b>\n"
+        f"<b>{platform_a}</b>\n"
         f"<a href='{signal.market_a_url}'>{signal.market_a_title[:70]}</a>\n"
         f"Цена YES: <b>{int(signal.market_a_price * 100)}¢</b>\n\n"
-        f"<b>{signal.market_b_platform.upper()}</b>\n"
+        f"<b>{platform_b}</b>\n"
         f"<a href='{signal.market_b_url}'>{signal.market_b_title[:70]}</a>\n"
         f"Цена YES: <b>{int(signal.market_b_price * 100)}¢</b>\n\n"
         f"💡 <b>Действие:</b>\n{signal.trade_instruction}\n\n"
