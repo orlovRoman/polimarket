@@ -4,7 +4,7 @@ from typing import Optional, List
 from .base_adapter import BaseMarketAdapter
 from core.models import Market
 
-KALSHI_API = "https://trading-api.kalshi.com/trade-api/v2"
+KALSHI_API = "https://api.elections.kalshi.com/trade-api/v2"
 
 
 class KalshiAdapter(BaseMarketAdapter):
