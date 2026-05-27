@@ -391,57 +391,64 @@ def generate_content_with_fallback(
             continue
             
         # --- ВЕТКА GEMINI ---
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
-        
-        logger.info(f"[{agent_name}] Отправка запроса в Gemini API (модель {current_model})...")
-        try:
-            # Копируем payload, чтобы не модифицировать его для других провайдеров в цикле
-            gemini_payload = json.loads(json.dumps(payload))
-            if "tools" in gemini_payload and "generationConfig" in gemini_payload:
-                gen_cfg = gemini_payload["generationConfig"]
-                if "responseMimeType" in gen_cfg or "response_mime_type" in gen_cfg:
-                    logger.info(f"[{agent_name}] Обнаружены tools. Удаляем responseMimeType из generationConfig для Gemini...")
-                    gen_cfg.pop("responseMimeType", None)
-                    gen_cfg.pop("response_mime_type", None)
-                    gen_cfg.pop("responseSchema", None)
-                    gen_cfg.pop("response_schema", None)
+        keys_to_try = [api_key]
+        sec_api_key = os.getenv("GOOGLE_API_KEY_SECONDARY")
+        if sec_api_key and sec_api_key != api_key:
+            keys_to_try.append(sec_api_key)
             
-            response = requests.post(api_url, json=gemini_payload, timeout=timeout)
-            latency_ms = int((time.time() - start_time) * 1000)
+        gemini_success = False
+        for current_key in keys_to_try:
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={current_key}"
             
-            if response.status_code == 200:
-                result = response.json()
+            logger.info(f"[{agent_name}] Отправка запроса в Gemini API (модель {current_model})...")
+            try:
+                # Копируем payload, чтобы не модифицировать его для других провайдеров в цикле
+                gemini_payload = json.loads(json.dumps(payload))
+                if "tools" in gemini_payload and "generationConfig" in gemini_payload:
+                    gen_cfg = gemini_payload["generationConfig"]
+                    if "responseMimeType" in gen_cfg or "response_mime_type" in gen_cfg:
+                        logger.info(f"[{agent_name}] Обнаружены tools. Удаляем responseMimeType из generationConfig для Gemini...")
+                        gen_cfg.pop("responseMimeType", None)
+                        gen_cfg.pop("response_mime_type", None)
+                        gen_cfg.pop("responseSchema", None)
+                        gen_cfg.pop("response_schema", None)
                 
-                usage_meta = result.get("usageMetadata", {})
-                input_tokens = usage_meta.get("promptTokenCount", 0)
-                output_tokens = usage_meta.get("candidatesTokenCount", 0)
-                total_tokens = input_tokens + output_tokens
+                response = requests.post(api_url, json=gemini_payload, timeout=timeout)
+                latency_ms = int((time.time() - start_time) * 1000)
                 
-                if "candidates" in result and result["candidates"]:
-                    response_text = extract_response_text(result)
-                    LLMLogger.log_call(
-                        agent_name, current_model, prompt_text, response=response_text,
-                        input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens,
-                        latency_ms=latency_ms, market_id=market_id
-                    )
-                    save_memory(f"consecutive_failures_{agent_name}", 0)
-                    return result, current_model
-                else:
-                    logger.warning(f"[{agent_name}] Модель {current_model} вернула успешный статус 200, но без кандидатов.")
-                    LLMLogger.log_call(agent_name, current_model, prompt_text, error="No candidates", latency_ms=latency_ms, market_id=market_id)
-                    continue
+                if response.status_code == 200:
+                    result = response.json()
                     
-            elif response.status_code == 429:
-                logger.warning(f"[{agent_name}] Ограничение лимита (429) для {current_model}. Пробуем альтернативу...")
-                LLMLogger.log_call(agent_name, current_model, prompt_text, error="HTTP 429", latency_ms=latency_ms, market_id=market_id)
-            else:
-                logger.error(f"[{agent_name}] Ошибка API ({response.status_code}) для {current_model}: {response.text}")
-                LLMLogger.log_call(agent_name, current_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
-                
-        except Exception as e:
-            logger.error(f"[{agent_name}] Исключение при запросе к {current_model}: {e}")
-            latency_ms = int((time.time() - start_time) * 1000)
-            LLMLogger.log_call(agent_name, current_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
+                    usage_meta = result.get("usageMetadata", {})
+                    input_tokens = usage_meta.get("promptTokenCount", 0)
+                    output_tokens = usage_meta.get("candidatesTokenCount", 0)
+                    total_tokens = input_tokens + output_tokens
+                    
+                    if "candidates" in result and result["candidates"]:
+                        response_text = extract_response_text(result)
+                        LLMLogger.log_call(
+                            agent_name, current_model, prompt_text, response=response_text,
+                            input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens,
+                            latency_ms=latency_ms, market_id=market_id
+                        )
+                        save_memory(f"consecutive_failures_{agent_name}", 0)
+                        return result, current_model
+                    else:
+                        logger.warning(f"[{agent_name}] Модель {current_model} вернула успешный статус 200, но без кандидатов.")
+                        LLMLogger.log_call(agent_name, current_model, prompt_text, error="No candidates", latency_ms=latency_ms, market_id=market_id)
+                        continue  # Попробуем следующий ключ или модель
+                        
+                elif response.status_code == 429:
+                    logger.warning(f"[{agent_name}] Ограничение лимита (429) для {current_model} на текущем ключе. Пробуем альтернативу...")
+                    LLMLogger.log_call(agent_name, current_model, prompt_text, error="HTTP 429", latency_ms=latency_ms, market_id=market_id)
+                else:
+                    logger.error(f"[{agent_name}] Ошибка API ({response.status_code}) для {current_model}: {response.text}")
+                    LLMLogger.log_call(agent_name, current_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
+                    
+            except Exception as e:
+                logger.error(f"[{agent_name}] Исключение при запросе к {current_model}: {e}")
+                latency_ms = int((time.time() - start_time) * 1000)
+                LLMLogger.log_call(agent_name, current_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
             
         # Экспоненциальный бэкоф между попытками Gemini
         backoff = min(0.5 * (2 ** gemini_attempt), 5.0)
