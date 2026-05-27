@@ -29,6 +29,8 @@ class KalshiAdapter(BaseMarketAdapter):
         cursor = None
         markets = []
         import time
+        import logging
+        logger = logging.getLogger("NexusPolyBot.KalshiAdapter")
         while len(markets) < limit:
             params = {
                 "status": status,
@@ -46,22 +48,22 @@ class KalshiAdapter(BaseMarketAdapter):
                     success = True
                     break
                 except requests.exceptions.Timeout:
-                    print(f"[KalshiAdapter] Timeout, попытка {attempt+1}/3")
+                    logger.error(f"[KalshiAdapter] Timeout при list_markets, попытка {attempt+1}/3")
                     time.sleep(2)
                 except requests.exceptions.HTTPError as e:
                     status_code = e.response.status_code
                     if 500 <= status_code < 600:
-                        print(f"[KalshiAdapter] 5xx Error, попытка {attempt+1}/3")
+                        logger.error(f"[KalshiAdapter] HTTP {status_code} при list_markets, попытка {attempt+1}/3: {e}")
                         time.sleep(3 * (attempt + 1))
                     else:
-                        print(f"[KalshiAdapter] 4xx Error: {e}")
+                        logger.error(f"[KalshiAdapter] HTTP {status_code} list_markets: {e}")
                         break
                 except Exception as e:
-                    print(f"[KalshiAdapter] Ошибка list_markets: {e}")
+                    logger.exception(f"[KalshiAdapter] Неожиданная ошибка list_markets: {e}")
                     break
             
             if not success:
-                print("[KalshiAdapter] Не удалось загрузить рынки после нескольких попыток.")
+                logger.error("[KalshiAdapter] Не удалось загрузить рынки после нескольких попыток.")
                 break
 
             for item in data.get("markets", []):
