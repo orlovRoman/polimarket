@@ -166,19 +166,7 @@ def estimate_llm_cost(model_name: str, input_tokens: int, output_tokens: int) ->
         # $1.25 / 1M input, $5.00 / 1M output
         return (input_tokens * 1.25 / 1_000_000) + (output_tokens * 5.00 / 1_000_000)
         
-    # 4. Тарифы Grok (Grok-3, Grok-beta, etc.)
-    if "grok" in model:
-        # $2.00 / 1M input, $10.00 / 1M output
-        return (input_tokens * 2.00 / 1_000_000) + (output_tokens * 10.00 / 1_000_000)
-        
-    # 5. Модели Cerebras/OpenRouter (Qwen, Llama без free)
-    if "cerebras" in model or "qwen" in model or "llama" in model:
-        if "nemotron" in model or "glm" in model:
-            return 0.0
-        # Если не free, используем средний тариф $0.15 / 1M input, $0.60 / 1M output
-        return (input_tokens * 0.15 / 1_000_000) + (output_tokens * 0.60 / 1_000_000)
-        
-    # 6. Fallback по умолчанию для прочих платных моделей (OpenRouter, etc.)
+    # 4. Fallback по умолчанию для прочих платных моделей (OpenRouter, etc.)
     # $0.50 / 1M input, $1.50 / 1M output
     return (input_tokens * 0.50 / 1_000_000) + (output_tokens * 1.50 / 1_000_000)
 
@@ -429,6 +417,7 @@ async def callback_toggle_trend_alerts(callback: CallbackQuery) -> None:
     new_val = not current
     await asyncio.to_thread(save_memory, "trend_hunter_alerts_enabled", new_val)
     await callback_settings_trend_hunter(callback)
+
 
 @dp.callback_query(F.data == "trigger_trend_hunter")
 async def callback_trigger_trend_hunter(callback: CallbackQuery) -> None:

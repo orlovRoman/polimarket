@@ -216,10 +216,6 @@ def generate_content_with_fallback(
     """
     Выполняет HTTP POST запрос к API с автоматической маршрутизацией.
     """
-    grok_key = os.getenv("GROK_API_KEY")
-    grok_model_default = os.getenv("GROK_MODEL", "grok-3")
-    grok_model = os.getenv(f"GROK_MODEL_{agent_name.upper()}", grok_model_default)
-    
     or_key = os.getenv("OPENROUTER_API_KEY")
     or_model_default = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
     or_model = os.getenv(f"OPENROUTER_MODEL_{agent_name.upper()}", or_model_default)
@@ -238,8 +234,6 @@ def generate_content_with_fallback(
         models.append("cerebras")
     if or_key:
         models.append("openrouter")
-    if grok_key:
-        models.append("grok")
         
     gemini_models = [default_model, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro"]
     for m in gemini_models:
@@ -257,10 +251,6 @@ def generate_content_with_fallback(
                 or_model = db_model
                 if "openrouter" in models: models.remove("openrouter")
                 models.insert(0, "openrouter")
-            elif provider == "grok":
-                grok_model = db_model
-                if "grok" in models: models.remove("grok")
-                models.insert(0, "grok")
             elif provider == "cerebras":
                 # db_model can be ignored for cerebras since we cycle through cer_models anyway
                 if "cerebras" in models: models.remove("cerebras")
@@ -337,59 +327,6 @@ def generate_content_with_fallback(
                 logger.error(f"[{agent_name}] Исключение при запросе к OpenRouter: {e}")
                 latency_ms = int((time.time() - start_time) * 1000)
                 LLMLogger.log_call(agent_name, or_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
-            continue
-            
-        # --- ВЕТКА GROK ---
-        if current_model == "grok":
-            if not grok_key:
-                continue
-                
-            logger.info(f"[{agent_name}] Отправка запроса в Grok API (модель {grok_model})...")
-            try:
-                openai_payload = convert_gemini_to_openai(payload, model_name=grok_model)
-                
-                headers = {
-                    "Authorization": f"Bearer {grok_key}",
-                    "Content-Type": "application/json"
-                }
-                
-                response = requests.post(
-                    "https://api.x.ai/v1/chat/completions",
-                    json=openai_payload,
-                    headers=headers,
-                    timeout=timeout
-                )
-                
-                latency_ms = int((time.time() - start_time) * 1000)
-                if response.status_code == 200:
-                    openai_res = response.json()
-                    if "choices" not in openai_res or not openai_res["choices"]:
-                        logger.error(f"[{agent_name}] Grok вернул 200 без choices: {openai_res}")
-                        LLMLogger.log_call(agent_name, grok_model, prompt_text, error="No choices", latency_ms=latency_ms, market_id=market_id)
-                        continue
-                    result = convert_openai_to_gemini(openai_res)
-                    
-                    prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
-                    completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
-                    total_tokens = prompt_tokens + completion_tokens
-                    
-                    response_text = extract_response_text(result)
-                    LLMLogger.log_call(
-                        agent_name, grok_model, prompt_text, response=response_text,
-                        input_tokens=prompt_tokens, output_tokens=completion_tokens, total_tokens=total_tokens,
-                        latency_ms=latency_ms, market_id=market_id
-                    )
-                    
-                    save_memory(f"consecutive_failures_{agent_name}", 0)
-                            
-                    return result, grok_model
-                else:
-                    logger.error(f"[{agent_name}] Ошибка Grok API ({response.status_code}): {response.text}")
-                    LLMLogger.log_call(agent_name, grok_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
-            except Exception as e:
-                logger.error(f"[{agent_name}] Исключение при запросе к Grok: {e}")
-                latency_ms = int((time.time() - start_time) * 1000)
-                LLMLogger.log_call(agent_name, grok_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
             continue
             
         # --- ВЕТКА CEREBRAS ---
@@ -500,7 +437,7 @@ def generate_content_with_fallback(
         time.sleep(backoff)
         gemini_attempt += 1
         
-    logger.error(f"[{agent_name}] Критическая ошибка: все доступные модели (Grok и Gemini) вернули ошибку.")
+    logger.error(f"[{agent_name}] Критическая ошибка: все доступные модели вернули ошибку.")
     
     # Обработка длительной недоступности
     fail_key = f"consecutive_failures_{agent_name}"
