@@ -286,8 +286,7 @@ def init_db():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_agent ON agent_episodes(agent_name, created_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON agent_episodes(outcome, event_type)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_idea_audit_created_at ON idea_audit (created_at)")
-            # Duplicate idx_signals_status index removed
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_category ON memory (category)")
+            # Duplicate signals status index removed
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close_time ON markets (close_time)")
 
             # Миграция: добавляем новые колонки в memory (если их ещё нет)
@@ -300,6 +299,9 @@ def init_db():
                 cursor.execute("ALTER TABLE memory ADD COLUMN priority INTEGER DEFAULT 0")
             if 'expires_at' not in existing_cols:
                 cursor.execute("ALTER TABLE memory ADD COLUMN expires_at DATETIME DEFAULT NULL")
+
+            # Индекс по категории (создается после миграции, так как колонка category может отсутствовать при чистом создании)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_category ON memory (category)")
 
             # Миграция: добавляем новые колонки в markets (tokens, volume)
             market_cols = {row[1] for row in cursor.execute("PRAGMA table_info(markets)").fetchall()}
