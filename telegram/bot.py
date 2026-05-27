@@ -593,8 +593,8 @@ async def command_arbitrage_handler(message: types.Message) -> None:
     status_msg = await message.answer("🔄 <b>Запускаю кросс-сканирование Polymarket ↔ Kalshi...</b>\n\n<i>Этот процесс занимает 1-2 минуты, так как агент ARBITRAGE сверяет десятки пар.</i>", parse_mode="HTML")
     
     try:
+        import traceback as tb
         from core.arbitrage_workflow import run_cross_platform_scan
-        import os
         api_key = os.getenv("GOOGLE_API_KEY")
         found = await asyncio.to_thread(
             run_cross_platform_scan,
@@ -620,7 +620,9 @@ async def command_arbitrage_handler(message: types.Message) -> None:
         await status_msg.edit_text(response, parse_mode="HTML", disable_web_page_preview=True)
         
     except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка при сканировании арбитража: {e}")
+        error_text = tb.format_exc()[-800:]  # последние 800 символов трассировки
+        logging.error(f"[ARBITRAGE] Ошибка: {error_text}")
+        await status_msg.edit_text(f"❌ <b>Ошибка арбитражного сканирования:</b>\n<pre>{str(e)[:400]}</pre>", parse_mode="HTML")
 
 @dp.message(Command("cleanup"))
 async def command_cleanup_handler(message: types.Message) -> None:
