@@ -98,10 +98,14 @@ async def scheduled_cross_arbitrage_scan():
     except Exception as e:
         logger.error(f"Ошибка кросс-арбитражного скана: {e}", exc_info=True)
 
+class NoSignalServer(uvicorn.Server):
+    def install_signal_handlers(self) -> None:
+        pass
+
 async def start_fastapi():
     """Запуск FastAPI сервера в фоне (через asyncio)"""
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info", install_signal_handlers=False)
-    server = uvicorn.Server(config)
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
+    server = NoSignalServer(config)
     await server.serve()
 
 import socket
