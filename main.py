@@ -256,13 +256,18 @@ async def start_system():
 
 if __name__ == "__main__":
     import sys
+    exit_code = 0
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(start_system())
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Система остановлена пользователем.")
+    except SystemExit as e:
+        logger.info("Система остановлена программно.")
+        if isinstance(e.code, int):
+            exit_code = e.code
+    except KeyboardInterrupt:
+        logger.info("Система остановлена пользователем (Ctrl+C).")
     finally:
-        logger.info("🛑 Принудительный выход (os._exit), чтобы избежать зависания потоков...")
-        os._exit(0)
+        logger.info(f"🛑 Принудительный выход (os._exit({exit_code})), чтобы избежать зависания потоков...")
+        os._exit(exit_code)
 

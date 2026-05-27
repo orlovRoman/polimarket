@@ -718,7 +718,7 @@ async def command_restart_handler(message: types.Message) -> None:
         pass
         
     import sys
-    sys.exit(0)
+    sys.exit(1)
 
 @dp.message(Command("arbitrage"))
 async def command_arbitrage_handler(message: types.Message) -> None:
