@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
@@ -158,15 +158,38 @@ class NexusAgent:
                 print(f"[NEXUS SCREENER] JSONDecodeError: {e}. Ответ: {text[:300]}")
                 return {"top_candidates": [], "correlations": []}
             
+            # Очищаем ID кандидатов от префикса "id:" или "id_"
+            candidates = []
+            for c_id in result.get("top_candidates", []):
+                cleaned = str(c_id).strip()
+                if cleaned.lower().startswith("id:"):
+                    cleaned = cleaned[3:].strip()
+                elif cleaned.lower().startswith("id_"):
+                    cleaned = cleaned[3:].strip()
+                candidates.append(cleaned)
+            result["top_candidates"] = candidates
+            
             # Сохраняем корреляции в БД
             from agents.shared.python.db import save_correlation
             from core.models import MarketCorrelation
             
             for corr in result.get("correlations", []):
                 try:
+                    m_id_a = str(corr["market_a_id"]).strip()
+                    if m_id_a.lower().startswith("id:"):
+                        m_id_a = m_id_a[3:].strip()
+                    elif m_id_a.lower().startswith("id_"):
+                        m_id_a = m_id_a[3:].strip()
+
+                    m_id_b = str(corr["market_b_id"]).strip()
+                    if m_id_b.lower().startswith("id:"):
+                        m_id_b = m_id_b[3:].strip()
+                    elif m_id_b.lower().startswith("id_"):
+                        m_id_b = m_id_b[3:].strip()
+
                     mc = MarketCorrelation(
-                        market_id_a=corr["market_a_id"],
-                        market_id_b=corr["market_b_id"],
+                        market_id_a=m_id_a,
+                        market_id_b=m_id_b,
                         title_a=corr.get("market_a_title", ""),
                         title_b=corr.get("market_b_title", ""),
                         correlation_type=corr["type"],
@@ -177,7 +200,6 @@ class NexusAgent:
                 except Exception as e:
                     print(f"[NEXUS SCREENER] Ошибка сохранения корреляции: {e}")
             
-            candidates = result.get("top_candidates", [])
             correlations_count = len(result.get("correlations", []))
             print(f"[NEXUS SCREENER] Отобрано {len(candidates)} кандидатов, найдено {correlations_count} корреляций")
             
@@ -331,7 +353,7 @@ class NexusAgent:
 
     def cleanup_expired_signals(self) -> str:
         """Помечает сигналы как EXECUTED, если время закрытия их рынков уже прошло."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         try:
             with self.db_manager._get_connection() as conn:
                 cursor = conn.cursor()

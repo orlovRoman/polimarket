@@ -44,6 +44,11 @@ async def scheduled_job():
         logger.info("<<< Сканирование завершено успешно.")
     except NoMarketsFoundError as e:
         logger.info(f"<<< Сканирование завершено: {e}")
+    except RuntimeError as e:
+        if "Сканирование уже выполняется" in str(e):
+            logger.info(f"<<< Сканирование пропущено: {e}")
+        else:
+            logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)
 
