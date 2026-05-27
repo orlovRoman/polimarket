@@ -147,19 +147,17 @@ async def start_system():
     # Обработчики завершения процесса (асинхронный graceful shutdown)
     loop = asyncio.get_running_loop()
 
+    scheduler = AsyncIOScheduler()
+
     async def _shutdown():
         """Корректно завершает polling и закрывает соединения."""
         logger.info("🔧 Graceful shutdown: останавливаем все фоновые задачи...")
-        await dp.stop_polling()
+        scheduler.shutdown(wait=False)
         if polling_task:
             polling_task.cancel()
         if api_task:
             api_task.cancel()
-        try:
-            await bot.session.close()
-        except Exception:
-            pass
-        logger.info("✅ Shutdown завершён.")
+        logger.info("✅ Задачи отменены, ждём завершения...")
 
     def _request_shutdown():
         """Планирует асинхронный shutdown из синхронного обработчика сигнала."""
@@ -169,7 +167,6 @@ async def start_system():
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _request_shutdown)
     
-    scheduler = AsyncIOScheduler()
     scheduler.add_job(scheduled_job, 'interval', minutes=5)
     
     # Запускаем резолюцию рынков (и обновление episodes) каждые 6 часов
@@ -225,21 +222,41 @@ async def start_system():
         logger.error(f"Критическая ошибка в главном цикле: {e}", exc_info=True)
     finally:
         logger.info("🔧 Graceful shutdown (finally): завершаем все фоновые задачи...")
-        await dp.stop_polling()
+        try:
+            await dp.stop_polling()
+        except Exception:
+            pass
+        
         if polling_task:
             polling_task.cancel()
         if api_task:
             api_task.cancel()
+            
         await asyncio.gather(polling_task, api_task, return_exceptions=True)
         try:
             await bot.session.close()
         except Exception:
             pass
+        
+        # Освобождаем порт от блокировки
+        global _lock_socket
+        if _lock_socket:
+            try:
+                _lock_socket.close()
+            except Exception:
+                pass
+                
         logger.info("✅ Shutdown завершён.")
 
 if __name__ == "__main__":
     import sys
     try:
-        asyncio.run(start_system())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(start_system())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Система остановлена пользователем.")
+    finally:
+        logger.info("🛑 Принудительный выход (os._exit), чтобы избежать зависания потоков...")
+        os._exit(0)
+
