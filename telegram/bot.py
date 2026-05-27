@@ -111,20 +111,26 @@ class AuthMiddleware(BaseMiddleware):
                     pass
                     
         # Auth check
+        user_id = str(event.from_user.id) if hasattr(event, "from_user") and event.from_user else None
+        chat_id = str(event.chat.id) if hasattr(event, "chat") and event.chat else None
+        if not chat_id and hasattr(event, "message") and event.message:
+            chat_id = str(event.message.chat.id)
+        
+        allowed = False
         if AUTHORIZED_CHAT_ID:
-            user_id = str(event.from_user.id) if hasattr(event, "from_user") and event.from_user else None
-            chat_id = str(event.chat.id) if hasattr(event, "chat") and event.chat else None
-            if not chat_id and hasattr(event, "message") and event.message:
-                chat_id = str(event.message.chat.id)
-            
-            allowed = False
             if chat_id and chat_id == AUTHORIZED_CHAT_ID:
                 allowed = True
             elif user_id and user_id == AUTHORIZED_CHAT_ID:
                 allowed = True
                 
-            if not allowed:
-                return
+        if not allowed:
+            # Предупреждаем неавторизованного пользователя
+            if isinstance(event, types.Message):
+                try:
+                    await event.answer("⛔ <b>Доступ заблокирован.</b>\nВаш Telegram ID не авторизован в настройках бота.")
+                except Exception:
+                    pass
+            return
 
         return await handler(event, data)
 
@@ -880,7 +886,12 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
     
         async def update_message():
             last_text = ""
+            start_time = asyncio.get_running_loop().time()
+            max_duration_sec = 1800  # Таймаут 30 минут
             while _scan_lock.locked() or summaries_queue:
+                if asyncio.get_running_loop().time() - start_time > max_duration_sec:
+                    logging.getLogger("NexusPolyBot").warning("Превышен лимит времени работы (30 мин) для update_message, принудительное завершение задачи обновления.")
+                    break
                 await asyncio.sleep(2)
                 # Send all pending summaries
                 while summaries_queue:

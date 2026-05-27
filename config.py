@@ -97,6 +97,8 @@ def startup_check():
         missing.append("GOOGLE_API_KEY")
     if not TELEGRAM_BOT_TOKEN:
         missing.append("TELEGRAM_BOT_TOKEN")
+    if not TELEGRAM_CHAT_ID:
+        missing.append("TELEGRAM_CHAT_ID")
         
     if missing:
         msg = f"КРИТИЧЕСКАЯ ОШИБКА: Не заданы обязательные переменные окружения: {', '.join(missing)}. Проверьте .env файл."
