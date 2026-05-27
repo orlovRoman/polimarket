@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 sys.path.append(os.getcwd())
 
 from core.engine import CoreEngine
-from telegram.bot import dp, bot, init_nexus_agent
+from telegram.bot import dp, bot, init_nexus_agent, get_nexus_agent
 from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history
 import uvicorn
 from core.api import app as fastapi_app
@@ -21,8 +21,8 @@ async def scheduled_job():
     """Периодическая задача: запуск анализа рынков движком."""
     logger.info(">>> Запуск планового сканирования рынков...")
     try:
-        from agents.orchestrator.src.agent import NexusAgent
-        nexus = NexusAgent()
+        # Используем единственный экземпляр NexusAgent (Option A+)
+        nexus = get_nexus_agent()
         cleanup_res = nexus.cleanup_expired_signals()
         logger.info(f"Очистка: {cleanup_res}")
 
