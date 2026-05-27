@@ -243,18 +243,9 @@ async def command_status_handler(message: types.Message) -> None:
     stats = await asyncio.to_thread(get_memory_stats)
 
     # Реальный статус сканирования
-    import time
-    from config import LOCK_FILE, LOCK_TIMEOUT_SEC
-    is_scanning_real = False
-    if os.path.exists(LOCK_FILE):
-        try:
-            with open(LOCK_FILE, "r") as f:
-                data = f.read().strip().split(",")
-                if len(data) == 2:
-                    if time.time() - float(data[0]) < LOCK_TIMEOUT_SEC:
-                        is_scanning_real = True
-        except Exception:
-            pass
+    from core.engine import CoreEngine
+    engine = CoreEngine()
+    is_scanning_real = _scan_lock.locked() or engine._scan_lock.locked()
 
     status_text = (
         "📊 <b>Статус системы (24/7 Monitoring):</b>\n\n"
