@@ -606,8 +606,11 @@ async def command_restart_handler(message: types.Message) -> None:
         await message.answer("❌ Нет доступа.")
         return
         
-    await message.answer("🔄 <b>Перезапуск бота...</b>\nСлужба завершает процессы и перезапустится через пару секунд.", parse_mode="HTML")
+    await message.answer("🔄 <b>Перезапуск бота через 3 секунды...</b>\nСлужба завершает процессы.", parse_mode="HTML")
     logging.warning("Получена команда /restart. Закрываю сессию и завершаю процесс...")
+    
+    import asyncio
+    await asyncio.sleep(3)
     
     # Изящное завершение: закрываем сессию Telegram, чтобы ОС успела снять файловую блокировку
     try:

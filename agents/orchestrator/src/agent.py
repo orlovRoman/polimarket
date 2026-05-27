@@ -139,8 +139,24 @@ class NexusAgent:
                 print("[NEXUS SCREENER] Не удалось получить ответ ни от одной модели.")
                 return {"top_candidates": [], "correlations": []}
 
-            text = res_json['candidates'][0]['content']['parts'][0]['text']
-            result = json.loads(text)
+            raw = res_json.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+            text = raw.strip()
+
+            if not text:
+                print("[NEXUS SCREENER] Пустой ответ от модели. Возвращаем пустой результат.")
+                return {"top_candidates": [], "correlations": []}
+
+            # Снимаем markdown-обёртку ```json ... ``` если есть
+            if text.startswith("```"):
+                lines = text.split("\n")
+                # убираем первую и последнюю строки (``` и ```)
+                text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+            try:
+                result = json.loads(text)
+            except json.JSONDecodeError as e:
+                print(f"[NEXUS SCREENER] JSONDecodeError: {e}. Ответ: {text[:300]}")
+                return {"top_candidates": [], "correlations": []}
             
             # Сохраняем корреляции в БД
             from agents.shared.python.db import save_correlation

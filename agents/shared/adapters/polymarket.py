@@ -70,6 +70,23 @@ class PolymarketAdapter(BaseMarketAdapter):
             
         return formatted_question, formatted_description
 
+    
+    def _get_end_date(self, item: dict):
+        """
+        Универсальный парсер даты закрытия.
+        Polymarket API возвращает разные имена поля в зависимости от эндпоинта.
+        """
+        from datetime import datetime, timezone
+        for field in ("endDate", "end_date_iso", "endDateIso", "end"):
+            raw = item.get(field)
+            if raw:
+                try:
+                    return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    continue
+        # Fallback: рынок без даты — ставим далёкое будущее, чтобы не фильтровался
+        return datetime(2099, 12, 31, tzinfo=timezone.utc)
+
     def list_markets(self, limit: int = 20, category: str = None) -> List[Market]:
         """Получает список активных рынков с Polymarket. Если передан category, фильтрует по тегу."""
         markets = []
@@ -147,7 +164,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                     url=f"https://polymarket.com/event/{url_slug}",
                     outcome=outcomes[0],
                     price=float(prices[0]),
-                    close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00")),
+                    close_time=self._get_end_date(item),
                     tokens=tokens,
                     volume=volume,
                     condition_id=item.get("conditionId")
@@ -220,7 +237,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                     url=f"https://polymarket.com/event/{url_slug}",
                     outcome=outcomes[0],
                     price=float(prices[0]),
-                    close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00")),
+                    close_time=self._get_end_date(item),
                     tokens=tokens,
                     volume=volume,
                 )
@@ -266,7 +283,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             url=f"https://polymarket.com/event/{item.get('slug')}",
             outcome=outcomes[0],
             price=float(prices[0]),
-            close_time=datetime.fromisoformat(item["endDate"].replace("Z", "+00:00")),
+            close_time=self._get_end_date(item),
             tokens=tokens,
             volume=volume,
         )
@@ -333,7 +350,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                             "id": item.get("id", ""),
                             "q": item.get("question", ""),
                             "p": round(price, 4),
-                            "end": item.get("endDate", ""),
+                            "end": item.get("endDate") or item.get("end_date_iso") or item.get("endDateIso") or "",
                             "vol": float(item.get("volumeNum", 0) or item.get("volume", 0) or 0),
                             "tags": item.get("tags", []),
                         })
