@@ -90,7 +90,6 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3", strict_j
                         "arguments": json.dumps(fc.get("args", {}))
                     }
                 })
-            continue
 
         message_dict = {"role": openai_role, "content": text_content if text_content else None}
         if tool_calls:
