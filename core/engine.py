@@ -72,7 +72,7 @@ class CoreEngine:
     def run_team_discussion(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None):
         if not self._scan_lock.acquire(blocking=False):
             logger.warning("Сканирование уже выполняется (другой поток). Пропускаем.")
-            return 0
+            raise RuntimeError("Сканирование уже выполняется в фоновом режиме (возможно, по расписанию). Пожалуйста, подождите завершения текущего цикла.")
         try:
             return self._run_team_discussion_inner(log_callback, summary_callback, category, market_id, state_callback)
         finally:
@@ -138,9 +138,10 @@ class CoreEngine:
                 
         log(f"  Отобрано рынков: {len(markets)}")
         if not markets:
-            log("⚠️ Рынки по заданным фильтрам не найдены. Цикл завершен для экономии токенов.")
+            msg = "Рынки по заданным фильтрам не найдены (возможно, в этой категории сейчас нет активных подходящих рынков)."
+            log(f"⚠️ {msg}")
             _update_state(stage="Завершено (Рынков не найдено)")
-            return
+            raise RuntimeError(msg)
             
         for m in markets: save_market(m)
 
