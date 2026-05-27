@@ -18,7 +18,7 @@ from typing import List, Dict, Any
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.shared.adapters.polymarket import PolymarketAdapter
-from agents.shared.python.db import save_market, get_connection, save_memory, get_memory, save_token_usage
+from agents.shared.python.db import save_market, get_connection, save_memory, get_memory
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from services.notifications import send_telegram
 

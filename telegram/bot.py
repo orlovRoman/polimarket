@@ -520,7 +520,7 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
 async def callback_save_model(callback: CallbackQuery) -> None:
     parts = callback.data.split("_")
     agent = parts[1]
-    model_key = parts[2] + ("_" + parts[3] if len(parts) > 3 else "")
+    model_key = "_".join(parts[2:])
     
     provider, model_name, _ = MODELS_MAPPING.get(model_key, MODELS_MAPPING["llama33"])
     

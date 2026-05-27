@@ -71,9 +71,6 @@ class DatabaseManager:
         """Получает последнюю использованную модель агента."""
         return _db.get_agent_model(agent_name, default_model)
 
-    def save_token_usage(self, agent_name: str, model_name: str, input_tokens: int, output_tokens: int):
-        """Сохраняет запись о потреблении токенов."""
-        _db.save_token_usage(agent_name, model_name, input_tokens, output_tokens)
 
     # --- Сигналы и рынки ---
     def save_signal(self, signal):

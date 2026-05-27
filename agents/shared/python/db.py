@@ -445,9 +445,6 @@ def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
             audit_data.get("final_outcome", "unknown")
         ))
 
-def save_token_usage(agent_name: str, model_name: str, input_tokens: int, output_tokens: int):
-    # Устарело. Используйте LLMLogger.log_call
-    pass
 
 def get_token_usage_last_24h(agent_name: str) -> dict:
     from core.logger import LLMLogger

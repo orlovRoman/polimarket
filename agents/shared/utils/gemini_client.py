@@ -5,7 +5,7 @@ import uuid
 import time
 import logging
 from typing import Optional, Tuple
-from agents.shared.python.db import save_token_usage, save_memory, get_memory
+from agents.shared.python.db import save_memory, get_memory
 
 logger = logging.getLogger("gemini_client")
 
