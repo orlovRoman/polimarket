@@ -801,7 +801,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
 
 
 async def send_ideas_page(message_or_callback, page: int = 0) -> None:
-    signals = await asyncio.to_thread(get_signals, 15)
+    signals = await asyncio.to_thread(get_signals, 50)
     if not signals:
         text = "Пока нет новых идей. Запустите /scan."
         if isinstance(message_or_callback, types.Message):
@@ -837,12 +837,18 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
             f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
         )
         
-    keyboard = None
-    if page + 1 < total_pages:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Показать еще 🔽", callback_data=f"ideas_page_{page + 1}")]
-        ])
+    inline_kb = []
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"ideas_page_{page - 1}"))
         
+    nav_row.append(InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message"))
+    
+    if page + 1 < total_pages:
+        nav_row.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"ideas_page_{page + 1}"))
+        
+    inline_kb.append(nav_row)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=inline_kb)
         
     if isinstance(message_or_callback, types.Message):
         await message_or_callback.answer(response, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
@@ -894,18 +900,23 @@ async def send_penny_page(message_or_callback, page: int = 0) -> None:
         )
         
     inline_kb = []
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"penny_page_{page - 1}"))
+        
+    nav_row.append(InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message"))
+    
     if page + 1 < total_pages:
-        inline_kb.append([InlineKeyboardButton(text="Показать еще 🔽", callback_data=f"penny_page_{page + 1}")])
+        nav_row.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"penny_page_{page + 1}"))
+        
+    inline_kb.append(nav_row)
     inline_kb.append([InlineKeyboardButton(text="🚀 Искать новые", callback_data="scan_penny_stocks")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=inline_kb)
         
     if isinstance(message_or_callback, types.Message):
         await message_or_callback.answer(response, reply_markup=keyboard, disable_web_page_preview=True)
     else:
-        # При нажатии кнопки мы редактируем текущее сообщение, чтобы убрать кнопку "Показать еще" с прошлого чанка,
-        # и отправляем НОВОЕ сообщение с новой порцией.
-        await message_or_callback.message.edit_reply_markup(reply_markup=None)
-        await message_or_callback.message.answer(response, reply_markup=keyboard, disable_web_page_preview=True)
+        await message_or_callback.message.edit_text(response, reply_markup=keyboard, disable_web_page_preview=True)
         await message_or_callback.answer()
 
 @dp.message(Command("ideas"))
@@ -920,6 +931,14 @@ async def callback_ideas_page_handler(callback: CallbackQuery) -> None:
 @dp.message(Command("penny"))
 async def command_penny_handler(message: types.Message) -> None:
     await send_penny_page(message, page=0)
+
+@dp.callback_query(F.data == "close_message")
+async def callback_close_message_handler(callback: CallbackQuery) -> None:
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("penny_page_"))
 async def callback_penny_page_handler(callback: CallbackQuery) -> None:
