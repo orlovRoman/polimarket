@@ -7,10 +7,6 @@ from agents.shared.utils.gemini_client import generate_content_with_fallback, ex
 class ArbitrageAgent:
     """
     Агент ARBITRAGE — ищет математические и логические противоречия между рынками.
-
-    Поддерживает два режима:
-    1. analyze_correlation() — анализ пары рынков с ОДНОЙ платформы по корреляции.
-    2. analyze_cross_platform() — кросс-платформенный арбитраж (Polymarket ↔ Kalshi и др.)
     """
 
     ARBITRAGE_TYPES = {
@@ -36,7 +32,7 @@ class ArbitrageAgent:
         market_b: Market,
         correlation_type: str,
         score: int,
-    ):
+    ) -> CrossArbitrageSignal | None:
         """Анализирует пару связанных рынков с одной платформы."""
         prompt = f"""Оцени следующую пару рынков на предмет кросс-рыночного арбитража.
 Тип корреляции, обнаруженный системой: {correlation_type} (score: {score})
@@ -77,22 +73,28 @@ ID: {market_b.id}
             content = content.replace("```json", "").replace("```", "").strip()
             data = json.loads(content, strict=False)
 
-            from dataclasses import dataclass
-
-            @dataclass
-            class ArbitrageSignal:
-                has_arbitrage: bool
-                arbitrage_type: str
-                spread_percent: float
-                reasoning: str
-                trade_instruction: str
-
-            return ArbitrageSignal(
+            # Normalize spread
+            spread_val = float(data.get("spread_percent", 0.0))
+            if 0 < spread_val < 1:
+                spread_val *= 100
+                
+            return CrossArbitrageSignal(
+                market_a_id=market_a.id,
+                market_a_platform=market_a.platform,
+                market_a_title=market_a.title,
+                market_a_price=market_a.price,
+                market_a_url=market_a.url,
+                market_b_id=market_b.id,
+                market_b_platform=market_b.platform,
+                market_b_title=market_b.title,
+                market_b_price=market_b.price,
+                market_b_url=market_b.url,
                 has_arbitrage=data.get("has_arbitrage", False),
                 arbitrage_type=data.get("arbitrage_type", "none"),
-                spread_percent=float(data.get("spread_percent", 0.0)),
+                spread_percent=round(spread_val, 2),
                 reasoning=data.get("reasoning", ""),
                 trade_instruction=data.get("trade_instruction", ""),
+                match_score=float(score)/100.0 if score > 1 else float(score),
             )
         except Exception as e:
             print(f"[ARBITRAGE] Ошибка парсинга (correlation): {e}")
@@ -105,19 +107,22 @@ ID: {market_b.id}
         market_a: Market,
         market_b: Market,
         match_score: float,
+        orderbook_b: dict = None,
     ) -> CrossArbitrageSignal | None:
         """
         Анализирует пару рынков с РАЗНЫХ платформ.
         Определяет тип арбитража: ценовое расхождение, логическое противоречие или парный трейд.
-
-        :param market_a: Рынок платформы A (например, Polymarket)
-        :param market_b: Рынок платформы B (например, Kalshi)
-        :param match_score: Схожесть названий (0–1), вычисленная MarketMatcher
-        :return: CrossArbitrageSignal или None
         """
         direct_spread = abs(market_a.price - market_b.price)
         spread_percent = round(direct_spread * 100, 2)
+        
+        # Интеграция стакана заявок (RISK-10)
+        book_info = ""
+        if orderbook_b:
+            book_info = (f"\n  Стакан (Best Bid: {orderbook_b.get('top_bid', 'N/A')}, "
+                         f"Best Ask: {orderbook_b.get('top_ask', 'N/A')})\n")
 
+        # BUG-03: Убрано дублирующее "Отвечай строго JSON." 
         prompt = f"""Ты — аналитик кросс-платформенного арбитража рынков предсказаний.
 
 Два рынка с РАЗНЫХ платформ, которые, по всей видимости, описывают ОДНО событие:
@@ -130,7 +135,7 @@ ID: {market_b.id}
 
 Рынок B ({market_b.platform.upper()}):
   Название: {market_b.title}
-  Цена YES: {market_b.price:.3f} ({int(market_b.price * 100)}¢)
+  Цена YES (mid-price): {market_b.price:.3f} ({int(market_b.price * 100)}¢){book_info}
   URL: {market_b.url}
   Закрытие: {market_b.close_time.strftime('%Y-%m-%d')}
 
@@ -145,17 +150,17 @@ ID: {market_b.id}
    - pair_trade: Коррелированные рынки, где ставка на одном хеджирует другой.
    - none: Нет значимого арбитража.
 3. Дай конкретную инструкцию по торговле (например: "Купить YES на Polymarket (45¢), продать YES на Kalshi (62¢)").
+   ВАЖНО: Если для Рынка B указан Стакан (Best Bid/Ask), учитывай, что покупать нужно по Best Ask, а продавать по Best Bid. Если спред в стакане съедает выгоду, арбитража нет.
 
 Учитывай комиссии: Polymarket берёт ~2%, Kalshi ~7% от объёма.
-Минимальный порог прибыльности после комиссий: ~5% от вложений.
-Отвечай строго JSON."""
+Минимальный порог прибыльности после комиссий: ~5% от вложений."""
 
         schema = {
             "type": "OBJECT",
             "properties": {
                 "has_arbitrage":     {"type": "BOOLEAN"},
                 "arbitrage_type":    {"type": "STRING"},
-                "spread_percent":    {"type": "NUMBER"},
+                "spread_percent":    {"type": "NUMBER", "description": "Спред в процентах (0-100)"},
                 "reasoning":         {"type": "STRING"},
                 "trade_instruction": {"type": "STRING"},
             },
@@ -169,6 +174,13 @@ ID: {market_b.id}
 
         try:
             data = json.loads(extract_response_text(result).strip())
+            
+            # RISK-08: Нормализация spread_percent
+            spread_val = float(data.get("spread_percent", spread_percent))
+            if 0 < spread_val < 1.0: # Модель вернула долю вместо процентов
+                spread_val *= 100
+            elif spread_val == 0.0 and data.get("has_arbitrage"):
+                spread_val = spread_percent # Модель вернула 0, используем расчетный
 
             return CrossArbitrageSignal(
                 market_a_id=market_a.id,
@@ -183,7 +195,7 @@ ID: {market_b.id}
                 market_b_url=market_b.url,
                 has_arbitrage=bool(data.get("has_arbitrage", False)),
                 arbitrage_type=data.get("arbitrage_type", "none"),
-                spread_percent=float(data.get("spread_percent", spread_percent)),
+                spread_percent=round(spread_val, 2),
                 reasoning=data.get("reasoning", ""),
                 trade_instruction=data.get("trade_instruction", ""),
                 match_score=match_score,

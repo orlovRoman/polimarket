@@ -1,21 +1,11 @@
 """
 Оркестратор кросс-платформенного арбитражного скана.
-
-Поток выполнения:
-  PolymarketAdapter + KalshiAdapter
-        ↓
-  find_candidate_pairs() — keyword-матчинг
-        ↓
-  manual_market_pairs.json — ручные пары (всегда приоритет)
-        ↓
-  verify_pair_with_llm() — для «серой зоны» (score 0.50–0.72)
-        ↓
-  ArbitrageAgent.analyze_cross_platform() — 3 типа арбитража
-        ↓
-  save_cross_arbitrage() + Telegram-алерт (если спред ≥ min_spread_alert)
 """
 import os
+import time
 from typing import Optional
+import logging
+import asyncio
 
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.adapters.kalshi import KalshiAdapter
@@ -24,50 +14,47 @@ from agents.polymarket_arbitrage_agent.src.agent import ArbitrageAgent
 from agents.shared.python.db import save_cross_arbitrage, mark_cross_arbitrage_alerted
 from core.models import CrossArbitrageSignal, Market
 from services.market_matcher import find_candidate_pairs, load_manual_pairs, verify_pair_with_llm
+import config
 
+logger = logging.getLogger("NexusPolyBot.Arbitrage")
 
 def run_cross_platform_scan(
     api_key: Optional[str] = None,
     adapters: Optional[list[BaseMarketAdapter]] = None,
-    poly_limit: int = 100,
-    kalshi_limit: int = 100,
-    min_match_score: float = 0.50,
-    min_spread_alert: float = 5.0,
+    poly_limit: Optional[int] = None,
+    kalshi_limit: Optional[int] = None,
+    min_match_score: Optional[float] = None,
+    min_spread_alert: Optional[float] = None,
     dry_run: bool = False,
 ) -> list[CrossArbitrageSignal]:
-    """
-    Запускает полный цикл поиска кросс-платформенного арбитража.
-
-    :param api_key: Google AI / Gemini API ключ (по умолчанию из env GOOGLE_API_KEY)
-    :param adapters: Список адаптеров. По умолчанию [PolymarketAdapter, KalshiAdapter].
-                     Добавьте ManifoldAdapter() для расширения на 3-ю платформу.
-    :param poly_limit: Лимит рынков с Polymarket
-    :param kalshi_limit: Лимит рынков с Kalshi
-    :param min_match_score: Минимальная схожесть названий (0–1)
-    :param min_spread_alert: Минимальный спред (%) для отправки алерта в Telegram
-    :param dry_run: Если True — только показывает кандидатов без вызова LLM
-    :return: Список найденных арбитражных сигналов
-    """
+    
     api_key = api_key or os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise ValueError("GOOGLE_API_KEY не задан")
+        
+    poly_limit = poly_limit if poly_limit is not None else config.ARB_POLY_LIMIT
+    kalshi_limit = kalshi_limit if kalshi_limit is not None else config.ARB_KALSHI_LIMIT
+    min_match_score = min_match_score if min_match_score is not None else config.ARB_MIN_MATCH_SCORE
+    min_spread_alert = min_spread_alert if min_spread_alert is not None else config.ARB_MIN_SPREAD_ALERT
 
-    # 1. Загружаем рынки со всех платформ
     if adapters is None:
         adapters = [PolymarketAdapter(), KalshiAdapter()]
 
     all_markets: dict[str, list[Market]] = {}
+    kalshi_adapter = None
     for adapter in adapters:
-        print(f"[SCAN] Загружаю {adapter.name}...")
+        if isinstance(adapter, KalshiAdapter):
+            kalshi_adapter = adapter
+            
+        logger.info(f"[SCAN] Загружаю {adapter.name}...")
         limit = poly_limit if adapter.name == "polymarket" else kalshi_limit
         try:
             all_markets[adapter.name] = adapter.list_markets(limit=limit)
-            print(f"[SCAN] {adapter.name}: {len(all_markets[adapter.name])} рынков")
+            logger.info(f"[SCAN] {adapter.name}: {len(all_markets[adapter.name])} рынков")
         except Exception as e:
-            print(f"[SCAN] Ошибка загрузки {adapter.name}: {e}")
+            logger.error(f"[SCAN] Ошибка загрузки {adapter.name}: {e}")
             all_markets[adapter.name] = []
 
-    # 2. Ручные пары — высший приоритет
     manual_raw = load_manual_pairs()
     manual_pairs: list[tuple[Market, Market, float]] = []
     if manual_raw:
@@ -79,70 +66,96 @@ def run_cross_platform_scan(
             if ma and mb:
                 manual_pairs.append((ma, mb, 1.0))
             else:
-                print(f"[SCAN] Ручная пара не найдена в рынках: {entry}")
+                logger.warning(f"[SCAN] Ручная пара не найдена в рынках: {entry}")
 
-    # 3. Автоматический keyword-матчинг
     poly_markets = all_markets.get("polymarket", [])
     kalshi_markets = all_markets.get("kalshi", [])
 
-    auto_pairs = find_candidate_pairs(poly_markets, kalshi_markets, min_score=min_match_score)
+    auto_pairs = find_candidate_pairs(
+        poly_markets, 
+        kalshi_markets, 
+        min_score=min_match_score,
+        max_days_diff=config.ARB_MAX_DAYS_DIFF
+    )
 
-    # Дедупликация с ручными парами
     manual_ids = {(ma.id, mb.id) for ma, mb, _ in manual_pairs}
     auto_pairs = [(ma, mb, s) for ma, mb, s in auto_pairs if (ma.id, mb.id) not in manual_ids]
 
     all_candidates = manual_pairs + auto_pairs
-    print(f"[SCAN] Итого кандидатов: {len(all_candidates)} "
+    logger.info(f"[SCAN] Итого кандидатов: {len(all_candidates)} "
           f"(manual={len(manual_pairs)}, auto={len(auto_pairs)})")
 
-    # Dry run — только показываем кандидатов, не вызываем LLM
     if dry_run:
-        print("\n=== КАНДИДАТЫ ДЛЯ РУЧНОГО КОНФИГА ===")
+        logger.info("=== КАНДИДАТЫ ДЛЯ РУЧНОГО КОНФИГА ===")
         for i, (ma, mb, score) in enumerate(auto_pairs[:20]):
-            print(f"{i+1}. [{score:.2f}] POLY:   {ma.title[:60]}")
-            print(f"         KALSHI: {mb.title[:60]}")
-            print(f"   Ценовой спред: {abs(ma.price - mb.price) * 100:.1f}¢")
-            print()
+            logger.info(f"{i+1}. [{score:.2f}] POLY:   {ma.title[:60]}\n"
+                  f"         KALSHI: {mb.title[:60]}\n"
+                  f"   Ценовой спред: {abs(ma.price - mb.price) * 100:.1f}¢")
         return []
 
-    # 4. LLM-верификация «серой зоны» для автоматических пар
     verified: list[tuple[Market, Market, float]] = list(manual_pairs)
-    for ma, mb, score in auto_pairs[:50]:
-        if score >= 0.72:
-            # Высокая уверенность — берём без LLM
-            verified.append((ma, mb, score))
-        elif score >= 0.50:
-            # Серая зона — спрашиваем LLM
-            try:
-                llm_result = verify_pair_with_llm(ma, mb, api_key)
-                if llm_result.get("is_same_event") and llm_result.get("confidence", 0) >= 0.75:
-                    verified.append((ma, mb, llm_result["confidence"]))
-            except Exception as e:
-                print(f"[SCAN] Ошибка LLM-верификации пары: {e}")
+    
+    # LLM-верификация батчами
+    pairs_to_verify = [p for p in auto_pairs[:50] if 0.50 <= p[2] < 0.72]
+    # Те что > 0.72 добавляем сразу
+    verified.extend([p for p in auto_pairs[:50] if p[2] >= 0.72])
+    
+    batch_size = 5
+    for i in range(0, len(pairs_to_verify), batch_size):
+        batch = pairs_to_verify[i:i+batch_size]
+        for ma, mb, score in batch:
+            # Simple retry loop
+            for attempt in range(3):
+                try:
+                    llm_result = verify_pair_with_llm(ma, mb, api_key)
+                    if llm_result.get("is_same_event") and llm_result.get("confidence", 0) >= 0.75:
+                        verified.append((ma, mb, llm_result["confidence"]))
+                    break # Success
+                except Exception as e:
+                    if "429" in str(e) or "503" in str(e):
+                        logger.warning(f"[SCAN] Rate limit/Overload verify_pair_with_llm (попытка {attempt+1}): {e}")
+                        time.sleep(5 * (attempt + 1))
+                    else:
+                        logger.error(f"[SCAN] Ошибка LLM-верификации пары: {e}")
+                        break # Unrecoverable
+        
+        # Batch delay to avoid 429
+        if i + batch_size < len(pairs_to_verify):
+            time.sleep(2)
 
-    print(f"[SCAN] Верифицировано пар: {len(verified)}")
+    logger.info(f"[SCAN] Верифицировано пар: {len(verified)}")
 
-    # 5. Анализ каждой пары арбитражным агентом
     agent = ArbitrageAgent(api_key=api_key)
     found: list[CrossArbitrageSignal] = []
 
     for ma, mb, match_score in verified:
+        # RISK-10: Fetch orderbook for Kalshi
+        kalshi_book = None
+        if kalshi_adapter and mb.platform == "kalshi":
+            kalshi_book = kalshi_adapter.get_orderbook(mb.id)
+            
         try:
-            signal = agent.analyze_cross_platform(ma, mb, match_score)
+            signal = agent.analyze_cross_platform(ma, mb, match_score, orderbook_b=kalshi_book)
         except Exception as e:
-            print(f"[SCAN] Ошибка анализа пары {ma.id} / {mb.id}: {e}")
+            logger.error(f"[SCAN] Ошибка анализа пары {ma.id} / {mb.id}: {e}")
             continue
 
         if not signal:
             continue
 
-        save_cross_arbitrage(signal)
+        # BUG-01: Only save if has_arbitrage
+        if signal.has_arbitrage:
+            save_cross_arbitrage(signal)
+            
+            if signal.spread_percent >= min_spread_alert:
+                found.append(signal)
+                # BUG-02: mark alerted
+                signal_id = f"{signal.market_a_id}__{signal.market_b_id}"
+                mark_cross_arbitrage_alerted(signal_id)
+                
+                logger.info(f"[SCAN] 🔥 АРБИТРАЖ: {signal.arbitrage_type} "
+                      f"спред={signal.spread_percent:.1f}%  "
+                      f"POLY: {signal.market_a_title[:35]} / KALSHI: {signal.market_b_title[:35]}")
 
-        if signal.has_arbitrage and signal.spread_percent >= min_spread_alert:
-            found.append(signal)
-            print(f"[SCAN] 🔥 АРБИТРАЖ: {signal.arbitrage_type} "
-                  f"спред={signal.spread_percent:.1f}%  "
-                  f"POLY: {signal.market_a_title[:35]} / KALSHI: {signal.market_b_title[:35]}")
-
-    print(f"[SCAN] Итого арбитражей: {len(found)}")
+    logger.info(f"[SCAN] Итого арбитражей: {len(found)}")
     return found

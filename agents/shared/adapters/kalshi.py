@@ -28,6 +28,7 @@ class KalshiAdapter(BaseMarketAdapter):
         """Получает список активных рынков без авторизации."""
         cursor = None
         markets = []
+        import time
         while len(markets) < limit:
             params = {
                 "status": status,
@@ -35,12 +36,32 @@ class KalshiAdapter(BaseMarketAdapter):
             }
             if cursor:
                 params["cursor"] = cursor
-            try:
-                resp = self.session.get(f"{KALSHI_API}/markets", params=params, timeout=15)
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as e:
-                print(f"[KalshiAdapter] Ошибка list_markets: {e}")
+            
+            success = False
+            for attempt in range(3):
+                try:
+                    resp = self.session.get(f"{KALSHI_API}/markets", params=params, timeout=15)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    success = True
+                    break
+                except requests.exceptions.Timeout:
+                    print(f"[KalshiAdapter] Timeout, попытка {attempt+1}/3")
+                    time.sleep(2)
+                except requests.exceptions.HTTPError as e:
+                    status_code = e.response.status_code
+                    if 500 <= status_code < 600:
+                        print(f"[KalshiAdapter] 5xx Error, попытка {attempt+1}/3")
+                        time.sleep(3 * (attempt + 1))
+                    else:
+                        print(f"[KalshiAdapter] 4xx Error: {e}")
+                        break
+                except Exception as e:
+                    print(f"[KalshiAdapter] Ошибка list_markets: {e}")
+                    break
+            
+            if not success:
+                print("[KalshiAdapter] Не удалось загрузить рынки после нескольких попыток.")
                 break
 
             for item in data.get("markets", []):

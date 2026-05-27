@@ -49,6 +49,13 @@ SCAN_LIMIT_DEFAULT = int(os.getenv("SCAN_LIMIT", "30"))
 MIN_EDGE_DEFAULT = float(os.getenv("MIN_EDGE", "0.05"))
 WHALE_ALERT_MIN_USD = float(os.getenv("WHALE_ALERT_MIN_USD", "10000"))  # Мин. сумма для whale-алерта
 
+# Настройки кросс-платформенного арбитража
+ARB_POLY_LIMIT = int(os.getenv("ARB_POLY_LIMIT", "100"))
+ARB_KALSHI_LIMIT = int(os.getenv("ARB_KALSHI_LIMIT", "100"))
+ARB_MIN_MATCH_SCORE = float(os.getenv("ARB_MIN_MATCH_SCORE", "0.50"))
+ARB_MIN_SPREAD_ALERT = float(os.getenv("ARB_MIN_SPREAD_ALERT", "5.0"))
+ARB_MAX_DAYS_DIFF = int(os.getenv("ARB_MAX_DAYS_DIFF", "30"))
+
 # Интеграции
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
