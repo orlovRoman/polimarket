@@ -216,7 +216,11 @@ def process_consensus(m: Market, signal: Optional[Signal], swing_signal: Optiona
             summary_text += f"📝 Вердикт: {getattr(opinion_shadow, 'shadow_verdict', 'N/A')}\n\n"
         
         if decision.status == 'saved':
-            summary_text += "✨ <b>ИТОГ: Консенсус достигнут! Идея сохранена.</b>"
+            initiators = []
+            if signal: initiators.append("SCOUT")
+            if swing_signal and getattr(swing_signal, 'recommendation', '') == 'buy': initiators.append("SWING")
+            initiators_str = " + ".join(initiators)
+            summary_text += f"✨ <b>ИТОГ: Консенсус достигнут (Инициатор: {initiators_str})! Идея сохранена.</b>"
         elif decision.status == 'no_consensus':
             summary_text += "🛑 <b>ИТОГ: Консенсус не достигнут (SHADOW отклонил).</b>"
         else:
