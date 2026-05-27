@@ -140,18 +140,25 @@ async def start_system():
     # Жесткая блокировка повторных запусков
     ensure_single_instance()
     
+    # Объявляем переменные задач для graceful shutdown
+    polling_task = None
+    api_task = None
+    
     # Обработчики завершения процесса (асинхронный graceful shutdown)
     loop = asyncio.get_running_loop()
 
     async def _shutdown():
         """Корректно завершает polling и закрывает соединения."""
-        logger.info("🔧 Graceful shutdown: останавливаем polling...")
+        logger.info("🔧 Graceful shutdown: останавливаем все фоновые задачи...")
         await dp.stop_polling()
+        if polling_task:
+            polling_task.cancel()
+        if api_task:
+            api_task.cancel()
         try:
             await bot.session.close()
         except Exception:
             pass
-        await asyncio.sleep(0.25)  # даём event loop завершить очередь задач
         logger.info("✅ Shutdown завершён.")
 
     def _request_shutdown():
@@ -199,7 +206,7 @@ async def start_system():
     logger.info("Запуск FastAPI...")
     api_task = asyncio.create_task(start_fastapi())
 
-    polling_task = asyncio.create_task(dp.start_polling(bot))
+    polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
     try:
         done, pending = await asyncio.wait(
             [polling_task, api_task],
@@ -217,10 +224,12 @@ async def start_system():
     except Exception as e:
         logger.error(f"Критическая ошибка в главном цикле: {e}", exc_info=True)
     finally:
-        logger.info("🔧 Graceful shutdown: останавливаем все фоновые задачи...")
+        logger.info("🔧 Graceful shutdown (finally): завершаем все фоновые задачи...")
         await dp.stop_polling()
-        polling_task.cancel()
-        api_task.cancel()
+        if polling_task:
+            polling_task.cancel()
+        if api_task:
+            api_task.cancel()
         await asyncio.gather(polling_task, api_task, return_exceptions=True)
         try:
             await bot.session.close()
