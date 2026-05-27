@@ -128,6 +128,11 @@ async def start_system():
     
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scheduled_job, 'interval', minutes=5)
+    
+    # Запускаем очистку старых рынков (перенос в историю и проверка WIN/LOSS) раз в неделю
+    from agents.shared.python.resolution import resolve_closed_markets
+    scheduler.add_job(resolve_closed_markets, 'interval', weeks=1)
+    
     scheduler.add_job(scheduled_job)  # немедленный запуск при старте
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)

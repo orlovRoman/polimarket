@@ -627,9 +627,12 @@ async def command_arbitrage_handler(message: types.Message) -> None:
 
 @dp.message(Command("cleanup"))
 async def command_cleanup_handler(message: types.Message) -> None:
-    """Очищает устаревшие сигналы (2025, истёкшие рынки)."""
-    count = await asyncio.to_thread(cleanup_stale_signals)
-    await message.answer(f"🧹 Очистка завершена. Архивировано устаревших сигналов: {count}")
+    """Очищает устаревшие сигналы и проверяет результаты (WIN/LOSS)."""
+    from agents.shared.python.resolution import resolve_closed_markets
+    
+    await message.answer("🔄 Начинаю проверку закрытых рынков с API Polymarket...")
+    count = await asyncio.to_thread(resolve_closed_markets)
+    await message.answer(f"🧹 Проверка завершена. Рассчитано рынков: {count}. Результаты добавлены в /history")
 
 @dp.message(Command("correlations"))
 async def command_correlations_handler(message: types.Message) -> None:
