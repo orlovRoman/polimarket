@@ -845,26 +845,36 @@ async def command_correlations_handler(message: types.Message) -> None:
     adapter = PolymarketAdapter()
     agent = ArbitrageAgent(api_key=os.getenv("GOOGLE_API_KEY"))
 
-    found = 0
-    for c in corrs:
-        try:
-            market_a = adapter.get_market(c["market_id_a"])
-            market_b = adapter.get_market(c["market_id_b"])
-        except Exception:
-            continue
-        if not market_a or not market_b:
-            continue
+    def process_correlations(corrs_to_process):
+        found_signals = []
+        for c in corrs_to_process:
+            try:
+                market_a = adapter.get_market(c["market_id_a"])
+                market_b = adapter.get_market(c["market_id_b"])
+            except Exception:
+                continue
+            if not market_a or not market_b:
+                continue
 
-        signal = agent.analyze_correlation(
-            market_a=market_a,
-            market_b=market_b,
-            correlation_type=c["correlation_type"],
-            score=int(float(c["confidence"]) * 100),
-        )
-        if signal and signal.has_arbitrage:
-            text = format_cross_arbitrage_alert(signal)
-            await message.answer(text, disable_web_page_preview=True)
-            found += 1
+            signal = agent.analyze_correlation(
+                market_a=market_a,
+                market_b=market_b,
+                correlation_type=c["correlation_type"],
+                score=int(float(c["confidence"]) * 100),
+            )
+            import time
+            time.sleep(3)  # Избегаем rate-limit
+            
+            if signal and signal.has_arbitrage:
+                found_signals.append(signal)
+        return found_signals
+
+    found_signals = await asyncio.to_thread(process_correlations, corrs)
+    found = len(found_signals)
+
+    for signal in found_signals:
+        text = format_cross_arbitrage_alert(signal)
+        await message.answer(text, disable_web_page_preview=True)
 
     summary = (
         f"✅ Найдено торговых идей: <b>{found}</b> из {len(corrs)} корреляций."

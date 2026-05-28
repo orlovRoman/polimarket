@@ -147,11 +147,15 @@ def run_cross_platform_scan(
             
         try:
             signal = agent.analyze_cross_platform(ma, mb, match_score, orderbook_b=kalshi_book)
+            time.sleep(3)  # Пауза между запросами для избежания 429 Too Many Requests
         except Exception as e:
             logger.error(f"[SCAN] Ошибка анализа пары {ma.id} / {mb.id}: {e}")
+            time.sleep(5)
             continue
 
         if not signal:
+            # Если вернулся None (например, из-за 429 ошибки от всех моделей), делаем паузу побольше
+            time.sleep(5)
             continue
 
         # BUG-01: Only save if has_arbitrage
