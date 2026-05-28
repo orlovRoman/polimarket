@@ -18,18 +18,23 @@ SESSION_DIR = PROJECT_ROOT / "vault"
 SESSION_DIR.mkdir(parents=True, exist_ok=True)
 SESSION_PATH = str(SESSION_DIR / "userbot_session")
 
+# Точные сигнатуры собственных сообщений бота.
+# Не используем широкие паттерны вроде "Найдено" — они могут совпасть
+# с легитимным контентом из новостных каналов.
+_BOT_SIGNATURES = [
+    "К сожалению, я не нашел связанных рынков",
+    "Запущен внеочередной скан для рынка",
+    "Анализирую...",
+]
+
 def is_bot_message(text: str) -> bool:
     """
     Проверяет, является ли сообщение системным ответом самого бота.
     Служит защитой от бесконечного цикла, если бот и слушатель находятся в одной группе.
+    Использует только точные строки-сигнатуры, чтобы не заглушить легитимные
+    сообщения из русскоязычных новостных каналов.
     """
-    if "Найдено" in text and "связанных рынков" in text:
-        return True
-    if "К сожалению, я не нашел связанных рынков" in text:
-        return True
-    if "ТРИГГЕР" in text and "Запущен внеочередной скан" in text:
-        return True
-    return False
+    return any(sig in text for sig in _BOT_SIGNATURES)
 
 def resolve_market_ids_from_url(url: str) -> list:
     """
@@ -174,7 +179,6 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
         from core.engine import CoreEngine
         def _trigger_scan():
             eng = CoreEngine()
-            # Pass source_url and source_text for the whale branch to avoid scheduled downgrade
             source_url = market_url or ""
             source_text = ""
             if source == "whale" and amount_usd:
@@ -257,8 +261,19 @@ async def main():
         text = event.message.message
         if not text:
             return
-            
-        # Защита от бесконечного цикла (игнорируем сообщения от нашего же бота)
+
+        # Защита от бесконечного цикла:
+        # Приоритет 1 — проверяем sender ID (надёжно, не зависит от текста)
+        try:
+            from config import TELEGRAM_BOT_ID
+            if TELEGRAM_BOT_ID:
+                sender = await event.get_sender()
+                if getattr(sender, 'id', None) == int(TELEGRAM_BOT_ID):
+                    return
+        except (ImportError, Exception):
+            pass  # TELEGRAM_BOT_ID не задан — используем fallback
+
+        # Приоритет 2 — точные строки-сигнатуры бота (fallback)
         if is_bot_message(text):
             return
             
@@ -339,7 +354,12 @@ async def main():
                     markets = news_processor.find_relevant_markets(text)
                     if markets:
                         print(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
-                        await trigger_nexus_scan(markets[0].id, source=chat_name)
+                        # Передаём market_url чтобы source_url не деградировал до scheduled
+                        await trigger_nexus_scan(
+                            markets[0].id,
+                            source=chat_name,
+                            market_url=getattr(markets[0], 'url', '')
+                        )
                     else:
                         print(f"[Listener] ⚪️ Для новости из {chat_name} рынки на Polymarket не найдены.")
                     
