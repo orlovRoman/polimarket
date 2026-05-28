@@ -124,7 +124,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
 
 
-def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None):
+def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None):
     logger.info("  Скачиваем новости (RSS + Reddit + Wikipedia)...")
     
     search_query = build_search_query(m.title)
@@ -178,16 +178,15 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, trigge
         logger.info(f"  Correlation hint: {len(corr_list)} связей для {m.id}")
         
         from core.math_filter import math_pre_filter
-        from agents.shared.adapters.polymarket import PolymarketAdapter
-        adapter = PolymarketAdapter()
-        for c in corr_list[:1]:
-            peer_id = c["market_id_b"] if c["market_id_a"] == m.id else c["market_id_a"]
-            try:
-                peer_market = adapter.get_market(peer_id)
-                if peer_market:
-                    context.math_filter_result = math_pre_filter(m, peer_market)
-            except Exception as e:
-                logger.error(f"Error in math_pre_filter for {peer_id}: {e}")
+        if adapter:
+            for c in corr_list[:1]:
+                peer_id = c["market_id_b"] if c["market_id_a"] == m.id else c["market_id_a"]
+                try:
+                    peer_market = adapter.get_market(peer_id)
+                    if peer_market:
+                        context.math_filter_result = math_pre_filter(m, peer_market)
+                except Exception as e:
+                    logger.error(f"Error in math_pre_filter for {peer_id}: {e}")
                 
     # ────────────────────────────────────────────────────────────────────────
 
@@ -270,13 +269,17 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             trade_action = f"BUY {outcome}"
             entry_price = m.price if outcome == "YES" else round(1 - m.price, 2)
         
-        price_cents = int(entry_price * 100)
+        # Guard: если цена нулевая или некорректная — не показываем
+        if entry_price <= 0 or entry_price >= 1:
+            entry_price = None
+
+        price_str = f"<b>{int(entry_price * 100)}¢</b>" if entry_price else "<b>цена уточняется</b>"
         
         # Заголовок — действие
         summary_text = (
             f"💰 <b>СИГНАЛ: {trade_action}</b> — "
             f"<a href='{m.url}'>{m.title}</a>\n"
-            f"📍 Вход: <b>{price_cents}¢</b> | Лимитным ордером\n"
+            f"📍 Вход: {price_str} | Лимитным ордером\n"
         )
         
         # Источник (если event-driven)
@@ -302,8 +305,11 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             
         # Арбитраж из math_filter (если есть)
         math_result = getattr(context, 'math_filter_result', None)
-        if math_result and math_result.has_arbitrage and math_result.trade_instruction:
-            summary_text += f"\n⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{math_result.trade_instruction}\n"
+        if math_result and math_result.has_arbitrage:
+            if math_result.trade_instruction:
+                summary_text += f"\n⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{math_result.trade_instruction}\n"
+            else:
+                logger.warning(f"[math_filter] has_arbitrage=True but trade_instruction empty for {m.id}")
 
         summary_callback(summary_text)
         

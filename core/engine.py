@@ -191,6 +191,7 @@ class CoreEngine:
                 
                 signal, swing_signal, context = run_agent_evaluation(
                     m, self.scout, self.swing, _update_state,
+                    adapter=self.adapter,
                     trigger_type=trigger_type,
                     source_url=source_url,
                     source_text=source_text,
