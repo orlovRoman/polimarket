@@ -21,6 +21,9 @@ class Signal(BaseModel):
     market_id: str
     platform: str
     target_outcome: str = "YES"
+    trade_action: str = ""
+    entry_price: float = 0.0
+    position_size_usd: float = 0.0
     edge: Optional[float] = None
     
     @field_validator('confidence', 'edge')

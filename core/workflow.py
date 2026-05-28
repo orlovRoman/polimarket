@@ -176,6 +176,19 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, trigge
             + "\n".join(lines)
         )
         logger.info(f"  Correlation hint: {len(corr_list)} связей для {m.id}")
+        
+        from core.math_filter import math_pre_filter
+        from agents.shared.adapters.polymarket import PolymarketAdapter
+        adapter = PolymarketAdapter()
+        for c in corr_list[:1]:
+            peer_id = c["market_id_b"] if c["market_id_a"] == m.id else c["market_id_a"]
+            try:
+                peer_market = adapter.get_market(peer_id)
+                if peer_market:
+                    context.math_filter_result = math_pre_filter(m, peer_market)
+            except Exception as e:
+                logger.error(f"Error in math_pre_filter for {peer_id}: {e}")
+                
     # ────────────────────────────────────────────────────────────────────────
 
 
@@ -248,61 +261,50 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         logger.info("  SCOUT и SWING: Идей не найдено.")
         update_state(scout_status="⚪️ Идея не найдена", swing_status="⚪️ Идея не найдена")
 
-    if summary_callback:
-        # Богатый формат для Telegram
-        summary_text = f"🗣 <b>Обсуждение рынка:</b>\n"
-        
-        if context.trigger_type == "event_driven":
-            if context.source_url and context.source_url.strip():
-                triggered_time = context.triggered_at.strftime("%d %b %H:%M") if context.triggered_at else "сейчас"
-                source_label = context.source_text or "Источник"
-                summary_text += f"📡 <b>Источник:</b> <a href='{context.source_url}'>{source_label}</a> · {triggered_time}\n"
-            else:
-                summary_text += f"⚠️ <b>Внимание:</b> источник события не определён (деградация до scheduled)\n"
-                
-        summary_text += f"<a href='{m.url}'>{m.title}</a>\n\n"
-        
+    if summary_callback and decision.status == 'saved':
+        # Определяем действие
+        trade_action = "BUY YES"
+        entry_price = m.price
         if signal:
-            summary_text += f"🧠 <b>SCOUT (Фундаментал):</b>\n"
-            summary_text += f"🎯 Причина: {getattr(signal, 'signal_cause', 'N/A')}\n"
-            summary_text += f"⚖️ Риск: {getattr(signal, 'signal_risk', 'N/A')}\n"
-            if getattr(signal, 'oracle_risk', ''):
-                summary_text += f"👁 Оракул-риск: {getattr(signal, 'oracle_risk', '')}\n"
-            summary_text += f"📝 Вердикт: {getattr(signal, 'signal_verdict', 'N/A')}\n\n"
-        else:
-            summary_text += f"🧠 <b>SCOUT:</b> ⚪️ Расхождение < MIN_EDGE\n\n"
+            outcome = getattr(signal, 'target_outcome', 'YES').upper()
+            trade_action = f"BUY {outcome}"
+            entry_price = m.price if outcome == "YES" else round(1 - m.price, 2)
+        
+        price_cents = int(entry_price * 100)
+        
+        # Заголовок — действие
+        summary_text = (
+            f"💰 <b>СИГНАЛ: {trade_action}</b> — "
+            f"<a href='{m.url}'>{m.title}</a>\n"
+            f"📍 Вход: <b>{price_cents}¢</b> | Лимитным ордером\n"
+        )
+        
+        # Источник (если event-driven)
+        if context.trigger_type == "event_driven" and context.source_url and context.source_url.strip():
+            source_label = context.source_text or "Источник"
+            summary_text += f"📡 <a href='{context.source_url}'>{source_label}</a>\n"
             
+        summary_text += "\n"
+        
+        # Компактная аналитика
+        if signal:
+            verdict = getattr(signal, 'signal_verdict', '') or getattr(signal, 'signal_cause', '')
+            summary_text += f"🧠 <b>SCOUT:</b> {verdict[:120]}\n"
+        
         if swing_signal:
-            summary_text += f"🏄‍♂️ <b>SWING (Хайп):</b>\n"
-            if getattr(swing_signal, 'recommendation', '') == 'buy':
-                summary_text += f"🔥 Катализатор: {getattr(swing_signal, 'catalyst', 'N/A')}\n"
-            else:
-                summary_text += f"💤 Почему тихо: {getattr(swing_signal, 'catalyst_absence_reason', 'N/A')}\n"
-            summary_text += f"⚖️ Риск: {getattr(swing_signal, 'swing_risk', 'N/A')}\n"
-            summary_text += f"📝 Вердикт: {getattr(swing_signal, 'swing_verdict', 'N/A')}\n\n"
-        else:
-            summary_text += f"🏄‍♂️ <b>SWING:</b> ⚪️ Сигнал не сформирован\n\n"
+            catalyst = getattr(swing_signal, 'catalyst', '') or getattr(swing_signal, 'catalyst_absence_reason', '')
+            summary_text += f"🏄 <b>SWING:</b> {catalyst[:120]}\n"
             
         if opinion_shadow:
-            status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
-            liq_risk = getattr(opinion_shadow, 'liquidity_risk', 'medium').upper()
-            summary_text += f"🛡 <b>SHADOW (Инфраструктура):</b> {status}\n"
-            summary_text += f"💧 Риск ликвидности: {liq_risk}\n"
-            summary_text += f"📊 Ордербук: {getattr(opinion_shadow, 'orderbook_facts', 'N/A')}\n"
-            summary_text += f"⚖️ Исполнение: {getattr(opinion_shadow, 'risk_assessment', 'N/A')}\n"
-            summary_text += f"📝 Вердикт: {getattr(opinion_shadow, 'shadow_verdict', 'N/A')}\n\n"
-        
-        if decision.status == 'saved':
-            initiators = []
-            if signal: initiators.append("SCOUT")
-            if swing_signal and getattr(swing_signal, 'recommendation', '') == 'buy': initiators.append("SWING")
-            initiators_str = " + ".join(initiators)
-            summary_text += f"✨ <b>ИТОГ: Консенсус достигнут (Инициатор: {initiators_str})! Идея сохранена.</b>"
-        elif decision.status == 'no_consensus':
-            summary_text += "🛑 <b>ИТОГ: Консенсус не достигнут (SHADOW отклонил).</b>"
-        else:
-            summary_text += "🛑 <b>ИТОГ: Нет предмета для обсуждения.</b>"
+            liq = getattr(opinion_shadow, 'liquidity_risk', 'medium').upper()
+            ob = getattr(opinion_shadow, 'orderbook_facts', '')
+            summary_text += f"🛡 <b>SHADOW:</b> ✅ | Ликвидность: {liq} | {ob[:80]}\n"
             
+        # Арбитраж из math_filter (если есть)
+        math_result = getattr(context, 'math_filter_result', None)
+        if math_result and math_result.has_arbitrage and math_result.trade_instruction:
+            summary_text += f"\n⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{math_result.trade_instruction}\n"
+
         summary_callback(summary_text)
         
     audit = {

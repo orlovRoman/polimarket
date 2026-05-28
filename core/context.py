@@ -1,4 +1,4 @@
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 from core.models import Market
@@ -30,3 +30,4 @@ class MarketContext(BaseModel):
     triggered_at: Optional[datetime] = None
     
     # Можно расширять (X/Twitter, Onchain metrics, etc.)
+    math_filter_result: Optional[Any] = None
