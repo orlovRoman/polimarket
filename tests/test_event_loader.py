@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from agents.polymarket_arbitrage_agent.src.synthetic.event_loader import load_events_with_levels
+from agents.polymarket_arbitrage_agent.src.synthetic.event_loader import load_events_with_levels_from_raw
 
 def test_heuristic_filters_mutually_exclusive():
     # Создаем мок API-ответа для двух событий: одно накопительное, одно взаимоисключающее
@@ -39,7 +39,7 @@ def test_heuristic_filters_mutually_exclusive():
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
         
-        events = load_events_with_levels(min_markets_per_event=2)
+        events = load_events_with_levels_from_raw(mock_events, min_markets_per_event=2)
         
         # Должно остаться только 1 событие
         assert len(events) == 1

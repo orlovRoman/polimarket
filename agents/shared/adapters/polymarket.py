@@ -8,19 +8,30 @@ from core.models import Market
 class PolymarketAdapter(BaseMarketAdapter):
     @staticmethod
     def fetch_raw_events(limit: int = 100) -> list:
-        resp = requests.get(
-            "https://gamma-api.polymarket.com/events",
-            params={
-                "active": "true",
-                "closed": "false",
-                "limit": limit,
-                "order": "volume",
-                "ascending": "false",
-            },
-            timeout=15,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        from services.polymarket_cache import get_raw_events
+        from config import logger, POLY_EVENTS_CACHE_TTL_SECONDS
+        
+        def _fetch():
+            try:
+                resp = requests.get(
+                    "https://gamma-api.polymarket.com/events",
+                    params={
+                        "active": "true",
+                        "closed": "false",
+                        "limit": limit,
+                        "order": "volume",
+                        "ascending": "false",
+                    },
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as e:
+                logger.error(f"[PolymarketAdapter] fetch_raw_events API error: {e}")
+                return []
+                
+        cache_key = f"poly_events_{limit}"
+        return get_raw_events(cache_key, _fetch, ttl_seconds=POLY_EVENTS_CACHE_TTL_SECONDS)
 
     def __init__(self):
         self.api_url = "https://gamma-api.polymarket.com"
@@ -129,16 +140,16 @@ class PolymarketAdapter(BaseMarketAdapter):
                         m['event_slug'] = event_slug
                     items.append(m)
         else:
-            params = {
-                "active": "true",
-                "closed": "false",
-                "limit": limit,
-                "order": "volume",
-                "ascending": "false"
-            }
-            response = self.session.get(f"{self.api_url}/markets", params=params, timeout=15)
-            response.raise_for_status()
-            items = response.json()
+            events = self.fetch_raw_events(limit)
+            items = []
+            for event in events:
+                event_slug = event.get('slug')
+                for m in event.get('markets', []):
+                    if 'slug' not in m or not m['slug']:
+                        m['slug'] = event_slug
+                    else:
+                        m['event_slug'] = event_slug
+                    items.append(m)
         
         for item in items:
             if len(markets) >= limit:

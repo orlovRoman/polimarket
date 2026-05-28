@@ -373,8 +373,6 @@ def init_db():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_agent ON agent_episodes(agent_name, created_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON agent_episodes(outcome, event_type)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_idea_audit_created_at ON idea_audit (created_at)")
-            # Duplicate signals status index removed
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close_time ON markets (close_time)")
 
             # Миграция: добавляем новые колонки в memory (если их ещё нет)
             existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(memory)").fetchall()}
@@ -523,6 +521,7 @@ def mark_cross_arbitrage_alerted(signal_id: str) -> None:
 
 def save_synthetic_corridor(signal) -> None:
     """Сохраняет сигнал синтетического коридора."""
+    init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
