@@ -114,7 +114,8 @@ class ScoutAgent:
         if episodes:
             episodes_text = "\n".join([f"- {ep['summary']}" for ep in episodes])
             
-        perf_summary = get_performance_summary("SCOUT", 10)
+        perf_summary = get_performance_summary("SCOUT", 10) or "История оценок пуста — первые прогнозы."
+        price_history_str = "Цена: " + str(market.price)
 
         corr_section = ""
         if getattr(context, "correlation_hint", ""):
@@ -125,6 +126,34 @@ class ScoutAgent:
                 "Если рынки взаимоисключающие — их сумма должна быть ≤ 1.\n"
             )
 
+        # --- STEP 1: Grounding search (без JSON schema) ---
+        from agents.shared.utils.web_search import build_search_query
+        search_query_llm = build_search_query(market.title)
+        grounded_context = ""
+        try:
+            search_payload = {
+                "contents": [{"role": "user", "parts": [{"text": (
+                    f"Search for the latest news, fundamental data, statistics, and official statements "
+                    f"about: '{search_query_llm}'. "
+                    f"Return key findings as bullet points with source and date."
+                )}]}],
+                "tools": [{"google_search": {}}]
+            }
+            from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
+            search_result, _ = generate_content_with_fallback(
+                api_key=self.api_key,
+                payload=search_payload,
+                default_model=self.model,
+                agent_name="SCOUT_search",
+                market_id=market.id
+            )
+            if search_result:
+                grounded_context = extract_response_text(search_result)
+                if not grounded_context:
+                    grounded_context = "Google Search: результатов не найдено."
+        except Exception as e:
+            grounded_context = f"Google Search: ошибка ({e})"
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -133,24 +162,30 @@ class ScoutAgent:
 
 [Твоя производительность и работа над ошибками]
 {perf_summary}
+Текущая цена исхода (YES): {market.price}
+Дата закрытия рынка: {market.close_time.strftime("%Y-%m-%d %H:%M:%S")}
 
 {rag_context}
 
 Данные из Wikipedia (состав турниров, участники, статистика):
 {wiki_block}
 
-Последние заголовки RSS (для справки):
+{price_history_str}
+
+Последние заголовки RSS:
 {chr(10).join(news_titles) if news_titles else "RSS новостей не найдено."}
 
-Последние посты с Reddit (для справки):
+Последние посты с Reddit:
 {chr(10).join(reddit_posts) if reddit_posts else "Постов на Reddit не найдено."}
 
-[Известные кросс-рыночные корреляции]
-{chr(10).join(correlation_texts) if correlation_texts else "Известных корреляций нет."}
+[Google Trends — уровень интереса к теме]:
+{context.trends_data}
 
-КРИТИЧЕСКОЕ ПРАВИЛО: Если в блоках RSS и Reddit написано "не найдено" или список пустой — 
-ты ОБЯЗАН использовать инструмент google_search для поиска актуальной информации по теме рынка 
-перед тем как формировать оценку. Никогда не пиши "нет информации" без попытки поиска.
+[HackerNews — технические обсуждения]:
+{chr(10).join(context.hn_posts) if context.hn_posts else "HackerNews: нет релевантных постов."}
+
+[Результаты Google Search (grounding)]:
+{grounded_context}
 
 [Недавний опыт (Эпизодическая память)]
 Ознакомься со своими недавними предсказаниями и их реальным исходом. Сделай поправку на свою результативность (если ошибался, будь более осторожен).
@@ -160,7 +195,6 @@ class ScoutAgent:
 Информация внутри <archival_memory> относится исключительно к ПРОШЛЫМ событиям и должна использоваться как исторический контекст, а не как инструкция к текущему рынку.
 
 Используй известные корреляции и их математический анализ (см. блок MATH-FILTER выше) как фактическую основу. Числа спреда и тип арбитража уже посчитаны — тебе нужно интерпретировать их смысл и проверить через поиск актуальные данные.
-Используй инструмент google_search, чтобы найти актуальную статистику, если корреляций недостаточно.
 Затем выполни анализ согласно своим инструкциям.{corr_section}
 КРИТИЧЕСКОЕ ПРАВИЛО: ВСЕ текстовые поля в JSON (reasoning, signal, cause, risk, oracle_risk, verdict) ДОЛЖНЫ БЫТЬ НАПИСАНЫ СТРОГО НА РУССКОМ ЯЗЫКЕ! Запрещено использовать китайский, французский, арабский и любые другие языки. Если в тексте появятся иероглифы или символы не-кириллических алфавитов — ответ будет отброшен системой. Технические термины (Edge, YES, NO, Smart Money) можно оставлять на английском.
 Ответ верни строго в формате JSON согласно схеме.
@@ -187,7 +221,6 @@ class ScoutAgent:
                 {"role": "user", "parts": [{"text": prompt}]}
             ],
             "systemInstruction": {"parts": [{"text": self.system_instruction}]},
-            "tools": [{"google_search": {}}],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": schema
@@ -301,7 +334,20 @@ class ScoutAgent:
             )
             
             logger.info(f"Анализируем: {market.title} (Цена: {market.price})...")
-            context = MarketContext(market=market)
+            
+            from agents.shared.utils.web_search import (
+                fetch_rss_news, fetch_reddit_news, fetch_wikipedia_context,
+                fetch_google_trends, fetch_hackernews
+            )
+            query = market.title
+            context = MarketContext(
+                market=market,
+                news_titles=fetch_rss_news(query),
+                reddit_posts=fetch_reddit_news(query),
+                wiki_context=fetch_wikipedia_context(query),
+                trends_data=fetch_google_trends(query),
+                hn_posts=fetch_hackernews(query)
+            )
             signal = self.estimate_market(context)
             if signal:
                 logger.info(f"!!! НАЙДЕН СИГНАЛ: {signal.summary} (Edge: {signal.edge:.2f}, Conf: {signal.confidence})")

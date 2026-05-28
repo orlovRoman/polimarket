@@ -118,6 +118,3 @@ def startup_check():
     # Убеждаемся, что системные папки существуют
     VAULT_PATH.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
-# Запускаем проверку при импорте модуля
-startup_check()

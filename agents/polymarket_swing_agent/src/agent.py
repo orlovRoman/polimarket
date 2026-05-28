@@ -53,7 +53,7 @@ class SwingAgent:
         if episodes:
             episodes_text = "\n".join([f"- {ep['summary']}" for ep in episodes])
             
-        perf_summary = get_performance_summary("SWING", 10)
+        perf_summary = get_performance_summary("SWING", 10) or "История оценок пуста — первые прогнозы."
 
         # --- STEP 1: Grounding search (без JSON schema) ---
         from agents.shared.utils.web_search import build_search_query

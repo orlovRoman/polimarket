@@ -1300,7 +1300,8 @@ async def conversational_handler(message: types.Message) -> None:
             logger.error(f"Критическая ошибка при отправке сообщения в Telegram: {e2}")
 
 async def main() -> None:
-    # Проверка уже выполняется при импорте config.py
+    from config import startup_check
+    startup_check()
     print("🤖 Бот NEXUS запускается...")
     await set_commands(bot)
     await dp.start_polling(bot)

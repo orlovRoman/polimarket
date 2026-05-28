@@ -88,7 +88,7 @@ YES dominance:   {smart_money.yes_dominance:.0%}
         if episodes:
             episodes_text = "\n".join([f"- {ep['summary']}" for ep in episodes])
             
-        perf_summary = get_performance_summary("SHADOW", 10)
+        perf_summary = get_performance_summary("SHADOW", 10) or "История оценок пуста — первые прогнозы."
 
         prompt = f"""
 Сегодняшняя дата и время: {now_str}

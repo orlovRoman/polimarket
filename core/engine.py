@@ -226,7 +226,10 @@ class CoreEngine:
                     from core.checkpoint import save_checkpoint
                     
                     try:
-                        opinion_shadow = self.shadow.analyze_idea(context, active_signal.details, orderbook=orderbook, price_history=price_hist)
+                        scout_opinion = signal.details if signal else ""
+                        swing_opinion = swing_signal.details if swing_signal else ""
+                        combined_opinion = "\n\n".join(filter(None, [scout_opinion, swing_opinion]))
+                        opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, orderbook=orderbook, price_history=price_hist)
                         save_checkpoint(f"shadow_{m.id}", status="ok")
                     except LLMUnavailableError:
                         save_checkpoint(f"shadow_{m.id}", status="llm_unavailable")
