@@ -245,6 +245,14 @@ async def main():
         if not text:
             return
             
+        # Защита от бесконечного цикла (игнорируем сообщения от нашего же бота)
+        if "Найдено" in text and "связанных рынков" in text:
+            return
+        if "К сожалению, я не нашел связанных рынков" in text:
+            return
+        if "ТРИГГЕР" in text and "Запущен внеочередной скан" in text:
+            return
+            
         # Получаем имя канала
         chat = await event.get_chat()
         chat_name = chat.username or chat.title or str(chat.id)
