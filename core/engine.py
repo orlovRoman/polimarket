@@ -83,6 +83,9 @@ class CoreEngine:
             self._scan_lock.release()
 
     def _run_team_discussion_inner(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
+        from core.guards import LLMUnavailableError
+        from core.checkpoint import save_checkpoint
+        
         if summary_callback is None:
             summary_callback = send_telegram_alert
 
@@ -171,7 +174,6 @@ class CoreEngine:
                 save_price_point(m.id, m.price)
                 
                 # Параллельный парсинг и оценка
-                from core.workflow import run_agent_evaluation, process_consensus
                 trigger_type = kwargs.get("trigger_type", "scheduled")
                 source_url = kwargs.get("source_url")
                 source_text = kwargs.get("source_text")
@@ -224,9 +226,6 @@ class CoreEngine:
                     
                     # Добавляем smart_money в контекст
                     context.smart_money = smart_money
-
-                    from core.guards import LLMUnavailableError
-                    from core.checkpoint import save_checkpoint
                     
                     try:
                         scout_opinion = signal.details if signal else ""
@@ -259,7 +258,8 @@ class CoreEngine:
                 break
             except Exception as e:
                 import traceback
-                error_msg = f"[ОШИБКА] Рынок {m.title}: {e}\n<pre>{traceback.format_exc()}</pre>"
+                import html
+                error_msg = f"[ОШИБКА] Рынок {m.title}: {e}\n<pre>{html.escape(traceback.format_exc())}</pre>"
                 log(f"[ОШИБКА] Рынок {m.title}: {e}\n{traceback.format_exc()}")
                 if summary_callback:
                     try:
@@ -324,18 +324,24 @@ class CoreEngine:
             source_url = f"https://t.me/{source_username}/{effective_message_id}"
             
         for m in markets[:3]:
-            await asyncio.to_thread(
-                self.run_team_discussion, 
-                None, 
-                lambda msg: send_telegram_to_chat(msg, chat_id), 
-                None, 
-                m.id, 
-                None,
-                trigger_type="event_driven",
-                source_url=source_url,
-                source_text=source_text,
-                triggered_at=datetime.now()
-            )
+            try:
+                await asyncio.to_thread(
+                    self.run_team_discussion, 
+                    None, 
+                    lambda msg: send_telegram_to_chat(msg, chat_id), 
+                    None, 
+                    m.id, 
+                    None,
+                    trigger_type="event_driven",
+                    source_url=source_url,
+                    source_text=source_text,
+                    triggered_at=datetime.now()
+                )
+            except RuntimeError as e:
+                send_telegram_to_chat(f"⚠️ {e}", chat_id)
+                break
+            except Exception as e:
+                logger.error(f"analyze_post_async error for {m.id}: {e}")
             # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
             await asyncio.sleep(2)
             
