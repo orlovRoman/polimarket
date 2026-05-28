@@ -39,31 +39,35 @@ class CoreEngine:
 
     def __init__(self):
         if not hasattr(self, "initialized"):
-            self.active_markets: Dict[str, Any] = {}
-            self._markets_lock = threading.Lock()
-            self.state: Dict[str, Any] = {
-                "category": "Авто-микс",
-                "stage": "Инициализация",
-                "total_markets": 0,
-                "current_market_index": 0,
-                "current_market_title": "Ожидание...",
-                "current_market_url": "",
-                "scout_status": "⏳ Ожидает",
-                "swing_status": "⏳ Ожидает",
-                "shadow_status": "⏳ Ожидает",
-                "ideas_found": 0
-            }
-            self.api_key = GOOGLE_API_KEY
-            if not self.api_key:
-                logger.error("ОШИБКА: GOOGLE_API_KEY не установлен.")
-                
-            self.scout = ScoutAgent(api_key=self.api_key)
-            self.swing = SwingAgent(api_key=self.api_key)
-            self.shadow = ShadowAgent(api_key=self.api_key)
-            self.nexus = NexusAgent(api_key=self.api_key)
-            self.adapter = PolymarketAdapter()
-            self.initialized = True
-            init_db()
+            try:
+                self.active_markets: Dict[str, Any] = {}
+                self._markets_lock = threading.Lock()
+                self.state: Dict[str, Any] = {
+                    "category": "Авто-микс",
+                    "stage": "Инициализация",
+                    "total_markets": 0,
+                    "current_market_index": 0,
+                    "current_market_title": "Ожидание...",
+                    "current_market_url": "",
+                    "scout_status": "⏳ Ожидает",
+                    "swing_status": "⏳ Ожидает",
+                    "shadow_status": "⏳ Ожидает",
+                    "ideas_found": 0
+                }
+                self.api_key = GOOGLE_API_KEY
+                if not self.api_key:
+                    logger.error("ОШИБКА: GOOGLE_API_KEY не установлен.")
+                    
+                self.scout = ScoutAgent(api_key=self.api_key)
+                self.swing = SwingAgent(api_key=self.api_key)
+                self.shadow = ShadowAgent(api_key=self.api_key)
+                self.nexus = NexusAgent(api_key=self.api_key)
+                self.adapter = PolymarketAdapter()
+                self.initialized = True
+                init_db()
+            except Exception:
+                CoreEngine._instance = None  # позволяет пересоздать после исправления конфига
+                raise
 
     def update_state(self, **kwargs):
         self.state.update(kwargs)
@@ -348,12 +352,15 @@ class CoreEngine:
                 clean_username = source_username.lstrip('@')
                 source_url = f"https://t.me/{clean_username}/{effective_message_id}"
 
+            def _notify(msg: str) -> None:
+                send_telegram_to_chat(msg, chat_id)
+
             for m in markets[:3]:
                 try:
                     await asyncio.to_thread(
                         self.run_team_discussion,
                         None,
-                        lambda msg, _chat_id=chat_id: send_telegram_to_chat(msg, _chat_id),
+                        _notify,
                         None,
                         m.id,
                         None,
@@ -369,8 +376,9 @@ class CoreEngine:
                     break
                 except Exception as e:
                     logger.error(f"analyze_post_async error for {m.id}: {e}")
-                # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
-                await asyncio.sleep(2)
+                finally:
+                    # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
+                    await asyncio.sleep(2)
 
             mark_telegram_post_status(post_id, 'ANALYZED')
 
