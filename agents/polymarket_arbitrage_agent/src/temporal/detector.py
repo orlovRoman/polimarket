@@ -52,6 +52,10 @@ def find_candidates(
                 # Фильтр: ранняя дата ещё не истекла
                 if early.close_time <= now:
                     continue
+                    
+                # Отсеиваем fallback-даты 2099 года, если у рынка не было даты завершения
+                if early.close_time.year >= 2090 or late.close_time.year >= 2090:
+                    continue
 
                 # Фильтр: ликвидность обеих ног
                 if early.volume < min_volume or late.volume < min_volume:
@@ -116,6 +120,7 @@ def compute_quality_score(
     liquidity_score = min(executable_contracts / min_executable, 1.0)
 
     # Вероятность коридора
+    # Нормировка на 0.3 (если вероятность коридора 30%+, считаем это отличным шансом для двойной выплаты и даем макс. балл)
     corridor_score = min(max(p_in_corridor / 0.3, 0.0), 1.0)
 
     score = (

@@ -42,9 +42,8 @@ def _parse_threshold(title: str) -> Optional[tuple[float, str]]:
         # We can just check if it's not a year 202x
         val = float(m.group(1))
         if 2020 <= val <= 2030:
-            pass # might be a year, let's keep searching or just accept it? The user spec is simple.
-        else:
-            return (val, 'pts')
+            return None
+        return (val, 'pts')
             
     return None
 
@@ -61,7 +60,10 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
     pairs = [
         ('democrat', 'republican'),
         ('trump', 'harris'),
-        ('win', 'lose')
+        ('trump', 'biden'),
+        ('kamala', 'trump'),
+        ('win', 'lose'),
+        ('yes', 'no')
     ]
     for w1, w2 in pairs:
         if (w1 in a and w2 in b) or (w2 in a and w1 in b):
@@ -81,17 +83,26 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             higher_market, lower_market = market_b, market_a
             p_higher, p_lower = market_b.price, market_a.price
             
-        if p_higher > p_lower and (p_higher - p_lower) * 100 >= min_spread_pct:
+        if p_higher > p_lower:
             spread = (p_higher - p_lower) * 100
-            instruction = f"SELL YES на [{lower_market.title}]({lower_market.url}) ({p_lower*100:.0f}¢) + SELL NO на [{higher_market.title}]({higher_market.url}) ({(1-p_higher)*100:.0f}¢). Суммарный сбор: {(p_lower + 1 - p_higher)*100:.0f}¢ → гарантированная выплата 100¢."
-            return MathFilterResult(
-                decision=FilterDecision.CONFIRMED_ARBITRAGE,
-                arbitrage_type="monotonicity_violation",
-                spread_pct=spread,
-                reasoning=f"Нарушение монотонности: порог {max(t_a[0], t_b[0])} стоит дороже порога {min(t_a[0], t_b[0])}",
-                trade_instruction=instruction,
-                has_arbitrage=True
-            )
+            if spread >= min_spread_pct:
+                instruction = f"SELL YES на [{lower_market.title}]({lower_market.url}) ({p_lower*100:.0f}¢) + SELL NO на [{higher_market.title}]({higher_market.url}) ({(1-p_higher)*100:.0f}¢). Суммарный сбор: {(p_lower + 1 - p_higher)*100:.0f}¢ → гарантированная выплата 100¢."
+                return MathFilterResult(
+                    decision=FilterDecision.CONFIRMED_ARBITRAGE,
+                    arbitrage_type="monotonicity_violation",
+                    spread_pct=spread,
+                    reasoning=f"Нарушение монотонности: порог {max(t_a[0], t_b[0])} стоит дороже порога {min(t_a[0], t_b[0])}",
+                    trade_instruction=instruction,
+                    has_arbitrage=True
+                )
+            else:
+                return MathFilterResult(
+                    decision=FilterDecision.CONFIRMED_NO_ARBI,
+                    arbitrage_type="false_positive",
+                    spread_pct=spread,
+                    reasoning=f"Нарушение монотонности есть, но спред {spread:.1f}% меньше минимального {min_spread_pct:.1f}%",
+                    trade_instruction=""
+                )
         elif p_higher <= p_lower:
             return MathFilterResult(
                 decision=FilterDecision.CONFIRMED_NO_ARBI,
@@ -117,7 +128,7 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             )
         if 1.0 - price_sum > 0.03 and (1.0 - price_sum) * 100 >= min_spread_pct:
             spread = (1.0 - price_sum) * 100
-            instruction = f"BUY YES на [{market_a.title}]({market_a.url}) ({market_a.price*100:.0f}¢) + BUY YES на [{market_b.title}]({market_b.url}) ({market_b.price*100:.0f}¢). Суммарная стоимость: {price_sum*100:.0f}¢ → гарантированная выплата 100¢."
+            instruction = f"BUY YES на [{market_a.title}]({market_a.url}) ({market_a.price*100:.0f}¢) + BUY YES на [{market_b.title}]({market_b.url}) ({market_b.price*100:.0f}¢). Суммарная стоимость: {price_sum*100:.0f}¢ → покупка ниже номинала, один из исходов выплатит 100¢."
             return MathFilterResult(
                 decision=FilterDecision.CONFIRMED_ARBITRAGE,
                 arbitrage_type="complementary_underpriced",
