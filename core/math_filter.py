@@ -1,8 +1,10 @@
 from enum import Enum
 from dataclasses import dataclass
 import re
-from typing import Optional
+import logging
 from core.models import Market
+
+logger = logging.getLogger("math_filter")
 
 class FilterDecision(Enum):
     CONFIRMED_ARBITRAGE = "CONFIRMED_ARBITRAGE"
@@ -69,6 +71,22 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
             return True
     return False
 
+def validate_trade_instruction(instruction: str) -> tuple[bool, str]:
+    """
+    Проверяет, что трейд-инструкция содержит только исполнимые
+    на Polymarket операции: BUY YES или BUY NO.
+    
+    SELL YES / SELL NO допустимы только при наличии позиции — 
+    система не отслеживает позиции, поэтому запрещаем шорты.
+    
+    Returns: (is_valid, reason)
+    """
+    forbidden = ["SELL YES", "SELL NO", "SHORT"]
+    for op in forbidden:
+        if op.upper() in instruction.upper():
+            return False, f"Недопустимая операция '{op}' — шорт на Polymarket невозможен без открытой позиции."
+    return True, "OK"
+
 def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 5.0) -> MathFilterResult:
     # 1. Monotonicity
     t_a = _parse_threshold(market_a.title)
@@ -86,6 +104,17 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             spread = (p_higher - p_lower) * 100
             if spread >= min_spread_pct:
                 instruction = f"SELL YES на [{lower_market.title}]({lower_market.url}) ({p_lower*100:.0f}¢) + SELL NO на [{higher_market.title}]({higher_market.url}) ({(1-p_higher)*100:.0f}¢). Суммарный сбор: {(p_lower + 1 - p_higher)*100:.0f}¢ → гарантированная выплата 100¢."
+                is_valid, reason = validate_trade_instruction(instruction)
+                if not is_valid:
+                    logger.warning(f"[math_filter] Невалидный трейд отклонён: {reason}")
+                    return MathFilterResult(
+                        decision=FilterDecision.AMBIGUOUS,
+                        arbitrage_type="monotonicity_violation",
+                        spread_pct=spread,
+                        reasoning=f"Нарушение монотонности: порог {max(t_a[0], t_b[0])} стоит дороже порога {min(t_a[0], t_b[0])}",
+                        trade_instruction=f"⚠️ Трейд недоступен: {reason}",
+                        has_arbitrage=False
+                    )
                 return MathFilterResult(
                     decision=FilterDecision.CONFIRMED_ARBITRAGE,
                     arbitrage_type="monotonicity_violation",
@@ -117,6 +146,17 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
         if price_sum - 1.0 > 0.03 and (price_sum - 1.0) * 100 >= min_spread_pct:
             spread = (price_sum - 1.0) * 100
             instruction = f"SELL YES на [{market_a.title}]({market_a.url}) ({market_a.price*100:.0f}¢) + SELL YES на [{market_b.title}]({market_b.url}) ({market_b.price*100:.0f}¢). Суммарный сбор: {(price_sum)*100:.0f}¢ → гарантированная выплата 100¢."
+            is_valid, reason = validate_trade_instruction(instruction)
+            if not is_valid:
+                logger.warning(f"[math_filter] Невалидный трейд отклонён: {reason}")
+                return MathFilterResult(
+                    decision=FilterDecision.AMBIGUOUS,
+                    arbitrage_type="complementary_overpriced",
+                    spread_pct=spread,
+                    reasoning=f"Сумма взаимоисключающих исходов {price_sum:.2f} > 1.0",
+                    trade_instruction=f"⚠️ Трейд недоступен: {reason}",
+                    has_arbitrage=False
+                )
             return MathFilterResult(
                 decision=FilterDecision.CONFIRMED_ARBITRAGE,
                 arbitrage_type="complementary_overpriced",
@@ -128,6 +168,10 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
         if 1.0 - price_sum > 0.03 and (1.0 - price_sum) * 100 >= min_spread_pct:
             spread = (1.0 - price_sum) * 100
             instruction = f"BUY YES на [{market_a.title}]({market_a.url}) ({market_a.price*100:.0f}¢) + BUY YES на [{market_b.title}]({market_b.url}) ({market_b.price*100:.0f}¢). Суммарная стоимость: {price_sum*100:.0f}¢ → покупка ниже номинала, один из исходов выплатит 100¢."
+            is_valid, reason = validate_trade_instruction(instruction)
+            if not is_valid:
+                logger.warning(f"[math_filter] Невалидный трейд отклонён: {reason}")
+                instruction = f"⚠️ Трейд недоступен: {reason}"
             return MathFilterResult(
                 decision=FilterDecision.AMBIGUOUS,
                 arbitrage_type="complementary_underpriced",
@@ -155,6 +199,45 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
                 spread_pct=direct_spread_pct,
                 reasoning=f"Значимое расхождение цен {direct_spread_pct:.1f}%, требуется подтверждение LLM",
                 trade_instruction=""
+            )
+
+    # 3b. Logical implication (A ⊃ B) — только на одной платформе
+    if market_a.platform == market_b.platform:
+        p_a, p_b = market_a.price, market_b.price
+        implication_spread = abs(p_a - p_b) * 100
+        if implication_spread >= min_spread_pct:
+            # Определяем какой рынок "следствие" (более дешёвый — потенциально недооценён)
+            if p_a > p_b:
+                anchor, underpriced = market_a, market_b
+                p_anchor, p_under = p_a, p_b
+            else:
+                anchor, underpriced = market_b, market_a
+                p_anchor, p_under = p_b, p_a
+            
+            instruction = (
+                f"BUY YES на [{underpriced.title}]({underpriced.url}) "
+                f"({p_under*100:.0f}¢). "
+                f"Обоснование: если '{anchor.title}' реализуется с вероятностью {p_anchor*100:.0f}¢, "
+                f"то связанное событие не может стоить меньше. "
+                f"⚠️ Это НЕ гарантированный арбитраж — только вероятностная ставка на логическую связь."
+            )
+            is_valid, reason = validate_trade_instruction(instruction)
+            if not is_valid:
+                logger.warning(f"[math_filter] Невалидный трейд отклонён: {reason}")
+                instruction = f"⚠️ Трейд недоступен: {reason}"
+                
+            return MathFilterResult(
+                decision=FilterDecision.AMBIGUOUS,
+                arbitrage_type="logical_implication",
+                spread_pct=implication_spread,
+                reasoning=(
+                    f"Логическая импликация: если '{anchor.title}' ({p_anchor:.2f}) реализуется, "
+                    f"'{underpriced.title}' ({p_under:.2f}) должен стоить не меньше. "
+                    f"Разрыв {implication_spread:.1f}%. "
+                    f"ВАЖНО: шорт первого рынка невозможен на Polymarket."
+                ),
+                trade_instruction=instruction,
+                has_arbitrage=False
             )
 
     # 4. Fallback
