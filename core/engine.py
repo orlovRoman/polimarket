@@ -104,9 +104,12 @@ class CoreEngine:
         # cleanup_stale_signals() удалено, перенесено в еженедельный cron и /cleanup
 
         from agents.shared.python.db import get_memory
-        scan_limit = get_memory("scan_limit")
-        if scan_limit is None: scan_limit = SCAN_LIMIT_DEFAULT
-        scan_limit = int(scan_limit)
+        scan_limit_raw = get_memory("scan_limit")
+        try:
+            scan_limit = int(scan_limit_raw) if scan_limit_raw is not None else SCAN_LIMIT_DEFAULT
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid scan_limit in memory: {scan_limit_raw!r}, using default")
+            scan_limit = SCAN_LIMIT_DEFAULT
 
         def _update_state(**kwargs):
             self.update_state(**kwargs)
@@ -236,8 +239,8 @@ class CoreEngine:
                     context.smart_money = smart_money
                     
                     try:
-                        scout_opinion = signal.details if signal else ""
-                        swing_opinion = swing_signal.details if swing_signal else ""
+                        scout_opinion = getattr(signal, 'details', '') or getattr(signal, 'signal_cause', '') if signal else ""
+                        swing_opinion = getattr(swing_signal, 'details', '') or getattr(swing_signal, 'catalyst', '') if swing_signal else ""
                         combined_opinion = "\n\n".join(filter(None, [scout_opinion, swing_opinion]))
                         opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, orderbook=orderbook, price_history=price_hist)
                         save_checkpoint(f"shadow_{m.id}", status="ok")
