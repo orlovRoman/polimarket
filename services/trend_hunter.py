@@ -11,8 +11,10 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import subprocess
 import requests
+import threading
 from datetime import datetime
 from typing import List, Dict, Any
+from core.engine import CoreEngine
 
 # Добавляем корень проекта в путь поиска модулей
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -182,24 +184,25 @@ def run_trend_hunter(dry_run: bool = False):
                     # Сохраняем рынок в БД
                     save_market(m)
                     # Запускаем фоновый точечный командный анализ
-                    import threading
-                    from core.engine import CoreEngine
-                    from datetime import datetime
-                    def _run_trend_hunter_scan():
+                    # Баг #4: захватываем m_id и topic_ru по значению через default args,
+                    # иначе closure захватывает переменные по ссылке — все потоки
+                    # запускаются с последним m_id цикла.
+                    def _run_trend_hunter_scan(_mid=m_id, _topic=topic_ru):
                         eng = CoreEngine()
                         eng.run_team_discussion(
                             log_callback=None,
                             summary_callback=None,
                             category=None,
-                            market_id=m_id,
+                            market_id=_mid,
                             state_callback=None,
                             trigger_type="event_driven",
                             source_url="https://trends.google.com/",
-                            source_text=f"🎯 Trend Hunter: {topic_ru}",
+                            source_text=f"🎯 Trend Hunter: {_topic}",
                             triggered_at=datetime.now()
                         )
-                    threading.Thread(target=_run_trend_hunter_scan, daemon=True).start()
+                    # Баг #5: try/except вокруг thread.start(), а не после него
                     try:
+                        threading.Thread(target=_run_trend_hunter_scan, daemon=True).start()
                         new_markets_triggered.append(m)
                         print(f"      [RUN] Запущен фоновый анализ для рынка {m_id}!")
                     except Exception as ex:

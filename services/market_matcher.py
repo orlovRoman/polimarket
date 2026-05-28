@@ -1,5 +1,6 @@
 import re
 import json
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 from core.models import Market
@@ -16,11 +17,27 @@ STOPWORDS = {
 
 MANUAL_PAIRS_PATH = Path("config/manual_market_pairs.json")
 
+
+def _as_utc(dt: datetime) -> datetime:
+    """Нормализует datetime к UTC. naive datetime считается UTC."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _unwrap_json(text: str) -> str:
+    """Снимает ```json ... ``` обёртку если LLM завернул ответ в markdown."""
+    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if match:
+        return match.group(1)
+    return text.strip()
+
 def normalize(title: str) -> set:
     """Убирает ценовые тэги, знаки препинания и возвращает множество слов для быстрого пересечения."""
     title = re.sub(r'\([^)]*¢[^)]*\)', '', title)   # "(YES: 65¢ | NO: 35¢)"
     title = re.sub(r'[^\w\s]', '', title.lower())
-    return set(w for w in title.split() if w not in STOPWORDS)
+    # Баг #3: числовые токены ("3000", "2026") дают ложные совпадения — фильтруем
+    return set(w for w in title.split() if w not in STOPWORDS and not w.isdigit())
 
 def keyword_match_score(a: str, b: str) -> float:
     """Схожесть двух строк через SequenceMatcher."""
@@ -62,8 +79,11 @@ def find_candidate_pairs(
         for mb, set_b, str_b in index_b:
             if not set_b: continue
             
-            # Фильтр по дате закрытия
-            days_diff = abs((ma.close_time - mb.close_time).days)
+            # Баг #1: timezone-safe сравнение дат (naive vs aware → TypeError)
+            try:
+                days_diff = abs((_as_utc(ma.close_time) - _as_utc(mb.close_time)).days)
+            except Exception:
+                continue  # невалидный datetime — пропускаем пару
             if days_diff > max_days_diff:
                 continue
 
@@ -141,7 +161,7 @@ def verify_pair_with_llm(
 
     try:
         text = extract_response_text(result)
-        return json.loads(text.strip())
+        return json.loads(_unwrap_json(text))  # Баг #2: снимаем markdown-обёртку
     except Exception as e:
         print(f"[MarketMatcher] Ошибка парсинга LLM-ответа: {e}")
         return {"is_same_event": False, "confidence": 0.0, "reason": str(e)}
