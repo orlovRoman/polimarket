@@ -23,7 +23,7 @@ def _lower_types(schema):
         return [_lower_types(item) for item in schema]
     return schema
 
-def convert_gemini_to_openai(payload: dict, model_name: str = "grok-3", strict_json: bool = True) -> dict:
+def convert_gemini_to_openai(payload: dict, model_name: str = "", strict_json: bool = True) -> dict:
     """
     Конвертирует payload из формата Google Gemini API в формат OpenAI (совместимый с Grok и OpenRouter).
     """
