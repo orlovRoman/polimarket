@@ -65,7 +65,7 @@ def _prefilter_markets(markets_compact: list) -> list:
 def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, market_id: str, summary_callback=None) -> list:
 
     if category or market_id:
-        return None
+        return []
         
     last_screen_raw = get_memory("last_screen_time")
     now = datetime.now(timezone.utc)
@@ -228,7 +228,7 @@ def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signa
     shadow_ok = opinion_shadow and opinion_shadow.agree
     
     valid_scout = signal is not None
-    valid_swing = swing_signal is not None and getattr(swing_signal, 'recommendation', '') == 'buy'
+    valid_swing = swing_signal is not None and getattr(swing_signal, 'recommendation', '').lower() == 'buy'
     
     if (valid_scout or valid_swing) and shadow_ok:
         status = 'saved'
@@ -252,7 +252,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
     if decision.status == 'saved':
         logger.info("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ.")
         if signal: save_signal(signal)
-        if swing_signal and getattr(swing_signal, 'recommendation', '') == 'buy': save_signal(swing_signal)
+        if swing_signal and getattr(swing_signal, 'recommendation', '').lower() == 'buy': save_signal(swing_signal)
         update_state(ideas_found=state.get("ideas_found", 0) + 1)
     elif decision.status == 'no_consensus':
         logger.info("  --- Консенсус не достигнут (SHADOW забраковал).")
@@ -312,7 +312,10 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             else:
                 logger.warning(f"[math_filter] has_arbitrage=True but trade_instruction empty for {m.id}")
 
-        summary_callback(summary_text)
+        try:
+            summary_callback(summary_text)
+        except Exception as cb_err:
+            logger.error(f"summary_callback error in process_consensus: {cb_err}")
         
     audit = {
         "scout_edge": signal.edge if signal else None,
