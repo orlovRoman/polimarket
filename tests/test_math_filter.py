@@ -7,6 +7,7 @@ def make_market(title: str, price: float, platform: str = "polymarket",
                 url: str = "https://polymarket.com/test") -> Market:
     return Market(
         id="test", platform=platform, title=title, url=url,
+        description="",
         outcome="YES", price=price,
         close_time=datetime(2026, 12, 31, tzinfo=timezone.utc),
     )
@@ -14,6 +15,10 @@ def make_market(title: str, price: float, platform: str = "polymarket",
 def test_math_filter_imports_without_error():
     import core.math_filter
     assert hasattr(core.math_filter, 'validate_trade_instruction')
+
+def test_parse_threshold_accessible():
+    from core.math_filter import _parse_threshold
+    assert _parse_threshold("S&P 500 above 6000") is not None
 
 def test_spacex_bug():
     market_a = make_market("SpaceX IPO above $3T", 0.12)
