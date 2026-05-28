@@ -62,8 +62,7 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
         ('trump', 'harris'),
         ('trump', 'biden'),
         ('kamala', 'trump'),
-        ('win', 'lose'),
-        ('yes', 'no')
+        ('win', 'lose')
     ]
     for w1, w2 in pairs:
         if (w1 in a and w2 in b) or (w2 in a and w1 in b):
@@ -130,12 +129,12 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             spread = (1.0 - price_sum) * 100
             instruction = f"BUY YES на [{market_a.title}]({market_a.url}) ({market_a.price*100:.0f}¢) + BUY YES на [{market_b.title}]({market_b.url}) ({market_b.price*100:.0f}¢). Суммарная стоимость: {price_sum*100:.0f}¢ → покупка ниже номинала, один из исходов выплатит 100¢."
             return MathFilterResult(
-                decision=FilterDecision.CONFIRMED_ARBITRAGE,
+                decision=FilterDecision.AMBIGUOUS,
                 arbitrage_type="complementary_underpriced",
                 spread_pct=spread,
-                reasoning=f"Сумма взаимоисключающих исходов {price_sum:.2f} < 1.0",
+                reasoning=f"Сумма взаимоисключающих исходов {price_sum:.2f} < 1.0 (это favorable bet, требуется подтверждение LLM)",
                 trade_instruction=instruction,
-                has_arbitrage=True
+                has_arbitrage=False
             )
             
     # 3. Direct price divergence (Cross-platform)
