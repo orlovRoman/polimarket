@@ -15,9 +15,26 @@ import logging
 
 logger = logging.getLogger("DB")
 
+_db_initializing = False
+
+def _ensure_initializing(fn):
+    import functools
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        global _db_initializing
+        _db_initializing = True
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _db_initializing = False
+    return wrapper
+
 @contextmanager
 def get_connection():
     """Контекст-менеджер для SQLite-соединений с гарантированным закрытием."""
+    global _db_initializing
+    if not _db_initializing:
+        init_db()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
@@ -38,6 +55,7 @@ def _escape_like(pattern: str) -> str:
 _db_initialized = False
 _db_init_lock = threading.Lock()
 
+@_ensure_initializing
 def init_db():
     """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
     global _db_initialized
@@ -49,6 +67,7 @@ def init_db():
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         
         with get_connection() as conn:
+
             cursor = conn.cursor()
             
             # Таблица рынков
@@ -633,21 +652,24 @@ def mark_alert_sent(alert_key: str, alert_type: str) -> None:
 
 def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
     """Сохраняет аудит-запись о прохождении идеи через pipeline."""
-    with get_connection() as conn:
-        conn.execute("""
-            INSERT INTO idea_audit 
-            (market_id, market_title, scout_edge, swing_found, shadow_agree, shadow_confidence,
-             shadow_reason, final_outcome)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            market_id, market_title,
-            audit_data.get("scout_edge"),
-            audit_data.get("swing_found", 0),
-            audit_data.get("shadow_agree"),
-            audit_data.get("shadow_confidence"),
-            audit_data.get("shadow_reason", ""),
-            audit_data.get("final_outcome", "unknown")
-        ))
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO idea_audit 
+                (market_id, market_title, scout_edge, swing_found, shadow_agree, shadow_confidence,
+                 shadow_reason, final_outcome)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                market_id, market_title,
+                audit_data.get("scout_edge"),
+                audit_data.get("swing_found", 0),
+                audit_data.get("shadow_agree"),
+                audit_data.get("shadow_confidence"),
+                audit_data.get("shadow_reason", ""),
+                audit_data.get("final_outcome", "unknown")
+            ))
+    except Exception as e:
+        logger.error(f"[DB] Ошибка при сохранении idea_audit для рынка '{market_id}': {e}")
 
 
 def get_token_usage_last_24h(agent_name: str) -> dict:
@@ -711,14 +733,14 @@ def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summari
     и сохраняет summary как факт перед удалением.
     Иначе — просто обрезает до keep_last.
     """
+    summary_to_save = None
+
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM chat_history WHERE chat_id = ?", (chat_id,))
         count = cursor.fetchone()[0]
 
-    if count > summarize_threshold:
-        with get_connection() as conn:
-            cursor = conn.cursor()
+        if count > summarize_threshold:
             cursor.execute("""
                 SELECT role, content FROM chat_history
                 WHERE chat_id = ?
@@ -726,20 +748,12 @@ def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summari
                 LIMIT ?
             """, (chat_id, count - keep_last))
             old_msgs = [f"{r['role']}: {r['content'][:200]}" for r in cursor.fetchall()]
+            if old_msgs:
+                summary_to_save = (
+                    f"[Архив диалога от {datetime.now().strftime('%Y-%m-%d')}]: "
+                    + " | ".join(old_msgs[:10])
+                )
 
-        if old_msgs:
-            summary = (f"[Архив диалога от {datetime.now().strftime('%Y-%m-%d')}]: "
-                       + " | ".join(old_msgs[:10]))
-            save_memory(
-                key=f"chat_archive_{chat_id}_{datetime.now().strftime('%Y%m%d')}",
-                value=summary,
-                category='episodic',
-                priority=5,
-                ttl=30 * 24 * 3600
-            )
-
-    with get_connection() as conn:
-        cursor = conn.cursor()
         cursor.execute("""
             DELETE FROM chat_history
             WHERE chat_id = ? AND id NOT IN (
@@ -749,6 +763,16 @@ def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summari
                 LIMIT ?
             )
         """, (chat_id, chat_id, keep_last))
+
+    if summary_to_save:
+        save_memory(
+            key=f"chat_archive_{chat_id}_{datetime.now().strftime('%Y%m%d')}",
+            value=summary_to_save,
+            category='episodic',
+            priority=5,
+            ttl=30 * 24 * 3600
+        )
+
 
 def get_db_stats():
     """Получает статистику из БД"""
@@ -1366,13 +1390,16 @@ def get_performance_summary(agent_name: str, limit: int = 20) -> str:
     for ep in episodes[:10]:
         icon = "✅" if ep['outcome'] == 'correct' else "❌"
         raw_ctx = ep['context'] or '{}'
-        try:
-            ctx = raw_ctx
-            while isinstance(ctx, str):
+        ctx = raw_ctx
+        for _ in range(3):
+            if not isinstance(ctx, str):
+                break
+            try:
                 ctx = json.loads(ctx)
-            if not isinstance(ctx, dict):
+            except (json.JSONDecodeError, TypeError):
                 ctx = {}
-        except (json.JSONDecodeError, TypeError):
+                break
+        if not isinstance(ctx, dict):
             ctx = {}
         prob = ctx.get('predicted_prob', '?')
         prob_str = f"{prob:.0%}" if isinstance(prob, float) else str(prob)
