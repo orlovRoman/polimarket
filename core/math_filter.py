@@ -77,7 +77,7 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
     ]
     words_a = set(re.findall(r'\b\w+\b', a))
     words_b = set(re.findall(r'\b\w+\b', b))
-    common = words_a & words_b - {'will', 'the', 'a', 'in', 'by', 'of', 'to', 'at', 'on', 'for'}
+    common = (words_a & words_b) - {'will', 'the', 'a', 'in', 'by', 'of', 'to', 'at', 'on', 'for'}
     
     for w1, w2 in directional_pairs:
         if ((w1 in a and w2 in b) or (w2 in a and w1 in b)) and len(common) >= 2:
