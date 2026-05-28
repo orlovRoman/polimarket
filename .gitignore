@@ -72,3 +72,9 @@ scratch/
 test_*.py
 update_*.py
 debug_*.py
+
+# Runtime databases and artifacts
+*.db
+*.sqlite
+vault/checkpoints.json
+vault/database.sqlite

@@ -74,7 +74,7 @@ class SwingAgent:
                 api_key=self.api_key,
                 payload=search_payload,
                 default_model=self.model,
-                agent_name="SWING_search",
+                agent_name="SWING",
                 market_id=market.id
             )
             if search_result:

@@ -111,6 +111,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             save_checkpoint("screening", status="ok", markets_found=len(screened_market_ids))
                 
             return screened_market_ids
+        from core.guards import LLMUnavailableError
         except LLMUnavailableError as e:
             from core.checkpoint import save_checkpoint
             save_checkpoint("screening", status="llm_unavailable", error=str(e))
@@ -123,11 +124,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
 
 
-def run_agent_evaluation(m, scout, swing, update_state,
-                         trigger_type="scheduled",
-                         source_url=None,
-                         source_text=None,
-                         triggered_at=None):
+def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None):
     logger.info("  Скачиваем новости (RSS + Reddit + Wikipedia)...")
     
     search_query = build_search_query(m.title)
@@ -201,7 +198,7 @@ def run_agent_evaluation(m, scout, swing, update_state,
         
     # SWING
     try:
-        swing_signal = swing.estimate_market(context)
+        swing_signal = swing.estimate_market(context, price_history=price_history)
         save_checkpoint(f"swing_{m.id}", status="ok")
     except LLMUnavailableError:
         save_checkpoint(f"swing_{m.id}", status="llm_unavailable")

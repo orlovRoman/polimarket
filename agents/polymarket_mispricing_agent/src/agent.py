@@ -68,6 +68,7 @@ class ScoutAgent:
                 related_title = corr["title_b"] if corr["market_id_a"] == market.id else corr["title_a"]
                 
                 # Получаем свежую цену связанного рынка
+                related_market = None
                 try:
                     related_market = self._adapter.get_market(related_id)
                     if related_market is None:
@@ -144,7 +145,7 @@ class ScoutAgent:
                 api_key=self.api_key,
                 payload=search_payload,
                 default_model=self.model,
-                agent_name="SCOUT_search",
+                agent_name="SCOUT",
                 market_id=market.id
             )
             if search_result:

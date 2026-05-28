@@ -177,12 +177,16 @@ class CoreEngine:
                 source_text = kwargs.get("source_text")
                 triggered_at = kwargs.get("triggered_at")
                 
+                from agents.shared.python.db import get_price_history
+                price_hist = get_price_history(m.id, hours=24)
+                
                 signal, swing_signal, context = run_agent_evaluation(
                     m, self.scout, self.swing, _update_state,
                     trigger_type=trigger_type,
                     source_url=source_url,
                     source_text=source_text,
-                    triggered_at=triggered_at
+                    triggered_at=triggered_at,
+                    price_history=price_hist
                 )
                 
                 active_signal = signal or swing_signal
@@ -208,8 +212,7 @@ class CoreEngine:
                             orderbook = self.adapter.get_orderbook(m.tokens[token_idx])
                         except Exception as e: logger.error(f"Failed to fetch orderbook: {e}")
                     
-                    from agents.shared.python.db import get_price_history
-                    price_hist = get_price_history(m.id, hours=24)
+                    
                     
                     log("  SHADOW проверяет...")
                     from services.onchain_provider import get_recent_trades, get_top_positions
