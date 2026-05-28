@@ -18,6 +18,19 @@ SESSION_DIR = PROJECT_ROOT / "vault"
 SESSION_DIR.mkdir(parents=True, exist_ok=True)
 SESSION_PATH = str(SESSION_DIR / "userbot_session")
 
+def is_bot_message(text: str) -> bool:
+    """
+    Проверяет, является ли сообщение системным ответом самого бота.
+    Служит защитой от бесконечного цикла, если бот и слушатель находятся в одной группе.
+    """
+    if "Найдено" in text and "связанных рынков" in text:
+        return True
+    if "К сожалению, я не нашел связанных рынков" in text:
+        return True
+    if "ТРИГГЕР" in text and "Запущен внеочередной скан" in text:
+        return True
+    return False
+
 def resolve_market_ids_from_url(url: str) -> list:
     """
     Вычленяет slug события или маркета из URL Polymarket и находит соответствующие market_id.
@@ -246,11 +259,7 @@ async def main():
             return
             
         # Защита от бесконечного цикла (игнорируем сообщения от нашего же бота)
-        if "Найдено" in text and "связанных рынков" in text:
-            return
-        if "К сожалению, я не нашел связанных рынков" in text:
-            return
-        if "ТРИГГЕР" in text and "Запущен внеочередной скан" in text:
+        if is_bot_message(text):
             return
             
         # Получаем имя канала
