@@ -60,6 +60,11 @@ class LLMHealthGate:
                 self.error_timestamps.clear()
             return True
 
+    @property
+    def retry_after_safe(self):
+        with self.lock:
+            return self.retry_after
+
     def _force_dead(self):
         """Для тестов."""
         with self.lock:

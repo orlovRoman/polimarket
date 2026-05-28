@@ -299,6 +299,8 @@ class CoreEngine:
 
         import asyncio
         from datetime import datetime
+        if not source_url and source_username and message_id:
+            source_url = f"https://t.me/{source_username}/{message_id}"
         await asyncio.to_thread(
             self.run_team_discussion, 
             None, 
@@ -312,6 +314,3 @@ class CoreEngine:
             triggered_at=datetime.now()
         )
         mark_telegram_post_status(post_id, 'ANALYZED')
-                
-            except Exception as e:
-                logger.error(f"Error processing market {m.id} for post {post_id}: {e}", exc_info=True)

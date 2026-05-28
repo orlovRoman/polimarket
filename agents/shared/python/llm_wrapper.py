@@ -20,7 +20,7 @@ def with_retry(max_attempts: int = 3, initial_backoff: float = 2.0):
         def wrapper(*args, **kwargs) -> Any:
             # Сначала проверяем, не DEAD или DEGRADED ли шлюз (в режиме backoff)
             if not llm_health_gate.check_availability():
-                raise LLMUnavailableError(f"LLM API is DEGRADED. Retry after {llm_health_gate.retry_after}")
+                raise LLMUnavailableError(f"LLM API is DEGRADED. Retry after {llm_health_gate.retry_after_safe}")
             backoff = initial_backoff
             last_error = None
             

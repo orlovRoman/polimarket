@@ -21,10 +21,12 @@ def _load():
 import threading
 
 _save_timer = None
+_timer_lock = threading.Lock()
 
 def _save_sync():
     global _save_timer
-    _save_timer = None
+    with _timer_lock:
+        _save_timer = None
     try:
         CHECKPOINTS_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(CHECKPOINTS_FILE, "w", encoding="utf-8") as f:
@@ -34,9 +36,10 @@ def _save_sync():
 
 def _save():
     global _save_timer
-    if _save_timer is None:
-        _save_timer = threading.Timer(2.0, _save_sync)
-        _save_timer.start()
+    with _timer_lock:
+        if _save_timer is None:
+            _save_timer = threading.Timer(2.0, _save_sync)
+            _save_timer.start()
 
 # Инициализация
 _load()
