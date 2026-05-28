@@ -74,13 +74,17 @@ class CoreEngine:
         return self.active_markets
 
     def run_team_discussion(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
-        if not self._scan_lock.acquire(blocking=False):
-            logger.warning("Сканирование уже выполняется (другой поток). Пропускаем.")
-            raise RuntimeError("Сканирование уже выполняется в фоновом режиме (возможно, по расписанию). Пожалуйста, подождите завершения текущего цикла.")
-        try:
+        if market_id is None:
+            if not self._scan_lock.acquire(blocking=False):
+                logger.warning("Сканирование уже выполняется (другой поток). Пропускаем.")
+                raise RuntimeError("Сканирование уже выполняется в фоновом режиме (возможно, по расписанию). Пожалуйста, подождите завершения текущего цикла.")
+            try:
+                return self._run_team_discussion_inner(log_callback, summary_callback, category, market_id, state_callback, **kwargs)
+            finally:
+                self._scan_lock.release()
+        else:
+            # Для точечного анализа (из Telegram) пропускаем глобальный лок сканирования
             return self._run_team_discussion_inner(log_callback, summary_callback, category, market_id, state_callback, **kwargs)
-        finally:
-            self._scan_lock.release()
 
     def _run_team_discussion_inner(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
         from core.guards import LLMUnavailableError
