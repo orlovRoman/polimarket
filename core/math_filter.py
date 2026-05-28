@@ -65,7 +65,9 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
         ('trump', 'harris'),
         ('trump', 'biden'),
         ('kamala', 'trump'),
-        ('win', 'lose')
+        ('above', 'below'),
+        ('over', 'under'),
+        ('more than', 'less than')
     ]
     for w1, w2 in pairs:
         if (w1 in a and w2 in b) or (w2 in a and w1 in b):
@@ -105,28 +107,18 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             spread = (p_higher - p_lower) * 100
             if spread >= min_spread_pct:
                 instruction = (
-                    f"BUY YES на [{lower_market.title}]({lower_market.url}) ({p_lower*100:.0f}¢) "
-                    f"+ BUY NO на [{higher_market.title}]({higher_market.url}) ({(1-p_higher)*100:.0f}¢). "
-                    f"Суммарная стоимость: {(p_lower + 1 - p_higher)*100:.0f}¢ → гарантированная выплата 100¢."
+                    f"⚠️ Требует открытой позиции: "
+                    f"SELL YES на [{higher_market.title}] ({p_higher*100:.0f}¢) "
+                    f"при наличии позиции. Альтернатива: сигнал LLM для BUY YES на [{lower_market.title}] ({p_lower*100:.0f}¢) "
+                    f"как недооценённый рынок. Спред: {spread:.1f}%."
                 )
-                is_valid, reason = validate_trade_instruction(instruction)
-                if not is_valid:
-                    logger.warning(f"[math_filter] Невалидный трейд отклонён: {reason}")
-                    return MathFilterResult(
-                        decision=FilterDecision.AMBIGUOUS,
-                        arbitrage_type="monotonicity_violation",
-                        spread_pct=spread,
-                        reasoning=f"Нарушение монотонности: порог {max(t_a[0], t_b[0])} стоит дороже порога {min(t_a[0], t_b[0])}",
-                        trade_instruction=f"⚠️ Трейд недоступен: {reason}",
-                        has_arbitrage=False
-                    )
                 return MathFilterResult(
-                    decision=FilterDecision.CONFIRMED_ARBITRAGE,
+                    decision=FilterDecision.AMBIGUOUS,
                     arbitrage_type="monotonicity_violation",
                     spread_pct=spread,
                     reasoning=f"Нарушение монотонности: порог {max(t_a[0], t_b[0])} стоит дороже порога {min(t_a[0], t_b[0])}",
                     trade_instruction=instruction,
-                    has_arbitrage=True
+                    has_arbitrage=False
                 )
             else:
                 return MathFilterResult(
@@ -246,6 +238,15 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
                     f"ВАЖНО: шорт первого рынка невозможен на Polymarket."
                 ),
                 trade_instruction=instruction,
+                has_arbitrage=False
+            )
+        else:
+            return MathFilterResult(
+                decision=FilterDecision.CONFIRMED_NO_ARBI,
+                arbitrage_type="logical_implication",
+                spread_pct=implication_spread,
+                reasoning=f"Логическая связь есть, но спред {implication_spread:.1f}% ниже порога",
+                trade_instruction="",
                 has_arbitrage=False
             )
 
