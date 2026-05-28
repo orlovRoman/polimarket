@@ -11,6 +11,9 @@ from core.models import Market, Signal, MarketCorrelation
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from config import DB_PATH
+import logging
+
+logger = logging.getLogger("DB")
 
 @contextmanager
 def get_connection():
@@ -482,7 +485,7 @@ def init_db():
                     cursor.execute(f"ALTER TABLE cross_arbitrage_signals ADD COLUMN {col} TEXT DEFAULT {default}")
 
         _db_initialized = True
-        print(f"База данных инициализирована по адресу: {DB_PATH}")
+        logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
 
 def save_cross_arbitrage(signal) -> None:
     """Сохраняет или обновляет кросс-платформенный арбитражный сигнал."""
@@ -668,7 +671,7 @@ def get_agent_model(agent_name: str, default_model: str = "gemini-2.5-flash") ->
             if row and row['model_name']:
                 return row['model_name']
     except Exception as e:
-        print(f"[DB] Ошибка получения последней модели агента: {e}")
+        logger.error(f"[DB] Ошибка получения последней модели агента: {e}")
     return default_model
 
 def save_chat_message(chat_id: int, role: str, content: str):
@@ -1081,7 +1084,8 @@ def get_memory_stats() -> dict:
         else:
             stats['db_size_kb'] = 0
     except Exception as e:
-        print(f"[DB] Ошибка получения статистики памяти: {e}")
+        logger.error(f"[DB] Ошибка получения статистики памяти: {e}")
+        return {}
     return stats
 
 # --- Price History ---
@@ -1320,7 +1324,7 @@ def get_known_whales() -> dict:
                     "total_vol": row["total_vol"]
                 }
         except Exception as e:
-            print(f"[DB] Ошибка при чтении known_whales: {e}")
+            logger.error(f"[DB] Ошибка при чтении known_whales: {e}")
     return whales
 
 

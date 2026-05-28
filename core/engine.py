@@ -40,6 +40,7 @@ class CoreEngine:
     def __init__(self):
         if not hasattr(self, "initialized"):
             self.active_markets: Dict[str, Any] = {}
+            self._markets_lock = threading.Lock()
             self.state: Dict[str, Any] = {
                 "category": "Авто-микс",
                 "stage": "Инициализация",
@@ -71,7 +72,8 @@ class CoreEngine:
         return self.state
 
     def get_active_markets(self) -> Dict[str, Any]:
-        return self.active_markets
+        with self._markets_lock:
+            return self.active_markets.copy()
 
     def run_team_discussion(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
         if market_id is None:
@@ -166,7 +168,8 @@ class CoreEngine:
                     current_market_index=i, current_market_title=m.title, current_market_url=m.url,
                     scout_status="⏳ Ожидает", swing_status="⏳ Ожидает", shadow_status="⏳ Ожидает"
                 )
-                self.active_markets[m.id] = m.title
+                with self._markets_lock:
+                    self.active_markets[m.id] = m.title
                 
                 last_price = get_last_analyzed_price(m.id)
                 if last_price is not None and not market_id:
@@ -271,8 +274,9 @@ class CoreEngine:
                     except Exception as e:
                         logger.error(f"summary_callback error: {e}")
             finally:
-                if m.id in self.active_markets:
-                    del self.active_markets[m.id]
+                with self._markets_lock:
+                    if m.id in self.active_markets:
+                        del self.active_markets[m.id]
                 
         _update_state(stage="Завершено")
         log("\n✅ Обсуждение завершено.")
