@@ -730,6 +730,12 @@ def get_telegram_post_text(post_id: int) -> Optional[str]:
         row = cursor.fetchone()
         return row['text'] if row else None
 
+def get_telegram_post_info(post_id: int) -> dict:
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT * FROM telegram_posts WHERE id = ?", (post_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else {}
+
 def mark_telegram_post_status(post_id: int, status: str):
     with get_connection() as conn:
         conn.execute("UPDATE telegram_posts SET status = ? WHERE id = ?", (status, post_id))

@@ -241,14 +241,21 @@ class CoreEngine:
         """
         Анализ поста Telegram.
         """
-        from agents.shared.python.db import get_telegram_post_text, mark_telegram_post_status
+        from agents.shared.python.db import get_telegram_post_text, get_telegram_post_info, mark_telegram_post_status
         from agents.orchestrator.src.news_processor import NewsProcessor
         from core.context import MarketContext
         from agents.shared.utils.web_search import build_search_query, fetch_wikipedia_context
         
-        text = get_telegram_post_text(post_id)
-        if not text:
+        post_info = get_telegram_post_info(post_id)
+        if not post_info:
             logger.error(f"Post {post_id} not found in DB.")
+            return
+            
+        text = post_info.get('text', '')
+        message_id = post_info.get('message_id')
+        
+        if not text:
+            logger.error(f"Post {post_id} text is empty.")
             return
         
         np = NewsProcessor(api_key=self.api_key)
@@ -301,7 +308,18 @@ class CoreEngine:
 
                     opinion_shadow = self.shadow.analyze_idea(context, active_signal.details, orderbook=orderbook)
                     
-                summary_text = f"🗣 <b>Event-Driven Анализ (Рынок: {full_m.title}):</b>\n<a href='{full_m.url}'>{full_m.title}</a>\n\n"
+                # Формируем ссылку на оригинальный пост
+                post_link_str = ""
+                if message_id:
+                    # Если chat_id начинается с -100 (супергруппа/канал), то ссылка имеет вид:
+                    chat_id_str = str(chat_id)
+                    if chat_id_str.startswith("-100"):
+                        stripped_chat_id = chat_id_str[4:]
+                        post_link_str = f"\n<a href='https://t.me/c/{stripped_chat_id}/{message_id}'>🔗 Ссылка на пост</a>\n"
+                    else:
+                        post_link_str = f"\n<a href='https://t.me/{chat_id_str}/{message_id}'>🔗 Ссылка на пост</a>\n"
+
+                summary_text = f"🗣 <b>Event-Driven Анализ (Рынок: {full_m.title}):</b>{post_link_str}\n<a href='{full_m.url}'>{full_m.title}</a>\n\n"
                 if active_signal:
                     summary_text += f"💡 <b>Идея:</b> {active_signal.details}\n"
                     if opinion_shadow:
