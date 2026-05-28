@@ -12,7 +12,7 @@ from agents.shared.python.db import (
     save_market, get_last_analyzed_price, mark_market_analyzed, 
     save_price_point, get_price_history, get_new_correlations, 
     mark_correlations_notified, add_discussion_message, save_signal,
-    get_memory, save_memory, save_idea_audit
+    get_memory, save_memory, save_idea_audit, get_market_correlations
 )
 from agents.shared.python.market_selector import MarketSelector
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news, build_search_query
@@ -134,6 +134,26 @@ def run_agent_evaluation(m, scout, swing, update_state):
         reddit_posts=reddit_posts,
         wiki_context=wiki_context
     )
+
+    # ── Вариант 2: обогащаем контекст корреляциями ──────────────────────────
+    corr_list = get_market_correlations(m.id)
+    if corr_list:
+        lines = []
+        for c in corr_list[:3]:
+            conf_pct = int(float(c["confidence"]) * 100) if float(c["confidence"]) <= 1.0 \
+                       else int(c["confidence"])
+            peer_title = c["title_b"] if c["market_id_a"] == m.id else c["title_a"]
+            lines.append(
+                f"  • [{c['correlation_type'].upper()} {conf_pct}%] "
+                f"«{peer_title}» — {c['description']}"
+            )
+        context.correlation_hint = (
+            "🔗 СВЯЗАННЫЕ РЫНКИ (используй как anchor для калибровки вероятности):\n"
+            + "\n".join(lines)
+        )
+        logger.info(f"  Correlation hint: {len(corr_list)} связей для {m.id}")
+    # ────────────────────────────────────────────────────────────────────────
+
 
     logger.info("  SCOUT и SWING оценивают...")
     update_state(scout_status="🔄 Считает вероятности...", swing_status="🔄 Оценивает хайп...")

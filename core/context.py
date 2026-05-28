@@ -19,5 +19,6 @@ class MarketContext(BaseModel):
     reddit_posts: List[str] = Field(default_factory=list)
     wiki_context: str = ""
     smart_money: Optional[SmartMoneySummary] = None
+    correlation_hint: str = ""
     
     # Можно расширять (X/Twitter, Onchain metrics, etc.)

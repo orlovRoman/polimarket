@@ -25,6 +25,53 @@ class ArbitrageAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
+    # ── Общая часть схемы для обоих методов ──────────────────────────────
+    _TRADE_SCHEMA_EXTRA = {
+        "action_a": {
+            "type": "STRING",
+            "description": "Действие по рынку A: BUY_YES | BUY_NO | SELL_YES | SKIP"
+        },
+        "action_b": {
+            "type": "STRING",
+            "description": "Действие по рынку B: BUY_YES | BUY_NO | SELL_YES | SKIP"
+        },
+        "entry_price_a_cents": {
+            "type": "NUMBER",
+            "description": "Рекомендуемая цена входа для рынка A в центах (0-100)"
+        },
+        "entry_price_b_cents": {
+            "type": "NUMBER",
+            "description": "Рекомендуемая цена входа для рынка B в центах (0-100)"
+        },
+        "expected_pnl_pct": {
+            "type": "NUMBER",
+            "description": "Ожидаемый P&L в % при вложении $100, с учётом комиссии 2%"
+        },
+        "risk_level": {
+            "type": "STRING",
+            "description": "LOW (математически гарантировано) | MEDIUM (вероятностное) | HIGH (спекулятивное)"
+        },
+    }
+
+    _TRADE_PROMPT_SUFFIX = """
+
+Дополнительно рассчитай торговую рекомендацию:
+- action_a / action_b: что делать с каждым рынком (BUY_YES / BUY_NO / SELL_YES / SKIP)
+- entry_price_a_cents / entry_price_b_cents: оптимальная цена входа в центах
+- expected_pnl_pct: ожидаемый P&L в % при бюджете $100 (учти комиссию Polymarket 2%)
+- risk_level:
+    LOW — математически гарантированный исход (inverse pair, causal implication)
+    MEDIUM — вероятностный арбитраж (pair_trade)
+    HIGH — спекулятивная идея без гарантий
+
+Если арбитража нет: action_a = action_b = "SKIP", expected_pnl_pct = 0, risk_level = "HIGH"."""
+
+    _TRADE_REQUIRED_EXTRA = [
+        "action_a", "action_b",
+        "entry_price_a_cents", "entry_price_b_cents",
+        "expected_pnl_pct", "risk_level",
+    ]
+
     # ─── Режим 1: Внутриплатформенный арбитраж (по корреляции) ──────────────
 
     def analyze_correlation(
@@ -89,10 +136,14 @@ ID: {market_b.id}
                 "spread_percent":    {"type": "NUMBER"},
                 "reasoning":         {"type": "STRING"},
                 "trade_instruction": {"type": "STRING"},
+                **self._TRADE_SCHEMA_EXTRA,
             },
             "required": ["has_arbitrage", "arbitrage_type", "spread_percent",
-                         "reasoning", "trade_instruction"],
+                         "reasoning", "trade_instruction",
+                         *self._TRADE_REQUIRED_EXTRA],
         }
+
+        prompt += self._TRADE_PROMPT_SUFFIX
 
         result, _ = self._call_llm(prompt, schema, agent_name="ARBITRAGE")
         if not result:
@@ -122,6 +173,12 @@ ID: {market_b.id}
                 reasoning=data.get("reasoning", ""),
                 trade_instruction=data.get("trade_instruction", ""),
                 match_score=float(score)/100.0 if score > 1 else float(score),
+                action_a=data.get("action_a", "SKIP"),
+                action_b=data.get("action_b", "SKIP"),
+                entry_price_a_cents=data.get("entry_price_a_cents"),
+                entry_price_b_cents=data.get("entry_price_b_cents"),
+                expected_pnl_pct=data.get("expected_pnl_pct"),
+                risk_level=data.get("risk_level", "MEDIUM"),
             )
         except Exception as e:
             print(f"[ARBITRAGE] Ошибка парсинга (correlation): {e}")
@@ -219,10 +276,14 @@ ID: {market_b.id}
                 "spread_percent":    {"type": "NUMBER", "description": "Спред в процентах (0-100)"},
                 "reasoning":         {"type": "STRING"},
                 "trade_instruction": {"type": "STRING"},
+                **self._TRADE_SCHEMA_EXTRA,
             },
             "required": ["has_arbitrage", "arbitrage_type", "spread_percent",
-                         "reasoning", "trade_instruction"],
+                         "reasoning", "trade_instruction",
+                         *self._TRADE_REQUIRED_EXTRA],
         }
+
+        prompt += self._TRADE_PROMPT_SUFFIX
 
         result, _ = self._call_llm(prompt, schema, agent_name="ARBITRAGE")
         if not result:
@@ -250,6 +311,12 @@ ID: {market_b.id}
                 reasoning=data.get("reasoning", ""),
                 trade_instruction=data.get("trade_instruction", ""),
                 match_score=match_score,
+                action_a=data.get("action_a", "SKIP"),
+                action_b=data.get("action_b", "SKIP"),
+                entry_price_a_cents=data.get("entry_price_a_cents"),
+                entry_price_b_cents=data.get("entry_price_b_cents"),
+                expected_pnl_pct=data.get("expected_pnl_pct"),
+                risk_level=data.get("risk_level", "MEDIUM"),
             )
         except Exception as e:
             print(f"[ARBITRAGE] Ошибка парсинга (cross_platform): {e}")

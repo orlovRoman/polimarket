@@ -150,6 +150,30 @@ def format_cross_arbitrage_alert(signal) -> str:
     platform_a = signal.market_a_platform.upper()
     platform_b = signal.market_b_platform.upper()
 
+    # ── Новый блок торговой рекомендации ───────────────────────────────────
+    action_a = getattr(signal, "action_a", "SKIP")
+    action_b = getattr(signal, "action_b", "SKIP")
+    pnl      = getattr(signal, "expected_pnl_pct", None)
+    risk     = getattr(signal, "risk_level", "MEDIUM")
+    price_a  = getattr(signal, "entry_price_a_cents", None)
+    price_b  = getattr(signal, "entry_price_b_cents", None)
+
+    trade_block = ""
+    if action_a != "SKIP" or action_b != "SKIP":
+        risk_emoji = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}.get(risk, "🟡")
+        pa_str = f" @ <b>{int(price_a)}¢</b>" if price_a is not None else ""
+        pb_str = f" @ <b>{int(price_b)}¢</b>" if price_b is not None else ""
+        pnl_str = f"<b>+{pnl:.1f}%</b>" if pnl else "N/A"
+        plat_a = signal.market_a_platform.upper()
+        plat_b = signal.market_b_platform.upper()
+        trade_block = (
+            f"\n\n📋 <b>РЕКОМЕНДАЦИЯ:</b>\n"
+            f"  {plat_a}: <b>{action_a}</b>{pa_str}\n"
+            f"  {plat_b}: <b>{action_b}</b>{pb_str}\n"
+            f"💰 Ожид. P&amp;L: {pnl_str} | Риск: {risk_emoji} {risk}"
+        )
+    # ────────────────────────────────────────────────────────────────────────
+
     return (
         f"{emoji} <b>КРОСС-АРБИТРАЖ ({platform_a} ↔ {platform_b})</b> | {type_label}\n\n"
         f"📊 Спред: <b>{signal.spread_percent:.1f}%</b> | "
@@ -162,6 +186,7 @@ def format_cross_arbitrage_alert(signal) -> str:
         f"Цена YES: <b>{int(signal.market_b_price * 100)}¢</b>\n\n"
         f"💡 <b>Действие:</b>\n{signal.trade_instruction}\n\n"
         f"📝 <i>{signal.reasoning[:300]}</i>"
+        f"{trade_block}"
     )
 
 

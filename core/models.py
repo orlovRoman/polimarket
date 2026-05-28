@@ -134,6 +134,15 @@ class CrossArbitrageSignal(BaseModel):
 
     # Мета
     match_score: float
+
+    # ── Торговые рекомендации ─────────────────────────────────────────────
+    action_a: str = "SKIP"                     # BUY_YES | BUY_NO | SELL_YES | SKIP
+    action_b: str = "SKIP"                     # аналогично
+    entry_price_a_cents: float | None = None   # точка входа A в центах (0–100)
+    entry_price_b_cents: float | None = None   # точка входа B в центах (0–100)
+    expected_pnl_pct: float | None = None      # ожидаемый P&L в % при бюджете $100
+    risk_level: Literal["LOW", "MEDIUM", "HIGH"] = "MEDIUM"
+
     status: Literal["new", "alerted", "expired"] = "new"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

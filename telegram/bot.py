@@ -828,45 +828,51 @@ async def command_cleanup_handler(message: types.Message) -> None:
 
 @dp.message(Command("correlations"))
 async def command_correlations_handler(message: types.Message) -> None:
-    """Показывает найденные корреляции между рынками."""
-    from agents.shared.python.db import get_connection
-    
-    try:
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT correlation_type, title_a, title_b, description, confidence, detected_at
-                FROM correlations
-                ORDER BY detected_at DESC
-                LIMIT 10
-            """)
-            rows = cursor.fetchall()
-        
-        if not rows:
-            await message.answer("🔗 Корреляции пока не обнаружены. Запустите /scan для скрининга.")
-            return
-        
-        type_icons = {
-            'causal': '🔄 ПРИЧИННАЯ',
-            'inverse': '↕️ ОБРАТНАЯ',
-            'arbitrage': '⚡ АРБИТРАЖ',
-            'thematic': '🔗 ТЕМАТИЧЕСКАЯ'
-        }
-        
-        response = f"🔗 <b>Корреляции между рынками (Top-10):</b>\n\n"
-        for i, row in enumerate(rows, 1):
-            corr_type = type_icons.get(row['correlation_type'], row['correlation_type'])
-            conf = row['confidence'] or 0
-            response += (
-                f"<b>{i}. {corr_type}</b> ({conf:.0%})\n"
-                f"  📍 {row['title_a']}\n"
-                f"  📍 {row['title_b']}\n"
-                f"  → <i>{row['description']}</i>\n\n"
-            )
-        
-        await message.answer(response, disable_web_page_preview=True)
-    except Exception as e:
-        await message.answer(f"Ошибка при получении корреляций: {e}")
+    """Анализирует найденные корреляции между рынками с помощью LLM."""
+    from agents.shared.python.db import get_new_correlations, get_market_correlations
+    from agents.polymarket_arbitrage_agent.src.agent import ArbitrageAgent
+    from agents.shared.adapters.polymarket import PolymarketAdapter
+    from services.notifications import format_cross_arbitrage_alert
+    import os
+
+    corrs = get_new_correlations()[:10]   # только новые для алертов
+    if not corrs:
+        await message.answer("✅ Новых корреляций нет.")
+        return
+
+    await message.answer(f"🔍 Анализирую {len(corrs)} корреляций, ~30 сек...")
+
+    adapter = PolymarketAdapter()
+    agent = ArbitrageAgent(api_key=os.getenv("GOOGLE_API_KEY"))
+
+    found = 0
+    for c in corrs:
+        try:
+            market_a = adapter.get_market(c["market_id_a"])
+            market_b = adapter.get_market(c["market_id_b"])
+        except Exception:
+            continue
+        if not market_a or not market_b:
+            continue
+
+        signal = agent.analyze_correlation(
+            market_a=market_a,
+            market_b=market_b,
+            correlation_type=c["correlation_type"],
+            score=int(float(c["confidence"]) * 100),
+        )
+        if signal and signal.has_arbitrage:
+            text = format_cross_arbitrage_alert(signal)
+            await message.answer(text, disable_web_page_preview=True)
+            found += 1
+
+    summary = (
+        f"✅ Найдено торговых идей: <b>{found}</b> из {len(corrs)} корреляций."
+        if found > 0
+        else "✅ Арбитражных возможностей в текущих корреляциях не обнаружено."
+    )
+    await message.answer(summary)
+
 
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:
