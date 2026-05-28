@@ -44,7 +44,9 @@ def _parse_threshold(title: str) -> Optional[tuple[float, str]]:
         # Actually user spec: "6000, 5500 (индексы, 3+ цифр) -> (6000.0, 'pts')"
         # We can just check if it's not a year 202x
         val = float(m.group(1))
-        if 2020 <= val <= 2030:
+        from datetime import datetime
+        current_year = datetime.now().year
+        if current_year - 2 <= val <= current_year + 10:
             return None
         return (val, 'pts')
             
@@ -106,6 +108,16 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
     t_a = _parse_threshold(market_a.title)
     t_b = _parse_threshold(market_b.title)
     
+    # NEW: одинаковые пороги — монотонность неприменима
+    if t_a and t_b and _same_unit(t_a[1], t_b[1]) and t_a[0] == t_b[0]:
+        return MathFilterResult(
+            decision=FilterDecision.AMBIGUOUS,
+            arbitrage_type="identical_threshold",
+            spread_pct=0.0,
+            reasoning="Рынки имеют одинаковый порог — Monotonicity неприменима",
+            trade_instruction=""
+        )
+
     if t_a and t_b and _same_unit(t_a[1], t_b[1]) and t_a[0] != t_b[0]:
         if t_a[0] > t_b[0]:
             higher_market, lower_market = market_a, market_b
@@ -179,11 +191,13 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             )
         if 1.0 - price_sum > 0.03 and (1.0 - price_sum) * 100 >= min_spread_pct:
             spread = (1.0 - price_sum) * 100
-            instruction = f"BUY YES на [{market_a.title}]({market_a.url}) ({market_a.price*100:.0f}¢) + BUY YES на [{market_b.title}]({market_b.url}) ({market_b.price*100:.0f}¢). Суммарная стоимость: {price_sum*100:.0f}¢ → покупка ниже номинала, один из исходов выплатит 100¢."
-            is_valid, reason = validate_trade_instruction(instruction)
-            if not is_valid:
-                logger.warning(f"[math_filter] Невалидный трейд отклонён: {reason}")
-                instruction = f"⚠️ Трейд недоступен: {reason}"
+            instruction = (
+                f"BUY YES на [{market_a.title}]({market_a.url}) ({market_a.price*100:.0f}¢) "
+                f"+ BUY YES на [{market_b.title}]({market_b.url}) ({market_b.price*100:.0f}¢). "
+                f"Суммарная стоимость: {price_sum*100:.0f}¢ → покупка ниже номинала, "
+                f"один из исходов выплатит 100¢."
+            )
+            # BUY YES всегда валиден — validate здесь не нужна
             return MathFilterResult(
                 decision=FilterDecision.AMBIGUOUS,
                 arbitrage_type="complementary_underpriced",

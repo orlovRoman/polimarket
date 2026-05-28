@@ -142,3 +142,156 @@ def test_logical_implication_triggered_with_flag():
     result = math_pre_filter(m_a, m_b, check_logical_implication=True)
     assert result.arbitrage_type == "logical_implication"
     assert result.has_arbitrage is False
+
+
+# ── Баг #1: identical threshold → AMBIGUOUS, не ложный арбитраж ─
+
+def test_identical_threshold_returns_ambiguous():
+    a = make_market("Will GDP exceed $50B?", 0.6)
+    b = make_market("Will revenue exceed $50B?", 0.4)
+    result = math_pre_filter(a, b)
+    assert result.decision == FilterDecision.AMBIGUOUS
+    assert result.arbitrage_type == "identical_threshold"
+    assert result.has_arbitrage is False
+
+
+def test_identical_threshold_no_false_arbitrage():
+    """Два рынка с одним порогом не должны давать CONFIRMED_ARBITRAGE"""
+    a = make_market("Will inflation exceed 5%?", 0.7)
+    b = make_market("Will CPI exceed 5%?", 0.3)
+    result = math_pre_filter(a, b)
+    assert result.decision != FilterDecision.CONFIRMED_ARBITRAGE
+
+
+def test_different_thresholds_still_works():
+    """Разные пороги — нормальный Monotonicity path"""
+    a = make_market("Will S&P exceed 6000?", 0.3)
+    b = make_market("Will S&P exceed 5000?", 0.7)
+    result = math_pre_filter(a, b)
+    # P(>6000) < P(>5000) — монотонность соблюдена
+    assert result.decision == FilterDecision.CONFIRMED_NO_ARBI
+
+
+def test_monotonicity_violation_detected():
+    """P(>6000) > P(>5000) — нарушение"""
+    a = make_market("Will S&P exceed 6000?", 0.8)
+    b = make_market("Will S&P exceed 5000?", 0.3)
+    result = math_pre_filter(a, b)
+    assert result.arbitrage_type == "monotonicity_violation"
+    assert result.spread_pct > 0
+
+
+# ── Баг #2: мёртвый код validate для underpriced ─────────────
+
+def test_complementary_underpriced_no_forbidden_ops():
+    """BUY YES операции — validate всегда пропускает"""
+    is_valid, reason = validate_trade_instruction(
+        "BUY YES на [Market A] (40¢) + BUY YES на [Market B] (45¢)"
+    )
+    assert is_valid is True
+
+
+def test_complementary_underpriced_no_sell_in_instruction():
+    """Underpriced инструкция никогда не содержит SELL"""
+    a = make_market("Will Trump win?", 0.35)
+    b = make_market("Will Harris win?", 0.30)
+    result = math_pre_filter(a, b)
+    if result.trade_instruction:
+        assert "SELL" not in result.trade_instruction.upper()
+        assert "SHORT" not in result.trade_instruction.upper()
+
+
+def test_validate_rejects_sell():
+    is_valid, reason = validate_trade_instruction("SELL YES на [Market A]")
+    assert is_valid is False
+    assert "шорт" in reason.lower() or "sell" in reason.lower() or "недопустима" in reason.lower()
+
+
+def test_validate_rejects_short():
+    is_valid, _ = validate_trade_instruction("SHORT Market B at 60¢")
+    assert is_valid is False
+
+
+def test_validate_accepts_buy_yes():
+    is_valid, _ = validate_trade_instruction("BUY YES at 45¢")
+    assert is_valid is True
+
+
+def test_validate_accepts_buy_no():
+    is_valid, _ = validate_trade_instruction("BUY NO at 55¢")
+    assert is_valid is True
+
+
+# ── Баг #3: динамический год-фильтр ──────────────────────────
+
+def test_parse_threshold_ignores_current_year():
+    from datetime import datetime
+    from core.math_filter import _parse_threshold
+    year = datetime.now().year
+    result = _parse_threshold(f"Will something happen in {year}?")
+    assert result is None, f"Год {year} должен быть отфильтрован"
+
+
+def test_parse_threshold_ignores_near_future_year():
+    from datetime import datetime
+    from core.math_filter import _parse_threshold
+    year = datetime.now().year + 5
+    result = _parse_threshold(f"Will something happen by {year}?")
+    assert result is None
+
+
+def test_parse_threshold_ignores_past_year():
+    from datetime import datetime
+    from core.math_filter import _parse_threshold
+    year = datetime.now().year - 1
+    result = _parse_threshold(f"Did something happen in {year}?")
+    assert result is None
+
+
+def test_parse_threshold_parses_index_number():
+    """6000 не год — должен парситься как pts"""
+    from core.math_filter import _parse_threshold
+    result = _parse_threshold("Will S&P exceed 6000?")
+    assert result is not None
+    assert result == (6000.0, 'pts')
+
+
+def test_parse_threshold_parses_currency():
+    from core.math_filter import _parse_threshold
+    result = _parse_threshold("Will GDP exceed $1.5T?")
+    assert result == (1.5e12, 'usd')
+
+
+def test_parse_threshold_parses_percentage():
+    from core.math_filter import _parse_threshold
+    result = _parse_threshold("Will inflation exceed 4.5%?")
+    assert result == (4.5, '%')
+
+
+def test_parse_threshold_returns_none_for_no_number():
+    from core.math_filter import _parse_threshold
+    result = _parse_threshold("Will it rain tomorrow?")
+    assert result is None
+
+
+# ── Регрессия: MathFilterResult frozen dataclass ─────────────
+
+def test_math_filter_result_is_frozen():
+    r = MathFilterResult(
+        decision=FilterDecision.AMBIGUOUS,
+        arbitrage_type="test",
+        spread_pct=0.0,
+        reasoning="test",
+        trade_instruction=""
+    )
+    with pytest.raises((AttributeError, TypeError)):
+        r.has_arbitrage = True  # frozen=True — нельзя менять
+
+
+def test_fallback_always_returns_result():
+    """Функция никогда не возвращает None"""
+    a = make_market("Some market", 0.5)
+    b = make_market("Another market", 0.5)
+    result = math_pre_filter(a, b)
+    assert result is not None
+    assert isinstance(result, MathFilterResult)
