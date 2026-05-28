@@ -110,6 +110,9 @@ class CoreEngine:
         except (TypeError, ValueError):
             logger.warning(f"Invalid scan_limit in memory: {scan_limit_raw!r}, using default")
             scan_limit = SCAN_LIMIT_DEFAULT
+        if scan_limit <= 0:
+            logger.warning(f"scan_limit={scan_limit} <= 0, using default {SCAN_LIMIT_DEFAULT}")
+            scan_limit = SCAN_LIMIT_DEFAULT
 
         def _update_state(**kwargs):
             self.update_state(**kwargs)
@@ -359,8 +362,10 @@ class CoreEngine:
                         source_text=source_text,
                         triggered_at=datetime.now(timezone.utc)
                     )
+                except NoMarketsFoundError as e:
+                    await asyncio.to_thread(send_telegram_to_chat, f"⚠️ {e}", chat_id)
                 except RuntimeError as e:
-                    send_telegram_to_chat(f"⚠️ {e}", chat_id)
+                    await asyncio.to_thread(send_telegram_to_chat, f"⚠️ {e}", chat_id)
                     break
                 except Exception as e:
                     logger.error(f"analyze_post_async error for {m.id}: {e}")
