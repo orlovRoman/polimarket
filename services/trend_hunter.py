@@ -88,7 +88,7 @@ def extract_trends_with_llm(titles: List[str]) -> List[Dict[str, Any]]:
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
-            "response_mime_type": "application/json"
+            "responseMimeType": "application/json"
         }
     }
 

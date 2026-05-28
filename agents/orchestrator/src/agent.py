@@ -123,7 +123,7 @@ class NexusAgent:
         payload = {
             "contents": [{"role": "user", "parts": [{"text": screening_prompt}]}],
             "systemInstruction": {"parts": [{"text": self.base_instructions}]},
-            "generationConfig": {"response_mime_type": "application/json"}
+            "generationConfig": {"responseMimeType": "application/json"}
         }
         
         try:
