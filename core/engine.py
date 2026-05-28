@@ -307,25 +307,36 @@ class CoreEngine:
             mark_telegram_post_status(post_id, 'NO_MARKETS')
             return
 
-        send_telegram_to_chat(f"Нашел {len(markets)} связанных рынков. Анализирую...", chat_id)
+        # Формируем список найденных рынков
+        market_lines = [f"Найдено {len(markets)} связанных рынков:"]
+        for i, m in enumerate(markets[:3], 1):
+            market_lines.append(f"{i}. <a href='{m.url}'>{m.title}</a>")
+        if len(markets) > 3:
+            market_lines.append(f"...и еще {len(markets)-3}")
+        market_lines.append("\nАнализирую...")
         
-        market_id = markets[0].id if markets else None
-
+        send_telegram_to_chat("\n".join(market_lines), chat_id)
+        
         import asyncio
         from datetime import datetime
         effective_message_id = source_message_id or message_id
         if not source_url and source_username and effective_message_id:
             source_url = f"https://t.me/{source_username}/{effective_message_id}"
-        await asyncio.to_thread(
-            self.run_team_discussion, 
-            None, 
-            lambda msg: send_telegram_to_chat(msg, chat_id), 
-            None, 
-            market_id, 
-            None,
-            trigger_type="event_driven",
-            source_url=source_url,
-            source_text=source_text,
-            triggered_at=datetime.now()
-        )
+            
+        for m in markets[:3]:
+            await asyncio.to_thread(
+                self.run_team_discussion, 
+                None, 
+                lambda msg: send_telegram_to_chat(msg, chat_id), 
+                None, 
+                m.id, 
+                None,
+                trigger_type="event_driven",
+                source_url=source_url,
+                source_text=source_text,
+                triggered_at=datetime.now()
+            )
+            # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
+            await asyncio.sleep(2)
+            
         mark_telegram_post_status(post_id, 'ANALYZED')
