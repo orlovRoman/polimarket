@@ -290,67 +290,86 @@ class CoreEngine:
         source_text: str | None = None
     ):
         """
-        Анализ поста Telegram.
+        Анализ поста Telegram. Защищён от дублирования через статус PROCESSING.
         """
-        from agents.shared.python.db import get_telegram_post_text, get_telegram_post_info, mark_telegram_post_status
+        from agents.shared.python.db import (
+            get_telegram_post_info, mark_telegram_post_status
+        )
         from agents.orchestrator.src.news_processor import NewsProcessor
-        
+        from services.notifications import send_telegram_to_chat
+
         post_info = get_telegram_post_info(post_id)
         if not post_info:
             logger.error(f"Post {post_id} not found in DB.")
             return
-            
-        text = post_info.get('text', '')
-        message_id = post_info.get('message_id')
-        
-        if not text:
-            logger.error(f"Post {post_id} text is empty.")
-            return
-        
-        np = NewsProcessor(api_key=self.api_key)
-        markets = np.find_relevant_markets(text)
-        from services.notifications import send_telegram_to_chat
-        if not markets:
-            send_telegram_to_chat("К сожалению, я не нашел связанных рынков на Polymarket для этого поста.", chat_id)
-            mark_telegram_post_status(post_id, 'NO_MARKETS')
+
+        # ── Дедупликация: пропускаем посты, которые уже обрабатываются или обработаны ──
+        current_status = post_info.get('status', 'NEW')
+        if current_status in ('PROCESSING', 'ANALYZED', 'NO_MARKETS'):
+            logger.info(f"Post {post_id} already in status '{current_status}', skipping duplicate run.")
             return
 
-        # Формируем список найденных рынков
-        market_lines = [f"Найдено {len(markets)} связанных рынков:"]
-        for i, m in enumerate(markets[:3], 1):
-            market_lines.append(f"{i}. <a href='{m.url}'>{m.title}</a>")
-        if len(markets) > 3:
-            market_lines.append(f"...и еще {len(markets)-3}")
-        market_lines.append("\nАнализирую...")
-        
-        send_telegram_to_chat("\n".join(market_lines), chat_id)
-        
-        import asyncio
-        from datetime import datetime
-        effective_message_id = source_message_id or message_id
-        if not source_url and source_username and effective_message_id:
-            source_url = f"https://t.me/{source_username}/{effective_message_id}"
-            
-        for m in markets[:3]:
-            try:
-                await asyncio.to_thread(
-                    self.run_team_discussion, 
-                    None, 
-                    lambda msg: send_telegram_to_chat(msg, chat_id), 
-                    None, 
-                    m.id, 
-                    None,
-                    trigger_type="event_driven",
-                    source_url=source_url,
-                    source_text=source_text,
-                    triggered_at=datetime.now()
+        # Сразу помечаем как «в обработке», чтобы следующий дубль-вызов был отклонён
+        mark_telegram_post_status(post_id, 'PROCESSING')
+
+        text = post_info.get('text', '')
+        message_id = post_info.get('message_id')
+
+        if not text:
+            logger.error(f"Post {post_id} text is empty.")
+            mark_telegram_post_status(post_id, 'ANALYZED')
+            return
+
+        try:
+            np = NewsProcessor(api_key=self.api_key)
+            markets = np.find_relevant_markets(text)
+
+            if not markets:
+                send_telegram_to_chat(
+                    "К сожалению, я не нашел связанных рынков на Polymarket для этого поста.",
+                    chat_id
                 )
-            except RuntimeError as e:
-                send_telegram_to_chat(f"⚠️ {e}", chat_id)
-                break
-            except Exception as e:
-                logger.error(f"analyze_post_async error for {m.id}: {e}")
-            # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
-            await asyncio.sleep(2)
-            
-        mark_telegram_post_status(post_id, 'ANALYZED')
+                mark_telegram_post_status(post_id, 'NO_MARKETS')
+                return
+
+            # Формируем список найденных рынков (отправляем один раз)
+            market_lines = [f"Найдено {len(markets)} связанных рынков:"]
+            for i, m in enumerate(markets[:3], 1):
+                market_lines.append(f"{i}. <a href='{m.url}'>{m.title}</a>")
+            if len(markets) > 3:
+                market_lines.append(f"...и еще {len(markets) - 3}")
+            market_lines.append("\nАнализирую...")
+            send_telegram_to_chat("\n".join(market_lines), chat_id)
+
+            effective_message_id = source_message_id or message_id
+            if not source_url and source_username and effective_message_id:
+                source_url = f"https://t.me/{source_username}/{effective_message_id}"
+
+            for m in markets[:3]:
+                try:
+                    await asyncio.to_thread(
+                        self.run_team_discussion,
+                        None,
+                        lambda msg, _chat_id=chat_id: send_telegram_to_chat(msg, _chat_id),
+                        None,
+                        m.id,
+                        None,
+                        trigger_type="event_driven",
+                        source_url=source_url,
+                        source_text=source_text,
+                        triggered_at=datetime.now()
+                    )
+                except RuntimeError as e:
+                    send_telegram_to_chat(f"⚠️ {e}", chat_id)
+                    break
+                except Exception as e:
+                    logger.error(f"analyze_post_async error for {m.id}: {e}")
+                # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
+                await asyncio.sleep(2)
+
+            mark_telegram_post_status(post_id, 'ANALYZED')
+
+        except Exception as e:
+            logger.error(f"analyze_post_async fatal error for post {post_id}: {e}")
+            # Сбрасываем статус, чтобы можно было перезапустить при желании
+            mark_telegram_post_status(post_id, 'ERROR')
