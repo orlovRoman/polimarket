@@ -91,6 +91,14 @@ class ArbitrageAgent:
         
         if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
             print(f"[MATH-FILTER] [CONFIRMED] ({mf.arbitrage_type}): spread={mf.spread_pct:.1f}%")
+            
+            if mf.arbitrage_type in ("complementary_overpriced",):
+                action_a, action_b = "BUY_NO", "BUY_NO"
+            elif mf.arbitrage_type in ("complementary_underpriced",):
+                action_a, action_b = "BUY_YES", "BUY_YES"
+            else:
+                action_a, action_b = "BUY_YES", "SELL_YES"
+
             return CrossArbitrageSignal(
                 market_a_id=market_a.id,
                 market_a_platform=market_a.platform,
@@ -108,6 +116,12 @@ class ArbitrageAgent:
                 reasoning=mf.reasoning,
                 trade_instruction=mf.trade_instruction,
                 match_score=float(score) / 100.0 if score > 1 else float(score),
+                action_a=action_a,
+                action_b=action_b,
+                entry_price_a_cents=round(market_a.price * 100, 1),
+                entry_price_b_cents=round(market_b.price * 100, 1),
+                expected_pnl_pct=round(mf.spread_pct - 2.0, 1),
+                risk_level="LOW",
             )
         # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
 
@@ -206,6 +220,14 @@ ID: {market_b.id}
         
         if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
             print(f"[MATH-FILTER] [CONFIRMED] ({mf.arbitrage_type}): spread={mf.spread_pct:.1f}%")
+
+            if mf.arbitrage_type in ("complementary_overpriced",):
+                action_a, action_b = "BUY_NO", "BUY_NO"
+            elif mf.arbitrage_type in ("complementary_underpriced",):
+                action_a, action_b = "BUY_YES", "BUY_YES"
+            else:
+                action_a, action_b = "BUY_YES", "SELL_YES"
+
             return CrossArbitrageSignal(
                 market_a_id=market_a.id,
                 market_a_platform=market_a.platform,
@@ -223,6 +245,12 @@ ID: {market_b.id}
                 reasoning=mf.reasoning,
                 trade_instruction=mf.trade_instruction,
                 match_score=match_score,
+                action_a=action_a,
+                action_b=action_b,
+                entry_price_a_cents=round(market_a.price * 100, 1),
+                entry_price_b_cents=round(market_b.price * 100, 1),
+                expected_pnl_pct=round(mf.spread_pct - 2.0, 1),
+                risk_level="LOW",
             )
         # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
 
