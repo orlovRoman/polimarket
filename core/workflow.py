@@ -111,7 +111,11 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
 
 
-def run_agent_evaluation(m, scout, swing, update_state):
+def run_agent_evaluation(m, scout, swing, update_state,
+                         trigger_type="scheduled",
+                         source_url=None,
+                         source_text=None,
+                         triggered_at=None):
     logger.info("  Скачиваем новости (RSS + Reddit + Wikipedia)...")
     
     search_query = build_search_query(m.title)
@@ -132,7 +136,11 @@ def run_agent_evaluation(m, scout, swing, update_state):
         market=m,
         news_titles=news_titles,
         reddit_posts=reddit_posts,
-        wiki_context=wiki_context
+        wiki_context=wiki_context,
+        trigger_type=trigger_type,
+        source_url=source_url,
+        source_text=source_text,
+        triggered_at=triggered_at
     )
 
     # ── Вариант 2: обогащаем контекст корреляциями ──────────────────────────
