@@ -52,7 +52,6 @@ def run_cross_platform_scan(
         try:
             if adapter.name == "polymarket":
                 from services.polymarket_cache import get_raw_events
-                import config
                 raw = get_raw_events(
                     cache_key=f"poly_events_{limit}",
                     fetch_fn=lambda: adapter.fetch_raw_events(limit=limit),
