@@ -2,7 +2,7 @@ import threading
 import logging
 import asyncio
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import GOOGLE_API_KEY, SCAN_LIMIT_DEFAULT
 from agents.shared.adapters.polymarket import PolymarketAdapter
@@ -290,11 +290,22 @@ class CoreEngine:
                     f"СООБЩЕНИЕ ИЗ TELEGRAM:\n{text}\n"
                 )
                 
+                post_source_url = None
+                if message_id:
+                    if source_username:
+                        post_source_url = f"https://t.me/{source_username}/{message_id}"
+                    elif source_chat_id.startswith("-100"):
+                        post_source_url = f"https://t.me/c/{source_chat_id[4:]}/{message_id}"
+
                 context = MarketContext(
                     market=full_m,
                     news_titles=[news_context],
                     reddit_posts=[],
-                    wiki_context=wiki_context_str
+                    wiki_context=wiki_context_str,
+                    trigger_type="event_driven",
+                    source_url=post_source_url,
+                    source_text=text[:120] if text else None,
+                    triggered_at=datetime.now(timezone.utc)
                 )
                 
                 signal = self.scout.estimate_market(context)
@@ -321,24 +332,16 @@ class CoreEngine:
 
                     opinion_shadow = self.shadow.analyze_idea(context, active_signal.details, orderbook=orderbook)
                     
-                # Формируем ссылку на оригинальный пост
-                post_link_str = ""
-                if message_id:
-                    if source_username:
-                        post_link_str = f"\n<a href='https://t.me/{source_username}/{message_id}'>🔗 Ссылка на пост</a>\n"
-                    elif source_chat_id.startswith("-100"):
-                        stripped_chat_id = source_chat_id[4:]
-                        post_link_str = f"\n<a href='https://t.me/c/{stripped_chat_id}/{message_id}'>🔗 Ссылка на пост</a>\n"
-
-                summary_text = f"🗣 <b>Event-Driven Анализ (Рынок: {full_m.title}):</b>{post_link_str}\n<a href='{full_m.url}'>{full_m.title}</a>\n\n"
-                if active_signal:
-                    summary_text += f"💡 <b>Идея:</b> {active_signal.details}\n"
-                    if opinion_shadow:
-                        summary_text += f"🕵️‍♂️ <b>SHADOW:</b> {opinion_shadow.opinion}\n"
-                else:
-                    summary_text += "К сожалению, интересного сигнала для входа не найдено (нет edge или хайпа)."
-                    
-                send_telegram_to_chat(summary_text, chat_id)
+                # Вызов process_consensus для единого форматирования сообщения
+                process_consensus(
+                    context=context,
+                    signal=signal,
+                    swing_signal=swing_signal,
+                    opinion_shadow=opinion_shadow,
+                    state={},
+                    update_state=dummy_update,
+                    summary_callback=lambda msg: send_telegram_to_chat(msg, chat_id)
+                )
                 mark_telegram_post_status(post_id, 'ANALYZED')
                 
             except Exception as e:
