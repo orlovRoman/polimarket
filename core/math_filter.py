@@ -60,18 +60,29 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
     a = title_a.lower()
     b = title_b.lower()
     
-    pairs = [
+    explicit_pairs = [
         ('democrat', 'republican'),
         ('trump', 'harris'),
         ('trump', 'biden'),
-        ('kamala', 'trump'),
+        ('kamala', 'trump')
+    ]
+    for w1, w2 in explicit_pairs:
+        if (w1 in a and w2 in b) or (w2 in a and w1 in b):
+            return True
+            
+    directional_pairs = [
         ('above', 'below'),
         ('over', 'under'),
         ('more than', 'less than')
     ]
-    for w1, w2 in pairs:
-        if (w1 in a and w2 in b) or (w2 in a and w1 in b):
+    words_a = set(re.findall(r'\b\w+\b', a))
+    words_b = set(re.findall(r'\b\w+\b', b))
+    common = words_a & words_b - {'will', 'the', 'a', 'in', 'by', 'of', 'to', 'at', 'on', 'for'}
+    
+    for w1, w2 in directional_pairs:
+        if ((w1 in a and w2 in b) or (w2 in a and w1 in b)) and len(common) >= 2:
             return True
+            
     return False
 
 def validate_trade_instruction(instruction: str) -> tuple[bool, str]:
