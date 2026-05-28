@@ -90,3 +90,31 @@ class DatabaseManager:
     def get_signals(self, status: str = None) -> list:
         """Получает список сигналов."""
         return _db.get_signals(status)
+
+    def delete_signal(self, signal_id: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM signals WHERE id = ?", (signal_id,))
+            conn.commit()
+
+    def update_signal_status(self, signal_id: str, status: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute("UPDATE signals SET status = ? WHERE id = ?", (status, signal_id))
+            conn.commit()
+
+    def cleanup_expired_signals(self, before_iso: str) -> int:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE signals SET status = 'EXECUTED'
+                WHERE status = 'PENDING' AND market_id IN (
+                    SELECT id FROM markets WHERE close_time < ?
+                )
+            """, (before_iso,))
+            conn.commit()
+            return cursor.rowcount
+
+    def execute_select(self, query: str) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            return [dict(row) for row in cursor.fetchall()]

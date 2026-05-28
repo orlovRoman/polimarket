@@ -356,9 +356,7 @@ class NexusAgent:
     def delete_signal(self, signal_id: str) -> str:
         """Удаляет некорректный или устаревший сигнал из таблицы signals."""
         try:
-            with self.db_manager._get_connection() as conn:
-                conn.execute("DELETE FROM signals WHERE id = ?", (signal_id,))
-                conn.commit()
+            self.db_manager.delete_signal(signal_id)
             return f"Сигнал {signal_id} успешно удален."
         except Exception as e:
             return f"Ошибка при удалении сигнала: {e}"
@@ -366,28 +364,16 @@ class NexusAgent:
     def update_signal_status(self, signal_id: str, status: str) -> str:
         """Обновляет статус сигнала (например, на 'ARCHIVED' или 'EXECUTED')."""
         try:
-            with self.db_manager._get_connection() as conn:
-                conn.execute("UPDATE signals SET status = ? WHERE id = ?", (status, signal_id))
-                conn.commit()
+            self.db_manager.update_signal_status(signal_id, status)
             return f"Статус сигнала {signal_id} изменен на {status}."
         except Exception as e:
             return f"Ошибка при обновлении статуса: {e}"
 
     def cleanup_expired_signals(self) -> str:
         """Помечает сигналы как EXECUTED, если время закрытия их рынков уже прошло."""
-        now = datetime.now(timezone.utc).isoformat()
         try:
-            with self.db_manager._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE signals 
-                    SET status = 'EXECUTED' 
-                    WHERE status = 'PENDING' AND market_id IN (
-                        SELECT id FROM markets WHERE close_time < ?
-                    )
-                """, (now,))
-                count = cursor.rowcount
-                conn.commit()
+            now = datetime.now(timezone.utc).isoformat()
+            count = self.db_manager.cleanup_expired_signals(now)
             return f"Очистка завершена. Помечено как EXECUTED: {count} сигналов."
         except Exception as e:
             return f"Ошибка при очистке сигналов: {e}"
@@ -397,13 +383,8 @@ class NexusAgent:
         try:
             if not query.strip().upper().startswith("SELECT"):
                 return "Ошибка: Допускаются только SELECT запросы. Используйте специальные инструменты для удаления или обновления."
-                
-            with self.db_manager._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
-                result = [dict(row) for row in rows]
-                return json.dumps(result, ensure_ascii=False, default=str)
+            result = self.db_manager.execute_select(query)
+            return json.dumps(result, ensure_ascii=False, default=str)
         except Exception as e:
             return f"Ошибка при запросе к БД: {e}"
 
