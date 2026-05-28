@@ -141,6 +141,55 @@ def init_db():
                     FOREIGN KEY (market_id) REFERENCES markets (id)
                 )
             """)
+            
+            # Таблица синтетических коридоров
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS synthetic_corridors (
+                    signal_id TEXT PRIMARY KEY,
+                    event_slug TEXT,
+                    event_title TEXT,
+                    event_url TEXT,
+                    
+                    lower_market_id TEXT,
+                    lower_question TEXT,
+                    lower_level REAL,
+                    lower_level_unit TEXT,
+                    lower_price_yes REAL,
+                    lower_ask_yes REAL,
+                    
+                    upper_market_id TEXT,
+                    upper_question TEXT,
+                    upper_level REAL,
+                    upper_level_unit TEXT,
+                    upper_price_yes REAL,
+                    upper_ask_no REAL,
+                    
+                    theoretical_cost REAL,
+                    theoretical_spread_pct REAL,
+                    real_cost REAL,
+                    real_spread_pct REAL,
+                    
+                    executable_contracts REAL,
+                    depth_5_lower REAL,
+                    depth_5_upper REAL,
+                    
+                    stake_lower_usd REAL,
+                    stake_upper_usd REAL,
+                    total_invested_usd REAL,
+                    contracts_lower REAL,
+                    contracts_upper REAL,
+                    pnl_above_upper_usd REAL,
+                    pnl_in_corridor_usd REAL,
+                    pnl_below_lower_usd REAL,
+                    min_guaranteed_usd REAL,
+                    roi_min_pct REAL,
+                    roi_max_pct REAL,
+                    
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    alerted INTEGER DEFAULT 0
+                )
+            """)
+            
             # Таблица: Профили кошельков (Smart Money Tracker)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS wallets (
@@ -434,6 +483,41 @@ def mark_cross_arbitrage_alerted(signal_id: str) -> None:
             (signal_id,)
         )
 
+def save_synthetic_corridor(signal) -> None:
+    """Сохраняет сигнал синтетического коридора."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO synthetic_corridors (
+                signal_id, event_slug, event_title, event_url,
+                lower_market_id, lower_question, lower_level, lower_level_unit, lower_price_yes, lower_ask_yes,
+                upper_market_id, upper_question, upper_level, upper_level_unit, upper_price_yes, upper_ask_no,
+                theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct,
+                executable_contracts, depth_5_lower, depth_5_upper,
+                stake_lower_usd, stake_upper_usd, total_invested_usd, contracts_lower, contracts_upper,
+                pnl_above_upper_usd, pnl_in_corridor_usd, pnl_below_lower_usd,
+                min_guaranteed_usd, roi_min_pct, roi_max_pct, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            signal.signal_id, signal.event_slug, signal.event_title, signal.event_url,
+            signal.lower_market_id, signal.lower_question, signal.lower_level, signal.lower_level_unit, signal.lower_price_yes, signal.lower_ask_yes,
+            signal.upper_market_id, signal.upper_question, signal.upper_level, signal.upper_level_unit, signal.upper_price_yes, signal.upper_ask_no,
+            signal.theoretical_cost, signal.theoretical_spread_pct, signal.real_cost, signal.real_spread_pct,
+            signal.executable_contracts, signal.depth_5_lower, signal.depth_5_upper,
+            signal.stake_lower_usd, signal.stake_upper_usd, signal.total_invested_usd, signal.contracts_lower, signal.contracts_upper,
+            signal.pnl_above_upper_usd, signal.pnl_in_corridor_usd, signal.pnl_below_lower_usd,
+            signal.min_guaranteed_usd, signal.roi_min_pct, signal.roi_max_pct, signal.created_at
+        ))
+
+def mark_synthetic_corridor_alerted(signal_id: str):
+    with get_connection() as conn:
+        conn.execute("UPDATE synthetic_corridors SET alerted = 1 WHERE signal_id = ?", (signal_id,))
+
+def get_unalerted_synthetic_corridors() -> list:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM synthetic_corridors WHERE alerted = 0")
+        return [dict(row) for row in cursor.fetchall()]
 
 def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
     """Сохраняет аудит-запись о прохождении идеи через pipeline."""

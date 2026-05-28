@@ -18,17 +18,7 @@ import config
 
 logger = logging.getLogger("NexusPolyBot.Arbitrage")
 
-import re
-
-def _parse_numeric_level(title: str) -> tuple[Optional[float], Optional[str]]:
-    """
-    Извлекает числовое значение и единицу измерения (T, B, M, k) из заголовка рынка.
-    Например: "SpaceX IPO closing market cap above $1.8T?" -> (1.8, "T")
-    """
-    match = re.search(r'\$?(\d+(?:\.\d+)?)\s*([TBMk])\b', title, re.IGNORECASE)
-    if match:
-        return float(match.group(1)), match.group(2).upper()
-    return None, None
+from agents.shared.utils.parsers import parse_numeric_level
 
 def check_monotonicity_violation(
     title_a: str, price_a: float,
@@ -41,8 +31,8 @@ def check_monotonicity_violation(
     Правило: P(> higher_threshold) <= P(> lower_threshold)
     Нарушение: P(> higher) > P(> lower) — вот это арбитраж.
     """
-    level_a, unit_a = _parse_numeric_level(title_a)
-    level_b, unit_b = _parse_numeric_level(title_b)
+    level_a, unit_a = parse_numeric_level(title_a)
+    level_b, unit_b = parse_numeric_level(title_b)
     
     if level_a is None or level_b is None or unit_a != unit_b:
         return True, "Уровни не распознаны — передаём на LLM"

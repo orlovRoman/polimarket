@@ -101,6 +101,25 @@ async def scheduled_cross_arbitrage_scan():
     except Exception as e:
         logger.error(f"Ошибка кросс-арбитражного скана: {e}", exc_info=True)
 
+async def scheduled_synthetic_corridors():
+    """Скан внутрирыночных синтетических коридоров (Polymarket)."""
+    logger.info(">>> Синтетические коридоры: запуск скана...")
+    try:
+        from services.synthetic_corridor_scanner import run_synthetic_corridor_scan
+        from services.notifications import send_synthetic_corridor_alerts
+        import asyncio
+        
+        found = await asyncio.to_thread(
+            run_synthetic_corridor_scan,
+            poly_limit=100,
+            budget_per_trade=200.0,
+        )
+        if found:
+            await asyncio.to_thread(send_synthetic_corridor_alerts)
+        logger.info(f"<<< Синтетические коридоры: найдено {len(found)} алертов")
+    except Exception as e:
+        logger.error(f"Ошибка сканирования синтетических коридоров: {e}", exc_info=True)
+
 async def start_fastapi():
     """Запуск FastAPI сервера в фоне (через asyncio)"""
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
@@ -183,6 +202,7 @@ async def start_system():
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
     scheduler.add_job(scheduled_cross_arbitrage_scan, 'interval', hours=4)  # кросс-арбитраж каждые 4 ч
+    scheduler.add_job(scheduled_synthetic_corridors, 'interval', minutes=15) # синтетические коридоры каждые 15 м
 
     logger.info("🤖 Бот NEXUS запускается...")
     try:

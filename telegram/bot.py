@@ -230,15 +230,38 @@ async def command_help_handler(message: types.Message) -> None:
         "📈 /stats — общая статистика (рынки, сигналы)\n"
         "🧹 /cleanup — архивировать устаревшие сигналы\n"
         "📜 /logs — последние 10 строк системного лога\n\n"
-        "<b>Информация:</b>\n"
         "❓ /help — это сообщение\n"
         "👋 /start — перезапустить приветствие\n\n"
         "<b>Экспериментальные функции:</b>\n"
-        "⚖️ /arbitrage — кросс-платформенный арбитраж (Polymarket ↔ Kalshi)\n\n"
+        "⚖️ /arbitrage — кросс-платформенный арбитраж (Polymarket ↔ Kalshi)\n"
+        "🔄 /synthetic — внутрирыночный арбитраж (синтетические коридоры Polymarket)\n\n"
         "<i>*Точность SCOUT в меню /status показывает % успешных сигналов. Она 'накапливается', пока рынки, по которым бот дал сигнал, физически не закроются на Polymarket, чтобы сверить прогноз с реальностью.</i>\n\n"
         "<i>Ты также можешь просто писать мне вопросы в чат — я отвечу, используя контекст нашей команды.</i>"
     )
     await message.answer(help_text)
+
+@dp.message(Command("synthetic"))
+async def command_synthetic_handler(message: types.Message) -> None:
+    """Запуск сканирования синтетических коридоров по запросу."""
+    await message.answer("🔄 Запускаю математический поиск синтетических коридоров (Polymarket). Это займет пару минут...")
+    try:
+        from services.synthetic_corridor_scanner import run_synthetic_corridor_scan
+        from services.notifications import send_synthetic_corridor_alerts
+        import asyncio
+        
+        found = await asyncio.to_thread(
+            run_synthetic_corridor_scan,
+            poly_limit=200,  # Чуть больше лимит при ручном скане
+            budget_per_trade=200.0,
+        )
+        if found:
+            await asyncio.to_thread(send_synthetic_corridor_alerts)
+            await message.answer(f"✅ Сканирование завершено. Найдено {len(found)} коридоров. Алерты отправлены.")
+        else:
+            await message.answer("🤷‍♂️ Сканирование завершено. Синтетические коридоры (спред > 1.5%) не найдены.")
+    except Exception as e:
+        logger.error(f"Ошибка ручного сканирования синтетических коридоров: {e}", exc_info=True)
+        await message.answer(f"❌ Произошла ошибка при сканировании: {e}")
 
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:

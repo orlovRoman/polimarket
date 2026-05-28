@@ -192,3 +192,41 @@ def send_cross_arbitrage_alerts(min_spread: float = 5.0) -> None:
                 logger.warning(f"[Notifier] Не удалось отправить кросс-арбитраж: {signal_id}")
     except Exception as e:
         logger.error(f"[Notifier] Ошибка отправки кросс-арбитража: {e}")
+
+def format_synthetic_corridor_alert(signal) -> str:
+    return (
+        f"🚨 <b>СИНТЕТИЧЕСКИЙ АРБИТРАЖ (Внутри Polymarket)</b> 🚨\n\n"
+        f"<b>{signal.event_title}</b>\n"
+        f"<a href='{signal.event_url}'>Перейти к событию</a>\n\n"
+        f"📊 Нарушение монотонности: порог <b>${signal.upper_level}{signal.upper_level_unit}</b> стоит ДОРОЖЕ <b>${signal.lower_level}{signal.lower_level_unit}</b>!\n\n"
+        f"🛒 <b>Стратегия исполнения:</b>\n"
+        f"1. Покупаем YES на <i>{signal.lower_question}</i> по <b>{signal.lower_ask_yes:.3f}</b>\n"
+        f"2. Покупаем NO на <i>{signal.upper_question}</i> по <b>{signal.upper_ask_no:.3f}</b>\n\n"
+        f"💰 <b>Математика на бюджет ${signal.total_invested_usd:.0f}:</b>\n"
+        f"Кол-во контрактов на каждую ногу: <b>{signal.contracts_lower:.1f} шт.</b>\n"
+        f"Мин. гарантированный PnL: <b>${signal.min_guaranteed_usd:.2f}</b> (<b>+{signal.roi_min_pct:.1f}%</b>)\n"
+        f"Макс. профит (попадание в коридор): <b>${signal.pnl_in_corridor_usd:.2f}</b> (<b>+{signal.roi_max_pct:.1f}%</b>)\n\n"
+        f"📉 Глубина стакана (кол-во контрактов на лучших ценах): <b>{signal.executable_contracts:.0f}</b>"
+    )
+
+def send_synthetic_corridor_alerts() -> None:
+    try:
+        from agents.shared.python.db import get_unalerted_synthetic_corridors, mark_synthetic_corridor_alerted
+        from agents.polymarket_arbitrage_agent.src.synthetic.models import SyntheticCorridorSignal
+
+        new_signals = get_unalerted_synthetic_corridors()
+        if not new_signals:
+            return
+
+        for row in new_signals:
+            signal = SyntheticCorridorSignal(**row)
+            text = format_synthetic_corridor_alert(signal)
+            success = send_telegram(text)
+
+            if success:
+                mark_synthetic_corridor_alerted(signal.signal_id)
+                logger.info(f"[Notifier] Синтетический коридор отправлен: {signal.signal_id}")
+            else:
+                logger.warning(f"[Notifier] Не удалось отправить синтетический коридор: {signal.signal_id}")
+    except Exception as e:
+        logger.error(f"[Notifier] Ошибка отправки синтетического коридора: {e}")
