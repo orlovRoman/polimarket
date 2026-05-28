@@ -1,7 +1,7 @@
-from typing import List, Optional
+from typing import List, Optional, Literal
+from datetime import datetime
 from pydantic import BaseModel, Field
 from core.models import Market
-
 class SmartMoneySummary(BaseModel):
     available: bool
     total_yes_usd: float = 0.0
@@ -20,5 +20,11 @@ class MarketContext(BaseModel):
     wiki_context: str = ""
     smart_money: Optional[SmartMoneySummary] = None
     correlation_hint: str = ""
+    
+    # --- Event metadata ---
+    trigger_type: Literal["scheduled", "event_driven"] = "scheduled"
+    source_url: Optional[str] = None
+    source_text: Optional[str] = None
+    triggered_at: Optional[datetime] = None
     
     # Можно расширять (X/Twitter, Onchain metrics, etc.)

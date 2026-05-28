@@ -217,7 +217,7 @@ class CoreEngine:
                     if opinion_shadow:
                         add_discussion_message(m.id, opinion_shadow.agent_name, opinion_shadow.opinion, opinion_shadow.confidence, opinion_shadow.agree)
                 
-                process_consensus(m, signal, swing_signal, opinion_shadow, self.state, _update_state, summary_callback)
+                process_consensus(context, signal, swing_signal, opinion_shadow, self.state, _update_state, summary_callback)
                 mark_market_analyzed(m.id, m.price)
                 
             except Exception as e:

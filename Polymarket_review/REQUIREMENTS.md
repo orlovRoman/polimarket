@@ -31,7 +31,7 @@
 | 3 | SCOUT и NEXUS сосредоточены на поиске НЕДООЦЕНЁННЫХ событий (купить дёшево → продать) |
 | 4 | Twitter/X УБРАН — медленный и платный. Заменён на Reddit + бесплатные новостные ленты |
 | 5 | Добавлен раздел Skills для Gemini и Claude |
-| 6 | Агент новостей (HERALD) переведён в последнюю очередь разработки |
+| 6 | Агент новостей отменен, источник событий интегрирован в MarketContext |
 | 7 | Архитектура расширена под будущий автономный трейдинг |
 
 ---
@@ -92,9 +92,8 @@ shadow_tool = AgentTool(agent=shadow_agent)
 2. NEXUS видит новую идею → вызывает SHADOW для проверки инсайдерской активности
 3. SHADOW пишет своё мнение в state["shadow_opinion_{market_id}"]
 4. NEXUS агрегирует мнения SCOUT + SHADOW → формирует итоговый сигнал
-5. [Фаза 2] NEXUS вызывает HERALD для новостного контекста
-6. NEXUS отправляет финальный сигнал в Telegram пользователю
-7. Пользователь может ответить в Telegram → NEXUS переспрашивает агентов
+5. NEXUS отправляет финальный сигнал в Telegram пользователю
+6. Пользователь может ответить в Telegram → NEXUS переспрашивает агентов
 ```
 
 ---
@@ -114,7 +113,7 @@ shadow_tool = AgentTool(agent=shadow_agent)
 **Функции:**
 - Принимает сообщения из Telegram, маршрутизирует к агентам
 - Агрегирует мнения SCOUT и SHADOW перед отправкой сигнала
-- **Фильтр Pump & Dump:** Блокирует сделки, если цена резко выросла, но HERALD не нашел новостей, а SHADOW видит только неизвестные кошельки
+- **Фильтр Pump & Dump:** Блокирует сделки, если цена резко выросла, а SHADOW видит только неизвестные кошельки
 - Ведёт "журнал обсуждений" (через SQLite в `vault/database.sqlite`)
 - Хранит долгосрочную память команды (SQLite)
 - Запускает субагентов по расписанию (APScheduler)
@@ -190,30 +189,7 @@ shadow_tool = AgentTool(agent=shadow_agent)
 
 ---
 
-### 5.4 HERALD — Агент новостей *(разрабатывается последним)*
 
-| Параметр | Значение |
-|---|---|
-| Имя | HERALD |
-| Файл | `agents/news/agent.py` |
-| Инструкции | `agents/news/GEMINI.md` |
-| Модель | Gemini 2.5 Pro |
-| Роль | Новостной контекст для подтверждения/опровержения идей |
-| Расписание | Каждые 30 минут (не критичен) |
-
-**Источники (Качество > Скорость):**
-- Комментарии на платформах (Metaculus, Manifold): Глубокая аналитика и вероятности от пользователей (API бесплатны)
-- Официальные API: CourtListener, gov.track (для политики), GitHub/Discord API (для крипты)
-- Нишевые сабреддиты (Reddit API): r/Destiny, r/slatestarcodex, r/Polymarket
-- Базовый RSS: Reuters, Google News (для общего контекста, но не как источник альфы)
-
-**Почему НЕ Twitter/X:**
-- Платный API ($100+/мес для базового доступа)
-- Высокая latency для real-time мониторинга (учитывая rate limits)
-- Низкое signal/noise отношение (много хайпа, который мы отсеиваем фильтром Pump & Dump)
-- Reddit и Google News дают достаточно покрытия бесплатно
-
----
 
 ## 6. Подключаемые платформы предсказаний
 
@@ -357,13 +333,6 @@ polymarket-agent-team/
 │   │   ├── reddit_watcher.py← Reddit мониторинг
 │   │   └── profiler.py      ← анализ профилей кошельков
 │   │
-│   └── news/                ← HERALD (разрабатывается последним)
-│       ├── GEMINI.md        ← системный промпт HERALD
-│       ├── agent.py
-│       ├── rss_fetcher.py   ← RSS: Reuters, BBC, Google News
-│       ├── reddit_reader.py ← r/worldnews, r/politics, r/Polymarket
-│       └── matcher.py       ← сопоставление новостей с рынками
-│
 ├── platforms/               ← адаптеры рынков предсказаний
 │   ├── base_adapter.py      ← BaseMarketAdapter (интерфейс)
 │   ├── polymarket.py        ← Polymarket CLOB + REST
@@ -387,14 +356,12 @@ polymarket-agent-team/
 │
 ├── output/
 │   ├── mispricing/          ← результаты SCOUT
-│   ├── insider/             ← результаты SHADOW
-│   └── news/                ← результаты HERALD
+│   └── insider/             ← результаты SHADOW
 │
 └── logs/
     ├── orchestrator.log
     ├── mispricing.log
-    ├── insider.log
-    └── news.log
+    └── insider.log
 ```
 
 ---
@@ -434,7 +401,6 @@ REDDIT_USER_AGENT=polymarket-agent/1.0
 # Настройки
 SCOUT_INTERVAL_MIN=20
 SHADOW_INTERVAL_MIN=10
-HERALD_INTERVAL_MIN=30
 MIN_EDGE_THRESHOLD=0.10         # минимальный edge для сигнала (10 п.п.)
 MIN_INSIDER_POSITION_USD=100    # минимальная позиция для сигнала
 ```
@@ -457,11 +423,7 @@ MIN_INSIDER_POSITION_USD=100    # минимальная позиция для �
 - Кошелёк из watchlist совершил транзакцию > $100
 - Или 2+ кошелька зашли в одну сторону в течение часа
 
-### Сигнал новости (HERALD)
-- Новость прямо связана с активным рынком
-- Лаг между публикацией и реакцией рынка > 5 минут
 
----
 
 ## 11. Типы уведомлений в Telegram
 
@@ -499,13 +461,7 @@ MIN_INSIDER_POSITION_USD=100    # минимальная позиция для �
 12. Добавить Claude как критика (SCOUT → Gemini estimate → Claude critique → NEXUS)
 13. Команда `/discuss [url]` — полное обсуждение конкретного рынка
 
-### Фаза 3 — Новостной агент
 
-14. Реализовать HERALD: RSS (Reuters, Google News) + Reddit мониторинг
-15. Подключить HERALD к обсуждению (третье мнение)
-16. Автоматический запуск по расписанию всех трёх агентов
-
-### Фаза 4 — Деплой и стабилизация
 
 17. Деплой на Google Cloud Run
 18. Настроить Sentry для мониторинга ошибок

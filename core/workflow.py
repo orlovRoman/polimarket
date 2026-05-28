@@ -164,7 +164,8 @@ def run_agent_evaluation(m, scout, swing, update_state):
         
     return signal, swing_signal, context
 
-def make_consensus(m: Market, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion]) -> IdeaDecision:
+def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion]) -> IdeaDecision:
+    m = context.market
     # Решение принимает SHADOW через поле agree. Проверка liquidity_risk убрана,
     # т.к. пользователь оперирует микро-банком ($10-100) и high liquidity_risk — норма.
     shadow_ok = opinion_shadow and opinion_shadow.agree
@@ -187,8 +188,9 @@ def make_consensus(m: Market, signal: Optional[Signal], swing_signal: Optional[S
         shadow_opinion=opinion_shadow
     )
 
-def process_consensus(m: Market, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion], state: dict, update_state: Callable, summary_callback: Optional[Callable]):
-    decision = make_consensus(m, signal, swing_signal, opinion_shadow)
+def process_consensus(context: MarketContext, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion], state: dict, update_state: Callable, summary_callback: Optional[Callable]):
+    m = context.market
+    decision = make_consensus(context, signal, swing_signal, opinion_shadow)
     
     if decision.status == 'saved':
         logger.info("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ.")
@@ -203,7 +205,17 @@ def process_consensus(m: Market, signal: Optional[Signal], swing_signal: Optiona
 
     if summary_callback:
         # Богатый формат для Telegram
-        summary_text = f"🗣 <b>Обсуждение рынка:</b>\n<a href='{m.url}'>{m.title}</a>\n\n"
+        summary_text = f"🗣 <b>Обсуждение рынка:</b>\n"
+        
+        if context.trigger_type == "event_driven":
+            if context.source_url:
+                triggered_time = context.triggered_at.strftime("%d %b %H:%M") if context.triggered_at else "сейчас"
+                source_label = context.source_text or "Источник"
+                summary_text += f"📡 <b>Источник:</b> <a href='{context.source_url}'>{source_label}</a> · {triggered_time}\n"
+            else:
+                summary_text += f"⚠️ <b>Внимание:</b> источник события не определён (деградация до scheduled)\n"
+                
+        summary_text += f"<a href='{m.url}'>{m.title}</a>\n\n"
         
         if signal:
             summary_text += f"🧠 <b>SCOUT (Фундаментал):</b>\n"
