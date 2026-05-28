@@ -62,6 +62,12 @@ class DatabaseManager:
         """Извлекает данные из долгосрочной памяти."""
         return _db.get_memory(key, default)
 
+    def delete_memory(self, key: str) -> None:
+        """Удаляет ключ из долгосрочной памяти."""
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM memory WHERE key = ?", (key,))
+            conn.commit()
+
     # --- Токены и модели ---
     def get_token_usage_last_24h(self, agent_name: str) -> Dict[str, int]:
         """Получает статистику токенов агента за 24 часа."""

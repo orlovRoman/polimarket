@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger("NexusAgent")
 import os
 import json
 from datetime import datetime, timezone
@@ -37,7 +39,7 @@ class NexusAgent:
                 with open(gemini_md_path, "r", encoding="utf-8") as f:
                     return f.read()
             except Exception as e:
-                print(f"Предупреждение: Не удалось прочитать GEMINI.md: {e}")
+                logger.warning(f"Предупреждение: Не удалось прочитать GEMINI.md: {e}")
         return "Ты — NEXUS, главный ИИ-координатор команды агентов."
 
     def _get_current_system_prompt(self) -> str:
@@ -56,7 +58,7 @@ class NexusAgent:
 
         # Добавляем последние 3 эпизода как контекст
         try:
-            recent_episodes = get_agent_episodes(limit=3)
+            recent_episodes = get_agent_episodes("NEXUS", event_type="chat", limit=3)
             if recent_episodes:
                 ep_lines = [f"  [{e['created_at'][:16]}] {e['agent_name']}: {e['summary']}" for e in recent_episodes]
                 facts_str += "\n\nПОСЛЕДНИЕ ДЕЙСТВИЯ СИСТЕМЫ:\n" + "\n".join(ep_lines)
@@ -74,13 +76,23 @@ class NexusAgent:
         return prompt
 
     # --- Скрининг рынков (SCREENER mode) ---
+    
+    def _clean_market_id(self, raw: str) -> str:
+        import re
+        cleaned = str(raw).strip()
+        cleaned = re.sub(r'^[-\s]*id[:\-_]\s*', '', cleaned, flags=re.IGNORECASE)
+        return cleaned.strip()
 
     def screen_markets(self, markets_compact: list, top_n: int = 30) -> dict:
         """
         Скринирует ВСЕ рынки и возвращает Top-N кандидатов + корреляции.
         Один LLM-вызов с JSON-выходом.
         """
-        # Формируем compact-текст для промпта (минимум токенов)
+        MAX_SCREENING_MARKETS = 120
+        if len(markets_compact) > MAX_SCREENING_MARKETS:
+            logger.warning(f"[NEXUS] Обрезаем список рынков: {len(markets_compact)} → {MAX_SCREENING_MARKETS}")
+            markets_compact = markets_compact[:MAX_SCREENING_MARKETS]
+
         market_lines = []
         for m in markets_compact:
             market_lines.append(f"- id:{m['id']} | q:{m['q']} | p:{m['p']} | vol:{m.get('vol',0):.0f} | end:{m.get('end','')}")
@@ -123,7 +135,32 @@ class NexusAgent:
         payload = {
             "contents": [{"role": "user", "parts": [{"text": screening_prompt}]}],
             "systemInstruction": {"parts": [{"text": self.base_instructions}]},
-            "generationConfig": {"responseMimeType": "application/json"}
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "top_candidates": {"type": "ARRAY", "items": {"type": "STRING"}},
+                        "correlations": {
+                            "type": "ARRAY",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "market_a_id": {"type": "STRING"},
+                                    "market_b_id": {"type": "STRING"},
+                                    "market_a_title": {"type": "STRING"},
+                                    "market_b_title": {"type": "STRING"},
+                                    "type": {"type": "STRING"},
+                                    "description": {"type": "STRING"},
+                                    "confidence": {"type": "NUMBER"}
+                                },
+                                "required": ["market_a_id", "market_b_id", "type", "confidence"]
+                            }
+                        }
+                    },
+                    "required": ["top_candidates", "correlations"]
+                }
+            }
         }
         
         try:
@@ -136,14 +173,14 @@ class NexusAgent:
             )
             
             if not res_json:
-                print("[NEXUS SCREENER] Не удалось получить ответ ни от одной модели.")
+                logger.warning("[NEXUS SCREENER] Не удалось получить ответ ни от одной модели.")
                 return {"top_candidates": [], "correlations": []}
 
             raw = res_json.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
             text = raw.strip()
 
             if not text:
-                print("[NEXUS SCREENER] Пустой ответ от модели. Возвращаем пустой результат.")
+                logger.warning("[NEXUS SCREENER] Пустой ответ от модели. Возвращаем пустой результат.")
                 return {"top_candidates": [], "correlations": []}
 
             # Снимаем markdown-обёртку ```json ... ``` если есть
@@ -155,17 +192,13 @@ class NexusAgent:
             try:
                 result = json.loads(text)
             except json.JSONDecodeError as e:
-                print(f"[NEXUS SCREENER] JSONDecodeError: {e}. Ответ: {text[:300]}")
+                logger.error(f"[NEXUS SCREENER] JSONDecodeError: {e}. Ответ: {text[:300]}")
                 return {"top_candidates": [], "correlations": []}
             
-            # Очищаем ID кандидатов от префикса "id:" или "id_"
+            # Очищаем ID кандидатов
             candidates = []
             for c_id in result.get("top_candidates", []):
-                cleaned = str(c_id).strip()
-                if cleaned.lower().startswith("id:"):
-                    cleaned = cleaned[3:].strip()
-                elif cleaned.lower().startswith("id_"):
-                    cleaned = cleaned[3:].strip()
+                cleaned = self._clean_market_id(c_id)
                 candidates.append(cleaned)
             result["top_candidates"] = candidates
             
@@ -175,17 +208,8 @@ class NexusAgent:
             
             for corr in result.get("correlations", []):
                 try:
-                    m_id_a = str(corr["market_a_id"]).strip()
-                    if m_id_a.lower().startswith("id:"):
-                        m_id_a = m_id_a[3:].strip()
-                    elif m_id_a.lower().startswith("id_"):
-                        m_id_a = m_id_a[3:].strip()
-
-                    m_id_b = str(corr["market_b_id"]).strip()
-                    if m_id_b.lower().startswith("id:"):
-                        m_id_b = m_id_b[3:].strip()
-                    elif m_id_b.lower().startswith("id_"):
-                        m_id_b = m_id_b[3:].strip()
+                    m_id_a = self._clean_market_id(corr["market_a_id"])
+                    m_id_b = self._clean_market_id(corr["market_b_id"])
 
                     mc = MarketCorrelation(
                         market_id_a=m_id_a,
@@ -198,15 +222,15 @@ class NexusAgent:
                     )
                     save_correlation(mc)
                 except Exception as e:
-                    print(f"[NEXUS SCREENER] Ошибка сохранения корреляции: {e}")
+                    logger.error(f"[NEXUS SCREENER] Ошибка сохранения корреляции: {e}")
             
             correlations_count = len(result.get("correlations", []))
-            print(f"[NEXUS SCREENER] Отобрано {len(candidates)} кандидатов, найдено {correlations_count} корреляций")
+            logger.info(f"[NEXUS SCREENER] Отобрано {len(candidates)} кандидатов, найдено {correlations_count} корреляций")
             
             return result
             
         except Exception as e:
-            print(f"[NEXUS SCREENER] Критическая ошибка: {e}")
+            logger.error(f"[NEXUS SCREENER] Критическая ошибка: {e}")
             return {"top_candidates": [], "correlations": []}
 
     def get_correlations_report(self) -> str:
@@ -324,9 +348,7 @@ class NexusAgent:
     def delete_memory_fact(self, key: str) -> str:
         """Удаляет факт из Layer 1."""
         try:
-            with self.db_manager._get_connection() as conn:
-                conn.execute("DELETE FROM memory WHERE key = ?", (key,))
-                conn.commit()
+            self.db_manager.delete_memory(key)
             return f"Факт '{key}' удален из памяти."
         except Exception as e:
             return f"Ошибка при удалении: {e}"
@@ -524,7 +546,7 @@ class NexusAgent:
         selected_model = self.db_manager.get_memory("selected_model")
         current_model = selected_model if selected_model else self.model_name
 
-        contents = history if history else []
+        contents = list(history) if history else []
         contents.append({"role": "user", "parts": [{"text": prompt}]})
 
         # Получаем актуальный системный промпт (с текущей датой и фактами)
@@ -577,7 +599,7 @@ class NexusAgent:
                 name = call['name']
                 args = call['args']
                 
-                print(f"🔧 Nexus вызывает инструмент: {name}({args})")
+                logger.info(f"🔧 Nexus вызывает инструмент: {name}({args})")
                 
                 result = ""
                 try:
@@ -621,7 +643,7 @@ class NexusAgent:
 
             # Добавляем результаты функций в историю
             payload["contents"].append({
-                "role": "function", 
+                "role": "tool", 
                 "parts": response_parts
             })
             
@@ -631,4 +653,4 @@ if __name__ == "__main__":
     # Быстрый тест
     if os.environ.get("GOOGLE_API_KEY"):
         agent = NexusAgent()
-        print("Агент готов. Системный промпт загружен.")
+        logger.info("Агент готов. Системный промпт загружен.")

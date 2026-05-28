@@ -38,6 +38,9 @@ class NewsProcessor:
             "contents": [
                 {"role": "user", "parts": [{"text": prompt}]}
             ],
+            "systemInstruction": {
+                "parts": [{"text": "Ты — финансовый аналитик. Отвечай строго в JSON. Keywords возвращай только на английском языке."}]
+            },
             "generationConfig": {
                 "responseMimeType": "application/json",
             }
