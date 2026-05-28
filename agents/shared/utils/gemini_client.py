@@ -205,6 +205,9 @@ def extract_response_text(result: dict) -> str:
         raw = json.dumps(result)
         raise ValueError(f"Не удалось извлечь текст ответа. API вернуло: {raw[:MAX_ERR_DUMP]}{'...' if len(raw) > MAX_ERR_DUMP else ''}") from e
 
+from agents.shared.python.llm_wrapper import with_retry
+
+@with_retry(max_attempts=3, initial_backoff=2.0)
 def generate_content_with_fallback(
     api_key: str, 
     payload: dict, 

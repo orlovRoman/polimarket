@@ -70,6 +70,10 @@ LOCK_FILE = str(PROJECT_ROOT / "vault" / "scan.lock")
 LOCK_TIMEOUT_SEC = 600
 SCREENING_INTERVAL_SEC = 1800
 
+# Health Gate
+from core.guards import LLMHealthGate
+llm_health_gate = LLMHealthGate()
+
 # Логирование
 import logging
 from logging.handlers import RotatingFileHandler

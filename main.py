@@ -28,7 +28,13 @@ async def scheduled_job():
         cleanup_res = nexus.cleanup_expired_signals()
         logger.info(f"Очистка: {cleanup_res}")
 
-        processed_count = await asyncio.to_thread(engine.run_team_discussion)
+        from telegram.bot import _scan_lock
+        if _scan_lock.locked():
+            logger.info("Плановое сканирование пропущено: telegram-инициированный скан активен")
+            return
+            
+        async with _scan_lock:
+            processed_count = await asyncio.to_thread(engine.run_team_discussion)
         
         if processed_count and processed_count > 0:
             save_memory("last_scan_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -109,10 +115,11 @@ async def scheduled_synthetic_corridors():
         from services.notifications import send_synthetic_corridor_alerts
         import asyncio
         
+        from config import CORRIDOR_BUDGET_PER_TRADE
         found = await asyncio.to_thread(
             run_synthetic_corridor_scan,
             poly_limit=100,
-            budget_per_trade=config.CORRIDOR_BUDGET_PER_TRADE,
+            budget_per_trade=CORRIDOR_BUDGET_PER_TRADE,
         )
         if found:
             await asyncio.to_thread(send_synthetic_corridor_alerts)
@@ -128,10 +135,11 @@ async def scheduled_temporal_corridors():
         from services.notifications import send_temporal_corridor_alerts
         import asyncio
         
+        from config import CORRIDOR_BUDGET_PER_TRADE
         found = await asyncio.to_thread(
             run_temporal_corridor_scan,
             poly_limit=100,
-            budget=config.CORRIDOR_BUDGET_PER_TRADE,
+            budget=CORRIDOR_BUDGET_PER_TRADE,
         )
         if found:
             await asyncio.to_thread(send_temporal_corridor_alerts)

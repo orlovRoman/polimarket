@@ -104,10 +104,19 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
                 from services.notifications import send_correlation_alerts
                 send_correlation_alerts(summary_callback)
                 
+            from core.checkpoint import save_checkpoint
+            save_checkpoint("screening", status="ok", markets_found=len(screened_market_ids))
+                
             return screened_market_ids
+        except LLMUnavailableError as e:
+            from core.checkpoint import save_checkpoint
+            save_checkpoint("screening", status="llm_unavailable", error=str(e))
+            raise
         except Exception as e:
-            logger.error(f"Ошибка скрининга: {e}")
-    return None
+            from core.checkpoint import save_checkpoint
+            save_checkpoint("screening", status="error", error=str(e))
+            logger.error(f"Ошибка скрининга: {e}", exc_info=True)
+            return []
 
 
 
@@ -166,9 +175,30 @@ def run_agent_evaluation(m, scout, swing, update_state,
     logger.info("  SCOUT и SWING оценивают...")
     update_state(scout_status="🔄 Считает вероятности...", swing_status="🔄 Оценивает хайп...")
 
-    # Выполняем запросы последовательно, чтобы избежать ошибки 429 Too Many Requests от Cerebras
-    signal = scout.estimate_market(context)
-    swing_signal = swing.estimate_market(context)
+    from core.guards import LLMUnavailableError
+    from core.checkpoint import save_checkpoint
+    
+    # SCOUT
+    try:
+        signal = scout.estimate_market(context)
+        save_checkpoint(f"scout_{m.id}", status="ok", edge=signal.edge if signal else None)
+    except LLMUnavailableError:
+        save_checkpoint(f"scout_{m.id}", status="llm_unavailable")
+        raise
+    except Exception as e:
+        save_checkpoint(f"scout_{m.id}", status="error", error=str(e))
+        signal = None
+        
+    # SWING
+    try:
+        swing_signal = swing.estimate_market(context)
+        save_checkpoint(f"swing_{m.id}", status="ok")
+    except LLMUnavailableError:
+        save_checkpoint(f"swing_{m.id}", status="llm_unavailable")
+        raise
+    except Exception as e:
+        save_checkpoint(f"swing_{m.id}", status="error", error=str(e))
+        swing_signal = None
         
     return signal, swing_signal, context
 
@@ -277,6 +307,13 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         "final_outcome": decision.status
     }
     save_idea_audit(m.id, m.title, audit)
+    
+    from core.checkpoint import save_checkpoint, verify_checkpoint
+    save_checkpoint(f"consensus_{m.id}", status="ok")
+    saved_ok = verify_checkpoint(f"consensus_{m.id}")
+    if not saved_ok:
+        logger.warning(f"[CHECKPOINT] Консенсус для {m.id} не сохранён в аудит!")
+
 
     # Эпизодическая память агентов (Спринт 7)
     from agents.shared.python.db import save_agent_episode

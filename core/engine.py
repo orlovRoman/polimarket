@@ -210,7 +210,18 @@ class CoreEngine:
                     # Добавляем smart_money в контекст
                     context.smart_money = smart_money
 
-                    opinion_shadow = self.shadow.analyze_idea(context, active_signal.details, orderbook=orderbook, price_history=price_hist)
+                    from core.guards import LLMUnavailableError
+                    from core.checkpoint import save_checkpoint
+                    
+                    try:
+                        opinion_shadow = self.shadow.analyze_idea(context, active_signal.details, orderbook=orderbook, price_history=price_hist)
+                        save_checkpoint(f"shadow_{m.id}", status="ok")
+                    except LLMUnavailableError:
+                        save_checkpoint(f"shadow_{m.id}", status="llm_unavailable")
+                        raise
+                    except Exception as e:
+                        save_checkpoint(f"shadow_{m.id}", status="error", error=str(e))
+                        opinion_shadow = None
                     status_sh = "✅ Согласен" if (opinion_shadow and opinion_shadow.agree) else "❌ Против"
                     _update_state(shadow_status=f"{status_sh} (Увер: {opinion_shadow.confidence if opinion_shadow else 0})")
                     

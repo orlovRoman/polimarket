@@ -98,6 +98,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="logs", description="Просмотр последних логов"),
         BotCommand(command="cleanup", description="Очистить устаревшие сигналы"),
         BotCommand(command="restart", description="Перезапуск бота"),
+        BotCommand(command="health", description="Здоровье системы (LLM и чекпоинты)"),
         BotCommand(command="arbitrage", description="Запуск кросс-платформенного арбитража (PM ↔ Kalshi)"),
         BotCommand(command="corridor", description="Временной арбитраж (Temporal Corridor)"),
     ]
@@ -263,6 +264,56 @@ async def command_synthetic_handler(message: types.Message) -> None:
     except Exception as e:
         logger.error(f"Ошибка ручного сканирования синтетических коридоров: {e}", exc_info=True)
         await message.answer(f"❌ Произошла ошибка при сканировании: {e}")
+
+@dp.message(Command("health"))
+async def command_health_handler(message: types.Message) -> None:
+    from config import llm_health_gate
+    from core.checkpoint import _checkpoints_cache
+    from datetime import datetime
+    
+    # Сбор данных LLMHealthGate
+    state = llm_health_gate.state
+    state_emoji = "🟢" if state == "HEALTHY" else "🟡" if state == "DEGRADED" else "🔴"
+    
+    now = datetime.now()
+    error_cnt = len([t for t in llm_health_gate.error_timestamps if (now - t).total_seconds() <= 60])
+    
+    backoff_active = "ДА" if llm_health_gate.retry_after > now else "НЕТ"
+    last_429 = "Нет данных"
+    if llm_health_gate.error_timestamps:
+        last_time = llm_health_gate.error_timestamps[-1]
+        mins_ago = int((now - last_time).total_seconds() / 60)
+        last_429 = f"{last_time.strftime('%H:%M:%S')} ({mins_ago} мин назад)"
+        
+    lock_status = "🔴 занят" if _scan_lock.locked() else "🟢 свободен"
+    
+    lines = [
+        "🏥 <b>Здоровье системы:</b>",
+        f"● Gemini API: {state_emoji} {state} ({error_cnt} ошибок за 1 мин)",
+        f"● Последний 429: {last_429}",
+        f"● Backoff активен: {backoff_active}",
+    ]
+    
+    # Собираем чекпоинты (последние для каждого агента)
+    # Ищем самые свежие чекпоинты, начинающиеся с scout_, swing_, shadow_
+    def get_latest_cp(prefix: str):
+        cps = [(k, v) for k, v in _checkpoints_cache.items() if k.startswith(prefix)]
+        if not cps: return "Нет данных"
+        cps.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
+        latest = cps[0][1]
+        st = latest.get("status", "unknown")
+        emoji = "✅" if st == "ok" else "⚠️" if st == "timeout" else "❌"
+        ts = latest.get('timestamp', '')
+        time_str = ts.split("T")[1][:8] if "T" in ts else ts
+        return f"{emoji} {st} ({time_str})"
+        
+    lines.append(f"● Последний checkpoint SCOUT: {get_latest_cp('scout_')}")
+    lines.append(f"● Последний checkpoint SWING: {get_latest_cp('swing_')}")
+    lines.append(f"● Последний checkpoint SHADOW: {get_latest_cp('shadow_')}")
+    lines.append(f"● Lock статус: {lock_status}")
+    
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
 
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:
@@ -1001,7 +1052,12 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         try:
             from core.engine import CoreEngine, NoMarketsFoundError
             engine = CoreEngine()
-            await asyncio.to_thread(engine.run_team_discussion, log_callback, summary_callback, category_param, None, state_callback)
+            
+            SCAN_TIMEOUT_SEC = 1800
+            await asyncio.wait_for(
+                asyncio.to_thread(engine.run_team_discussion, log_callback, summary_callback, category_param, None, state_callback),
+                timeout=SCAN_TIMEOUT_SEC
+            )
             if current_state:
                 final_html = render_dashboard(current_state)
                 await status_msg.edit_text(final_html + "\n\n<b>✅ ПРОЦЕСС ЗАВЕРШЕН</b>", parse_mode="HTML", disable_web_page_preview=True)
@@ -1014,6 +1070,11 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                 except Exception:
                     pass
             await callback.message.answer(f"⚠️ {e}")
+        except asyncio.TimeoutError:
+            await callback.message.answer(
+                "⏱ Сканирование превысило лимит 30 мин.\n"
+                "Возможно, Gemini API недоступен. Попробуйте позже."
+            )
         except Exception as e:
             await callback.message.answer(f"❌ Ошибка во время сканирования: {e}")
         # Wait a bit to ensure the queue is empty before cancelling
