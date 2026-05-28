@@ -78,7 +78,14 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             if elapsed < SCREENING_INTERVAL_SEC:
                 needs_screening = False
                 logger.info(f"Скрининг не требуется (прошло {elapsed/60:.0f} мин из {SCREENING_INTERVAL_SEC/60:.0f})")
-                return get_memory("screened_market_ids")
+                cached = get_memory("screened_market_ids")
+                if isinstance(cached, str):
+                    import json
+                    try:
+                        cached = json.loads(cached)
+                    except (json.JSONDecodeError, TypeError):
+                        cached = []
+                return cached if isinstance(cached, list) else []
         except (ValueError, TypeError):
             pass
             
@@ -307,7 +314,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         # Арбитраж из math_filter (если есть)
         math_result = getattr(context, 'math_filter_result', None)
         if math_result and math_result.has_arbitrage:
-            if math_result.trade_instruction:
+            if math_result.trade_instruction and math_result.trade_instruction.strip():
                 summary_text += f"\n⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{math_result.trade_instruction}\n"
             else:
                 logger.warning(f"[math_filter] has_arbitrage=True but trade_instruction empty for {m.id}")
@@ -325,7 +332,8 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         "shadow_reason": (opinion_shadow.opinion or "")[:200] if opinion_shadow else "",
         "final_outcome": decision.status
     }
-    save_idea_audit(m.id, m.title, audit)
+    if signal or swing_signal or opinion_shadow:
+        save_idea_audit(m.id, m.title, audit)
     
     from core.checkpoint import save_checkpoint, verify_checkpoint
     save_checkpoint(f"consensus_{m.id}", status="ok")
