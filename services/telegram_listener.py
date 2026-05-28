@@ -265,7 +265,18 @@ async def main():
                     async def trigger_analysis():
                         username = getattr(chat, 'username', None)
                         msg_id = event.message.id
-                        source_url = f"https://t.me/{username}/{msg_id}" if username else None
+                        if username:
+                            source_url = f"https://t.me/{username}/{msg_id}"
+                        else:
+                            clean_id = str(chat.id).replace('-100', '')
+                            source_url = f"https://t.me/c/{clean_id}/{msg_id}"
+                        
+                        # Короткий заголовок для отображения (source_label)
+                        source_label = chat_name
+                        if text:
+                            first_line = text.split('\n')[0][:30]
+                            source_label = f"[{chat_name}] {first_line}..."
+                            
                         async with httpx.AsyncClient() as c:
                             try:
                                 await c.post(
@@ -277,7 +288,7 @@ async def main():
                                         "source_username": username,
                                         "source_message_id": msg_id,
                                         "source_url": source_url,
-                                        "source_text": text[:500]
+                                        "source_text": source_label
                                     }
                                 )
                             except Exception as e:

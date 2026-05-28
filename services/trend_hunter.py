@@ -182,12 +182,22 @@ def run_trend_hunter(dry_run: bool = False):
                     # Сохраняем рынок в БД
                     save_market(m)
                     # Запускаем фоновый точечный командный анализ
-                    # Запуск через движок
                     import threading
                     from core.engine import CoreEngine
+                    from datetime import datetime
                     def _run_trend_hunter_scan():
                         eng = CoreEngine()
-                        eng.run_team_discussion(market_id=m_id)
+                        eng.run_team_discussion(
+                            log_callback=None,
+                            summary_callback=None,
+                            category=None,
+                            market_id=m_id,
+                            state_callback=None,
+                            trigger_type="event_driven",
+                            source_url="https://trends.google.com/",
+                            source_text=f"🎯 Trend Hunter: {topic_ru}",
+                            triggered_at=datetime.now()
+                        )
                     threading.Thread(target=_run_trend_hunter_scan, daemon=True).start()
                     try:
                         new_markets_triggered.append(m)
