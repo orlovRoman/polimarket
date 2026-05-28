@@ -33,6 +33,29 @@ def _get_cached_news(query: str, fetcher_fn, *args) -> list:
     return result
 
 
+def _get_cached_str(query: str, fetcher_fn, *args) -> str:
+    """Универсальный thread-safe TTL-кэш для строковых запросов."""
+    key = hashlib.md5(query.lower().encode()).hexdigest()
+    now = time.time()
+
+    with _news_cache_lock:
+        if key in _news_cache:
+            result, ts = _news_cache[key]
+            if now - ts < NEWS_CACHE_TTL:
+                return result
+
+    result = fetcher_fn(*args)
+
+    with _news_cache_lock:
+        _news_cache[key] = (result, now)
+        # GC: чистим устаревшие записи
+        expired = [k for k, (_, ts) in _news_cache.items() if now - ts > NEWS_CACHE_TTL]
+        for k in expired:
+            del _news_cache[k]
+
+    return result
+
+
 def _fetch_rss_news_impl(query: str, limit: int = 5) -> list:
     """Реальная реализация получения RSS. Не вызывать напрямую — использовать fetch_rss_news."""
     try:
@@ -127,11 +150,10 @@ def _fetch_google_trends_impl(query: str) -> str:
 
 def fetch_google_trends(query: str) -> str:
     """Возвращает уровень интереса к теме за 7 дней по Google Trends."""
-    return _get_cached_news(f"trends:{query}", _fetch_google_trends_impl, query)
+    return _get_cached_str(f"trends:{query}", _fetch_google_trends_impl, query)
 
 def _fetch_hackernews_impl(query: str, limit: int = 3) -> list:
     try:
-        from urllib.parse import quote
         url = f"https://hn.algolia.com/api/v1/search?query={quote(query)}&tags=story&hitsPerPage={limit}"
         r = requests.get(url, timeout=8)
         if r.status_code != 200:

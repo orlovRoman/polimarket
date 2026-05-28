@@ -135,18 +135,19 @@ def run_agent_evaluation(m, scout, swing, update_state,
     
     from agents.shared.utils.web_search import fetch_wikipedia_context
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         future_rss = executor.submit(fetch_rss_news, search_query)
         future_reddit = executor.submit(fetch_reddit_news, search_query)
         future_wiki = executor.submit(fetch_wikipedia_context, search_query)
-        future_trends = executor.submit(fetch_google_trends, search_query)
         future_hn = executor.submit(fetch_hackernews, search_query)
         
         news_titles = future_rss.result()
         reddit_posts = future_reddit.result()
         wiki_context = "\n".join(future_wiki.result())
-        trends_data = future_trends.result()
         hn_posts = future_hn.result()
+
+    # Google Trends — последовательно (не thread-safe)
+    trends_data = fetch_google_trends(search_query)
 
     context = MarketContext(
         market=m,
