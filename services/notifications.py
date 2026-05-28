@@ -406,7 +406,7 @@ def format_synthetic_corridor_alert(signal) -> str:
 
 def send_synthetic_corridor_alerts() -> None:
     try:
-        from agents.shared.python.db import get_unalerted_synthetic_corridors, mark_synthetic_corridor_alerted
+        from agents.shared.python.db import get_unalerted_synthetic_corridors, mark_synthetic_corridor_alerted, is_alert_already_sent, mark_alert_sent
         from agents.polymarket_arbitrage_agent.src.synthetic.models import SyntheticCorridorSignal
 
         new_signals = get_unalerted_synthetic_corridors()
@@ -415,10 +415,17 @@ def send_synthetic_corridor_alerts() -> None:
 
         for row in new_signals:
             signal = SyntheticCorridorSignal(**row)
+            alert_key = signal.signal_id
+            
+            if is_alert_already_sent(alert_key):
+                mark_synthetic_corridor_alerted(signal.signal_id)
+                continue
+
             text = format_synthetic_corridor_alert(signal)
             success = send_telegram(text)
 
             if success:
+                mark_alert_sent(alert_key, "synthetic_corridor")
                 mark_synthetic_corridor_alerted(signal.signal_id)
                 logger.info(f"[Notifier] Синтетический коридор отправлен: {signal.signal_id}")
             else:
@@ -440,29 +447,59 @@ def format_temporal_corridor_alert(signal) -> str:
         f"🔗 <a href='{signal.event_url}'>Открыть</a>"
     )
 
-def send_temporal_corridor_alerts(signals: list = None) -> None:
+def send_temporal_corridor_alerts() -> None:
     try:
-        from agents.shared.python.db import get_new_temporal_corridors, mark_temporal_corridor_alerted
-        from agents.polymarket_arbitrage_agent.src.temporal.models import TemporalCorridorSignal
+        from agents.shared.python.db import get_unalerted_temporal_corridors, mark_temporal_corridor_alerted, is_alert_already_sent, mark_alert_sent
+        from datetime import datetime
 
-        if signals is None:
-            new_signals_data = get_new_temporal_corridors()
-            if not new_signals_data:
-                return
-            signals = [TemporalCorridorSignal(**{k: v for k, v in row.items() if k != "id" and k != "alerted" and k != "status" and not k.startswith("early_question") and not k.startswith("late_question")}) for row in new_signals_data]
-            
-        # The scanner passes signals directly, so we just use them if provided
-        if not signals:
+        new_signals_data = get_unalerted_temporal_corridors()
+        if not new_signals_data:
             return
 
-        for signal in signals:
-            text = format_temporal_corridor_alert(signal)
+        class DummyLeg:
+            def __init__(self, expiry_str, cost):
+                self.expiry = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
+                self.entry_cost = cost
+
+        class DummySignal:
+            pass
+
+        for row in new_signals_data:
+            signal_id = row["signal_id"]
+            
+            # Cross-table deduplication using early__late format (which is signal_id)
+            alert_key = signal_id
+            if is_alert_already_sent(alert_key):
+                mark_temporal_corridor_alerted(signal_id)
+                continue
+
+            sig = DummySignal()
+            sig.event_title = row["event_title"]
+            sig.event_url = row["event_url"]
+            sig.early_leg = DummyLeg(row["early_expiry"], row["early_cost"])
+            sig.late_leg = DummyLeg(row["late_expiry"], row["late_cost"])
+            sig.p_in_corridor = 0.0 # omitted from db
+            sig.date_gap_days = row["date_gap_days"]
+            sig.real_spread_pct = row["real_spread_pct"]
+            sig.quality_score = row["quality_score"]
+            sig.ev_usd = row["ev_usd"]
+            sig.early_stake_usd = row["early_stake_usd"]
+            sig.late_stake_usd = row["late_stake_usd"]
+            sig.exit_rule = row["exit_rule"]
+
+            total_stake = row["early_stake_usd"] + row["late_stake_usd"]
+            sig.pnl_s1_before_early = row["late_contracts"] - total_stake
+            sig.pnl_s2_in_corridor = row["early_contracts"] + row["late_contracts"] - total_stake
+            sig.pnl_s3_never = row["early_contracts"] - total_stake
+
+            text = format_temporal_corridor_alert(sig)
             success = send_telegram(text)
 
             if success:
-                mark_temporal_corridor_alerted(signal.signal_id)
-                logger.info(f"[Notifier] Временной коридор отправлен: {signal.signal_id}")
+                mark_alert_sent(alert_key, "temporal_corridor")
+                mark_temporal_corridor_alerted(signal_id)
+                logger.info(f"[Notifier] Временной коридор отправлен: {signal_id}")
             else:
-                logger.warning(f"[Notifier] Не удалось отправить временной коридор: {signal.signal_id}")
+                logger.warning(f"[Notifier] Не удалось отправить временной коридор: {signal_id}")
     except Exception as e:
         logger.error(f"[Notifier] Ошибка отправки временного коридора: {e}")

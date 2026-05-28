@@ -42,31 +42,18 @@ def _parse_dt(item: dict) -> datetime:
     return datetime(2099, 12, 31, tzinfo=timezone.utc)
 
 
-def load_events(
-    limit: int = 100,
+def load_events_from_raw(
+    raw_events: list[dict],
     min_markets: int = 2,
     min_volume: float = 3_000,
 ) -> list[PolyEvent]:
     """
-    Загружает события с несколькими рынками через /events API.
+    Парсит сырые события с несколькими рынками.
     Возвращает только события с >= min_markets ликвидных рынков.
     """
-    resp = requests.get(
-        "https://gamma-api.polymarket.com/events",
-        params={
-            "active": "true",
-            "closed": "false",
-            "limit": limit,
-            "order": "volume",
-            "ascending": "false",
-        },
-        timeout=15,
-    )
-    resp.raise_for_status()
-
     result: list[PolyEvent] = []
 
-    for event in resp.json():
+    for event in raw_events:
         raw_markets = event.get("markets", [])
         if len(raw_markets) < min_markets:
             continue

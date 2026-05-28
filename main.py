@@ -112,7 +112,7 @@ async def scheduled_synthetic_corridors():
         found = await asyncio.to_thread(
             run_synthetic_corridor_scan,
             poly_limit=100,
-            budget_per_trade=200.0,
+            budget_per_trade=config.CORRIDOR_BUDGET_PER_TRADE,
         )
         if found:
             await asyncio.to_thread(send_synthetic_corridor_alerts)
@@ -131,10 +131,10 @@ async def scheduled_temporal_corridors():
         found = await asyncio.to_thread(
             run_temporal_corridor_scan,
             poly_limit=100,
-            budget=200.0,
+            budget=config.CORRIDOR_BUDGET_PER_TRADE,
         )
         if found:
-            await asyncio.to_thread(send_temporal_corridor_alerts, found)
+            await asyncio.to_thread(send_temporal_corridor_alerts)
         logger.info(f"<<< Временные коридоры: найдено {len(found)} алертов")
     except Exception as e:
         logger.error(f"Ошибка сканирования временных коридоров: {e}", exc_info=True)

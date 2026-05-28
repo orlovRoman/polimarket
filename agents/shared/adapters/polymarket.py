@@ -6,6 +6,22 @@ from .base_adapter import BaseMarketAdapter
 from core.models import Market
 
 class PolymarketAdapter(BaseMarketAdapter):
+    @staticmethod
+    def fetch_raw_events(limit: int = 100) -> list:
+        resp = requests.get(
+            "https://gamma-api.polymarket.com/events",
+            params={
+                "active": "true",
+                "closed": "false",
+                "limit": limit,
+                "order": "volume",
+                "ascending": "false",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def __init__(self):
         self.api_url = "https://gamma-api.polymarket.com"
         self.session = requests.Session()
@@ -245,6 +261,19 @@ class PolymarketAdapter(BaseMarketAdapter):
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
                 continue
         return markets
+
+    def parse_events_to_markets(self, events: list, limit: int) -> List[Market]:
+        """Flatten events to markets and parse them."""
+        items = []
+        for event in events:
+            event_slug = event.get('slug')
+            for m in event.get('markets', []):
+                if 'slug' not in m or not m['slug']:
+                    m['slug'] = event_slug
+                else:
+                    m['event_slug'] = event_slug
+                items.append(m)
+        return self._parse_markets(items, limit)
 
     def get_market(self, market_id: str) -> Optional[Market]:
         response = self.session.get(f"{self.api_url}/markets/{market_id}", timeout=15)

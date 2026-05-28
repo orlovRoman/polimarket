@@ -47,28 +47,15 @@ def _parse_date(item: dict) -> Optional[datetime]:
     return None
 
 
-def load_events_with_levels(
-    limit: int = 50,
+def load_events_with_levels_from_raw(
+    raw_events: list[dict],
     min_markets_per_event: int = 2,
     min_volume_per_market: float = 5_000,
 ) -> list[PolyEvent]:
     """
-    Загружает события через /events API.
+    Парсит сырые события в PolyEvent с числовыми уровнями.
     Возвращает только события с >= 2 рынками с числовыми уровнями.
     """
-    url = "https://gamma-api.polymarket.com/events"
-    params = {
-        "active": "true",
-        "closed": "false",
-        "limit": limit,
-        "order": "volume",
-        "ascending": "false",
-    }
-    
-    resp = requests.get(url, params=params, timeout=15)
-    resp.raise_for_status()
-    raw_events = resp.json()
-    
     result: list[PolyEvent] = []
     
     for event in raw_events:

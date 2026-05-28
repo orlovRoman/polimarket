@@ -56,6 +56,12 @@ ARB_MIN_MATCH_SCORE = float(os.getenv("ARB_MIN_MATCH_SCORE", "0.50"))
 ARB_MIN_SPREAD_ALERT = float(os.getenv("ARB_MIN_SPREAD_ALERT", "5.0"))
 ARB_MAX_DAYS_DIFF = int(os.getenv("ARB_MAX_DAYS_DIFF", "30"))
 
+# Бюджет на один арбитражный трейд (USD)
+CORRIDOR_BUDGET_PER_TRADE = float(os.getenv("CORRIDOR_BUDGET_PER_TRADE", "200.0"))
+
+# Кэш Polymarket API
+POLY_EVENTS_CACHE_TTL_SECONDS = int(os.getenv("POLY_EVENTS_CACHE_TTL", "300"))
+
 # Интеграции
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 

@@ -2,12 +2,15 @@ import logging
 import requests
 from datetime import datetime
 
-from agents.polymarket_arbitrage_agent.src.synthetic.event_loader import load_events_with_levels
+from agents.polymarket_arbitrage_agent.src.synthetic.event_loader import load_events_with_levels_from_raw
 from agents.polymarket_arbitrage_agent.src.synthetic.detector import find_violations
 from agents.polymarket_arbitrage_agent.src.synthetic.orderbook import fetch_real_entry_prices
 from agents.polymarket_arbitrage_agent.src.synthetic.sizing import compute_sizing
 from agents.polymarket_arbitrage_agent.src.synthetic.models import SyntheticCorridorSignal
 from agents.shared.python.db import save_synthetic_corridor, mark_synthetic_corridor_alerted
+from services.polymarket_cache import get_raw_events
+from agents.shared.adapters.polymarket import PolymarketAdapter
+import config
 
 logger = logging.getLogger("NexusPolyBot.SyntheticCorridor")
 
@@ -20,8 +23,13 @@ def run_synthetic_corridor_scan(
     budget_per_trade: float = 200.0,
 ) -> list[SyntheticCorridorSignal]:
     
-    events = load_events_with_levels(
-        limit=poly_limit,
+    raw = get_raw_events(
+        cache_key=f"poly_events_{poly_limit}",
+        fetch_fn=lambda: PolymarketAdapter.fetch_raw_events(limit=poly_limit),
+        ttl_seconds=config.POLY_EVENTS_CACHE_TTL_SECONDS,
+    )
+    events = load_events_with_levels_from_raw(
+        raw_events=raw,
         min_volume_per_market=min_volume,
     )
     logger.info(f"[SCA] Событий с числовыми уровнями: {len(events)}")

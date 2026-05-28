@@ -1,12 +1,15 @@
 import logging
 import requests
 from datetime import datetime, timezone
-from agents.polymarket_arbitrage_agent.src.temporal.loader import load_events
+from agents.polymarket_arbitrage_agent.src.temporal.loader import load_events_from_raw
 from agents.polymarket_arbitrage_agent.src.temporal.detector import find_candidates, compute_quality_score
 from agents.polymarket_arbitrage_agent.src.temporal.orderbook import fetch_real_entry_prices
 from agents.polymarket_arbitrage_agent.src.temporal.sizing import compute_sizing, compute_exit_rule
 from agents.polymarket_arbitrage_agent.src.temporal.models import TemporalCorridorSignal, TemporalLeg
 from agents.shared.python.db import save_temporal_corridor
+from services.polymarket_cache import get_raw_events
+from agents.shared.adapters.polymarket import PolymarketAdapter
+import config
 
 logger = logging.getLogger("NexusPolyBot.TemporalCorridor")
 
@@ -21,9 +24,14 @@ def run_temporal_corridor_scan(
     budget: float = 200.0,
 ) -> list[TemporalCorridorSignal]:
 
-    # 1. Загрузка событий (/events API — группы готовы)
-    events = load_events(
-        limit=poly_limit,
+    # 1. Загрузка событий (/events API — группы готовы) через кэш
+    raw = get_raw_events(
+        cache_key=f"poly_events_{poly_limit}",
+        fetch_fn=lambda: PolymarketAdapter.fetch_raw_events(limit=poly_limit),
+        ttl_seconds=config.POLY_EVENTS_CACHE_TTL_SECONDS,
+    )
+    events = load_events_from_raw(
+        raw_events=raw,
         min_markets=2,
         min_volume=min_volume,
     )

@@ -50,7 +50,17 @@ def run_cross_platform_scan(
         logger.info(f"[SCAN] Загружаю {adapter.name}...")
         limit = poly_limit if adapter.name == "polymarket" else kalshi_limit
         try:
-            all_markets[adapter.name] = adapter.list_markets(limit=limit)
+            if adapter.name == "polymarket":
+                from services.polymarket_cache import get_raw_events
+                import config
+                raw = get_raw_events(
+                    cache_key=f"poly_events_{limit}",
+                    fetch_fn=lambda: adapter.fetch_raw_events(limit=limit),
+                    ttl_seconds=config.POLY_EVENTS_CACHE_TTL_SECONDS,
+                )
+                all_markets[adapter.name] = adapter.parse_events_to_markets(raw, limit)
+            else:
+                all_markets[adapter.name] = adapter.list_markets(limit=limit)
             logger.info(f"[SCAN] {adapter.name}: {len(all_markets[adapter.name])} рынков")
         except Exception as e:
             logger.error(f"[SCAN] Ошибка загрузки {adapter.name}: {e}")

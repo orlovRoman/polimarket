@@ -219,6 +219,15 @@ def init_db():
                 )
             """)
             
+            # Таблица отправленных уведомлений (дедупликация)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sent_alerts (
+                    alert_key TEXT PRIMARY KEY,
+                    alert_type TEXT NOT NULL,
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             # Таблица: Профили кошельков (Smart Money Tracker)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS wallets (
@@ -546,7 +555,65 @@ def get_unalerted_synthetic_corridors() -> list:
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM synthetic_corridors WHERE alerted = 0")
-        return [dict(row) for row in cursor.fetchall()]
+        return [dict(r) for r in cursor.fetchall()]
+
+def save_temporal_corridor(signal) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO temporal_corridors (
+                signal_id, event_slug, event_title, event_url,
+                early_market_id, early_question, early_expiry, early_cost,
+                late_market_id, late_question, late_expiry, late_cost,
+                date_gap_days, theoretical_cost, theoretical_spread_pct,
+                real_cost, real_spread_pct, early_stake_usd, late_stake_usd,
+                early_contracts, late_contracts, ev_usd, roi_pct,
+                quality_score, exit_rule, status, created_at, alerted
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', CURRENT_TIMESTAMP, 0)
+        """, (
+            signal.signal_id, signal.event_slug, signal.event_title, signal.event_url,
+            signal.early_market_id, signal.early_question, signal.early_expiry.isoformat(), signal.early_cost,
+            signal.late_market_id, signal.late_question, signal.late_expiry.isoformat(), signal.late_cost,
+            signal.date_gap_days, signal.theoretical_cost, signal.theoretical_spread_pct,
+            signal.real_cost, signal.real_spread_pct, signal.early_stake_usd, signal.late_stake_usd,
+            signal.early_contracts, signal.late_contracts, signal.ev_usd, signal.roi_pct,
+            signal.quality_score, signal.exit_rule
+        ))
+
+def get_unalerted_temporal_corridors() -> list:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM temporal_corridors WHERE alerted = 0")
+        return [dict(r) for r in cursor.fetchall()]
+
+def mark_temporal_corridor_alerted(signal_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("UPDATE temporal_corridors SET alerted = 1 WHERE signal_id = ?", (signal_id,))
+
+def is_alert_already_sent(alert_key: str, ttl_hours: int = 12) -> bool:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT sent_at FROM sent_alerts WHERE alert_key = ?",
+            (alert_key,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+        sent_at = datetime.fromisoformat(str(row["sent_at"]).replace("Z", "+00:00"))
+        # Учитываем, что sent_at сохраняется в UTC
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - sent_at < timedelta(hours=ttl_hours):
+            return True
+        return False
+
+def mark_alert_sent(alert_key: str, alert_type: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO sent_alerts (alert_key, alert_type, sent_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)""",
+            (alert_key, alert_type)
+        )
 
 def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
     """Сохраняет аудит-запись о прохождении идеи через pipeline."""
