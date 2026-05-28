@@ -1,6 +1,7 @@
 from enum import Enum
 from dataclasses import dataclass
 import re
+from typing import Optional
 import logging
 from core.models import Market
 
@@ -87,7 +88,7 @@ def validate_trade_instruction(instruction: str) -> tuple[bool, str]:
             return False, f"Недопустимая операция '{op}' — шорт на Polymarket невозможен без открытой позиции."
     return True, "OK"
 
-def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 5.0) -> MathFilterResult:
+def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 5.0, check_logical_implication: bool = False) -> MathFilterResult:
     # 1. Monotonicity
     t_a = _parse_threshold(market_a.title)
     t_b = _parse_threshold(market_b.title)
@@ -103,7 +104,11 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
         if p_higher > p_lower:
             spread = (p_higher - p_lower) * 100
             if spread >= min_spread_pct:
-                instruction = f"SELL YES на [{lower_market.title}]({lower_market.url}) ({p_lower*100:.0f}¢) + SELL NO на [{higher_market.title}]({higher_market.url}) ({(1-p_higher)*100:.0f}¢). Суммарный сбор: {(p_lower + 1 - p_higher)*100:.0f}¢ → гарантированная выплата 100¢."
+                instruction = (
+                    f"BUY YES на [{lower_market.title}]({lower_market.url}) ({p_lower*100:.0f}¢) "
+                    f"+ BUY NO на [{higher_market.title}]({higher_market.url}) ({(1-p_higher)*100:.0f}¢). "
+                    f"Суммарная стоимость: {(p_lower + 1 - p_higher)*100:.0f}¢ → гарантированная выплата 100¢."
+                )
                 is_valid, reason = validate_trade_instruction(instruction)
                 if not is_valid:
                     logger.warning(f"[math_filter] Невалидный трейд отклонён: {reason}")
@@ -145,7 +150,11 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
         price_sum = market_a.price + market_b.price
         if price_sum - 1.0 > 0.03 and (price_sum - 1.0) * 100 >= min_spread_pct:
             spread = (price_sum - 1.0) * 100
-            instruction = f"SELL YES на [{market_a.title}]({market_a.url}) ({market_a.price*100:.0f}¢) + SELL YES на [{market_b.title}]({market_b.url}) ({market_b.price*100:.0f}¢). Суммарный сбор: {(price_sum)*100:.0f}¢ → гарантированная выплата 100¢."
+            instruction = (
+                f"BUY NO на [{market_a.title}]({market_a.url}) ({(1-market_a.price)*100:.0f}¢) "
+                f"+ BUY NO на [{market_b.title}]({market_b.url}) ({(1-market_b.price)*100:.0f}¢). "
+                f"Суммарная стоимость: {(2 - price_sum)*100:.0f}¢ → гарантированная выплата 100¢."
+            )
             is_valid, reason = validate_trade_instruction(instruction)
             if not is_valid:
                 logger.warning(f"[math_filter] Невалидный трейд отклонён: {reason}")
@@ -202,7 +211,7 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             )
 
     # 3b. Logical implication (A ⊃ B) — только на одной платформе
-    if market_a.platform == market_b.platform:
+    if check_logical_implication and market_a.platform == market_b.platform:
         p_a, p_b = market_a.price, market_b.price
         implication_spread = abs(p_a - p_b) * 100
         if implication_spread >= min_spread_pct:

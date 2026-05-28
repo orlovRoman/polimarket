@@ -162,8 +162,8 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
         def _trigger_scan():
             eng = CoreEngine()
             # Pass source_url and source_text for the whale branch to avoid scheduled downgrade
-            source_url = None
-            source_text = None
+            source_url = ""
+            source_text = ""
             if source == "whale" and amount_usd:
                 source_text = f"Whale transaction detected: ${amount_usd:,.0f}"
             else:

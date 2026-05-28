@@ -83,7 +83,11 @@ class ArbitrageAgent:
     ) -> CrossArbitrageSignal | None:
         """Анализирует пару связанных рынков с одной платформы."""
         # ── Math pre-filter: экономим LLM-вызов ────────────────────────────────
-        mf = math_pre_filter(market_a, market_b)
+        mf = math_pre_filter(
+            market_a,
+            market_b,
+            check_logical_implication=(correlation_type == "logical_implication")
+        )
         
         if mf.decision == FilterDecision.CONFIRMED_NO_ARBI:
             print(f"[MATH-FILTER] [REJECTED] ({mf.arbitrage_type}): {mf.reasoning}")
@@ -97,7 +101,7 @@ class ArbitrageAgent:
             elif mf.arbitrage_type in ("complementary_underpriced",):
                 action_a, action_b = "BUY_YES", "BUY_YES"
             elif mf.arbitrage_type == "monotonicity_violation":
-                action_a, action_b = "SELL_YES", "SELL_NO"
+                action_a, action_b = "BUY_YES", "BUY_NO"
             else:
                 action_a, action_b = "BUY_YES", "SELL_YES"
 
@@ -230,7 +234,7 @@ ID: {market_b.id}
             elif mf.arbitrage_type in ("complementary_underpriced",):
                 action_a, action_b = "BUY_YES", "BUY_YES"
             elif mf.arbitrage_type == "monotonicity_violation":
-                action_a, action_b = "SELL_YES", "SELL_NO"
+                action_a, action_b = "BUY_YES", "BUY_NO"
             else:
                 action_a, action_b = "BUY_YES", "SELL_YES"
 
