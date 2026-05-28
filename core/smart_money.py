@@ -15,6 +15,8 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
     
     for trade in trades:
         addr = trade.get("maker_address") or trade.get("taker_address", "")
+        if not addr:          # FIX #1: пропускаем анонимные трейды
+            continue
         outcome = trade.get("outcome_index", 0)  # 0=YES, 1=NO
         
         try:
@@ -31,6 +33,23 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
             wallet_stats[addr]["no_usd"] += usd
         wallet_stats[addr]["trades"] += 1
 
+    # FIX #2: обрабатываем positions
+    for pos in positions:
+        addr = pos.get("proxy_wallet_address") or pos.get("wallet_address", "")
+        if not addr:
+            continue
+        outcome = pos.get("outcome_index", 0)
+        try:
+            size = float(pos.get("size", 0))
+            avg_price = float(pos.get("avg_price", 0.5))
+        except (ValueError, TypeError):
+            continue
+        usd = size * avg_price
+        if outcome == 0:
+            wallet_stats[addr]["yes_usd"] += usd
+        else:
+            wallet_stats[addr]["no_usd"] += usd
+
     # Топ кошельки по объёму
     known_whales = get_known_whales()  # {address: {alias, win_rate}}
     top_wallets = sorted(wallet_stats.items(), key=lambda x: x[1]["yes_usd"] + x[1]["no_usd"], reverse=True)[:5]
@@ -43,7 +62,7 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
         whale_info = known_whales.get(addr, {})
         alias = whale_info.get("alias", addr[:8] + "...")
         win_rate = whale_info.get("win_rate")
-        wr_str = f" | WR: {win_rate*100:.0f}%" if win_rate else ""
+        wr_str = f" | WR: {win_rate*100:.0f}%" if win_rate is not None else ""  # FIX #3
         side = "YES" if stats["yes_usd"] > stats["no_usd"] else "NO"
         vol = stats["yes_usd"] + stats["no_usd"]
         lines.append(f"  {alias}{wr_str} → {side} ${vol:,.0f}")

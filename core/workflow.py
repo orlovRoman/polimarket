@@ -132,6 +132,12 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
 
 def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None):
+    # Guard: проверяем доступность LLM перед запуском
+    from config import llm_health_gate  # глобальный инстанс
+    if not llm_health_gate.check_availability():
+        logger.warning(f"LLM в состоянии DEGRADED, пропускаем рынок {m.id}")
+        return None, None, None
+
     logger.info("  Скачиваем новости (RSS + Reddit + Wikipedia)...")
     
     search_query = build_search_query(m.title)
