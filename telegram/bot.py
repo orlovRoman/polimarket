@@ -99,6 +99,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="cleanup", description="Очистить устаревшие сигналы"),
         BotCommand(command="restart", description="Перезапуск бота"),
         BotCommand(command="arbitrage", description="Запуск кросс-платформенного арбитража (PM ↔ Kalshi)"),
+        BotCommand(command="corridor", description="Временной арбитраж (Temporal Corridor)"),
     ]
     await bot.set_my_commands(commands)
 
@@ -778,6 +779,43 @@ async def command_arbitrage_handler(message: types.Message) -> None:
         error_text = tb.format_exc()[-800:]  # последние 800 символов трассировки
         logging.error(f"[ARBITRAGE] Ошибка: {error_text}")
         await status_msg.edit_text(f"❌ <b>Ошибка арбитражного сканирования:</b>\n<pre>{str(e)[:400]}</pre>", parse_mode="HTML")
+
+@dp.message(Command("corridor"))
+async def command_corridor_handler(message: types.Message) -> None:
+    status_msg = await message.answer("🕐 <b>Сканирую временные коридоры...</b>", parse_mode="HTML")
+    try:
+        from services.temporal_corridor_scanner import run_temporal_corridor_scan
+        signals = await asyncio.to_thread(
+            run_temporal_corridor_scan, poly_limit=100, budget=200.0
+        )
+        if not signals:
+            await status_msg.edit_text("🕐 Временных коридоров с положительным EV не найдено.")
+            return
+
+        text = f"🕐 <b>Временные коридоры — найдено {len(signals)}:</b>\n\n"
+        for s in signals[:5]:
+            text += (
+                f"📍 <b>{s.event_title[:50]}</b>\n"
+                f"📅 NO до <b>{s.early_leg.expiry.strftime('%d %b')}</b> "
+                f"({s.early_leg.entry_cost*100:.0f}¢) "
+                f"+ YES до <b>{s.late_leg.expiry.strftime('%d %b')}</b> "
+                f"({s.late_leg.entry_cost*100:.0f}¢)\n"
+                f"📊 P(коридор)=<b>{s.p_in_corridor*100:.0f}%</b> "
+                f"| gap=<b>{s.date_gap_days}д</b>\n"
+                f"💰 Реальный спред: <b>+{s.real_spread_pct:.1f}%</b> "
+                f"| Q-score: <b>{s.quality_score:.2f}</b>\n"
+                f"🎯 S1=${s.pnl_s1_before_early:.0f} | "
+                f"S2=<b>${s.pnl_s2_in_corridor:.0f}</b> | "
+                f"S3=${s.pnl_s3_never:.0f}\n"
+                f"💵 EV: <b>${s.ev_usd:.2f}</b> (бюджет ${s.early_stake_usd + s.late_stake_usd:.0f})\n"
+                f"🚪 {s.exit_rule[:100]}\n"
+                f"🔗 <a href='{s.event_url}'>Открыть</a>\n\n"
+            )
+        await status_msg.edit_text(text, parse_mode="HTML", disable_web_page_preview=True)
+    except Exception as e:
+        logger.error(f"[TC] Ошибка в команде /corridor: {e}", exc_info=True)
+        await status_msg.edit_text(f"❌ Ошибка сканирования: {e}")
+
 
 @dp.message(Command("cleanup"))
 async def command_cleanup_handler(message: types.Message) -> None:

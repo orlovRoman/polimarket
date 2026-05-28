@@ -190,6 +190,35 @@ def init_db():
                 )
             """)
             
+            # Таблица временных коридоров
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS temporal_corridors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    signal_id TEXT UNIQUE,
+                    event_slug TEXT,
+                    event_title TEXT,
+                    event_url TEXT,
+                    
+                    early_market_id TEXT, early_question TEXT, early_expiry TEXT, early_cost REAL,
+                    late_market_id TEXT, late_question TEXT, late_expiry TEXT, late_cost REAL,
+                    
+                    date_gap_days INTEGER,
+                    theoretical_cost REAL, theoretical_spread_pct REAL,
+                    real_cost REAL, real_spread_pct REAL,
+                    
+                    early_stake_usd REAL, late_stake_usd REAL,
+                    early_contracts REAL, late_contracts REAL,
+                    ev_usd REAL, roi_pct REAL,
+                    
+                    quality_score REAL,
+                    exit_rule TEXT,
+                    
+                    status TEXT DEFAULT 'ACTIVE',
+                    created_at TIMESTAMP,
+                    alerted INTEGER DEFAULT 0
+                )
+            """)
+            
             # Таблица: Профили кошельков (Smart Money Tracker)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS wallets (
