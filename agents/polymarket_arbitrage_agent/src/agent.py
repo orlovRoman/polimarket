@@ -96,6 +96,8 @@ class ArbitrageAgent:
                 action_a, action_b = "BUY_NO", "BUY_NO"
             elif mf.arbitrage_type in ("complementary_underpriced",):
                 action_a, action_b = "BUY_YES", "BUY_YES"
+            elif mf.arbitrage_type == "monotonicity_violation":
+                action_a, action_b = "SELL_YES", "SELL_NO"
             else:
                 action_a, action_b = "BUY_YES", "SELL_YES"
 
@@ -225,6 +227,8 @@ ID: {market_b.id}
                 action_a, action_b = "BUY_NO", "BUY_NO"
             elif mf.arbitrage_type in ("complementary_underpriced",):
                 action_a, action_b = "BUY_YES", "BUY_YES"
+            elif mf.arbitrage_type == "monotonicity_violation":
+                action_a, action_b = "SELL_YES", "SELL_NO"
             else:
                 action_a, action_b = "BUY_YES", "SELL_YES"
 
