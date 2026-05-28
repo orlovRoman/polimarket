@@ -1,0 +1,26 @@
+[
+  {
+    "description": "SpaceX-баг: монотонность соблюдена, не арбитраж",
+    "market_a": {"title": "SpaceX IPO above $3T", "price": 0.12, "platform": "polymarket"},
+    "market_b": {"title": "SpaceX IPO above $1.8T", "price": 0.84, "platform": "polymarket"},
+    "expected_decision": "CONFIRMED_NO_ARBI"
+  },
+  {
+    "description": "Нарушение монотонности — реальный арбитраж",
+    "market_a": {"title": "SpaceX valuation above $3T", "price": 0.85, "platform": "polymarket"},
+    "market_b": {"title": "SpaceX valuation above $1T", "price": 0.60, "platform": "polymarket"},
+    "expected_decision": "CONFIRMED_ARBITRAGE"
+  },
+  {
+    "description": "Кросс-платформа маленький спред — не арбитраж",
+    "market_a": {"title": "Will Fed cut rates in June 2026?", "price": 0.50, "platform": "polymarket"},
+    "market_b": {"title": "Will Fed cut rates in June 2026?", "price": 0.53, "platform": "kalshi"},
+    "expected_decision": "CONFIRMED_NO_ARBI"
+  },
+  {
+    "description": "Кросс-платформа большой спред — передать в LLM",
+    "market_a": {"title": "Will Fed cut rates in June 2026?", "price": 0.38, "platform": "polymarket"},
+    "market_b": {"title": "Will Fed cut rates in June 2026?", "price": 0.62, "platform": "kalshi"},
+    "expected_decision": "AMBIGUOUS"
+  }
+]

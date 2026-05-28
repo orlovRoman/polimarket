@@ -18,50 +18,6 @@ import config
 
 logger = logging.getLogger("NexusPolyBot.Arbitrage")
 
-from agents.shared.utils.parsers import parse_numeric_level
-
-def check_monotonicity_violation(
-    title_a: str, price_a: float,
-    title_b: str, price_b: float,
-) -> tuple[bool, str]:
-    """
-    Проверяет нарушение монотонности для рынков с числовыми порогами.
-    Возвращает (is_real_violation, explanation).
-    
-    Правило: P(> higher_threshold) <= P(> lower_threshold)
-    Нарушение: P(> higher) > P(> lower) — вот это арбитраж.
-    """
-    level_a, unit_a = parse_numeric_level(title_a)
-    level_b, unit_b = parse_numeric_level(title_b)
-    
-    if level_a is None or level_b is None or unit_a != unit_b:
-        return True, "Уровни не распознаны — передаём на LLM"
-    
-    if level_a > level_b:
-        # A — более строгое условие → P(A) должна быть НИЖЕ P(B)
-        if price_a > price_b:
-            return True, (
-                f"Реальное нарушение: P(>{level_a}{unit_a})={price_a:.2f} "
-                f"> P(>{level_b}{unit_b})={price_b:.2f} — это НЕВОЗМОЖНО"
-            )
-        else:
-            return False, (
-                f"Ложное срабатывание: P(>{level_a}{unit_a})={price_a:.2f} "
-                f"<= P(>{level_b}{unit_b})={price_b:.2f} — монотонность соблюдена"
-            )
-    elif level_b > level_a:
-        # B — более строгое условие → P(B) должна быть НИЖЕ P(A)
-        if price_b > price_a:
-            return True, (
-                f"Реальное нарушение: P(>{level_b}{unit_b})={price_b:.2f} "
-                f"> P(>{level_a}{unit_a})={price_a:.2f} — это НЕВОЗМОЖНО"
-            )
-        else:
-            return False, (
-                f"Ложное срабатывание: монотонность соблюдена "
-                f"P(>{level_b}{unit_b})={price_b:.2f} <= P(>{level_a}{unit_a})={price_a:.2f}"
-            )
-    return True, "Пороги равны"
 
 def run_cross_platform_scan(
     api_key: Optional[str] = None,
@@ -174,13 +130,6 @@ def run_cross_platform_scan(
     found: list[CrossArbitrageSignal] = []
 
     for ma, mb, match_score in verified:
-        # Математический pre-check для рынков одной платформы (или разных, но с одинаковым контекстом)
-        is_real, explanation = check_monotonicity_violation(
-            ma.title, ma.price, mb.title, mb.price
-        )
-        if not is_real:
-            logger.info(f"[SCAN] Пропуск ложного арбитража: {explanation}")
-            continue
 
         # RISK-10: Fetch orderbook for Kalshi
         kalshi_book = None

@@ -120,6 +120,13 @@ def load_events_with_levels(
         units = set(m.level_unit for m in leveled)
         if len(units) > 1:
             continue  # смешанные единицы — пропускаем без LLM
+
+        # Фильтр: отсекаем взаимоисключающие рынки (mutually exclusive)
+        # У накопительных рынков (выше X, выше Y) сумма price_yes должна быть заметно больше 1.0 (например, > 1.2)
+        # Если сумма около 1.0, значит это взаимоисключающие бины.
+        total_yes_prob = sum(m.price_yes for m in leveled)
+        if total_yes_prob < 1.2:
+            continue
         
         slug = event.get("slug", "")
         result.append(PolyEvent(

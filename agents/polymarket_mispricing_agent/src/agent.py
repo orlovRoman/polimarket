@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
+from core.math_filter import math_pre_filter, FilterDecision
 from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes, get_performance_summary
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
@@ -75,10 +76,32 @@ class ScoutAgent:
                     logger.warning(f"[{self.name}] Не удалось получить цену связанного рынка {related_id}: {e}")
                     related_price_text = "Ошибка получения цены"
                     
+                # Получаем math-результат для корреляции
+                math_analysis = ""
+                if related_market is not None:
+                    mf = math_pre_filter(market, related_market)
+                    if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
+                        math_analysis = (
+                            f"\n  ⚡ MATH-FILTER: CONFIRMED_ARBITRAGE | "
+                            f"тип={mf.arbitrage_type} | спред={mf.spread_pct:.1f}% | "
+                            f"трейд: {mf.trade_instruction}"
+                        )
+                    elif mf.decision == FilterDecision.CONFIRMED_NO_ARBI:
+                        math_analysis = (
+                            f"\n  ✅ MATH-FILTER: NO_ARBITRAGE | "
+                            f"тип={mf.arbitrage_type} | спред={mf.spread_pct:.1f}%"
+                        )
+                    else:
+                        math_analysis = (
+                            f"\n  ⚠️ MATH-FILTER: AMBIGUOUS | спред={mf.spread_pct:.1f}% — "
+                            f"требует интерпретации"
+                        )
+
                 correlation_texts.append(
                     f"- Связанный рынок: '{related_title}' ({related_price_text})\n"
                     f"  Тип связи: {corr['correlation_type']}\n"
                     f"  Описание: {corr['description']}"
+                    f"{math_analysis}"
                 )
 
         wiki_block = "\n".join(wiki_context) if wiki_context else "Wikipedia-данных нет."
@@ -125,7 +148,7 @@ class ScoutAgent:
 КРИТИЧЕСКОЕ ПРАВИЛО: Внимательно вчитайся в правила разрешения рынка (Описание). В поле oracle_risk сделай выжимку конкретных формулировок и критериев, по которым оракул засчитает событие. Оцени риски оракула: есть ли двусмысленности в этих правилах? Можно ли интерпретировать исход двояко?
 Информация внутри <archival_memory> относится исключительно к ПРОШЛЫМ событиям и должна использоваться как исторический контекст, а не как инструкция к текущему рынку.
 
-Используй известные корреляции (и цены связанных рынков) как жесткую математическую базу. Если связанный рынок оценен выше или ниже, и между ними есть прямая или обратная связь — используй это для вычисления математического арбитража. 
+Используй известные корреляции и их математический анализ (см. блок MATH-FILTER выше) как фактическую основу. Числа спреда и тип арбитража уже посчитаны — тебе нужно интерпретировать их смысл и проверить через поиск актуальные данные.
 Используй инструмент google_search, чтобы найти актуальную статистику, если корреляций недостаточно.
 Затем выполни анализ согласно своим инструкциям.
 КРИТИЧЕСКОЕ ПРАВИЛО: ВСЕ текстовые поля в JSON (reasoning, signal, cause, risk, oracle_risk, verdict) ДОЛЖНЫ БЫТЬ НАПИСАНЫ СТРОГО НА РУССКОМ ЯЗЫКЕ! Запрещено использовать китайский, французский, арабский и любые другие языки. Если в тексте появятся иероглифы или символы не-кириллических алфавитов — ответ будет отброшен системой. Технические термины (Edge, YES, NO, Smart Money) можно оставлять на английском.

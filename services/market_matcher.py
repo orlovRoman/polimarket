@@ -4,6 +4,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from core.models import Market
 from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
+from core.math_filter import math_pre_filter, FilterDecision
 
 # SMELL-15: Expanded STOPWORDS
 STOPWORDS = {
@@ -77,6 +78,12 @@ def find_candidate_pairs(
 
             score = keyword_match_score(str_a, str_b)
             if score >= min_score:
+                # Math pre-filter для same-platform пар с threshold-логикой
+                # Кросс-платформенные пары не фильтруем здесь — у агента больше контекста
+                if ma.platform == mb.platform:
+                    mf = math_pre_filter(ma, mb)
+                    if mf.decision == FilterDecision.CONFIRMED_NO_ARBI:
+                        continue  # Отсекаем до LLM-верификации
                 pairs.append((ma, mb, score))
 
     return sorted(pairs, key=lambda x: -x[2])

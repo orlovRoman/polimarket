@@ -2,6 +2,7 @@ import os
 import json
 from core.models import Market, CrossArbitrageSignal
 from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
+from core.math_filter import math_pre_filter, FilterDecision
 
 
 class ArbitrageAgent:
@@ -34,6 +35,35 @@ class ArbitrageAgent:
         score: int,
     ) -> CrossArbitrageSignal | None:
         """Анализирует пару связанных рынков с одной платформы."""
+        # ── Math pre-filter: экономим LLM-вызов ────────────────────────────────
+        mf = math_pre_filter(market_a, market_b)
+        
+        if mf.decision == FilterDecision.CONFIRMED_NO_ARBI:
+            print(f"[MATH-FILTER] [REJECTED] ({mf.arbitrage_type}): {mf.reasoning}")
+            return None
+        
+        if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
+            print(f"[MATH-FILTER] [CONFIRMED] ({mf.arbitrage_type}): spread={mf.spread_pct:.1f}%")
+            return CrossArbitrageSignal(
+                market_a_id=market_a.id,
+                market_a_platform=market_a.platform,
+                market_a_title=market_a.title,
+                market_a_price=market_a.price,
+                market_a_url=market_a.url,
+                market_b_id=market_b.id,
+                market_b_platform=market_b.platform,
+                market_b_title=market_b.title,
+                market_b_price=market_b.price,
+                market_b_url=market_b.url,
+                has_arbitrage=True,
+                arbitrage_type="logical_contradiction" if mf.arbitrage_type in ["monotonicity_violation", "complementary_overpriced", "complementary_underpriced"] else mf.arbitrage_type,
+                spread_percent=mf.spread_pct,
+                reasoning=mf.reasoning,
+                trade_instruction=mf.trade_instruction,
+                match_score=float(score) / 100.0 if score > 1 else float(score),
+            )
+        # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
+
         prompt = f"""Оцени следующую пару рынков на предмет кросс-рыночного арбитража.
 Тип корреляции, обнаруженный системой: {correlation_type} (score: {score})
 
@@ -73,10 +103,7 @@ ID: {market_b.id}
             content = content.replace("```json", "").replace("```", "").strip()
             data = json.loads(content, strict=False)
 
-            # Normalize spread
-            spread_val = float(data.get("spread_percent", 0.0))
-            if 0 < spread_val < 1:
-                spread_val *= 100
+            spread_val = mf.spread_pct
                 
             return CrossArbitrageSignal(
                 market_a_id=market_a.id,
@@ -113,6 +140,35 @@ ID: {market_b.id}
         Анализирует пару рынков с РАЗНЫХ платформ.
         Определяет тип арбитража: ценовое расхождение, логическое противоречие или парный трейд.
         """
+        # ── Math pre-filter: экономим LLM-вызов ────────────────────────────────
+        mf = math_pre_filter(market_a, market_b)
+        
+        if mf.decision == FilterDecision.CONFIRMED_NO_ARBI:
+            print(f"[MATH-FILTER] [REJECTED] ({mf.arbitrage_type}): {mf.reasoning}")
+            return None
+        
+        if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
+            print(f"[MATH-FILTER] [CONFIRMED] ({mf.arbitrage_type}): spread={mf.spread_pct:.1f}%")
+            return CrossArbitrageSignal(
+                market_a_id=market_a.id,
+                market_a_platform=market_a.platform,
+                market_a_title=market_a.title,
+                market_a_price=market_a.price,
+                market_a_url=market_a.url,
+                market_b_id=market_b.id,
+                market_b_platform=market_b.platform,
+                market_b_title=market_b.title,
+                market_b_price=market_b.price,
+                market_b_url=market_b.url,
+                has_arbitrage=True,
+                arbitrage_type="logical_contradiction" if mf.arbitrage_type in ["monotonicity_violation", "complementary_overpriced", "complementary_underpriced"] else mf.arbitrage_type,
+                spread_percent=mf.spread_pct,
+                reasoning=mf.reasoning,
+                trade_instruction=mf.trade_instruction,
+                match_score=match_score,
+            )
+        # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
+
         direct_spread = abs(market_a.price - market_b.price)
         spread_percent = round(direct_spread * 100, 2)
         
@@ -175,12 +231,7 @@ ID: {market_b.id}
         try:
             data = json.loads(extract_response_text(result).strip())
             
-            # RISK-08: Нормализация spread_percent
-            spread_val = float(data.get("spread_percent", spread_percent))
-            if 0 < spread_val < 1.0: # Модель вернула долю вместо процентов
-                spread_val *= 100
-            elif spread_val == 0.0 and data.get("has_arbitrage"):
-                spread_val = spread_percent # Модель вернула 0, используем расчетный
+            spread_val = mf.spread_pct
 
             return CrossArbitrageSignal(
                 market_a_id=market_a.id,
