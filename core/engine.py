@@ -325,21 +325,11 @@ class CoreEngine:
             markets = np.find_relevant_markets(text)
 
             if not markets:
-                send_telegram_to_chat(
-                    "К сожалению, я не нашел связанных рынков на Polymarket для этого поста.",
-                    chat_id
-                )
+                logger.info(f"Post {post_id}: No relevant markets found.")
                 mark_telegram_post_status(post_id, 'NO_MARKETS')
                 return
 
-            # Формируем список найденных рынков (отправляем один раз)
-            market_lines = [f"Найдено {len(markets)} связанных рынков:"]
-            for i, m in enumerate(markets[:3], 1):
-                market_lines.append(f"{i}. <a href='{m.url}'>{m.title}</a>")
-            if len(markets) > 3:
-                market_lines.append(f"...и еще {len(markets) - 3}")
-            market_lines.append("\nАнализирую...")
-            send_telegram_to_chat("\n".join(market_lines), chat_id)
+            logger.info(f"Post {post_id}: Found {len(markets)} markets, starting analysis.")
 
             effective_message_id = source_message_id or message_id
             if not source_url and source_username and effective_message_id:
