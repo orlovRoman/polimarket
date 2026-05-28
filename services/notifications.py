@@ -84,36 +84,37 @@ def send_correlation_alerts(summary_callback=None) -> None:
     from agents.polymarket_arbitrage_agent.src.agent import ArbitrageAgent
     from agents.shared.adapters.polymarket import PolymarketAdapter
     import os
-    
+
     notify = summary_callback or send_telegram
+    new_corrs = []  # Баг #3: объявляем до try, чтобы finally мог обратиться к переменной
     try:
         new_corrs = get_new_correlations()
         if not new_corrs:
             return
-            
+
         adapter = PolymarketAdapter()
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             logger.error("[Notifier] Нет API ключа для Арбитражника.")
             return
-            
+
         arbitrage_agent = ArbitrageAgent(api_key=api_key, model="gemini-2.5-flash")
-        
+
         for c in new_corrs[:5]:
             # Получаем свежие данные о рынках
             market_a = adapter.get_market(c['market_id_a'])
             market_b = adapter.get_market(c['market_id_b'])
-            
+
             if not market_a or not market_b:
                 continue
-                
+
             signal = arbitrage_agent.analyze_correlation(
-                market_a=market_a, 
-                market_b=market_b, 
+                market_a=market_a,
+                market_b=market_b,
                 correlation_type=c.get('correlation_type', 'thematic'),
                 score=int(c.get('confidence', 0) * 100)
             )
-            
+
             if signal and signal.has_arbitrage:
                 platform_a = getattr(market_a, "platform", "Polymarket").upper()
                 platform_b = getattr(market_b, "platform", "Polymarket").upper()
@@ -127,11 +128,13 @@ def send_correlation_alerts(summary_callback=None) -> None:
                     f"⚡ <b>Трейд:</b> {signal.trade_instruction}\n"
                 )
                 notify(alert_text)
-                
-        # Отмечаем как прочитанные, даже если арбитража нет (чтобы не спамить)
-        mark_correlations_notified([c['id'] for c in new_corrs[:5]])
     except Exception as e:
         logger.error(f"[Notifier] Ошибка отправки корреляций: {e}")
+    finally:
+        # Баг #3: помечаем как прочитанные даже при исключении — иначе следующий
+        # запуск снова попытается обработать те же корреляции.
+        if new_corrs:
+            mark_correlations_notified([c['id'] for c in new_corrs[:5]])
 
 
 # ─── Кросс-платформенный арбитраж (Polymarket ↔ Kalshi и др.) ──────────────
@@ -163,7 +166,7 @@ def format_cross_arbitrage_alert(signal) -> str:
         risk_emoji = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}.get(risk, "🟡")
         pa_str = f" @ <b>{int(price_a)}¢</b>" if price_a is not None else ""
         pb_str = f" @ <b>{int(price_b)}¢</b>" if price_b is not None else ""
-        pnl_str = f"<b>+{pnl:.1f}%</b>" if pnl else "N/A"
+        pnl_str = f"<b>+{pnl:.1f}%</b>" if pnl is not None else "N/A"  # Баг #4: 0.0 — тоже валидный P&L
         plat_a = signal.market_a_platform.upper()
         plat_b = signal.market_b_platform.upper()
         trade_block = (
@@ -203,8 +206,11 @@ def send_cross_arbitrage_alerts(min_spread: float = 5.0) -> None:
         if not new_signals:
             return
 
+        valid_fields = CrossArbitrageSignal.model_fields.keys()  # Баг #1: белый список полей модели
         for row in new_signals:
-            signal = CrossArbitrageSignal(**{k: row[k] for k in row if k != "id"})
+            signal = CrossArbitrageSignal.model_validate(  # Баг #1: игнорируем лишние колонки из БД
+                {k: row[k] for k in row if k in valid_fields}
+            )
             signal_id = row["id"]
 
             text = format_cross_arbitrage_alert(signal)
@@ -269,7 +275,8 @@ def format_temporal_corridor_alert(signal) -> str:
         f"📍 <b>{signal.event_title[:50]}</b>\n"
         f"📅 NO до <b>{signal.early_leg.expiry.strftime('%d %b')}</b> ({signal.early_leg.entry_cost*100:.0f}¢)\n"
         f"📅 YES до <b>{signal.late_leg.expiry.strftime('%d %b')}</b> ({signal.late_leg.entry_cost*100:.0f}¢)\n"
-        f"📊 P(коридор)=<b>{signal.p_in_corridor*100:.0f}%</b> | gap=<b>{signal.date_gap_days}д</b>\n"
+        # Баг #2: p_in_corridor не сохраняется в БД и всегда 0.0 — скрываем нулевое значение
+        f"📊 {'P(коридор)=<b>' + f"{signal.p_in_corridor*100:.0f}" + '%</b> | ' if signal.p_in_corridor > 0 else ''}gap=<b>{signal.date_gap_days}д</b>\n"
         f"💰 Реальный спред: <b>+{signal.real_spread_pct:.1f}%</b> | Q-score: <b>{signal.quality_score:.2f}</b>\n"
         f"🎯 S1=${signal.pnl_s1_before_early:.0f} | S2=<b>${signal.pnl_s2_in_corridor:.0f}</b> | S3=${signal.pnl_s3_never:.0f}\n"
         f"💵 EV: <b>${signal.ev_usd:.2f}</b> (бюджет ${signal.early_stake_usd + signal.late_stake_usd:.0f})\n"
