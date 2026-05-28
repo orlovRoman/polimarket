@@ -471,6 +471,16 @@ def init_db():
             if 'had_performance_ctx' not in llm_cols:
                 cursor.execute("ALTER TABLE llm_calls ADD COLUMN had_performance_ctx INTEGER DEFAULT 0")
 
+            # Миграция: новые поля в cross_arbitrage_signals
+            cross_arb_cols = {row[1] for row in cursor.execute("PRAGMA table_info(cross_arbitrage_signals)").fetchall()}
+            for col, default in [
+                ("action_a", "'SKIP'"), ("action_b", "'SKIP'"),
+                ("entry_price_a_cents", "NULL"), ("entry_price_b_cents", "NULL"),
+                ("expected_pnl_pct", "NULL"), ("risk_level", "'MEDIUM'"),
+            ]:
+                if col not in cross_arb_cols:
+                    cursor.execute(f"ALTER TABLE cross_arbitrage_signals ADD COLUMN {col} TEXT DEFAULT {default}")
+
         _db_initialized = True
         print(f"База данных инициализирована по адресу: {DB_PATH}")
 
@@ -483,8 +493,9 @@ def save_cross_arbitrage(signal) -> None:
             (id, market_a_id, market_a_platform, market_a_title, market_a_price, market_a_url,
              market_b_id, market_b_platform, market_b_title, market_b_price, market_b_url,
              has_arbitrage, arbitrage_type, spread_percent, reasoning, trade_instruction,
-             match_score, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             match_score, status, action_a, action_b, entry_price_a_cents, entry_price_b_cents,
+             expected_pnl_pct, risk_level)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             f"{signal.market_a_id}__{signal.market_b_id}",
             signal.market_a_id, signal.market_a_platform, signal.market_a_title,
@@ -494,6 +505,9 @@ def save_cross_arbitrage(signal) -> None:
             int(signal.has_arbitrage), signal.arbitrage_type, signal.spread_percent,
             signal.reasoning, signal.trade_instruction,
             signal.match_score, signal.status,
+            signal.action_a, signal.action_b,
+            signal.entry_price_a_cents, signal.entry_price_b_cents,
+            signal.expected_pnl_pct, signal.risk_level,
         ))
 
 
