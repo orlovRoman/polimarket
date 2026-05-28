@@ -304,9 +304,13 @@ class CoreEngine:
                 opinion_shadow = None
                 if active_signal:
                     orderbook = None
+                    target_outcome = getattr(active_signal, 'target_outcome', 'YES')
                     if full_m.tokens:
-                        try: orderbook = self.adapter.get_orderbook(full_m.tokens[0])
-                        except Exception as e: logger.error(f"Failed to fetch orderbook: {e}")
+                        try:
+                            token_idx = 1 if target_outcome.upper() == 'NO' and len(full_m.tokens) > 1 else 0
+                            orderbook = self.adapter.get_orderbook(full_m.tokens[token_idx])
+                        except Exception as e:
+                            logger.error(f"Failed to fetch orderbook: {e}")
                     
                     from services.onchain_provider import get_recent_trades, get_top_positions
                     from core.smart_money import analyze_smart_money
