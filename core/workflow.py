@@ -253,7 +253,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         summary_text = f"🗣 <b>Обсуждение рынка:</b>\n"
         
         if context.trigger_type == "event_driven":
-            if context.source_url:
+            if context.source_url and context.source_url.strip():
                 triggered_time = context.triggered_at.strftime("%d %b %H:%M") if context.triggered_at else "сейчас"
                 source_label = context.source_text or "Источник"
                 summary_text += f"📡 <b>Источник:</b> <a href='{context.source_url}'>{source_label}</a> · {triggered_time}\n"

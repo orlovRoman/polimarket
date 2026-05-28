@@ -156,7 +156,7 @@ def parse_whale_alert(text: str, entities=None) -> dict:
             
     return result
 
-async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: str = "whale"):
+async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: str = "whale", market_url: str = ""):
     """
     Триггерит Orchestrator NEXUS для мгновенного точечного анализа рынка
     при обнаружении крупной сделки или новости.
@@ -175,7 +175,7 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
         def _trigger_scan():
             eng = CoreEngine()
             # Pass source_url and source_text for the whale branch to avoid scheduled downgrade
-            source_url = ""
+            source_url = market_url or ""
             source_text = ""
             if source == "whale" and amount_usd:
                 source_text = f"Whale transaction detected: ${amount_usd:,.0f}"
@@ -332,7 +332,7 @@ async def main():
                         
                         # Если это НЕ целевой канал для глубокого анализа, запускаем старый точечный скан
                         if bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and market_ids and not is_target_source:
-                            await trigger_nexus_scan(market_ids[0], bet_info["amount_usd"], source="whale")
+                            await trigger_nexus_scan(market_ids[0], bet_info["amount_usd"], source="whale", market_url=bet_info["market_url"] or "")
             else:
                 # 3. Ветка для других новостных групп (если они не попали в глубокий анализ)
                 if not is_target_source:
