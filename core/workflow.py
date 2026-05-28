@@ -269,8 +269,8 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             trade_action = f"BUY {outcome}"
             entry_price = m.price if outcome == "YES" else round(1 - m.price, 2)
         
-        # Guard: если цена нулевая или некорректная — не показываем
-        if entry_price <= 0 or entry_price >= 1:
+        # Guard: отсекаем 0.0 и 1.0 (и выход за пределы)
+        if not (0.01 <= entry_price <= 0.99):
             entry_price = None
 
         price_str = f"<b>{int(entry_price * 100)}¢</b>" if entry_price else "<b>цена уточняется</b>"
@@ -299,9 +299,10 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             summary_text += f"🏄 <b>SWING:</b> {catalyst[:120]}\n"
             
         if opinion_shadow:
+            shadow_status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
             liq = getattr(opinion_shadow, 'liquidity_risk', 'medium').upper()
             ob = getattr(opinion_shadow, 'orderbook_facts', '')
-            summary_text += f"🛡 <b>SHADOW:</b> ✅ | Ликвидность: {liq} | {ob[:80]}\n"
+            summary_text += f"🛡 <b>SHADOW:</b> {shadow_status} | Ликвидность: {liq} | {ob[:80]}\n"
             
         # Арбитраж из math_filter (если есть)
         math_result = getattr(context, 'math_filter_result', None)
