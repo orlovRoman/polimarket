@@ -15,7 +15,10 @@ from agents.shared.python.db import (
     get_memory, save_memory, save_idea_audit, get_market_correlations
 )
 from agents.shared.python.market_selector import MarketSelector
-from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news, build_search_query
+from agents.shared.utils.web_search import (
+    fetch_rss_news, fetch_reddit_news, build_search_query,
+    fetch_google_trends, fetch_hackernews
+)
 
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
 from agents.polymarket_swing_agent.src.agent import SwingAgent
@@ -132,20 +135,26 @@ def run_agent_evaluation(m, scout, swing, update_state,
     
     from agents.shared.utils.web_search import fetch_wikipedia_context
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         future_rss = executor.submit(fetch_rss_news, search_query)
         future_reddit = executor.submit(fetch_reddit_news, search_query)
         future_wiki = executor.submit(fetch_wikipedia_context, search_query)
+        future_trends = executor.submit(fetch_google_trends, search_query)
+        future_hn = executor.submit(fetch_hackernews, search_query)
         
         news_titles = future_rss.result()
         reddit_posts = future_reddit.result()
         wiki_context = "\n".join(future_wiki.result())
+        trends_data = future_trends.result()
+        hn_posts = future_hn.result()
 
     context = MarketContext(
         market=m,
         news_titles=news_titles,
         reddit_posts=reddit_posts,
         wiki_context=wiki_context,
+        trends_data=trends_data,
+        hn_posts=hn_posts,
         trigger_type=trigger_type,
         source_url=source_url,
         source_text=source_text,

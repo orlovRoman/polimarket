@@ -18,6 +18,8 @@ class MarketContext(BaseModel):
     news_titles: List[str] = Field(default_factory=list)
     reddit_posts: List[str] = Field(default_factory=list)
     wiki_context: str = ""
+    trends_data: str = "Google Trends: данные не загружены"
+    hn_posts: List[str] = Field(default_factory=list)
     smart_money: Optional[SmartMoneySummary] = None
     correlation_hint: str = ""
     

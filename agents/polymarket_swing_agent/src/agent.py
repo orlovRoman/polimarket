@@ -55,6 +55,35 @@ class SwingAgent:
             
         perf_summary = get_performance_summary("SWING", 10)
 
+        # --- STEP 1: Grounding search (без JSON schema) ---
+        from agents.shared.utils.web_search import build_search_query
+        search_query_llm = build_search_query(market.title)
+        grounded_context = ""
+        try:
+            search_payload = {
+                "contents": [{"role": "user", "parts": [{"text": (
+                    f"Search for the latest news, social media mentions, and viral activity "
+                    f"about: '{search_query_llm}'. "
+                    f"Focus on content from the last 48 hours. "
+                    f"Return key findings as bullet points with source and date."
+                )}]}],
+                "tools": [{"google_search": {}}]
+            }
+            from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
+            search_result, _ = generate_content_with_fallback(
+                api_key=self.api_key,
+                payload=search_payload,
+                default_model=self.model,
+                agent_name="SWING_search",
+                market_id=market.id
+            )
+            if search_result:
+                grounded_context = extract_response_text(search_result)
+                if not grounded_context:
+                    grounded_context = "Google Search: результатов не найдено."
+        except Exception as e:
+            grounded_context = f"Google Search: ошибка ({e})"
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -78,6 +107,15 @@ class SwingAgent:
 
 Последние посты с Reddit:
 {chr(10).join(reddit_posts) if reddit_posts else "Постов на Reddit не найдено."}
+
+[Результаты Google Search (grounding, последние 48ч)]:
+{grounded_context}
+
+[Google Trends — уровень интереса к теме]:
+{context.trends_data}
+
+[HackerNews — технические обсуждения]:
+{chr(10).join(context.hn_posts) if context.hn_posts else "HackerNews: нет релевантных постов."}
 
 [Недавний опыт (Эпизодическая память)]
 Ознакомься со своими недавними предсказаниями и их реальным исходом. Сделай поправку на свою результативность (если ошибался, будь более осторожен).
@@ -110,7 +148,6 @@ class SwingAgent:
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "systemInstruction": {"parts": [{"text": self.system_instruction}]},
-            "tools": [{"google_search": {}}],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": schema

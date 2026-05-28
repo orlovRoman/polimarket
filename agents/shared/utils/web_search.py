@@ -43,8 +43,10 @@ def _fetch_rss_news_impl(query: str, limit: int = 5) -> list:
         root = ET.fromstring(response.content)
         news = []
         for item in root.findall(".//item")[:limit]:
-            title = item.find("title").text
-            news.append(title)
+            title = item.find("title").text or ""
+            pub_date = item.find("pubDate")
+            date_str = pub_date.text[:16] if pub_date is not None and pub_date.text else "дата неизвестна"
+            news.append(f"[{date_str}] {title}")
         return news
     except Exception as e:
         print(f"Ошибка при получении RSS: {e}")
@@ -62,9 +64,12 @@ def _fetch_reddit_news_impl(query: str, limit: int = 5) -> list:
         data = response.json()
         posts = []
         for child in data.get('data', {}).get('children', []):
-            title = child.get('data', {}).get('title', '')
+            d = child.get('data', {})
+            title = d.get('title', '')
+            score = d.get('score', 0)
+            sub = d.get('subreddit', '')
             if title:
-                posts.append(title)
+                posts.append(f"[r/{sub}, ↑{score}] {title}")
         return posts
     except Exception as e:
         print(f"Ошибка при получении Reddit: {e}")
@@ -102,6 +107,43 @@ def _fetch_wikipedia_context_impl(query: str, limit: int = 3) -> list:
 def fetch_wikipedia_context(query: str, limit: int = 3) -> list:
     """Ищет факты в Wikipedia — полезно для спорта, политики, турниров."""
     return _get_cached_news(f"wiki:{query}", _fetch_wikipedia_context_impl, query, limit)
+
+def _fetch_google_trends_impl(query: str) -> str:
+    try:
+        from pytrends.request import TrendReq
+        pt = TrendReq(hl='en-US', tz=0, timeout=(5, 15))
+        kw = [query[:100]]
+        pt.build_payload(kw, timeframe='now 7-d')
+        df = pt.interest_over_time()
+        if df.empty:
+            return "Google Trends: нет данных"
+        latest = int(df[kw[0]].iloc[-1])
+        peak = int(df[kw[0]].max())
+        last3 = df[kw[0]].iloc[-3:].tolist()
+        trend = "📈 растёт" if last3[-1] > last3[0] else ("📉 падает" if last3[-1] < last3[0] else "➡️ стабильно")
+        return f"Google Trends (7д): интерес сейчас {latest}/100, пик {peak}/100, тренд {trend}"
+    except Exception as e:
+        return f"Google Trends: недоступно ({e})"
+
+def fetch_google_trends(query: str) -> str:
+    """Возвращает уровень интереса к теме за 7 дней по Google Trends."""
+    return _get_cached_news(f"trends:{query}", _fetch_google_trends_impl, query)
+
+def _fetch_hackernews_impl(query: str, limit: int = 3) -> list:
+    try:
+        from urllib.parse import quote
+        url = f"https://hn.algolia.com/api/v1/search?query={quote(query)}&tags=story&hitsPerPage={limit}"
+        r = requests.get(url, timeout=8)
+        if r.status_code != 200:
+            return []
+        hits = r.json().get("hits", [])
+        return [f"[HN, ↑{h.get('points', 0)}] {h.get('title', '')}" for h in hits if h.get('title')]
+    except Exception as e:
+        return []
+
+def fetch_hackernews(query: str, limit: int = 3) -> list:
+    """Получает топ-посты с HackerNews по теме (бесплатно, без ключа)."""
+    return _get_cached_news(f"hn:{query}", _fetch_hackernews_impl, query, limit)
 
 def build_search_query(market_title: str) -> str:
     """Строит короткий поисковый запрос из заголовка рынка."""
