@@ -253,7 +253,12 @@ class CoreEngine:
                     if opinion_shadow:
                         add_discussion_message(m.id, opinion_shadow.agent_name, opinion_shadow.opinion, opinion_shadow.confidence, opinion_shadow.agree)
                 
-                process_consensus(context, signal, swing_signal, opinion_shadow, self.state, _update_state, summary_callback)
+                if active_signal:
+                    process_consensus(context, signal, swing_signal, opinion_shadow, self.state, _update_state, summary_callback)
+                else:
+                    log(f"  Нет сигнала для {m.id}, пропускаем консенсус.")
+                    _update_state(scout_status="⚪️ Нет сигнала", swing_status="⚪️ Нет сигнала")
+                
                 mark_market_analyzed(m.id, m.price)
                 
             except LLMUnavailableError:
@@ -334,7 +339,8 @@ class CoreEngine:
 
             effective_message_id = source_message_id or message_id
             if not source_url and source_username and effective_message_id:
-                source_url = f"https://t.me/{source_username}/{effective_message_id}"
+                clean_username = source_username.lstrip('@')
+                source_url = f"https://t.me/{clean_username}/{effective_message_id}"
 
             for m in markets[:3]:
                 try:
@@ -348,7 +354,7 @@ class CoreEngine:
                         trigger_type="event_driven",
                         source_url=source_url,
                         source_text=source_text,
-                        triggered_at=datetime.now()
+                        triggered_at=datetime.now(timezone.utc)
                     )
                 except RuntimeError as e:
                     send_telegram_to_chat(f"⚠️ {e}", chat_id)
