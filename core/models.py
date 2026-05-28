@@ -25,6 +25,7 @@ class Signal(BaseModel):
     entry_price: float = 0.0
     position_size_usd: float = 0.0
     edge: Optional[float] = None
+    confidence: float
     
     @field_validator('confidence', 'edge')
     @classmethod
@@ -33,7 +34,6 @@ class Signal(BaseModel):
             return v
         return max(0.0, min(1.0, float(v)))
 
-    confidence: float
     priority: Literal['low', 'medium', 'high']
     summary: str
     details: str

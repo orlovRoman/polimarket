@@ -54,7 +54,7 @@ def run_cross_platform_scan(
                 from services.polymarket_cache import get_raw_events
                 raw = get_raw_events(
                     cache_key=f"poly_events_{limit}",
-                    fetch_fn=lambda: adapter.fetch_raw_events(limit=limit),
+                    fetch_fn=lambda lim=limit, adp=adapter: adp.fetch_raw_events(limit=lim),
                     ttl_seconds=config.POLY_EVENTS_CACHE_TTL_SECONDS,
                 )
                 all_markets[adapter.name] = adapter.parse_events_to_markets(raw, limit)
@@ -104,11 +104,16 @@ def run_cross_platform_scan(
         return []
 
     verified: list[tuple[Market, Market, float]] = list(manual_pairs)
+    verified_ids: set[tuple[str, str]] = {(ma.id, mb.id) for ma, mb, _ in manual_pairs}
     
+    # high-score без LLM:
+    for p in auto_pairs[:50]:
+        if p[2] >= 0.72 and (p[0].id, p[1].id) not in verified_ids:
+            verified.append(p)
+            verified_ids.add((p[0].id, p[1].id))
+
     # LLM-верификация батчами
     pairs_to_verify = [p for p in auto_pairs[:50] if 0.50 <= p[2] < 0.72]
-    # Те что > 0.72 добавляем сразу
-    verified.extend([p for p in auto_pairs[:50] if p[2] >= 0.72])
     
     batch_size = 5
     for i in range(0, len(pairs_to_verify), batch_size):
@@ -119,7 +124,10 @@ def run_cross_platform_scan(
                 try:
                     llm_result = verify_pair_with_llm(ma, mb, api_key)
                     if llm_result.get("is_same_event") and llm_result.get("confidence", 0) >= 0.75:
-                        verified.append((ma, mb, llm_result["confidence"]))
+                        key = (ma.id, mb.id)
+                        if key not in verified_ids:
+                            verified.append((ma, mb, llm_result["confidence"]))
+                            verified_ids.add(key)
                     break # Success
                 except Exception as e:
                     if "429" in str(e) or "503" in str(e):
@@ -147,10 +155,9 @@ def run_cross_platform_scan(
             
         try:
             signal = agent.analyze_cross_platform(ma, mb, match_score, orderbook_b=kalshi_book)
-            time.sleep(3)  # Пауза между запросами для избежания 429 Too Many Requests
         except Exception as e:
             logger.error(f"[SCAN] Ошибка анализа пары {ma.id} / {mb.id}: {e}")
-            time.sleep(5)
+            time.sleep(10 if "429" in str(e) else 1)
             continue
 
         if not signal:
