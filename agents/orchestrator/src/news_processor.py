@@ -1,9 +1,12 @@
 import os
 import json
 from typing import Optional, List
+import logging
 from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from core.models import Market
+
+logger = logging.getLogger("NewsProcessor")
 
 class NewsProcessor:
     """
@@ -54,7 +57,7 @@ class NewsProcessor:
         )
         
         if not result:
-            print("[NewsProcessor] Ошибка LLM при извлечении ключевых слов.")
+            logger.warning("[NewsProcessor] Ошибка LLM при извлечении ключевых слов.")
             return []
             
         try:
@@ -63,10 +66,10 @@ class NewsProcessor:
             keywords = data.get("keywords", [])
             
             if not keywords:
-                print("[NewsProcessor] Новость не содержит релевантных ключевых слов.")
+                logger.info("[NewsProcessor] Новость не содержит релевантных ключевых слов.")
                 return []
                 
-            print(f"[NewsProcessor] Извлечены ключевые слова: {keywords}")
+            logger.info(f"[NewsProcessor] Извлечены ключевые слова: {keywords}")
             
             all_found = []
             seen_ids = set()
@@ -82,5 +85,5 @@ class NewsProcessor:
             return all_found
             
         except Exception as e:
-            print(f"[NewsProcessor] Ошибка обработки ответа LLM: {e}")
+            logger.error(f"[NewsProcessor] Ошибка обработки ответа LLM: {e}")
             return []
