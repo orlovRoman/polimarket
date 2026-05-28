@@ -8,9 +8,7 @@ def compute_sizing(
     Расчет размеров ставок для синтетического коридора (равные контракты).
     Возвращает размеры и PnL в USD.
     """
-    real_cost = ask_yes_lower + ask_no_upper
-    real_spread_pct = (1.0 - real_cost) * 100
-    
+
     # Пытаемся купить равное количество контрактов, деля бюджет примерно пополам
     stake_per_leg = budget / 2
     stake_per_leg = min(stake_per_leg, budget * max_single_leg_pct)
@@ -52,5 +50,4 @@ def compute_sizing(
         "max_win_usd": round(pnl_corridor, 2),
         "roi_min_pct": round(min_pnl / total_invested * 100, 2) if total_invested > 0 else 0,
         "roi_max_pct": round(pnl_corridor / total_invested * 100, 2) if total_invested > 0 else 0,
-        "real_spread_pct": round(real_spread_pct, 3),
     }
