@@ -12,6 +12,9 @@ class AnalyzeRequest(BaseModel):
     chat_id: str
     source_chat_id: str = ""
     source_username: str | None = None
+    source_message_id: int | None = None
+    source_url: str | None = None
+    source_text: str | None = None
 
 @app.get("/api/status")
 def get_status() -> Dict[str, Any]:
@@ -31,6 +34,9 @@ def analyze_post(post_id: int, request: AnalyzeRequest, background_tasks: Backgr
         request.post_id, 
         request.chat_id,
         request.source_chat_id,
-        request.source_username
+        request.source_username,
+        request.source_message_id,
+        request.source_url,
+        request.source_text
     )
     return {"status": "Analysis started in background", "post_id": post_id}

@@ -32,6 +32,8 @@ class ScoutAgent:
             self.system_instruction = f.read()
         self._adapter = None
 
+    from agents.shared.python.llm_wrapper import with_retry
+    @with_retry(max_attempts=3, initial_backoff=2.0)
     def estimate_market(self, context: 'MarketContext') -> Optional[Signal]:
         """
         Оценивает рынок на предмет математического расхождения (edge).

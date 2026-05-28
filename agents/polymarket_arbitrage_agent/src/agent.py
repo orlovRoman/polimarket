@@ -202,6 +202,8 @@ ID: {market_b.id}
 
     # ─── Режим 2: Кросс-платформенный арбитраж ──────────────────────────────
 
+    from agents.shared.python.llm_wrapper import with_retry
+    @with_retry(max_attempts=3, initial_backoff=2.0)
     def analyze_cross_platform(
         self,
         market_a: Market,

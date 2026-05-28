@@ -18,13 +18,25 @@ def _load():
         except Exception:
             _checkpoints_cache = {}
 
-def _save():
+import threading
+
+_save_timer = None
+
+def _save_sync():
+    global _save_timer
+    _save_timer = None
     try:
         CHECKPOINTS_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(CHECKPOINTS_FILE, "w", encoding="utf-8") as f:
             json.dump(_checkpoints_cache, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+def _save():
+    global _save_timer
+    if _save_timer is None:
+        _save_timer = threading.Timer(2.0, _save_sync)
+        _save_timer.start()
 
 # Инициализация
 _load()
@@ -43,9 +55,10 @@ def get_checkpoint(phase: str) -> Optional[Dict[str, Any]]:
     """Возвращает сохраненный чекпоинт для фазы."""
     return _checkpoints_cache.get(phase)
 
-def verify_checkpoint(phase: str) -> bool:
+def verify_checkpoint(phase: str, market_id: str = None) -> bool:
     """Проверяет, был ли успешно сохранён чекпоинт (и статус ok)."""
-    cp = get_checkpoint(phase)
+    key = f"{phase}_{market_id}" if market_id else phase
+    cp = get_checkpoint(key)
     if not cp:
         return False
     return cp.get("status") in ("ok", "success")

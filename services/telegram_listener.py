@@ -161,7 +161,14 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
         from core.engine import CoreEngine
         def _trigger_scan():
             eng = CoreEngine()
-            eng.run_team_discussion(market_id=market_id)
+            # Pass source_url and source_text for the whale branch to avoid scheduled downgrade
+            source_url = None
+            source_text = None
+            if source == "whale" and amount_usd:
+                source_text = f"Whale transaction detected: ${amount_usd:,.0f}"
+            else:
+                source_text = f"Triggered by: {source}"
+            eng.run_team_discussion(market_id=market_id, trigger_type="event_driven", source_url=source_url, source_text=source_text)
         threading.Thread(target=_trigger_scan, daemon=True).start()
             
         # Отправляем подтверждение в Telegram
@@ -256,15 +263,21 @@ async def main():
                     import httpx
                     import asyncio
                     async def trigger_analysis():
-                        async with httpx.AsyncClient() as client:
+                        username = getattr(chat, 'username', None)
+                        msg_id = event.message.id
+                        source_url = f"https://t.me/{username}/{msg_id}" if username else None
+                        async with httpx.AsyncClient() as c:
                             try:
-                                await client.post(
+                                await c.post(
                                     f"http://127.0.0.1:8000/api/analyze/{post_id}",
                                     json={
                                         "post_id": post_id, 
                                         "chat_id": str(TELEGRAM_GROUP2_TARGET_ID),
                                         "source_chat_id": str(chat.id),
-                                        "source_username": getattr(chat, 'username', None)
+                                        "source_username": username,
+                                        "source_message_id": msg_id,
+                                        "source_url": source_url,
+                                        "source_text": text[:500]
                                     }
                                 )
                             except Exception as e:

@@ -20,6 +20,8 @@ class SwingAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
+    from agents.shared.python.llm_wrapper import with_retry
+    @with_retry(max_attempts=3, initial_backoff=2.0)
     def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
         """
         Оценивает рынок на потенциал хайпа.

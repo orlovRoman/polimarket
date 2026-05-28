@@ -18,9 +18,9 @@ def with_retry(max_attempts: int = 3, initial_backoff: float = 2.0):
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
-            # Сначала проверяем, не DEAD ли шлюз
-            llm_health_gate.check_availability()
-            
+            # Сначала проверяем, не DEAD или DEGRADED ли шлюз (в режиме backoff)
+            if not llm_health_gate.check_availability():
+                raise LLMUnavailableError(f"LLM API is DEGRADED. Retry after {llm_health_gate.retry_after}")
             backoff = initial_backoff
             last_error = None
             

@@ -73,16 +73,16 @@ class CoreEngine:
     def get_active_markets(self) -> Dict[str, Any]:
         return self.active_markets
 
-    def run_team_discussion(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None):
+    def run_team_discussion(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
         if not self._scan_lock.acquire(blocking=False):
             logger.warning("Сканирование уже выполняется (другой поток). Пропускаем.")
             raise RuntimeError("Сканирование уже выполняется в фоновом режиме (возможно, по расписанию). Пожалуйста, подождите завершения текущего цикла.")
         try:
-            return self._run_team_discussion_inner(log_callback, summary_callback, category, market_id, state_callback)
+            return self._run_team_discussion_inner(log_callback, summary_callback, category, market_id, state_callback, **kwargs)
         finally:
             self._scan_lock.release()
 
-    def _run_team_discussion_inner(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None):
+    def _run_team_discussion_inner(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
         if summary_callback is None:
             summary_callback = send_telegram_alert
 
@@ -171,7 +171,19 @@ class CoreEngine:
                 save_price_point(m.id, m.price)
                 
                 # Параллельный парсинг и оценка
-                signal, swing_signal, context = run_agent_evaluation(m, self.scout, self.swing, _update_state)
+                from core.workflow import run_agent_evaluation, process_consensus
+                trigger_type = kwargs.get("trigger_type", "scheduled")
+                source_url = kwargs.get("source_url")
+                source_text = kwargs.get("source_text")
+                triggered_at = kwargs.get("triggered_at")
+                
+                signal, swing_signal, context = run_agent_evaluation(
+                    m, self.scout, self.swing, _update_state,
+                    trigger_type=trigger_type,
+                    source_url=source_url,
+                    source_text=source_text,
+                    triggered_at=triggered_at
+                )
                 
                 active_signal = signal or swing_signal
                 opinion_shadow = None
@@ -250,15 +262,16 @@ class CoreEngine:
 
     async def analyze_post_async(
         self, post_id: int, chat_id: str,
-        source_chat_id: str = "", source_username: str | None = None
+        source_chat_id: str = "", source_username: str | None = None,
+        source_message_id: int | None = None,
+        source_url: str | None = None,
+        source_text: str | None = None
     ):
         """
         Анализ поста Telegram.
         """
         from agents.shared.python.db import get_telegram_post_text, get_telegram_post_info, mark_telegram_post_status
         from agents.orchestrator.src.news_processor import NewsProcessor
-        from core.context import MarketContext
-        from agents.shared.utils.web_search import build_search_query, fetch_wikipedia_context
         
         post_info = get_telegram_post_info(post_id)
         if not post_info:
@@ -282,78 +295,23 @@ class CoreEngine:
 
         send_telegram_to_chat(f"Нашел {len(markets)} связанных рынков. Анализирую...", chat_id)
         
-        def dummy_update(**kwargs):
-            pass
+        market_id = markets[0].id if markets else None
 
-        for m in markets:
-            try:
-                full_m = self.adapter.get_market(m.id)
-                if not full_m: continue
-                
-                search_query = build_search_query(full_m.title)
-                wiki_context_list = fetch_wikipedia_context(search_query)
-                wiki_context_str = "\n".join(wiki_context_list) if wiki_context_list else ""
-                news_context = (
-                    "⚠️ РЕЖИМ EVENT-DRIVEN АНАЛИЗА.\n"
-                    "Ниже — конкретное сообщение из Telegram-канала. "
-                    "Твой анализ ДОЛЖЕН основываться прежде всего на информации из этого поста, "
-                    "а не на общих веб-поисках.\n\n"
-                    f"СООБЩЕНИЕ ИЗ TELEGRAM:\n{text}\n"
-                )
-                
-                post_source_url = None
-                if message_id:
-                    if source_username:
-                        post_source_url = f"https://t.me/{source_username}/{message_id}"
-                    elif source_chat_id.startswith("-100"):
-                        post_source_url = f"https://t.me/c/{source_chat_id[4:]}/{message_id}"
-
-                context = MarketContext(
-                    market=full_m,
-                    news_titles=[news_context],
-                    reddit_posts=[],
-                    wiki_context=wiki_context_str,
-                    trigger_type="event_driven",
-                    source_url=post_source_url,
-                    source_text=text[:120] if text else None,
-                    triggered_at=datetime.now(timezone.utc)
-                )
-                
-                signal = self.scout.estimate_market(context)
-                swing_signal = self.swing.estimate_market(context)
-                active_signal = signal or swing_signal
-                
-                opinion_shadow = None
-                if active_signal:
-                    orderbook = None
-                    target_outcome = getattr(active_signal, 'target_outcome', 'YES')
-                    if full_m.tokens:
-                        try:
-                            token_idx = 1 if target_outcome.upper() == 'NO' and len(full_m.tokens) > 1 else 0
-                            orderbook = self.adapter.get_orderbook(full_m.tokens[token_idx])
-                        except Exception as e:
-                            logger.error(f"Failed to fetch orderbook: {e}")
-                    
-                    from services.onchain_provider import get_recent_trades, get_top_positions
-                    from core.smart_money import analyze_smart_money
-                    onchain_trades = get_recent_trades(full_m.condition_id) if full_m.condition_id else []
-                    onchain_positions = get_top_positions(full_m.condition_id) if full_m.condition_id else []
-                    smart_money = analyze_smart_money(onchain_trades, onchain_positions)
-                    context.smart_money = smart_money
-
-                    opinion_shadow = self.shadow.analyze_idea(context, active_signal.details, orderbook=orderbook)
-                    
-                # Вызов process_consensus для единого форматирования сообщения
-                process_consensus(
-                    context=context,
-                    signal=signal,
-                    swing_signal=swing_signal,
-                    opinion_shadow=opinion_shadow,
-                    state={},
-                    update_state=dummy_update,
-                    summary_callback=lambda msg: send_telegram_to_chat(msg, chat_id)
-                )
-                mark_telegram_post_status(post_id, 'ANALYZED')
+        import asyncio
+        from datetime import datetime
+        await asyncio.to_thread(
+            self.run_team_discussion, 
+            None, 
+            lambda msg: send_telegram_to_chat(msg, chat_id), 
+            None, 
+            market_id, 
+            None,
+            trigger_type="event_driven",
+            source_url=source_url,
+            source_text=source_text,
+            triggered_at=datetime.now()
+        )
+        mark_telegram_post_status(post_id, 'ANALYZED')
                 
             except Exception as e:
                 logger.error(f"Error processing market {m.id} for post {post_id}: {e}", exc_info=True)

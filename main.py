@@ -59,7 +59,10 @@ async def scheduled_job():
         else:
             logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)
     except Exception as e:
-        logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)
+        if e.__class__.__name__ == "LLMUnavailableError":
+            logger.error(f"<<< Сканирование пропущено (LLM недоступен): {e}")
+        else:
+            logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)
 
 async def scheduled_memory_archive():
     logger.info(">>> Запуск процесса автоархивации памяти и GC (Memory GC)...")
