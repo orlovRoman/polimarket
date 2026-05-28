@@ -83,6 +83,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             pass
             
     if needs_screening:
+        from core.guards import LLMUnavailableError
         logger.info("--- 0. NEXUS скринирует все рынки ---")
         try:
             all_compact = adapter.list_all_markets_compact()
@@ -111,7 +112,6 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             save_checkpoint("screening", status="ok", markets_found=len(screened_market_ids))
                 
             return screened_market_ids
-        from core.guards import LLMUnavailableError
         except LLMUnavailableError as e:
             from core.checkpoint import save_checkpoint
             save_checkpoint("screening", status="llm_unavailable", error=str(e))
