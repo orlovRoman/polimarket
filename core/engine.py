@@ -237,7 +237,10 @@ class CoreEngine:
         log("\n✅ Обсуждение завершено.")
         return len(markets)
 
-    async def analyze_post_async(self, post_id: int, chat_id: str):
+    async def analyze_post_async(
+        self, post_id: int, chat_id: str,
+        source_chat_id: str = "", source_username: str | None = None
+    ):
         """
         Анализ поста Telegram.
         """
@@ -279,7 +282,13 @@ class CoreEngine:
                 search_query = build_search_query(full_m.title)
                 wiki_context_list = fetch_wikipedia_context(search_query)
                 wiki_context_str = "\n".join(wiki_context_list) if wiki_context_list else ""
-                news_context = f"КОНТЕКСТ СООБЩЕНИЯ ИЗ TELEGRAM:\n{text}\n\n"
+                news_context = (
+                    "⚠️ РЕЖИМ EVENT-DRIVEN АНАЛИЗА.\n"
+                    "Ниже — конкретное сообщение из Telegram-канала. "
+                    "Твой анализ ДОЛЖЕН основываться прежде всего на информации из этого поста, "
+                    "а не на общих веб-поисках.\n\n"
+                    f"СООБЩЕНИЕ ИЗ TELEGRAM:\n{text}\n"
+                )
                 
                 context = MarketContext(
                     market=full_m,
@@ -311,13 +320,11 @@ class CoreEngine:
                 # Формируем ссылку на оригинальный пост
                 post_link_str = ""
                 if message_id:
-                    # Если chat_id начинается с -100 (супергруппа/канал), то ссылка имеет вид:
-                    chat_id_str = str(chat_id)
-                    if chat_id_str.startswith("-100"):
-                        stripped_chat_id = chat_id_str[4:]
+                    if source_username:
+                        post_link_str = f"\n<a href='https://t.me/{source_username}/{message_id}'>🔗 Ссылка на пост</a>\n"
+                    elif source_chat_id.startswith("-100"):
+                        stripped_chat_id = source_chat_id[4:]
                         post_link_str = f"\n<a href='https://t.me/c/{stripped_chat_id}/{message_id}'>🔗 Ссылка на пост</a>\n"
-                    else:
-                        post_link_str = f"\n<a href='https://t.me/{chat_id_str}/{message_id}'>🔗 Ссылка на пост</a>\n"
 
                 summary_text = f"🗣 <b>Event-Driven Анализ (Рынок: {full_m.title}):</b>{post_link_str}\n<a href='{full_m.url}'>{full_m.title}</a>\n\n"
                 if active_signal:

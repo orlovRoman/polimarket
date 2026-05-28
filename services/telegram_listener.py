@@ -260,7 +260,12 @@ async def main():
                             try:
                                 await client.post(
                                     f"http://127.0.0.1:8000/api/analyze/{post_id}",
-                                    json={"post_id": post_id, "chat_id": str(TELEGRAM_GROUP2_TARGET_ID)}
+                                    json={
+                                        "post_id": post_id, 
+                                        "chat_id": str(TELEGRAM_GROUP2_TARGET_ID),
+                                        "source_chat_id": str(chat.id),
+                                        "source_username": getattr(chat, 'username', None)
+                                    }
                                 )
                             except Exception as e:
                                 print(f"[Listener] Ошибка вызова API: {e}")

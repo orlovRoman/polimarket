@@ -10,6 +10,8 @@ engine = CoreEngine()
 class AnalyzeRequest(BaseModel):
     post_id: int
     chat_id: str
+    source_chat_id: str = ""
+    source_username: str | None = None
 
 @app.get("/api/status")
 def get_status() -> Dict[str, Any]:
@@ -24,5 +26,11 @@ def analyze_post(post_id: int, request: AnalyzeRequest, background_tasks: Backgr
     if str(post_id) != str(request.post_id):
         raise HTTPException(status_code=400, detail="Path post_id and body post_id mismatch")
     
-    background_tasks.add_task(engine.analyze_post_async, request.post_id, request.chat_id)
+    background_tasks.add_task(
+        engine.analyze_post_async, 
+        request.post_id, 
+        request.chat_id,
+        request.source_chat_id,
+        request.source_username
+    )
     return {"status": "Analysis started in background", "post_id": post_id}
