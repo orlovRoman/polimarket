@@ -243,6 +243,14 @@ class CoreEngine:
                 process_consensus(context, signal, swing_signal, opinion_shadow, self.state, _update_state, summary_callback)
                 mark_market_analyzed(m.id, m.price)
                 
+            except LLMUnavailableError:
+                log("🔴 LLM API недоступен. Сканирование прервано.")
+                if summary_callback:
+                    try:
+                        summary_callback("🔴 <b>LLM недоступна</b>. Сканирование остановлено. Попробуйте позже.")
+                    except Exception as cb_err:
+                        logger.error(f"summary_callback error: {cb_err}")
+                break
             except Exception as e:
                 import traceback
                 error_msg = f"[ОШИБКА] Рынок {m.title}: {e}\n<pre>{traceback.format_exc()}</pre>"
@@ -299,8 +307,9 @@ class CoreEngine:
 
         import asyncio
         from datetime import datetime
-        if not source_url and source_username and message_id:
-            source_url = f"https://t.me/{source_username}/{message_id}"
+        effective_message_id = source_message_id or message_id
+        if not source_url and source_username and effective_message_id:
+            source_url = f"https://t.me/{source_username}/{effective_message_id}"
         await asyncio.to_thread(
             self.run_team_discussion, 
             None, 
