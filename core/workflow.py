@@ -8,7 +8,6 @@ from typing import Optional, Callable, Set, Dict
 from core.models import Market, Signal, SwingSignal, AgentOpinion, IdeaDecision
 from core.context import MarketContext
 
-_MAX_CORR_PEERS: int = 5   # топ-N корреляций для math_pre_filter
 
 from config import logger, SCREENING_INTERVAL_SEC, SCAN_LIMIT_DEFAULT, MIN_EDGE_DEFAULT, MAX_SCREENING_MARKETS
 from agents.shared.adapters.polymarket import PolymarketAdapter
@@ -29,6 +28,7 @@ from agents.polymarket_swing_agent.src.agent import SwingAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent
 from agents.orchestrator.src.agent import NexusAgent
 
+_MAX_CORR_PEERS: int = 5   # топ-N корреляций для math_pre_filter
 _SESSION_DEDUP_TTL_SEC: int = 1800
 _analyzed_in_session: Dict[str, float] = {}
 
