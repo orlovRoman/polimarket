@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
@@ -94,7 +94,10 @@ class SwingAgent:
         price_delta_6h = price_now - price_6h_ago
 
         close_dt = market.close_time
-        hours_to_close = max((close_dt - datetime.utcnow()).total_seconds() / 3600, 0)
+        now_utc = datetime.now(tz=timezone.utc)
+        if close_dt.tzinfo is None:
+            close_dt = close_dt.replace(tzinfo=timezone.utc)
+        hours_to_close = max((close_dt - now_utc).total_seconds() / 3600, 0)
 
         # Trends score
         trends_raw = context.trends_data  # строка или число — парсим
@@ -130,12 +133,14 @@ class SwingAgent:
 
         # Теперь считаем recent_news_count из уже обработанного списка
         recent_news_count = 0
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         for ni in news_items_to_guard:
             pub = ni.get("published")
             if pub:
                 try:
                     pub_dt = datetime.fromisoformat(pub)
+                    if pub_dt.tzinfo is None:
+                        pub_dt = pub_dt.replace(tzinfo=timezone.utc)
                     age_h = (now - pub_dt).total_seconds() / 3600
                     if 0 <= age_h <= 6:
                         recent_news_count += 1

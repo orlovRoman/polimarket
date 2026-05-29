@@ -153,7 +153,7 @@ def convert_openai_to_gemini(openai_res: dict) -> dict:
     if text:
         parts.append({"text": text})
         
-    tool_calls = message.get("tool_calls", [])
+    tool_calls = message.get("tool_calls") or []
     for tc in tool_calls:
         if tc.get("type") == "function":
             func = tc.get("function", {})
@@ -169,6 +169,9 @@ def convert_openai_to_gemini(openai_res: dict) -> dict:
                 }
             })
             
+    if not parts:
+        parts.append({"text": ""})
+        
     prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
     completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
     
@@ -199,7 +202,10 @@ def extract_prompt_from_payload(payload: dict) -> str:
 
 def extract_response_text(result: dict) -> str:
     try:
-        return result['candidates'][0]['content']['parts'][0]['text']
+        parts = result['candidates'][0]['content']['parts']
+        if not parts:
+            return ""
+        return parts[0].get('text', '')
     except Exception as e:
         MAX_ERR_DUMP = 500
         raw = json.dumps(result)
