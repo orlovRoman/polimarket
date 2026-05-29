@@ -566,15 +566,78 @@ async def callback_set_rag(callback: CallbackQuery) -> None:
     await callback.answer(f"RAG-уровень установлен на L{level}!")
     await send_settings_menu(callback)
 
-MODELS_MAPPING = {
-    "llama33": ("openrouter", "meta-llama/llama-3.3-70b-instruct:free", "🦙 Llama 3.3"),
-    "nemotron": ("openrouter", "nvidia/nemotron-3-super-120b-a12b:free", "🟢 Nemotron 3 (Free)"),
-    "glm_45": ("openrouter", "z-ai/glm-4.5-air:free", "🟣 GLM 4.5 Air (Free)"),
-    "gemini25": ("gemini", "gemini-2.5-flash", "✨ Gemini 2.5 Flash"),
-    "gemini25pro": ("gemini", "gemini-2.5-pro", "🧠 Gemini 2.5 Pro"),
-    "geminithink": ("gemini", "gemini-2.0-flash-thinking-exp-01-21", "🤔 Gemini Thinking"),
-    "cerebras": ("cerebras", "cerebras_round_robin", "⚡ Cerebras (Round Robin)")
-}
+def get_nice_model_name(model_id: str) -> str:
+    """Возвращает красивое форматированное имя модели с эмодзи."""
+    model_lower = model_id.lower()
+    
+    # Извлекаем базовое имя
+    display_name = model_id.split("/")[-1] if "/" in model_id else model_id
+    
+    if "gemini-2.5-flash" in model_lower:
+        return "✨ Gemini 2.5 Flash"
+    elif "gemini-2.0-flash-lite" in model_lower:
+        return "⚡ Gemini 2.0 Flash Lite"
+    elif "gemini-2.0-flash-exp" in model_lower:
+        return "🧪 Gemini 2.0 Flash Exp"
+    elif "gemini-2.0-flash-thinking" in model_lower:
+        return "🤔 Gemini Thinking"
+    elif "gemini-2.0-flash" in model_lower:
+        return "⚡ Gemini 2.0 Flash"
+    elif "gemini-2.5-pro" in model_lower:
+        return "🧠 Gemini 2.5 Pro"
+    elif "llama-3.3" in model_lower:
+        return "🦙 Llama 3.3"
+    elif "nemotron" in model_lower:
+        return "🟢 Nemotron 3 (Free)"
+    elif "glm-4.5-air" in model_lower or "glm_45" in model_lower:
+        return "🟣 GLM 4.5 Air (Free)"
+    elif "qwen" in model_lower:
+        return "🤖 Qwen"
+    elif "cerebras_round_robin" in model_lower:
+        return "⚡ Cerebras (Round Robin)"
+    elif "cerebras" in model_lower:
+        return f"⚡ Cerebras ({display_name})"
+        
+    formatted = display_name.replace(":free", "").replace("-instruct", "").title()
+    if "gemini" in model_lower:
+        return f"✨ {formatted}"
+    return formatted
+
+def get_dynamic_models_mapping() -> dict:
+    """Динамически формирует маппинг на основе доступных моделей в PROVIDERS_CONFIG."""
+    from agents.shared.utils.gemini_client import PROVIDERS_CONFIG
+    
+    mapping = {}
+    
+    # 1. Gemini
+    for m in PROVIDERS_CONFIG["gemini"]["models"]:
+        key = "gemini_" + m.replace("-", "_").replace(".", "_")
+        mapping[key] = ("gemini", m, get_nice_model_name(m))
+        
+    # Принудительно добавляем Thinking, если его нет в PROVIDERS_CONFIG
+    think_model = "gemini-2.0-flash-thinking-exp-01-21"
+    if not any(v[1] == think_model for v in mapping.values()):
+        mapping["geminithink"] = ("gemini", think_model, get_nice_model_name(think_model))
+        
+    # 2. OpenRouter
+    or_models = list(PROVIDERS_CONFIG["openrouter"]["models"])
+    # Добавляем популярные модели, чтобы они всегда были в списке переключения
+    for m in ["meta-llama/llama-3.3-70b-instruct:free", "nvidia/nemotron-3-super-120b-a12b:free", "z-ai/glm-4.5-air:free"]:
+        if m not in or_models:
+            or_models.append(m)
+            
+    for m in or_models:
+        suffix = m.split("/")[-1].split(":")[0].replace("-", "_").replace(".", "_")
+        key = f"or_{suffix}"
+        mapping[key] = ("openrouter", m, get_nice_model_name(m))
+        
+    # 3. Cerebras
+    mapping["cerebras"] = ("cerebras", "cerebras_round_robin", "⚡ Cerebras (Round Robin)")
+    for m in PROVIDERS_CONFIG["cerebras"]["models"]:
+        key = "cerebras_" + m.replace("-", "_").replace(".", "_")
+        mapping[key] = ("cerebras", m, f"⚡ Cerebras ({m})")
+    
+    return mapping
 
 async def send_models_menu(message_or_callback):
     from agents.shared.python.db import get_memory, get_agent_model, get_detailed_token_usage_last_24h
@@ -599,16 +662,19 @@ async def send_models_menu(message_or_callback):
             active_model = await asyncio.to_thread(get_agent_model, agent, default_models[agent])
             
         dashboard_lines.append(f"● <b>Агент {agent}</b>")
-        dashboard_lines.append(f"  Активная модель: <code>{active_model}</code>")
+        dashboard_lines.append(f"  Активная модель: <code>{get_nice_model_name(active_model)}</code>")
         
         # Получаем детальный расход за 24 часа
         usage = await asyncio.to_thread(get_detailed_token_usage_last_24h, agent)
         
+        # Фильтруем модели с 0 токенов, чтобы динамически скрывать неиспользуемые
+        usage_active = [item for item in usage if item.get("total_tokens", 0) > 0]
+        
         agent_cost = 0.0
-        if not usage:
-            dashboard_lines.append("  <i>Нет вызовов за последние 24ч</i>")
+        if not usage_active:
+            dashboard_lines.append("  <i>Нет успешных вызовов за последние 24ч</i>")
         else:
-            for item in usage:
+            for item in usage_active:
                 m_name = item["model_name"]
                 in_t = item["input_tokens"]
                 out_t = item["output_tokens"]
@@ -617,10 +683,10 @@ async def send_models_menu(message_or_callback):
                 cost = estimate_llm_cost(m_name, in_t, out_t)
                 agent_cost += cost
                 
-                # Сокращаем длинные имена моделей для аккуратности
-                display_name = m_name.split("/")[-1] if "/" in m_name else m_name
-                if len(display_name) > 28:
-                    display_name = display_name[:25] + "..."
+                # Получаем красивое имя модели
+                display_name = get_nice_model_name(m_name)
+                if len(display_name) > 35:
+                    display_name = display_name[:32] + "..."
                 
                 dashboard_lines.append(f"  - <code>{display_name}</code>: {tot_t:,} токенов (${cost:.4f})")
                 
@@ -658,15 +724,17 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
     current_model_id = current_config.get("model", "Дефолт (.env)")
     
     # Пытаемся найти красивое имя модели
-    nice_model_name = current_model_id
+    nice_model_name = get_nice_model_name(current_model_id)
     is_default = False
     
     if current_model_id == "Дефолт (.env)":
         # Если ручная модель не задана, по умолчанию используется Gemini 2.5 Flash
         current_model_id = "gemini-2.5-flash"
         is_default = True
+        nice_model_name = get_nice_model_name(current_model_id)
         
-    for k, v in MODELS_MAPPING.items():
+    models_mapping = get_dynamic_models_mapping()
+    for k, v in models_mapping.items():
         if v[1] == current_model_id:
             nice_model_name = v[2]
             break
@@ -675,7 +743,7 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
         nice_model_name += " (По умолчанию)"
             
     buttons = []
-    for key, val in MODELS_MAPPING.items():
+    for key, val in models_mapping.items():
         buttons.append([InlineKeyboardButton(text=val[2], callback_data=f"sm_{agent}_{key}")])
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_models")])
     
@@ -693,7 +761,8 @@ async def callback_save_model(callback: CallbackQuery) -> None:
     agent = parts[1]
     model_key = "_".join(parts[2:])
     
-    provider, model_name, _ = MODELS_MAPPING.get(model_key, MODELS_MAPPING["llama33"])
+    models_mapping = get_dynamic_models_mapping()
+    provider, model_name, _ = models_mapping.get(model_key, ("openrouter", "meta-llama/llama-3.3-70b-instruct:free", "🦙 Llama 3.3"))
     
     from agents.shared.python.db import save_memory
     config = {"provider": provider, "model": model_name}
