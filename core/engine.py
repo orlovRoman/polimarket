@@ -21,6 +21,18 @@ from services.notifications import send_telegram as send_telegram_alert
 
 logger = logging.getLogger("CoreEngine")
 
+import inspect
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
+def _callback_accepts_reply_markup(func) -> bool:
+    """Кэшируем результат inspect.signature — дорогая операция."""
+    try:
+        sig = inspect.signature(func)
+        return "reply_markup" in sig.parameters
+    except (ValueError, TypeError):
+        return False
+
 class NoMarketsFoundError(Exception):
     """Исключение, выбрасываемое когда активные рынки по фильтрам не найдены."""
     pass
@@ -140,9 +152,7 @@ class CoreEngine:
                         ]
                     }
                     text = f"🔴 <b>LLM недоступна у агента {agent_name}</b>. Сканирование остановлено. Попробуйте позже."
-                    import inspect
-                    sig = inspect.signature(summary_callback)
-                    if "reply_markup" in sig.parameters:
+                    if _callback_accepts_reply_markup(summary_callback):
                         summary_callback(text, reply_markup=reply_markup)
                     else:
                         summary_callback(text)
@@ -304,9 +314,7 @@ class CoreEngine:
                             ]
                         }
                         text = f"🔴 <b>LLM недоступна у агента {agent_name}</b>. Сканирование остановлено. Попробуйте позже."
-                        import inspect
-                        sig = inspect.signature(summary_callback)
-                        if "reply_markup" in sig.parameters:
+                        if _callback_accepts_reply_markup(summary_callback):
                             summary_callback(text, reply_markup=reply_markup)
                         else:
                             summary_callback(text)
@@ -355,7 +363,7 @@ class CoreEngine:
 
         # ── Дедупликация: пропускаем посты, которые уже обрабатываются или обработаны ──
         current_status = post_info.get('status', 'NEW')
-        if current_status in ('PROCESSING', 'ANALYZED', 'NO_MARKETS'):
+        if current_status in ('PROCESSING', 'ANALYZED'):
             logger.info(f"Post {post_id} already in status '{current_status}', skipping duplicate run.")
             return
 
@@ -394,6 +402,12 @@ class CoreEngine:
 
             def _notify(msg: str, reply_markup: dict = None) -> None:
                 send_telegram_to_chat(msg, chat_id, reply_markup=reply_markup)
+
+            if len(markets) > 3:
+                logger.info(
+                    f"Post {post_id}: найдено {len(markets)} рынков, "
+                    f"анализируем первые 3 (остальные пропущены)."
+                )
 
             for m in markets[:3]:
                 try:
