@@ -10,6 +10,15 @@ class Market(BaseModel):
     url: str
     outcome: str
     price: float
+
+    @field_validator('price')
+    @classmethod
+    def validate_price(cls, v):
+        v = float(v)
+        if v > 1.0:
+            v = v / 100.0
+        return max(0.0, min(1.0, v))
+
     close_time: datetime
     tokens: Optional[List[str]] = None  # clobTokenIds для CLOB API (orderbook)
     volume: Optional[float] = None      # Объём торгов (для ранжирования)
@@ -88,6 +97,28 @@ class SwingSignal(BaseModel):
             return 'ignore'
         return normalized
 
+    @field_validator('target_outcome', mode='before')
+    @classmethod
+    def normalize_target_outcome(cls, v: str) -> str:
+        normalized = str(v).upper().strip()
+        if normalized in ('YES', 'NO'):
+            return normalized
+        if normalized in ('Y', '1', 'TRUE', 'BUY_YES'):
+            return 'YES'
+        if normalized in ('N', '0', 'FALSE', 'BUY_NO'):
+            return 'NO'
+        return normalized
+
+    @field_validator('confidence', 'hype_potential')
+    @classmethod
+    def clamp_0_1(cls, v):
+        if v is None:
+            return v
+        v = float(v)
+        if v > 1.0 and v <= 100.0:
+            v = v / 100.0
+        return max(0.0, min(1.0, v))
+
 class AgentOpinion(BaseModel):
     agent_name: str
     market_id: str = ""
@@ -105,6 +136,14 @@ class AgentOpinion(BaseModel):
     @classmethod
     def normalize_liquidity_risk(cls, v: str) -> str:
         return str(v).upper()
+
+    @field_validator('confidence')
+    @classmethod
+    def clamp_confidence(cls, v):
+        v = float(v)
+        if v > 1.0 and v <= 100.0:
+            v = v / 100.0
+        return max(0.0, min(1.0, v))
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
