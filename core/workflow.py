@@ -122,14 +122,18 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
             from agents.shared.python.db import get_recently_analyzed_market_ids
             already_analyzed = get_recently_analyzed_market_ids(within_seconds=SCREENING_INTERVAL_SEC)
-            screen_result = nexus.screen_markets(prefiltered, top_n=30, exclude_ids=already_analyzed)
-            screened_market_ids = screen_result.get("top_candidates", [])
-            correlations_count = len(screen_result.get("correlations", []))
+            
+            from core.market_scorer import screen_markets_code
+            screened_market_ids = screen_markets_code(
+                [m for m in prefiltered if m['id'] not in set(already_analyzed)],
+                top_n=30
+            )
+            correlations_count = 0
             
             save_memory("screened_market_ids", screened_market_ids, category='cache', ttl=SCREENING_INTERVAL_SEC)
             save_memory("last_screen_time", now.isoformat(), category='cache', ttl=SCREENING_INTERVAL_SEC)
             
-            logger.info(f"  NEXUS отобрал {len(screened_market_ids)} кандидатов, найдено {correlations_count} корреляций")
+            logger.info(f"  [screening] score_markets_code: отобрано {len(screened_market_ids)} кандидатов")
             
             if correlations_count > 0 and summary_callback:
                 from services.notifications import send_correlation_alerts
