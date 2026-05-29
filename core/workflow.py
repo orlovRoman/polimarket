@@ -275,53 +275,67 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
 
     if summary_callback and decision.status == 'saved':
         # Определяем действие
-        trade_action = "BUY YES"
-        entry_price = m.price
-        if signal:
-            outcome = getattr(signal, 'target_outcome', 'YES').upper()
-            trade_action = f"BUY {outcome}"
-            entry_price = m.price if outcome == "YES" else round(1 - m.price, 2)
+        price_yes = int(m.price * 100)
+        price_no = 100 - price_yes
         
-        # Guard: отсекаем 0.0 и 1.0 (и выход за пределы)
-        if not (0.01 <= entry_price <= 0.99):
-            entry_price = None
-
-        price_str = f"<b>{int(entry_price * 100)}¢</b>" if entry_price else "<b>цена уточняется</b>"
-        
-        # Заголовок — действие
+        # Заголовок — обсуждение рынка
         summary_text = (
-            f"💰 <b>СИГНАЛ: {trade_action}</b> — "
-            f"<a href='{m.url}'>{m.title}</a>\n"
-            f"📍 Вход: {price_str} | Лимитным ордером\n"
+            f"🗣️ <b>Обсуждение рынка:</b>\n"
+            f"<a href='{m.url}'>{m.title}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n\n"
         )
         
         # Источник (если event-driven)
         if context.trigger_type == "event_driven" and context.source_url and context.source_url.strip():
             source_label = context.source_text or "Источник"
-            summary_text += f"📡 <a href='{context.source_url}'>{source_label}</a>\n"
-            
-        summary_text += "\n"
+            summary_text += f"📡 <b>Триггер:</b> <a href='{context.source_url}'>{source_label}</a>\n\n"
         
-        # Компактная аналитика
+        # Детальная аналитика по каждому агенту
         if signal:
-            verdict = getattr(signal, 'signal_verdict', '') or getattr(signal, 'signal_cause', '')
-            summary_text += f"🧠 <b>SCOUT:</b> {verdict[:120]}\n"
+            summary_text += "🧠 <b>SCOUT (Фундаментал):</b>\n"
+            cause = getattr(signal, 'signal_cause', '') or getattr(signal, 'summary', '')
+            summary_text += f"🎯 Причина: {cause}\n"
+            risk = getattr(signal, 'signal_risk', '') or getattr(signal, 'details', '')
+            summary_text += f"⚖️ Риск: {risk}\n"
+            oracle_risk = getattr(signal, 'oracle_risk', '')
+            if oracle_risk:
+                summary_text += f"👁️ Оракул-риск: {oracle_risk}\n"
+            verdict = getattr(signal, 'signal_verdict', '') or getattr(signal, 'trade_action', '')
+            summary_text += f"📝 Вердикт: {verdict}\n\n"
         
         if swing_signal:
-            catalyst = getattr(swing_signal, 'catalyst', '') or getattr(swing_signal, 'catalyst_absence_reason', '')
-            summary_text += f"🏄 <b>SWING:</b> {catalyst[:120]}\n"
+            summary_text += "🏄 <b>SWING (Хайп):</b>\n"
+            catalyst = getattr(swing_signal, 'catalyst', '')
+            if catalyst:
+                summary_text += f"🚀 Катализатор: {catalyst}\n"
+            else:
+                quiet_reason = getattr(swing_signal, 'catalyst_absence_reason', '')
+                if quiet_reason:
+                    summary_text += f"💤 Почему тихо: {quiet_reason}\n"
+            risk = getattr(swing_signal, 'swing_risk', '') or getattr(swing_signal, 'details', '')
+            if risk:
+                summary_text += f"⚖️ Риск: {risk}\n"
+            verdict = getattr(swing_signal, 'swing_verdict', '') or getattr(swing_signal, 'recommendation', '')
+            summary_text += f"📝 Вердикт: {verdict}\n\n"
             
         if opinion_shadow:
             shadow_status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
-            liq = getattr(opinion_shadow, 'liquidity_risk', 'medium').upper()
+            summary_text += f"🛡️ <b>SHADOW (Инфраструктура):</b> {shadow_status}\n"
+            liq = getattr(opinion_shadow, 'liquidity_risk', 'MEDIUM').upper()
+            summary_text += f"💧 Риск ликвидности: {liq}\n"
             ob = getattr(opinion_shadow, 'orderbook_facts', '')
-            summary_text += f"🛡 <b>SHADOW:</b> {shadow_status} | Ликвидность: {liq} | {ob[:80]}\n"
+            if ob:
+                summary_text += f"📊 Ордербук: {ob}\n"
+            execution_risk = getattr(opinion_shadow, 'risk_assessment', '')
+            if execution_risk:
+                summary_text += f"⚖️ Исполнение: {execution_risk}\n"
+            verdict = getattr(opinion_shadow, 'shadow_verdict', '') or getattr(opinion_shadow, 'opinion', '')
+            summary_text += f"📝 Вердикт: {verdict}\n\n"
             
         # Арбитраж из math_filter (если есть)
         math_result = getattr(context, 'math_filter_result', None)
         if math_result and math_result.has_arbitrage:
             if math_result.trade_instruction and math_result.trade_instruction.strip():
-                summary_text += f"\n⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{math_result.trade_instruction}\n"
+                summary_text += f"⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{math_result.trade_instruction}\n\n"
             else:
                 logger.warning(f"[math_filter] has_arbitrage=True but trade_instruction empty for {m.id}")
 

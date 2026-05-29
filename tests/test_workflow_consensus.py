@@ -85,7 +85,7 @@ def test_callback_called_when_consensus(mock_make, mock_save_signal):
     
     callback.assert_called_once()
     text = callback.call_args[0][0]
-    assert "СИГНАЛ: BUY NO" in text
+    assert "Обсуждение рынка:" in text
 
 
 # ── 2. BUY direction формируется корректно ─────────────────
@@ -102,8 +102,7 @@ def test_buy_yes_signal(mock_make, mock_save_signal):
                       state={}, update_state=MagicMock(), summary_callback=callback)
     
     text = callback.call_args[0][0]
-    assert "BUY YES" in text
-    assert "54¢" in text  # entry_price = m.price (0.54) для YES
+    assert "YES: 54¢" in text
 
 
 @patch("core.workflow.save_signal", create=True)
@@ -118,11 +117,10 @@ def test_buy_no_entry_price(mock_make, mock_save_signal):
                       state={}, update_state=MagicMock(), summary_callback=callback)
     
     text = callback.call_args[0][0]
-    assert "BUY NO" in text
-    assert "46¢" in text  # 1 - 0.54 = 0.46
+    assert "NO: 46¢" in text
 
 
-# ── 3. entry_price=0 → guard выводит заглушку ──────────────
+# ── 3. (Устарело, price теперь напрямую берётся для отображения YES/NO) ──
 
 @patch("core.workflow.save_signal", create=True)
 @patch("core.workflow.make_consensus")
@@ -136,9 +134,7 @@ def test_zero_price_guard(mock_make, mock_save_signal):
                       state={}, update_state=MagicMock(), summary_callback=callback)
     
     text = callback.call_args[0][0]
-    # Не должно быть "0¢" — должна быть заглушка
-    assert "0¢" not in text
-    assert "уточняется" in text
+    assert "YES: 0¢ | NO: 100¢" in text
 
 
 # ── 4. source_url event-driven ──────────────────────────────
