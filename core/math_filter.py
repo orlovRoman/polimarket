@@ -45,19 +45,21 @@ def _parse_threshold(title: str) -> Optional[tuple[float, str]]:
     def _is_year(v: float) -> bool:
         return _cur_year - 2 <= v <= _cur_year + 10
 
-    # Проход 1: число сразу после контекстного слова-порога
+    # Проход 1: ищем число сразу после контекстного слова-порога.
+    # Используем finditer (а не search), чтобы перебрать ВСЕ матчи: если первый оказался годом,
+    # пробуем следующий — вместо того чтобы сразу падать в max()-фоллбэк.
     _CTX = r'(?:above|below|over|under|hit|reach(?:es)?|at|exceed(?:s)?|cross(?:es)?|surpass(?:es)?|top(?:s)?)'
-    m = re.search(rf'{_CTX}\s+\$?([\d]{{3,}}(?:,\d{{3}})*(?:\.\d+)?)\b', title)
-    if m:
+    _ctx_pattern = rf'{_CTX}\s+\$?([\d]{{3,}}(?:,\d{{3}})*(?:\.\d+)?)\b'
+    for _m in re.finditer(_ctx_pattern, title):
         try:
-            val = float(m.group(1).replace(',', ''))
+            val = float(_m.group(1).replace(',', ''))
             if not _is_year(val):
                 return (val, 'pts')
         except ValueError:
             pass
 
-    # Проход 2: fallback — берём МАКСИМАЛЬНОЕ не-год число из всех 3+ цифр.
-    # Порог обычно крупнее идентификатора (5500 > 500), поэтому max() верный выбор.
+    # Проход 2: истинный fallback — контекстных слов нет, берём max() из всех 3+ цифр.
+    # Примечание: max() не идеален, но в остатке лучшей эвристики нет: порог обычно крупнее случайных чисел.
     _candidates = re.findall(r'\b(\d{3,}(?:\.\d+)?)\b', title)
     _valid = []
     for _c in _candidates:
@@ -85,9 +87,10 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
     
     explicit_pairs = [
         ('democrat', 'republican'),
-        ('trump', 'harris'),
-        ('trump', 'biden'),
-        ('kamala', 'trump')
+        ('dem', 'rep'),
+        # Примечание: пары конкретных кандидатов (напр. trump/harris) удалены умышленно:
+        # они устаревают после выборов и дают false-positive на исторических закрытых рынках.
+        # Добавляйте актуальные пары здесь по мере появления новых выборных рынков.
     ]
     for w1, w2 in explicit_pairs:
         if (w1 in a and w2 in b) or (w2 in a and w1 in b):
