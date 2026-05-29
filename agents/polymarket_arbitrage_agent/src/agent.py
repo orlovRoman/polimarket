@@ -131,20 +131,24 @@ class ArbitrageAgent:
             )
         # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
 
+        from agents.shared.utils.prompt_guards import guard_description
+        desc_a = guard_description(market_a.description) if (hasattr(market_a, "description") and market_a.description) else (
+            "⚠️ description_a ОТСУТСТВУЕТ — logical_contradiction невозможно."
+        )
+        desc_b = guard_description(market_b.description) if (hasattr(market_b, "description") and market_b.description) else (
+            "⚠️ description_b ОТСУТСТВУЕТ — logical_contradiction невозможно."
+        )
+
         prompt = f"""Оцени следующую пару рынков на предмет кросс-рыночного арбитража.
 Тип корреляции, обнаруженный системой: {correlation_type} (score: {score})
 
-=== Рынок A ===
-ID: {market_a.id}
-Название: {market_a.title}
-Описание: {market_a.description}
+=== РЫНОК A: {market_a.title} ===
 Цена YES: {market_a.price}
+{desc_a}
 
-=== Рынок B ===
-ID: {market_b.id}
-Название: {market_b.title}
-Описание: {market_b.description}
+=== РЫНОК B: {market_b.title} ===
 Цена YES: {market_b.price}
+{desc_b}
 
 Есть ли здесь логическое или математическое противоречие (расхождение) в ценах?"""
 
@@ -173,6 +177,21 @@ ID: {market_b.id}
             content = extract_response_text(result)
             content = content.replace("```json", "").replace("```", "").strip()
             data = json.loads(content, strict=False)
+
+            # Гард: logical_contradiction без description — понижаем автоматически
+            if data.get("arbitrage_type") == "logical_contradiction":
+                desc_a_missing = not (hasattr(market_a, "description") and market_a.description)
+                desc_b_missing = not (hasattr(market_b, "description") and market_b.description)
+                if desc_a_missing or desc_b_missing:
+                    print(
+                        "[ARBITRAGE] logical_contradiction при отсутствующем description. "
+                        "Автопонижение до statistical_pair_trade."
+                    )
+                    data["arbitrage_type"] = "statistical_pair_trade"
+                    data["reasoning"] = (
+                        "[AUTO-DOWNGRADE] Тип изменён с logical_contradiction на statistical_pair_trade: "
+                        "описание одного из рынков недоступно, проверка оракулов невозможна.\n"
+                    ) + data.get("reasoning", "")
 
             spread_val = mf.spread_pct
                 
@@ -274,6 +293,14 @@ ID: {market_b.id}
                          f"Best Ask: {orderbook_b.get('top_ask', 'N/A')})\n")
 
         # BUG-03: Убрано дублирующее "Отвечай строго JSON." 
+        from agents.shared.utils.prompt_guards import guard_description
+        desc_a = guard_description(market_a.description) if (hasattr(market_a, "description") and market_a.description) else (
+            "⚠️ description_a ОТСУТСТВУЕТ — logical_contradiction невозможно."
+        )
+        desc_b = guard_description(market_b.description) if (hasattr(market_b, "description") and market_b.description) else (
+            "⚠️ description_b ОТСУТСТВУЕТ — logical_contradiction невозможно."
+        )
+
         prompt = f"""Ты — аналитик кросс-платформенного арбитража рынков предсказаний.
 
 Два рынка с РАЗНЫХ платформ, которые, по всей видимости, описывают ОДНО событие:
@@ -284,11 +311,15 @@ ID: {market_b.id}
   URL: {market_a.url}
   Закрытие: {market_a.close_time.strftime('%Y-%m-%d')}
 
+{desc_a}
+
 Рынок B ({market_b.platform.upper()}):
   Название: {market_b.title}
   Цена YES (mid-price): {market_b.price:.3f} ({int(market_b.price * 100)}¢){book_info}
   URL: {market_b.url}
   Закрытие: {market_b.close_time.strftime('%Y-%m-%d')}
+
+{desc_b}
 
 Вычисленный keyword-match: {match_score:.2f}
 Прямой спред цен YES: {spread_percent:.1f}¢
@@ -330,6 +361,21 @@ ID: {market_b.id}
         try:
             data = json.loads(extract_response_text(result).strip())
             
+            # Гард: logical_contradiction без description — понижаем автоматически
+            if data.get("arbitrage_type") == "logical_contradiction":
+                desc_a_missing = not (hasattr(market_a, "description") and market_a.description)
+                desc_b_missing = not (hasattr(market_b, "description") and market_b.description)
+                if desc_a_missing or desc_b_missing:
+                    print(
+                        "[ARBITRAGE] logical_contradiction при отсутствующем description. "
+                        "Автопонижение до statistical_pair_trade."
+                    )
+                    data["arbitrage_type"] = "statistical_pair_trade"
+                    data["reasoning"] = (
+                        "[AUTO-DOWNGRADE] Тип изменён с logical_contradiction на statistical_pair_trade: "
+                        "описание одного из рынков недоступно, проверка оракулов невозможна.\n"
+                    ) + data.get("reasoning", "")
+
             spread_val = mf.spread_pct
 
             return CrossArbitrageSignal(
