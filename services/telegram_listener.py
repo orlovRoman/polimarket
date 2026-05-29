@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import time
 import asyncio
 import threading
 import httpx
@@ -17,8 +18,36 @@ from config import (
     TELEGRAM_GROUP2_TARGET_ID, WHALE_ALERT_MIN_USD,
     TELEGRAM_BOT_ID
 )
-from agents.shared.python.db import save_trader_transaction, get_connection
+from agents.shared.python.db import save_trader_transaction, get_connection, save_telegram_post
 from agents.shared.adapters.polymarket import PolymarketAdapter
+from services.notifications import send_telegram as send_telegram_notify
+
+try:
+    from telethon.errors import FloodWaitError
+except ImportError:
+    FloodWaitError = Exception
+
+_ENTITY_CACHE_TTL = 3600
+_entity_username_cache: dict[int, tuple[str, float]] = {}
+
+def _get_cached_username(chat_id: int) -> str | None:
+    entry = _entity_username_cache.get(chat_id)
+    if entry and (time.time() - entry[1]) < _ENTITY_CACHE_TTL:
+        return entry[0]
+    return None
+
+def _set_cached_username(chat_id: int, username: str) -> None:
+    _entity_username_cache[chat_id] = (username, time.time())
+
+def _is_target_source_match(chat_name: str, chat_id: int, target_sources: list[str]) -> bool:
+    """Точное совпадение по username или chat_id, без подстрочного поиска."""
+    name_lower = chat_name.lower()
+    chat_id_str = str(chat_id)
+    for s in target_sources:
+        clean_s = s.replace('@', '').lower()
+        if clean_s == name_lower or clean_s == chat_id_str:
+            return True
+    return False
 
 _API_ANALYZE_TIMEOUT = 10.0
 
@@ -213,8 +242,7 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
         threading.Thread(target=_trigger_scan, daemon=True).start()
             
         # Отправляем подтверждение в Telegram
-        from services.notifications import send_telegram
-        send_telegram(msg_text)
+        send_telegram_notify(msg_text)
         
     except Exception as e:
         print(f"[Listener] Ошибка запуска мгновенного сканирования: {e}")
@@ -278,8 +306,6 @@ async def main():
         for s in target_sources:
             if s not in chats_to_listen:
                 chats_to_listen.append(s.replace('@', ''))
-                
-    _entity_cache: dict = {}   # chat_id → entity с username
         
     @client.on(events.NewMessage(chats=chats_to_listen))
     async def handler(event):
@@ -306,15 +332,19 @@ async def main():
         
         # Если username не получен — пробуем получить полный entity
         if not getattr(chat, 'username', None):
-            cached = _entity_cache.get(chat.id)
-            if cached:
-                chat = cached
+            cached_username = _get_cached_username(chat.id)
+            if cached_username:
+                chat = type('CachedChat', (), {
+                    'username': cached_username,
+                    'id': chat.id,
+                    'title': getattr(chat, 'title', '')
+                })()
             else:
                 try:
-                    from telethon.errors import FloodWaitError
                     full_entity = await client.get_entity(chat.id)
-                    if getattr(full_entity, 'username', None):
-                        _entity_cache[chat.id] = full_entity   # кэшируем
+                    uname = getattr(full_entity, 'username', None)
+                    if uname:
+                        _set_cached_username(chat.id, uname)   # кэшируем только строку
                         chat = full_entity
                 except FloodWaitError as e:
                     print(f"[Listener] ⏳ FloodWait: get_entity заблокирован на {e.seconds}с "
@@ -331,14 +361,13 @@ async def main():
         
         try:
             is_target_source = False
-            if any(s in chat_name.lower() or s.replace('@', '') in chat_name.lower() or s == str(chat.id) for s in target_sources):
+            if _is_target_source_match(chat_name, chat.id, target_sources):
                 is_target_source = True
                 
                 if "polymarketalerthub" in chat_name.lower():
                     print(f"[Listener] ⚠️ ВНИМАНИЕ: polymarketalerthub добавлен в target_sources! Это приведет к двойному анализу (глубокий API + быстрый Nexus).")
                     
                 # 1. Запускаем глубокий Event-Driven анализ
-                from agents.shared.python.db import save_telegram_post
                 post_id = save_telegram_post(str(chat.id), msg_id, text)
                 if post_id and TELEGRAM_GROUP2_TARGET_ID:
                     print(f"[Listener] 🧠 Триггерим глубокий анализ поста из {chat_name} (ID: {post_id})...")
