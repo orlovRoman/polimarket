@@ -295,7 +295,27 @@ class CoreEngine:
                         scout_opinion = getattr(signal, 'details', '') or getattr(signal, 'signal_cause', '') if signal else ""
                         swing_opinion = getattr(swing_signal, 'details', '') or getattr(swing_signal, 'catalyst', '') if swing_signal else ""
                         combined_opinion = "\n\n".join(filter(None, [scout_opinion, swing_opinion]))
-                        opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, orderbook=orderbook, price_history=price_hist)
+                        
+                        from core.liquidity_checker import check_liquidity_fast
+                        liq = check_liquidity_fast(orderbook)
+                        has_smart_money = bool(smart_money and getattr(smart_money, 'available', False))
+                        
+                        if not liq.ok and not has_smart_money:
+                            from core.models import AgentOpinion
+                            opinion_shadow = AgentOpinion(
+                                agent_name="SHADOW",
+                                market_id=m.id,
+                                opinion=liq.reason,
+                                confidence=liq.confidence,
+                                agree=False,
+                                orderbook_facts=liq.reason,
+                                risk_assessment="Ордербук пуст, Smart Money отсутствуют",
+                                shadow_verdict="SHADOW: авто-отклонение (нет данных)",
+                                liquidity_risk=liq.liquidity_risk
+                            )
+                            logger.info(f"  [SHADOW fast-path] Авто-отклонение: {liq.reason}")
+                        else:
+                            opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, orderbook=orderbook, price_history=price_hist)
                         save_checkpoint(f"shadow_{m.id}", status="ok")
                     except LLMUnavailableError:
                         save_checkpoint(f"shadow_{m.id}", status="llm_unavailable")
