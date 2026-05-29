@@ -252,6 +252,8 @@ class SwingAgent:
                 content = extract_response_text(result)
                 # Очистим возможные markdown блоки, если Grok игнорирует schema
                 content = content.replace("```json", "").replace("```", "").strip()
+                if not content:
+                    continue
                 analysis = json.loads(content, strict=False)
                 
                 # FIX #1: проверяем язык — если нарушение, повторяем запрос

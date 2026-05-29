@@ -4,7 +4,7 @@
 Принцип: если данных нет — LLM получает явный запрет выдумывать,
 а не пустую строку (которую он заполнит фантазией).
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -108,7 +108,7 @@ def guard_news_with_age(news_items: list, now: Optional[datetime] = None) -> str
             "catalyst невозможен — заполни catalyst_absence_reason с указанием "
             "что проверены: RSS, Reddit, Google Search — все молчат.\n"
         )
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc)
     lines = ["=== НОВОСТИ (с меткой возраста) ==="]
     for item in news_items:
         pub = item.get("published_parsed") or item.get("published")
@@ -119,6 +119,13 @@ def guard_news_with_age(news_items: list, now: Optional[datetime] = None) -> str
                     pub_dt = datetime(*pub[:6])
                 else:
                     pub_dt = datetime.fromisoformat(str(pub))
+                
+                # Нормализация временных зон для предотвращения TypeError
+                if now.tzinfo is not None and pub_dt.tzinfo is None:
+                    pub_dt = pub_dt.replace(tzinfo=now.tzinfo)
+                elif now.tzinfo is None and pub_dt.tzinfo is not None:
+                    pub_dt = pub_dt.replace(tzinfo=None)
+                    
                 age_h = (now - pub_dt).total_seconds() / 3600
                 if age_h < 6:
                     tag = f"[🔥 {age_h:.0f}ч назад — СВЕЖИЙ КАТАЛИЗАТОР]"
