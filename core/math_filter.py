@@ -108,13 +108,25 @@ def _check_same_event(title_a: str, title_b: str) -> bool:
     Грубая проверка: описывают ли рынки одно событие.
     Если ключевые слова сильно расходятся — это разные события.
     """
-    stopwords = {'will', 'the', 'a', 'in', 'by', 'of', 'to', 'at', 'on', 
-                 'for', 'above', 'below', 'over', 'hit', 'reach', 'exceed'}
-    a_words = set(re.findall(r'\b\w+\b', title_a.lower())) - stopwords
-    b_words = set(re.findall(r'\b\w+\b', title_b.lower())) - stopwords
-    # Числа исключаем — они не являются идентификаторами события
-    a_words = {w for w in a_words if not re.match(r'^\d+$', w)}
-    b_words = {w for w in b_words if not re.match(r'^\d+$', w)}
+    stopwords = {
+        'will', 'the', 'a', 'an', 'in', 'by', 'of', 'to', 'at', 'on', 'for',
+        'above', 'below', 'over', 'under', 'hit', 'hits', 'reach', 'exceed',
+        'its', 'be', 'is', 'are', 'was', 'close', 'closing', 'end', 'finish',
+        'market', 'cap', 'price', 'value', 'valuation', 'worth',  # финансовые нейтральные
+    }
+    # Нормализация: заменяем известные синонимы
+    aliases = {
+        'btc': 'bitcoin', 'eth': 'ethereum', 'fed': 'federal',
+        'sp500': 'sp', 's&p': 'sp', 'spx': 'sp',
+        'presidency': 'election', 'president': 'election',
+    }
+    def normalize(title: str) -> set:
+        words = set(re.findall(r'\b\w+\b', title.lower())) - stopwords
+        words = {w for w in words if not re.search(r'\d', w)}
+        return {aliases.get(w, w) for w in words}
+
+    a_words = normalize(title_a)
+    b_words = normalize(title_b)
     if not a_words or not b_words:
         return False
     overlap = len(a_words & b_words) / min(len(a_words), len(b_words))
@@ -127,17 +139,21 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
     
     # NEW: одинаковые пороги — монотонность неприменима
     if t_a and t_b and _same_unit(t_a[1], t_b[1]) and t_a[0] == t_b[0]:
-        return MathFilterResult(
-            decision=FilterDecision.CONFIRMED_NO_ARBI,
-            arbitrage_type="identical_threshold",
-            spread_pct=0.0,
-            reasoning=(
-                f"Оба рынка упоминают порог {t_a[0]:.0f} — одинаковое число НЕ означает "
-                f"логическую импликацию. Это могут быть разные события, разные оракулы, "
-                f"разные временны́е условия. Спред=0%, LLM вызов экономим."
-            ),
-            trade_instruction=""
-        )
+        same_event = _check_same_event(market_a.title, market_b.title)
+        if same_event and market_a.platform != market_b.platform:
+            pass  # BTC $100K на Polymarket vs Kalshi — это price_divergence, не identical_threshold
+        else:
+            return MathFilterResult(
+                decision=FilterDecision.CONFIRMED_NO_ARBI,
+                arbitrage_type="identical_threshold",
+                spread_pct=0.0,
+                reasoning=(
+                    f"Оба рынка упоминают порог {t_a[0]:.0f} — одинаковое число НЕ означает "
+                    f"логическую импликацию. Это могут быть разные события, разные оракулы, "
+                    f"разные временны́е условия. Спред=0%, LLM вызов экономим."
+                ),
+                trade_instruction=""
+            )
 
     if t_a and t_b and _same_unit(t_a[1], t_b[1]) and t_a[0] != t_b[0]:
         if t_a[0] > t_b[0]:

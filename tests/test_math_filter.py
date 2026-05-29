@@ -41,7 +41,8 @@ def test_same_thresholds_different_platforms():
     a = make_market("SpaceX IPO above $3T", 0.12, platform="polymarket")
     b = make_market("SpaceX IPO above $3T", 0.22, platform="kalshi")
     result = math_pre_filter(a, b)
-    assert result.arbitrage_type != "monotonicity_violation"
+    assert result.arbitrage_type == "price_divergence"
+    assert result.decision == FilterDecision.AMBIGUOUS
 
 def test_percentages_monotonicity_kept():
     a = make_market("Will unemployment exceed 5%?", 0.30)
