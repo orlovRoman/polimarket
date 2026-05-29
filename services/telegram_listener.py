@@ -312,7 +312,7 @@ def parse_radar_signal(text: str, entities=None) -> dict:
         result["win_rate"] = int(wr_match.group(1))
 
     # 7. Alias из строки "Trader: Name"
-    alias_match = re.search(r'(?:🧑\u200d💼\s*)?Trader:\s*([A-Za-z0-9_]+)', text)
+    alias_match = re.search(r'Trader:\s*([A-Za-z0-9_]+)', text)
     if alias_match and not result["alias"]:
         result["alias"] = alias_match.group(1)
         if not result["wallet"]:

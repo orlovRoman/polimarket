@@ -350,11 +350,14 @@ def test_telegram_bot_id_in_module_imports():
     assert "TELEGRAM_BOT_ID" in module_header
 
 
+def test_main_exits_without_telethon():
+    """Если TelegramClient не установлен — main() выходит без ошибок"""
     import asyncio
     from unittest.mock import patch
     from services import telegram_listener
     
-    with patch.object(telegram_listener, "TelegramClient", None):
+    with patch.object(telegram_listener, "TelegramClient", None), \
+         patch("services.telegram_listener.NewsProcessor"):
         # Должен выйти без ошибок, напечатав сообщение
         asyncio.run(telegram_listener.main())
 
@@ -431,6 +434,9 @@ def test_handler_parses_radarpolybot_as_whale():
             assert args[1] == 15000.0
             assert kwargs["source"] == "whale"
             assert kwargs["market_url"] == "https://polymarket.com/event/trump-leads"
+    
+def test_handler_source_url_after_log_message():
+    """В handler сначала логируется сообщение, потом формируется source_url"""
     import inspect
     from services import telegram_listener
 
@@ -617,9 +623,9 @@ def test_radar_signal_win_rate():
 
 
 def test_radar_signal_alias_from_trader_line():
-    """Trader: Parz1vaI → alias = Parz1vaI"""
+    """Trader: Parz1vaI → alias = Parz1vaI (с ZWJ-emoji)"""
     from services.telegram_listener import parse_radar_signal
-    text = "🧑💼 Trader: Parz1vaI - Check Full Stats"
+    text = "🧑\u200d💼 Trader: Parz1vaI - Check Full Stats"
     result = parse_radar_signal(text)
     assert result["alias"] == "Parz1vaI"
 
@@ -671,7 +677,7 @@ def test_radar_signal_full_message():
         "├ Amount: $11,136\n"
         "├ Entry: 15¢ → Now: 90¢\n"
         "└ To win: $74,240 (6.7x)\n\n"
-        "🧑💼 Trader: Parz1vaI - Check Full Stats · Copy Trade\n"
+        "🧑\u200d💼 Trader: Parz1vaI - Check Full Stats · Copy Trade\n"
         "├ Positions: $231,618 · 84 live · 100 closed\n"
         "├ Win Rate: 67%\n"
         "├ P&L: +$5,187\n"
