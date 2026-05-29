@@ -25,6 +25,8 @@ from agents.polymarket_swing_agent.src.agent import SwingAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent
 from agents.orchestrator.src.agent import NexusAgent
 
+_analyzed_in_session: set[str] = set()
+
 def _prefilter_markets(markets_compact: list) -> list:
     """
     Уровень 1 (без LLM): базовая фильтрация по объёму, цене и времени.
@@ -150,6 +152,30 @@ def _safe_result(future: concurrent.futures.Future, default, timeout: int = 15):
 
 
 def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None):
+    # FIX #1: дедупликация — один рынок не анализируется дважды в одной сессии
+    dedup_key = f"{m.id}:{trigger_type}"
+    if dedup_key in _analyzed_in_session:
+        logger.info(f"[workflow] Пропуск дубля: {m.id} ({trigger_type}) уже проанализирован в этой сессии")
+        return None, None, None
+    _analyzed_in_session.add(dedup_key)
+
+    last_analysis_key = f"last_analysis:{m.id}"
+    last_raw = get_memory(last_analysis_key)
+    if last_raw:
+        try:
+            last_dt = datetime.fromisoformat(last_raw)
+            age_sec = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            if age_sec < 600:  # 10 минут
+                logger.info(
+                    f"[workflow] Дедупликация: рынок {m.id} уже анализировался "
+                    f"{age_sec:.0f}с назад (trigger={trigger_type}), пропускаем"
+                )
+                return None, None, None
+        except (ValueError, TypeError):
+            pass
+
+    save_memory(last_analysis_key, datetime.now(timezone.utc).isoformat(), category='cache', ttl=600)
+
     # Guard: проверяем доступность LLM перед запуском
     from config import llm_health_gate  # глобальный инстанс
     if not llm_health_gate.check_availability():
@@ -317,6 +343,12 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         if context.trigger_type == "event_driven" and context.source_url and context.source_url.strip():
             source_label = context.source_text or "Источник"
             summary_text += f"📡 <b>Триггер:</b> <a href='{context.source_url}'>{source_label}</a>\n\n"
+        elif context.trigger_type == "scheduled":
+            summary_text += f"🔄 <b>Триггер:</b> Плановый скан\n\n"
+        elif context.trigger_type == "manual":
+            summary_text += f"👤 <b>Триггер:</b> Ручной запуск\n\n"
+        else:
+            summary_text += f"⚡ <b>Триггер:</b> {context.trigger_type}\n\n"
         
         # Детальная аналитика по каждому агенту
         if signal:
