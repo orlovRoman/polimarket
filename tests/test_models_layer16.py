@@ -73,11 +73,11 @@ def test_swing_target_outcome_trailing_space_stripped():
 # ── Баг #2: SwingSignal.confidence и hype_potential clamp ────
 
 @pytest.mark.parametrize("field,value,expected", [
-    ("confidence",    1.5,    0.015),
+    ("confidence",    1.5,    1.0),
     ("confidence",    0.0,    0.0),
     ("confidence",    0.85,   0.85),
     ("confidence",    95.0,   0.95),   # LLM вернул проценты
-    ("hype_potential", 1.5,   0.015),
+    ("hype_potential", 1.5,   1.0),
     ("hype_potential", -0.3,  0.0),
     ("hype_potential", 75.0,  0.75),   # LLM вернул проценты
 ])

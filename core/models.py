@@ -15,7 +15,7 @@ class Market(BaseModel):
     @classmethod
     def validate_price(cls, v):
         v = float(v)
-        if v > 1.0:
+        if v >= 2.0:
             v = v / 100.0
         return max(0.0, min(1.0, v))
 
@@ -115,7 +115,7 @@ class SwingSignal(BaseModel):
         if v is None:
             return v
         v = float(v)
-        if v > 1.0 and v <= 100.0:
+        if v >= 2.0:
             v = v / 100.0
         return max(0.0, min(1.0, v))
 
@@ -141,7 +141,7 @@ class AgentOpinion(BaseModel):
     @classmethod
     def clamp_confidence(cls, v):
         v = float(v)
-        if v > 1.0 and v <= 100.0:
+        if v >= 2.0:
             v = v / 100.0
         return max(0.0, min(1.0, v))
 
@@ -156,6 +156,15 @@ class MarketCorrelation(BaseModel):
     correlation_type: Literal['causal', 'inverse', 'arbitrage', 'thematic']
     description: str
     confidence: float
+
+    @field_validator('confidence')
+    @classmethod
+    def clamp_confidence(cls, v):
+        v = float(v)
+        if v >= 2.0:
+            v = v / 100.0
+        return max(0.0, min(1.0, v))
+
     detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class IdeaDecision(BaseModel):
