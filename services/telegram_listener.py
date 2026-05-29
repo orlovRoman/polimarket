@@ -301,10 +301,21 @@ async def main():
             
         # Получаем имя канала
         chat = await event.get_chat()
+        
+        # Если username не получен — пробуем получить полный entity
+        if not getattr(chat, 'username', None):
+            try:
+                full_entity = await client.get_entity(chat.id)
+                if getattr(full_entity, 'username', None):
+                    chat = full_entity
+            except Exception as e:
+                print(f"[Listener] ⚠️ Не удалось получить полный entity для {chat.id}: {e}")
+
         chat_name = chat.username or chat.title or str(chat.id)
         msg_id = event.message.id
         
         tg_post_url = build_tg_post_url(chat, msg_id)
+        print(f"[Listener] 🔗 source_url = {tg_post_url}")
         
         print(f"\n[Listener] 🔔 Получено новое сообщение из {chat_name}:\n{text[:120]}...")
         
