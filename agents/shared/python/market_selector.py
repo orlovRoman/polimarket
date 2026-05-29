@@ -14,7 +14,8 @@ from config import (
     PRICE_RANGE_MIN, PRICE_RANGE_MAX, SCAN_CATEGORIES
 )
 from agents.shared.python.db import (
-    get_memory, save_memory, get_markets_on_cooldown, get_last_analyzed_price
+    get_memory, save_memory, get_markets_on_cooldown, get_last_analyzed_price,
+    is_in_market_list
 )
 from core.models import Market
 
@@ -126,6 +127,7 @@ class MarketSelector:
         - Убирает истёкшие (close_time в прошлом)
         - Убирает абсолютно мертвые цены (< 0.01 или > 0.99)
         - Убирает на cooldown, ЕСЛИ их цена не изменилась значительно (>= 3%)
+        - Убирает рынки из списков 'Игнорировать' и 'Следить'
         """
         now = datetime.now(timezone.utc)
         cooldown_ids = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
@@ -134,6 +136,10 @@ class MarketSelector:
         for m in markets:
             # Рынок уже закрыт
             if m.close_time <= now:
+                continue
+            
+            # Рынок в списке Игнорировать или Следить — пропускаем при стандартном скане
+            if is_in_market_list(m.id, 'ignored') or is_in_market_list(m.id, 'watching'):
                 continue
             
             # Абсолютно мертвые цены (кроме penny_stocks)

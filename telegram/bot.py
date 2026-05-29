@@ -19,7 +19,12 @@ from datetime import datetime, timedelta
 # Импортируем функции БД
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from agents.shared.python.db import save_chat_message, get_chat_history, init_db, get_db_stats, get_signals, cleanup_chat_history, cleanup_stale_signals
+from agents.shared.python.db import (
+    save_chat_message, get_chat_history, init_db, get_db_stats, get_signals,
+    cleanup_chat_history, cleanup_stale_signals,
+    add_to_market_list, remove_from_market_list, is_in_market_list,
+    get_market_list, is_alert_already_sent
+)
 from agents.orchestrator.src.agent import NexusAgent
 
 # Загружаем переменные окружения
@@ -106,6 +111,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="health", description="Здоровье системы (LLM и чекпоинты)"),
         BotCommand(command="arbitrage", description="Запуск кросс-платформенного арбитража (PM ↔ Kalshi)"),
         BotCommand(command="corridor", description="Временной арбитраж (Temporal Corridor)"),
+        BotCommand(command="lists", description="Списки рынков: Игнорировать / Следить"),
     ]
     await bot.set_my_commands(commands)
 
@@ -200,6 +206,21 @@ def build_paginated_keyboard(page: int, total_pages: int, prefix: str) -> Inline
     if page + 1 < total_pages:
         nav_row.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"{prefix}_{page + 1}"))
     return InlineKeyboardMarkup(inline_keyboard=[nav_row])
+
+
+def build_market_action_keyboard(market_id: str, market_title: str) -> InlineKeyboardMarkup:
+    """
+    Клавиатура с кнопками 'Игнорировать' и 'Следить'.
+    market_id обрезается до 40 символов для соблюдения лимита callback_data = 64 байта aiogram.
+    """
+    mid = market_id[:40]  # UUID = 36 символов, вписывается с префиксами 11 симв (ignore_mkt_ / watch_mkt_)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
+            InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{mid}"),
+        ]
+    ])
+
 
 async def send_or_edit(message_or_callback, text: str, keyboard: InlineKeyboardMarkup = None) -> None:
     """Вспомогательная функция для отправки нового или редактирования существующего сообщения."""
@@ -1457,6 +1478,201 @@ async def callback_close_message_handler(callback: CallbackQuery) -> None:
 async def callback_penny_page_handler(callback: CallbackQuery) -> None:
     page = int(callback.data.split("_")[2])
     await send_penny_page(callback, page=page)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Фич Игнорировать / Следить
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dp.callback_query(F.data.startswith("ignore_mkt_"))
+async def callback_ignore_market(callback: CallbackQuery) -> None:
+    """'Игнорировать' — добавляет рынок в список ignored."""
+    market_id = callback.data[len("ignore_mkt_"):]
+    market_title = _extract_market_title_from_message(callback.message)
+    
+    await asyncio.to_thread(add_to_market_list, market_id, market_title, 'ignored', None)
+    
+    # Заменяем клавиатуру на кнопку "Убрать"
+    new_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="♻️ Убрать из игнорируемых", callback_data=f"unlist_mkt_{market_id[:40]}")]
+    ])
+    try:
+        await callback.message.edit_reply_markup(reply_markup=new_kb)
+    except Exception:
+        pass
+    
+    await callback.answer(
+        "✅ Рынок добавлен в 'Игнорировать'. При стандартном скане пропускается.",
+        show_alert=True
+    )
+
+
+@dp.callback_query(F.data.startswith("watch_mkt_"))
+async def callback_watch_market(callback: CallbackQuery) -> None:
+    """'Следить' — добавляет рынок в watchlist, запоминает текущую цену как базовую."""
+    market_id = callback.data[len("watch_mkt_"):]
+    market_title = _extract_market_title_from_message(callback.message)
+    
+    # Берём последнюю цену из price_history
+    base_price = await asyncio.to_thread(_get_last_price_for_market, market_id)
+    
+    await asyncio.to_thread(add_to_market_list, market_id, market_title, 'watching', base_price)
+    
+    new_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Снять с наблюдения", callback_data=f"unlist_mkt_{market_id[:40]}")]
+    ])
+    try:
+        await callback.message.edit_reply_markup(reply_markup=new_kb)
+    except Exception:
+        pass
+    
+    price_str = f" (база: {int(base_price * 100)}¢)" if base_price else ""
+    await callback.answer(
+        f"👁 Рынок добавлен в 'Следить'{price_str}. Уведомлю при скачке цены +50%.",
+        show_alert=True
+    )
+
+
+@dp.callback_query(F.data.startswith("unlist_mkt_"))
+async def callback_unlist_market(callback: CallbackQuery) -> None:
+    """'Убрать' — удаляет рынок из обоих списков."""
+    market_id = callback.data[len("unlist_mkt_"):]
+    removed = await asyncio.to_thread(remove_from_market_list, market_id, None)
+    
+    # Восстанавливаем кнопки на сообщении если возможно
+    new_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{market_id[:40]}"),
+            InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{market_id[:40]}"),
+        ]
+    ])
+    try:
+        await callback.message.edit_reply_markup(reply_markup=new_kb)
+    except Exception:
+        pass
+    
+    if removed > 0:
+        await callback.answer("✅ Рынок удалён из списков. Будет анализироваться при следующем скане.", show_alert=True)
+    else:
+        await callback.answer("ℹ️ Рынок не найден в списках.")
+
+
+@dp.callback_query(F.data.startswith("lists_remove_"))
+async def callback_lists_remove(callback: CallbackQuery) -> None:
+    """Удаляет рынок через кнопку в /lists."""
+    # формат: lists_remove_{list_type}_{market_id_truncated}
+    parts = callback.data.split("_", 3)  # [lists, remove, list_type, market_id]
+    if len(parts) < 4:
+        await callback.answer("Ошибка формата.")
+        return
+    list_type = parts[2]
+    market_id = parts[3]
+    await asyncio.to_thread(remove_from_market_list, market_id, list_type)
+    await callback.answer("✅ Удалено.", show_alert=False)
+    # Обновляем список
+    await _send_lists_page(callback.message, edit=True)
+
+
+def _extract_market_title_from_message(message) -> str:
+    """Извлекает заголовок рынка из текста сообщения (первая строка после заголовка рынка)."""
+    try:
+        text = message.text or message.caption or ""
+        # Берём первую непустую строку как название (макс 80 симв)
+        for line in text.splitlines():
+            line = line.strip()
+            if line and not line.startswith('#') and len(line) > 5:
+                return line[:80]
+    except Exception:
+        pass
+    return "(без названия)"
+
+
+def _get_last_price_for_market(market_id: str) -> float:
+    """Возвращает последнюю цену рынка из price_history или 0.5 если данных нет."""
+    try:
+        from agents.shared.python.db import get_connection
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT price FROM price_history WHERE market_id = ? ORDER BY recorded_at DESC LIMIT 1",
+                (market_id,)
+            ).fetchone()
+        return float(row['price']) if row else None
+    except Exception:
+        return None
+
+
+async def _send_lists_page(message_or_target, edit: bool = False) -> None:
+    """Формирует и отправляет/редактирует страницу /lists."""
+    ignored = await asyncio.to_thread(get_market_list, 'ignored')
+    watching = await asyncio.to_thread(get_market_list, 'watching')
+    
+    text = "📋 <b>Списки рынков</b>\n\n"
+    
+    rows = []
+    buttons = []
+    
+    text += f"🚫 <b>Игнорируемые ({len(ignored)})</b>\n"
+    if ignored:
+        for entry in ignored[:15]:
+            title = (entry.get('market_title') or entry['market_id'])[:60]
+            title_safe = title.replace('<', '&lt;').replace('>', '&gt;')
+            mid = entry['market_id'][:40]
+            text += f"  • {title_safe}\n"
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"✂️ {title[:30]}",
+                    callback_data=f"lists_remove_ignored_{mid}"
+                )
+            ])
+    else:
+        text += "  <i>Пусто</i>\n"
+    
+    text += f"\n👁 <b>Слежу ({len(watching)})</b>\n"
+    if watching:
+        for entry in watching[:15]:
+            title = (entry.get('market_title') or entry['market_id'])[:60]
+            title_safe = title.replace('<', '&lt;').replace('>', '&gt;')
+            mid = entry['market_id'][:40]
+            bp = entry.get('base_price')
+            bp_str = f" (base: {int(bp * 100)}¢)" if bp else ""
+            text += f"  • {title_safe}{bp_str}\n"
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"✂️ {title[:30]}",
+                    callback_data=f"lists_remove_watching_{mid}"
+                )
+            ])
+    else:
+        text += "  <i>Пусто</i>\n"
+    
+    text += "\n<i>Кнопка ✂️ = удалить из списка</i>"
+    
+    if not buttons:
+        buttons = [[InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message")]]
+    else:
+        buttons.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    if edit and isinstance(message_or_target, types.Message):
+        try:
+            await message_or_target.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+            return
+        except Exception:
+            pass
+    
+    if isinstance(message_or_target, types.Message):
+        await message_or_target.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    else:
+        await message_or_target.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        await message_or_target.answer()
+
+
+@dp.message(Command("lists"))
+async def command_lists_handler(message: types.Message) -> None:
+    """Показывает списки Игнорировать и Следить."""
+    await _send_lists_page(message)
+
 
 @dp.message(F.text)
 async def conversational_handler(message: types.Message) -> None:

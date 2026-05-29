@@ -208,22 +208,26 @@ def run_trend_hunter(dry_run: bool = False):
                     except Exception as ex:
                         print(f"      [ERROR] Ошибка запуска для {m_id}: {ex}")
 
-    # 4. Отправляем сводное оповещение в Telegram (если были новые рынки)
+    # 4. Отправляем оповещения в Telegram (если были новые рынки)
     if new_markets_triggered and not dry_run:
-        alert_text = (
-            f"🎯 <b>Проактивный Trend Hunter обнаружил новые рынки!</b>\n\n"
-            f"Всего новых рынков отправлено на ИИ-консенсус: <b>{len(new_markets_triggered)}</b>\n\n"
-        )
-        for i, m in enumerate(new_markets_triggered, 1):
-            alert_text += (
-                f"<b>{i}. {m.title}</b>\n"
-                f"💰 Текущая цена YES: <code>{int(round(m.price * 100))}¢</code>\n"
-                f"🔗 <a href='{m.url}'>Открыть на Polymarket</a>\n\n"
-            )
-        alert_text += "⏳ <i>Команда агентов (SCOUT → SWING → SHADOW) уже проводит точечный анализ. Скоро будет отчет!</i>"
         alerts_enabled = get_memory("trend_hunter_alerts_enabled", True)
         if alerts_enabled:
-            send_telegram(alert_text)
+            for m in new_markets_triggered:
+                alert_text = (
+                    f"🎯 <b>Trend Hunter обнаружил новый рынок!</b>\n\n"
+                    f"<b>{m.title}</b>\n"
+                    f"💰 Текущая цена YES: <code>{int(round(m.price * 100))}¢</code>\n"
+                    f"🔗 <a href='{m.url}'>Открыть на Polymarket</a>\n\n"
+                    f"⏳ <i>Команда агентов (SCOUT → SWING → SHADOW) уже проводит точечный анализ. Скоро будет отчет!</i>"
+                )
+                mid = m.id[:40]
+                reply_markup = {
+                    "inline_keyboard": [[
+                        {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
+                        {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"}
+                    ]]
+                }
+                send_telegram(alert_text, reply_markup=reply_markup)
         else:
             print("[Trend Hunter] Оповещения в Telegram отключены пользователем.")
     elif dry_run:

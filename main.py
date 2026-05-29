@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 sys.path.append(os.getcwd())
 
 from core.engine import CoreEngine, NoMarketsFoundError
-from telegram.bot import dp, bot, init_nexus_agent, get_nexus_agent
+from telegram.bot import dp, bot, init_nexus_agent, get_nexus_agent, AUTHORIZED_CHAT_ID
 from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history
 import uvicorn
 from core.api import app as fastapi_app
@@ -192,6 +192,7 @@ async def start_system():
     # Объявляем переменные задач для graceful shutdown
     polling_task = None
     api_task = None
+    watchlist_task = None
     
     # Обработчики завершения процесса (асинхронный graceful shutdown)
     loop = asyncio.get_running_loop()
@@ -206,6 +207,8 @@ async def start_system():
             polling_task.cancel()
         if api_task:
             api_task.cancel()
+        if watchlist_task:
+            watchlist_task.cancel()
         logger.info("✅ Задачи отменены, ждём завершения...")
 
     def _request_shutdown(*args):
@@ -241,6 +244,13 @@ async def start_system():
         await init_nexus_agent()
         from telegram.bot import set_commands
         await set_commands(bot)
+        
+        # Запускаем фоновый мониторинг watchlist-рынков
+        from services.watchlist_monitor import run_watchlist_monitor
+        watchlist_task = asyncio.create_task(
+            run_watchlist_monitor(bot, AUTHORIZED_CHAT_ID)
+        )
+        logger.info("✅ Watchlist-монитор запущен.")
     except Exception as e:
         logger.error(f"Критическая ошибка инициализации бота/агента: {e}")
         sys.exit(1)
@@ -289,7 +299,7 @@ async def start_system():
         if api_task:
             api_task.cancel()
             
-        await asyncio.gather(polling_task, api_task, return_exceptions=True)
+        await asyncio.gather(polling_task, api_task, watchlist_task, return_exceptions=True)
         try:
             await bot.session.close()
         except Exception:

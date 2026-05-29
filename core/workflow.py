@@ -429,8 +429,22 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             else:
                 logger.warning(f"[math_filter] has_arbitrage=True but trade_instruction empty for {m.id}")
 
+        # Кнопки Игнорировать / Следить (market_id трункируется до 40 симв — лимит callback_data 64 байта)
+        mid = m.id[:40]
+        market_action_markup = {
+            "inline_keyboard": [[
+                {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
+                {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"}
+            ]]
+        }
+
         try:
-            summary_callback(summary_text)
+            import inspect
+            sig_params = inspect.signature(summary_callback).parameters
+            if "reply_markup" in sig_params:
+                summary_callback(summary_text, reply_markup=market_action_markup)
+            else:
+                summary_callback(summary_text)
         except Exception as cb_err:
             logger.error(f"summary_callback error in process_consensus: {cb_err}")
         

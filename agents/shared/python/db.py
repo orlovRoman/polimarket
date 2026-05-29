@@ -503,8 +503,89 @@ def init_db():
                 if col not in cross_arb_cols:
                     cursor.execute(f"ALTER TABLE cross_arbitrage_signals ADD COLUMN {col} TEXT DEFAULT {default}")
 
+            # Таблица списков рынков (Игнорировать / Следить)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS market_lists (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    market_id   TEXT NOT NULL,
+                    market_title TEXT,
+                    list_type   TEXT NOT NULL CHECK(list_type IN ('ignored', 'watching')),
+                    base_price  REAL DEFAULT NULL,
+                    last_price  REAL DEFAULT NULL,
+                    added_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(market_id, list_type)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_market_lists_type ON market_lists(list_type)"
+            )
+
         _db_initialized = True
         logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
+
+# ─── Списки рынков: Игнорировать / Следить ──────────────────────────────────
+
+def add_to_market_list(market_id: str, market_title: str, list_type: str, base_price: float = None) -> None:
+    """Добавляет рынок в список 'ignored' или 'watching'. Идемпотентен (INSERT OR REPLACE)."""
+    assert list_type in ('ignored', 'watching'), f"Неизвестный list_type: {list_type}"
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO market_lists
+               (market_id, market_title, list_type, base_price, last_price, added_at)
+               VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            (market_id, market_title, list_type, base_price, base_price)
+        )
+    logger.info(f"[MarketLists] Рынок {market_id!r} добавлен в '{list_type}'.")
+
+
+def remove_from_market_list(market_id: str, list_type: str = None) -> int:
+    """Удаляет рынок из списка. Если list_type=None — удаляет из обоих. Возвращает кол-во удалённых строк."""
+    with get_connection() as conn:
+        if list_type:
+            cursor = conn.execute(
+                "DELETE FROM market_lists WHERE market_id = ? AND list_type = ?",
+                (market_id, list_type)
+            )
+        else:
+            cursor = conn.execute(
+                "DELETE FROM market_lists WHERE market_id = ?",
+                (market_id,)
+            )
+        rows = cursor.rowcount
+    logger.info(f"[MarketLists] Рынок {market_id!r} удалён из '{list_type or 'все'}' ({rows} строк).")
+    return rows
+
+
+def is_in_market_list(market_id: str, list_type: str) -> bool:
+    """Возвращает True, если рынок находится в указанном списке."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM market_lists WHERE market_id = ? AND list_type = ?",
+            (market_id, list_type)
+        ).fetchone()
+    return row is not None
+
+
+def get_market_list(list_type: str) -> List[dict]:
+    """Возвращает все рынки из указанного списка в виде list[dict]."""
+    assert list_type in ('ignored', 'watching'), f"Неизвестный list_type: {list_type}"
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT market_id, market_title, list_type, base_price, last_price, added_at
+               FROM market_lists WHERE list_type = ? ORDER BY added_at DESC""",
+            (list_type,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_watchlist_price(market_id: str, last_price: float) -> None:
+    """Обновляет last_price для рынка в watchlist. base_price не трогает."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE market_lists SET last_price = ? WHERE market_id = ? AND list_type = 'watching'",
+            (last_price, market_id)
+        )
+
 
 def save_cross_arbitrage(signal) -> None:
     """Сохраняет или обновляет кросс-платформенный арбитражный сигнал."""
