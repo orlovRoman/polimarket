@@ -22,7 +22,6 @@ from agents.shared.python.db import save_trader_transaction, get_connection, sav
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from services.notifications import send_telegram as send_telegram_notify
 
-import types
 from types import SimpleNamespace
 from core.engine import CoreEngine
 from agents.orchestrator.src.news_processor import NewsProcessor
@@ -64,6 +63,16 @@ def _is_target_source_match(chat_name: str, chat_id: int, target_sources: list[s
 
 _API_ANALYZE_TIMEOUT = 10.0
 
+_core_engine_instance: CoreEngine | None = None
+_core_engine_lock = threading.Lock()
+_scan_semaphore = threading.Semaphore(1)
+
+def _get_core_engine() -> CoreEngine:
+    global _core_engine_instance
+    with _core_engine_lock:
+        if _core_engine_instance is None:
+            _core_engine_instance = CoreEngine()
+        return _core_engine_instance
 
 # Папка для файла сессии Telethon
 SESSION_DIR = PROJECT_ROOT / "vault"
@@ -102,9 +111,9 @@ def resolve_market_ids_from_url(url: str) -> list:
     try:
         resp = requests.get("https://gamma-api.polymarket.com/events", params={"slug": slug}, timeout=10)
         if resp.status_code == 200:
-            events = resp.json()
-            if isinstance(events, list) and events:
-                for m in events[0].get("markets", []):
+            event_data = resp.json()
+            if isinstance(event_data, list) and event_data:
+                for m in event_data[0].get("markets", []):
                     if "id" in m:
                         market_ids.append(m["id"])
     except Exception as e:
@@ -239,8 +248,11 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
             msg_text = f"🗞 <b>ТРИГГЕР (News):</b> Запущен внеочередной скан для рынка <code>{market_id}</code>"
             
         def _trigger_scan():
+            if not _scan_semaphore.acquire(blocking=False):
+                print("[Listener] ⚠️ Скан уже выполняется, пропускаем новый триггер")
+                return
             try:
-                eng = CoreEngine()
+                eng = _get_core_engine()
                 source_url = post_url or market_url or ""
                 source_text = post_text or (
                     f"Whale transaction detected: ${amount_usd:,.0f}" if source == "whale"
@@ -251,6 +263,8 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
                 print(f"[Listener] ⚠️ trigger_nexus_scan: сканирование занято: {e}")
             except Exception as e:
                 print(f"[Listener] ❌ trigger_nexus_scan: неожиданная ошибка: {e}")
+            finally:
+                _scan_semaphore.release()
         threading.Thread(target=_trigger_scan, daemon=True).start()
             
         # Отправляем подтверждение в Telegram
@@ -260,6 +274,10 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
         print(f"[Listener] Ошибка запуска мгновенного сканирования: {e}")
 
 async def main():
+    if TelegramClient is None:
+        print("[Listener] ❌ Telethon не установлен. Запустите: pip install telethon")
+        return
+        
     # Проверяем наличие учетных данных в .env
     api_id = TG_API_ID
     api_hash = TG_API_HASH
