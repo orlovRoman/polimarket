@@ -112,7 +112,7 @@ def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = 
         # Мгновенно отсекаем разные годы или разные кварталы
         years_a = set(re.findall(r'\b(202\d|203\d)\b', title_a.lower()))
         years_b = set(re.findall(r'\b(202\d|203\d)\b', title_b.lower()))
-        if years_a and years_b and years_a != years_b:
+        if (years_a or years_b) and years_a != years_b:
             return False
 
         quarters_a = set(re.findall(r'\bq[1-4]\b', title_a.lower()))
@@ -124,7 +124,7 @@ def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = 
         'will', 'the', 'a', 'an', 'in', 'by', 'of', 'to', 'at', 'on', 'for',
         'above', 'below', 'over', 'under', 'hit', 'hits', 'reach', 'exceed',
         'its', 'be', 'is', 'are', 'was', 'close', 'closing', 'end', 'finish',
-        'market', 'cap', 'price', 'value', 'valuation', 'worth',  # финансовые нейтральные
+        'market', 'cap', 'price', 'value', 'valuation', 'worth', 'stock', 'stocks', # финансовые нейтральные
         'win', 'wins', 'election', 'elections', 'presidential', 'us', 'usa',
         'who', 'whom', 'whose', 'which', 'what', 'where', 'when', 'how', 'why',
         'close', 'closes', 'closed'
@@ -144,8 +144,14 @@ def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = 
         'presidency': 'election', 'president': 'election',
     }
     def normalize(title: str) -> set:
-        words = set(re.findall(r'\b\w+\b', title.lower())) - stopwords
-        # Сначала маппим синонимы, чтобы sp500/s&p не удалились как цифры
+        # Предобработка: нормализуем тикеры ДО токенизации
+        t = title.lower()
+        t = re.sub(r's&p\s*500', 'sp', t)
+        t = re.sub(r's&p', 'sp', t)
+        t = re.sub(r'sp500', 'sp', t)
+        t = re.sub(r'spx', 'sp', t)
+        
+        words = set(re.findall(r'\b\w+\b', t)) - stopwords
         words = {aliases.get(w, w) for w in words}
         words = {w for w in words if not re.search(r'\d', w)}
         words -= time_markers

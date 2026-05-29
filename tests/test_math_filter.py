@@ -1,12 +1,15 @@
 import pytest
 from datetime import datetime, timezone
+import itertools
 from core.models import Market
 from core.math_filter import math_pre_filter, FilterDecision, MathFilterResult, validate_trade_instruction
+
+_id_counter = itertools.count(1)
 
 def make_market(title: str, price: float, platform: str = "polymarket",
                 url: str = "https://polymarket.com/test") -> Market:
     return Market(
-        id="test", platform=platform, title=title, url=url,
+        id=f"test_{next(_id_counter)}", platform=platform, title=title, url=url,
         description="",
         outcome="YES", price=price,
         close_time=datetime(2026, 12, 31, tzinfo=timezone.utc),
