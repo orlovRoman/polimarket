@@ -275,9 +275,9 @@ async def command_health_handler(message: types.Message) -> None:
     state = llm_health_gate.state
     state_emoji = "🟢" if state == "HEALTHY" else "🟡" if state == "DEGRADED" else "🔴"
     
-    now = datetime.now()
+    now = datetime.now()  # LLMHealthGate.error_timestamps тоже naive (datetime.now()), согласовано
     error_cnt = len([t for t in llm_health_gate.error_timestamps if (now - t).total_seconds() <= 60])
-    
+
     backoff_active = "ДА" if llm_health_gate.retry_after > now else "НЕТ"
     last_429 = "Нет данных"
     if llm_health_gate.error_timestamps:
@@ -1017,8 +1017,8 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
             return html
     
         summaries_queue = []
-        def summary_callback(text):
-            summaries_queue.append(text)
+        def summary_callback(text, reply_markup=None):
+            summaries_queue.append((text, reply_markup))
     
         async def update_message():
             last_text = ""
@@ -1031,9 +1031,22 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                 await asyncio.sleep(2)
                 # Send all pending summaries
                 while summaries_queue:
-                    summary = summaries_queue.pop(0)
+                    summary, reply_markup = summaries_queue.pop(0)
+                    actual_markup = None
+                    if reply_markup:
+                        if isinstance(reply_markup, dict) and "inline_keyboard" in reply_markup:
+                            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                            keyboard_rows = []
+                            for row in reply_markup["inline_keyboard"]:
+                                keyboard_row = []
+                                for btn in row:
+                                    keyboard_row.append(InlineKeyboardButton(text=btn["text"], callback_data=btn["callback_data"]))
+                                keyboard_rows.append(keyboard_row)
+                            actual_markup = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+                        else:
+                            actual_markup = reply_markup
                     try:
-                        await callback.message.answer(summary, parse_mode="HTML", disable_web_page_preview=True)
+                        await callback.message.answer(summary, parse_mode="HTML", disable_web_page_preview=True, reply_markup=actual_markup)
                     except Exception as e:
                         print(f"Ошибка отправки summary: {e}")
                 

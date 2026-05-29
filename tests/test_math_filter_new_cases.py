@@ -173,3 +173,93 @@ def test_threshold_below_50_pct_different_events():
         "Will Apple stock hit $300?",
         "Will Tesla stock hit $300?"
     ) is False  # только '$300' (без цифр = ничего) + 'stock' → мало общего
+
+
+# ── Скрининг и исключение проанализированных рынков ──────────────────────────
+
+def test_get_recently_analyzed_market_ids_helper():
+    """mark_market_analyzed добавляет запись, get_recently_analyzed_market_ids её считывает"""
+    from agents.shared.python.db import mark_market_analyzed, get_recently_analyzed_market_ids
+    
+    test_id = "temp_test_market_999"
+    mark_market_analyzed(test_id, 0.77)
+    
+    analyzed_list = get_recently_analyzed_market_ids(within_seconds=60)
+    assert test_id in analyzed_list
+
+
+def test_screen_markets_excludes_specified_ids():
+    """screen_markets отфильтровывает переданные в exclude_ids рынки"""
+    from agents.orchestrator.src.agent import NexusAgent
+    from unittest.mock import MagicMock
+    
+    # Мокаем вызов LLM, так как нас интересует только пре-фильтрация по exclude_ids
+    agent = NexusAgent(api_key="dummy_key")
+    agent._call_llm = MagicMock(return_value=(None, "gemini-2.5-flash"))
+    
+    markets = [
+        {"id": "market_1", "q": "Will A happen?", "p": 0.5},
+        {"id": "market_2", "q": "Will B happen?", "p": 0.6},
+        {"id": "market_3", "q": "Will C happen?", "p": 0.7},
+    ]
+    
+    # Передаем "market_2" в exclude_ids
+    # Метод screen_markets должен отфильтровать его и вернуть пустой результат (так как LLM возвращает None)
+    # Но мы проверим логгирование или то, что к моменту отправки в prompt он исключен
+    # Самый надежный способ — замокать generate_content_with_fallback
+    with MagicMock() as mock_fallback:
+        import agents.shared.utils.gemini_client as client_mod
+        original_fallback = client_mod.generate_content_with_fallback
+        client_mod.generate_content_with_fallback = mock_fallback
+        mock_fallback.return_value = ({"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}, "gemini-2.5-flash")
+        
+        agent.screen_markets(markets, top_n=5, exclude_ids=["market_2"])
+        
+        # Проверяем, что в сгенерированном промпте отсутствует market_2
+        called_payload = mock_fallback.call_args[1]["payload"]
+        prompt_text = called_payload["contents"][0]["parts"][0]["text"]
+        
+        assert "market_1" in prompt_text
+        assert "market_3" in prompt_text
+        assert "market_2" not in prompt_text
+        
+        # Восстанавливаем оригинальную функцию
+        client_mod.generate_content_with_fallback = original_fallback
+
+
+# __ BUG 4: _parse_threshold S&P 500 ___
+
+def test_parse_threshold_sp500_above_5500():
+    from core.math_filter import _parse_threshold
+    result = _parse_threshold('Will S&P 500 close above 5500?')
+    assert result is not None
+    val, unit = result
+    assert val == 5500.0, f'Expected 5500.0, got {val}'
+    assert unit == 'pts'
+
+def test_parse_threshold_sp500_hit_6000():
+    from core.math_filter import _parse_threshold
+    result = _parse_threshold('Will S&P 500 hit 6000 by end of year?')
+    assert result is not None
+    val, _ = result
+    assert val == 6000.0, f'Expected 6000.0, got {val}'
+
+def test_parse_threshold_sp500_reach_5800():
+    from core.math_filter import _parse_threshold
+    result = _parse_threshold('Will S&P 500 reach 5800 in Q3?')
+    assert result is not None
+    val, _ = result
+    assert val == 5800.0, f'Expected 5800.0, got {val}'
+
+def test_parse_threshold_year_not_matched():
+    from core.math_filter import _parse_threshold
+    result = _parse_threshold('Will X happen by 2026?')
+    assert result is None, f'Year 2026 should not be a threshold, got: {result}'
+
+def test_parse_threshold_percentage():
+    from core.math_filter import _parse_threshold
+    result = _parse_threshold('Will inflation drop below 3.5%?')
+    assert result is not None
+    val, unit = result
+    assert val == 3.5
+    assert unit == '%'

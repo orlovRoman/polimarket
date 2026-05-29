@@ -289,7 +289,14 @@ PROVIDERS_CONFIG: dict = {
     "gemini": {
         # keys будут собраны динамически (prepend api_key + secondary из env)
         "keys": [],
-        "models": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro"],
+        # Порядок: default_model (передаётся в аргументах) препендится до этих с дедупликацией
+        "models": [
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.0-flash-exp",
+            "gemini-2.5-pro",
+        ],
         "send_func": _send_gemini
     },
     "openrouter": {
@@ -332,7 +339,8 @@ def generate_content_with_fallback(
     providers = {
         "gemini": {
             "keys": _gemini_keys,
-            "models": [default_model] + list(PROVIDERS_CONFIG["gemini"]["models"]),
+            # БАГ 1 ФИКС: дедупликация через dict.fromkeys (сохраняет порядок)
+            "models": list(dict.fromkeys([default_model] + list(PROVIDERS_CONFIG["gemini"]["models"]))),
             "send_func": PROVIDERS_CONFIG["gemini"]["send_func"],
         },
         "openrouter": {
@@ -353,6 +361,10 @@ def generate_content_with_fallback(
         cfg["keys"] = [k for k in cfg["keys"] if k and k.strip()]
         if cfg["keys"]:
             active_providers.append(prov_name)
+        else:
+            # БАГ 3 ФИКС: логируем выпадение провайдера (чтобы не дебажить в продакшне)
+            if prov_name not in ("gemini",):  # gemini собирает ключи динамически, пустые здесь нормальны
+                logger.debug(f"[{agent_name}] Провайдер '{prov_name}' пропущен: API-ключ не задан в окружении")
 
     # 2. Формируем список планов исполнения: (provider, model)
     plans = []
@@ -443,6 +455,11 @@ def generate_content_with_fallback(
                     agent_name, model, prompt_text, error=f"Key {key_idx+1} Error: {error_msg}",
                     latency_ms=latency_ms, market_id=market_id
                 )
+                # БАГ 2 ФИКС: при любой ошибке Cerebras двигаем round-robin индекс
+                # (раньше он обновлялся только при успехе → 429 замараживал round-robin)
+                if provider == "cerebras":
+                    _cer_idx_now = int(get_memory("cer_rr_index", 0))
+                    save_memory("cer_rr_index", _cer_idx_now + 1)
                 # Переходим к следующему ключу этого же провайдера
                 continue
                 

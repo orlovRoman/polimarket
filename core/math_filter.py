@@ -37,19 +37,40 @@ def _parse_threshold(title: str) -> Optional[tuple[float, str]]:
     if m:
         return (float(m.group(1)), '%')
         
-    # Indexes / Absolute numbers: 6000, 5500 (3+ digits to avoid matching small random numbers like years if not careful, though years are 4 digits. Let's just match any 3+ digit number not preceded by certain characters, or just any number if context allows. User said "3+ digits")
-    m = re.search(r'\b(\d{3,}(?:\.\d+)?)\b', title)
+    # БАГ 4 ФИКС: двухпроходная стратегия для индексов/абсолютных чисел.
+    # Проблема: "S&P 500 above 5500" — regex находил 500 (из тикера) раньше, чем 5500 (порог).
+    from datetime import datetime as _dt
+    _cur_year = _dt.now().year
+
+    def _is_year(v: float) -> bool:
+        return _cur_year - 2 <= v <= _cur_year + 10
+
+    # Проход 1: число сразу после контекстного слова-порога
+    _CTX = r'(?:above|below|over|under|hit|reach(?:es)?|at|exceed(?:s)?|cross(?:es)?|surpass(?:es)?|top(?:s)?)'
+    m = re.search(rf'{_CTX}\s+\$?([\d]{{3,}}(?:,\d{{3}})*(?:\.\d+)?)\b', title)
     if m:
-        # Avoid years like 2024, 2025, 2026, 2027, 2028 if they are the only number
-        # Actually user spec: "6000, 5500 (индексы, 3+ цифр) -> (6000.0, 'pts')"
-        # We can just check if it's not a year 202x
-        val = float(m.group(1))
-        from datetime import datetime
-        current_year = datetime.now().year
-        if current_year - 2 <= val <= current_year + 10:
-            return None
-        return (val, 'pts')
-            
+        try:
+            val = float(m.group(1).replace(',', ''))
+            if not _is_year(val):
+                return (val, 'pts')
+        except ValueError:
+            pass
+
+    # Проход 2: fallback — берём МАКСИМАЛЬНОЕ не-год число из всех 3+ цифр.
+    # Порог обычно крупнее идентификатора (5500 > 500), поэтому max() верный выбор.
+    _candidates = re.findall(r'\b(\d{3,}(?:\.\d+)?)\b', title)
+    _valid = []
+    for _c in _candidates:
+        try:
+            _v = float(_c)
+            if not _is_year(_v):
+                _valid.append(_v)
+        except ValueError:
+            pass
+
+    if _valid:
+        return (max(_valid), 'pts')
+
     return None
 
 def _same_unit(u1: str, u2: str) -> bool:
