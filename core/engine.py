@@ -453,10 +453,17 @@ class CoreEngine:
                     break
                 except Exception as e:
                     from core.guards import LLMUnavailableError
-                    # Проверяем, является ли это ошибкой недоступности LLM
+                    # Проверяем, является ли это ошибкой недоступности LLM (включая всю цепочку причин e, e.__cause__, e.__context__)
                     is_llm_err = isinstance(e, LLMUnavailableError)
-                    if not is_llm_err and hasattr(e, '__cause__'):
-                        is_llm_err = isinstance(e.__cause__, LLMUnavailableError)
+                    if not is_llm_err:
+                        cause = e
+                        for _ in range(5):  # защита от бесконечного цикла
+                            cause = getattr(cause, '__cause__', None) or getattr(cause, '__context__', None)
+                            if cause is None:
+                                break
+                            if isinstance(cause, LLMUnavailableError):
+                                is_llm_err = True
+                                break
                         
                     if is_llm_err:
                         logger.warning(f"Gemini API limits hit (429/403) for market {m.id}. Sending fast basic signal fallback.")
@@ -471,8 +478,11 @@ class CoreEngine:
                         )
                         if source_url:
                             fast_msg += f"📡 <b>Триггер:</b> <a href='{source_url}'>{source_text or 'Пост'}</a>\n"
-                        if m.volume:
-                            fast_msg += f"📊 <b>Объем:</b> ${m.volume:,.0f}\n"
+                        if m.volume is not None:
+                            try:
+                                fast_msg += f"📊 <b>Объем:</b> ${float(m.volume):,.0f}\n"
+                            except (TypeError, ValueError):
+                                pass
                             
                         fast_msg += "\n⚠️ <i>Глубокий анализ агентов пропущен из-за превышения лимитов API Gemini (429/403).</i>"
                         

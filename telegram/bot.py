@@ -150,13 +150,13 @@ async def continuous_monitoring_loop() -> None:
     global _monitoring_task, _monitoring_stop_event
     logger.info("▶️ continuous_monitoring_loop запущен")
     try:
+        # Импортируем здесь, чтобы избежать циклических импортов на старте бота
+        from main import scheduled_job
         while True:
             if _monitoring_stop_event and _monitoring_stop_event.is_set():
                 logger.info("⏹ Мониторинг остановлен по запросу пользователя")
                 break
             try:
-                # Импортируем здесь, чтобы избежать циклических импортов
-                from main import scheduled_job
                 await scheduled_job()
             except Exception as e:
                 logger.error(f"[Monitor] Ошибка в итерации: {e}", exc_info=True)
@@ -373,21 +373,39 @@ async def command_monitor_handler(message: types.Message) -> None:
 
 @dp.callback_query(F.data == "monitor_refresh")
 async def callback_monitor_refresh(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
-    await callback.answer("Обновлено")
+    try:
+        await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+    except Exception:
+        pass  # «message not modified» или аналогичная ошибка разметки
+    try:
+        await callback.answer("Обновлено")
+    except Exception:
+        pass
 
 
 @dp.callback_query(F.data == "monitor_start")
 async def callback_monitor_start(callback: CallbackQuery) -> None:
     global _monitoring_task, _monitoring_stop_event
     if _is_monitoring_active():
-        await callback.answer("⚠️ Мониторинг уже запущен", show_alert=False)
-        await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+        try:
+            await callback.answer("⚠️ Мониторинг уже запущен", show_alert=False)
+        except Exception:
+            pass
+        try:
+            await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+        except Exception:
+            pass
         return
     _monitoring_stop_event = asyncio.Event()
     _monitoring_task = asyncio.create_task(continuous_monitoring_loop())
-    await callback.answer("▶️ Мониторинг запущен!")
-    await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+    try:
+        await callback.answer("▶️ Мониторинг запущен!")
+    except Exception:
+        pass
+    try:
+        await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+    except Exception:
+        pass
     logger.info("▶️ Мониторинг запущен пользователем через Telegram")
 
 
@@ -395,16 +413,28 @@ async def callback_monitor_start(callback: CallbackQuery) -> None:
 async def callback_monitor_stop(callback: CallbackQuery) -> None:
     global _monitoring_stop_event
     if not _is_monitoring_active():
-        await callback.answer("ℹ️ Мониторинг уже остановлен", show_alert=False)
-        await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+        try:
+            await callback.answer("ℹ️ Мониторинг уже остановлен", show_alert=False)
+        except Exception:
+            pass
+        try:
+            await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+        except Exception:
+            pass
         return
     if _monitoring_stop_event:
         _monitoring_stop_event.set()
-    await callback.answer("⏹ Сигнал остановки отправлен")
-    await callback.message.edit_text(
-        build_monitor_text() + "\n\n<i>⏳ Цикл завершит текущую итерацию и остановится...</i>",
-        reply_markup=build_monitor_keyboard(), parse_mode="HTML"
-    )
+    try:
+        await callback.answer("⏹ Сигнал остановки отправлен")
+    except Exception:
+        pass
+    try:
+        await callback.message.edit_text(
+            build_monitor_text() + "\n\n<i>⏳ Цикл завершит текущую итерацию и остановится...</i>",
+            reply_markup=build_monitor_keyboard(), parse_mode="HTML"
+        )
+    except Exception:
+        pass
     logger.info("⏹ Запрос остановки мониторинга от пользователя через Telegram")
 
 
@@ -412,7 +442,10 @@ async def callback_monitor_stop(callback: CallbackQuery) -> None:
 async def callback_monitor_schedule_toggle(callback: CallbackQuery) -> None:
     global _auto_schedule_enabled
     if _scheduler is None:
-        await callback.answer("⚠️ Планировщик не инициализирован", show_alert=True)
+        try:
+            await callback.answer("⚠️ Планировщик не инициализирован", show_alert=True)
+        except Exception:
+            pass
         return
     if _auto_schedule_enabled:
         try:
@@ -421,7 +454,10 @@ async def callback_monitor_schedule_toggle(callback: CallbackQuery) -> None:
         except Exception:
             pass
         _auto_schedule_enabled = False
-        await callback.answer("🔴 Авто-расписание выключено")
+        try:
+            await callback.answer("🔴 Авто-расписание выключено")
+        except Exception:
+            pass
     else:
         try:
             from main import scheduled_job
@@ -430,13 +466,22 @@ async def callback_monitor_schedule_toggle(callback: CallbackQuery) -> None:
                 id=_SCHEDULE_JOB_ID, replace_existing=True
             )
             logger.info("⏰ Авто-расписание включено пользователем (каждые 5 мин)")
+            try:
+                await callback.answer("🟢 Авто-расписание включено (каждые 5 мин)")
+            except Exception:
+                pass
+            _auto_schedule_enabled = True
         except Exception as e:
             logger.error(f"Ошибка включения авто-расписания: {e}", exc_info=True)
-            await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+            try:
+                await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+            except Exception:
+                pass
             return
-        _auto_schedule_enabled = True
-        await callback.answer("🟢 Авто-расписание включено (каждые 5 мин)")
-    await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+    try:
+        await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+    except Exception:
+        pass
 
 @dp.message(Command("synthetic"))
 async def command_synthetic_handler(message: types.Message) -> None:
