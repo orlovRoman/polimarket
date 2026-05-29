@@ -161,6 +161,18 @@ def parse_whale_alert(text: str, entities=None) -> dict:
             
     return result
 
+def build_tg_post_url(chat, msg_id: int) -> str:
+    """
+    Строит прямую ссылку на сообщение в Telegram.
+    Публичный канал: t.me/{username}/{msg_id}
+    Приватный канал: t.me/c/{clean_id}/{msg_id}
+    """
+    username = getattr(chat, 'username', None)
+    if username:
+        return f"https://t.me/{username}/{msg_id}"
+    clean_id = str(chat.id).replace('-100', '')
+    return f"https://t.me/c/{clean_id}/{msg_id}"
+
 async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: str = "whale", market_url: str = "", post_url: str = "", post_text: str = ""):
     """
     Триггерит Orchestrator NEXUS для мгновенного точечного анализа рынка
@@ -279,6 +291,9 @@ async def main():
         # Получаем имя канала
         chat = await event.get_chat()
         chat_name = chat.username or chat.title or str(chat.id)
+        msg_id = event.message.id
+        
+        tg_post_url = build_tg_post_url(chat, msg_id)
         
         print(f"\n[Listener] 🔔 Получено новое сообщение из {chat_name}:\n{text[:120]}...")
         
@@ -286,45 +301,38 @@ async def main():
             is_target_source = False
             if any(s in chat_name.lower() or s.replace('@', '') in chat_name.lower() or s == str(chat.id) for s in target_sources):
                 is_target_source = True
+                
+                if "polymarketalerthub" in chat_name.lower():
+                    print(f"[Listener] ⚠️ ВНИМАНИЕ: polymarketalerthub добавлен в target_sources! Это приведет к двойному анализу (глубокий API + быстрый Nexus).")
+                    
                 # 1. Запускаем глубокий Event-Driven анализ
                 from agents.shared.python.db import save_telegram_post
-                post_id = save_telegram_post(str(chat.id), event.message.id, text)
+                post_id = save_telegram_post(str(chat.id), msg_id, text)
                 if post_id and TELEGRAM_GROUP2_TARGET_ID:
                     print(f"[Listener] 🧠 Триггерим глубокий анализ поста из {chat_name} (ID: {post_id})...")
-                    import httpx
-                    import asyncio
-                    async def trigger_analysis():
-                        username = getattr(chat, 'username', None)
-                        msg_id = event.message.id
-                        if username:
-                            source_url = f"https://t.me/{username}/{msg_id}"
-                        else:
-                            clean_id = str(chat.id).replace('-100', '')
-                            source_url = f"https://t.me/c/{clean_id}/{msg_id}"
+                    
+                    source_label = chat_name
+                    if text:
+                        first_line = text.split('\n')[0][:30]
+                        source_label = f"[{chat_name}] {first_line}..."
                         
-                        # Короткий заголовок для отображения (source_label)
-                        source_label = chat_name
-                        if text:
-                            first_line = text.split('\n')[0][:30]
-                            source_label = f"[{chat_name}] {first_line}..."
-                            
-                        async with httpx.AsyncClient() as c:
-                            try:
-                                await c.post(
-                                    f"http://127.0.0.1:8000/api/analyze/{post_id}",
-                                    json={
-                                        "post_id": post_id, 
-                                        "chat_id": str(TELEGRAM_GROUP2_TARGET_ID),
-                                        "source_chat_id": str(chat.id),
-                                        "source_username": username,
-                                        "source_message_id": msg_id,
-                                        "source_url": source_url,
-                                        "source_text": source_label
-                                    }
-                                )
-                            except Exception as e:
-                                print(f"[Listener] Ошибка вызова API: {e}")
-                    asyncio.create_task(trigger_analysis())
+                    import httpx
+                    async with httpx.AsyncClient() as c:
+                        try:
+                            await c.post(
+                                f"http://127.0.0.1:8000/api/analyze/{post_id}",
+                                json={
+                                    "post_id": post_id, 
+                                    "chat_id": str(TELEGRAM_GROUP2_TARGET_ID),
+                                    "source_chat_id": str(chat.id),
+                                    "source_username": getattr(chat, 'username', None),
+                                    "source_message_id": msg_id,
+                                    "source_url": tg_post_url,
+                                    "source_text": source_label
+                                }
+                            )
+                        except Exception as e:
+                            print(f"[Listener] Ошибка вызова API: {e}")
 
             if "polymarketalerthub" in chat_name.lower():
                 # 2. Сохраняем алерт о ките в БД в любом случае
@@ -346,14 +354,6 @@ async def main():
                         
                         # Если это НЕ целевой канал для глубокого анализа, запускаем старый точечный скан
                         if bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and market_ids and not is_target_source:
-                            tg_post_url = ""
-                            username = getattr(chat, 'username', None)
-                            if username:
-                                tg_post_url = f"https://t.me/{username}/{event.message.id}"
-                            else:
-                                clean_id = str(chat.id).replace('-100', '')
-                                tg_post_url = f"https://t.me/c/{clean_id}/{event.message.id}"
-                                
                             await trigger_nexus_scan(
                                 market_ids[0], 
                                 bet_info["amount_usd"], 
@@ -369,14 +369,6 @@ async def main():
                     if markets:
                         print(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
                         
-                        tg_post_url = ""
-                        username = getattr(chat, 'username', None)
-                        if username:
-                            tg_post_url = f"https://t.me/{username}/{event.message.id}"
-                        else:
-                            clean_id = str(chat.id).replace('-100', '')
-                            tg_post_url = f"https://t.me/c/{clean_id}/{event.message.id}"
-                            
                         # Передаём market_url чтобы source_url не деградировал до scheduled
                         await trigger_nexus_scan(
                             markets[0].id,
