@@ -359,7 +359,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         
         # Источник (если event-driven)
         if context.trigger_type == "event_driven" and context.source_url and context.source_url.strip():
-            source_label = context.source_text or "Источник"
+            source_label = "Источник"
             summary_text += f"📡 <b>Триггер:</b> <a href='{context.source_url}'>{source_label}</a>\n\n"
         elif context.trigger_type == "scheduled":
             summary_text += f"🔄 <b>Триггер:</b> Плановый скан\n\n"

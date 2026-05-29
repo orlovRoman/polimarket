@@ -86,6 +86,8 @@ _BOT_SIGNATURES = [
     "К сожалению, я не нашел связанных рынков",
     "Запущен внеочередной скан для рынка",
     "Анализирую...",
+    "🗣️ Обсуждение рынка:",      # ← новое: итоговый отчёт консенсуса
+    "🧠 SCOUT (Фундаментал):",   # ← новое: структура отчёта агентов
 ]
 
 # Каналы, сообщения которых обрабатываются как whale/trader сигналы
@@ -432,8 +434,19 @@ async def main():
             if s not in chats_to_listen:
                 chats_to_listen.append(s.replace('@', ''))
         
+    TARGET_CHAT_ID = str(TELEGRAM_GROUP2_TARGET_ID) if TELEGRAM_GROUP2_TARGET_ID else None
+
     @client.on(events.NewMessage(chats=chats_to_listen))
     async def handler(event):
+        # Игнорируем сообщения из целевого (target) канала, куда пишет сам бот,
+        # чтобы предотвратить бесконечные циклы анализа.
+        chat = await event.get_chat()
+        chat_id_str = str(getattr(chat, 'id', ''))
+        if TARGET_CHAT_ID:
+            clean_target = TARGET_CHAT_ID.replace('-100', '').lstrip('-')
+            if clean_target in chat_id_str:
+                return
+
         text = event.message.message
         if not text:
             return
@@ -558,7 +571,7 @@ async def main():
                                 source="whale",
                                 market_url=bet_info["market_url"] or "",
                                 post_url=tg_post_url,
-                                post_text=text[:500]   # увеличили с 200 до 500 — whale-сигнал длиннее
+                                post_text=f"[{chat_name}] whale signal"
                             )
                 elif bet_info["market_url"] and not bet_info["wallet"]:
                     # Есть URL рынка но нет кошелька — минимальный триггер без сохранения транзакции
@@ -571,7 +584,7 @@ async def main():
                             source="whale",
                             market_url=bet_info["market_url"],
                             post_url=tg_post_url,
-                            post_text=text[:500]
+                            post_text=f"[{chat_name}] whale signal"
                         )
             
             else:
@@ -603,7 +616,7 @@ async def main():
                                 source=chat_name,
                                 market_url=pm_url,
                                 post_url=tg_post_url,
-                                post_text=text[:500]
+                                post_text=f"[{chat_name}] news signal"
                             )
                             return  # не тратим LLM-запрос
             
@@ -616,7 +629,7 @@ async def main():
                             source=chat_name,
                             market_url=getattr(markets[0], 'url', ''),
                             post_url=tg_post_url,
-                            post_text=text[:500]
+                            post_text=f"[{chat_name}] news signal"
                         )
                     else:
                         print(f"[Listener] ⚪️ Для новости из {chat_name} рынки на Polymarket не найдены.")
