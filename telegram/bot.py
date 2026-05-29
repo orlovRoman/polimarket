@@ -11,6 +11,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, LinkPreviewOptions
+from aiogram.exceptions import TelegramRetryAfter
 from dotenv import load_dotenv
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -39,6 +40,10 @@ init_db()
 # Это исключает тяжёлую синхронную работу (загрузка промпта, инициализация Gemini)
 # внутри импорта и при конкурентных запросах нет нескольких экземпляров агента.
 _nexus_agent: NexusAgent | None = None
+def get_core_engine():
+    """Возвращает единственный экземпляр CoreEngine."""
+    from core.engine import CoreEngine
+    return CoreEngine()
 
 
 def get_nexus_agent() -> NexusAgent:
@@ -347,9 +352,7 @@ async def command_status_handler(message: types.Message) -> None:
     # Получаем метрики памяти
     stats = await asyncio.to_thread(get_memory_stats)
 
-    # Реальный статус сканирования
-    from core.engine import CoreEngine
-    engine = CoreEngine()
+    engine = get_core_engine()
     is_scanning_real = _scan_lock.locked() or engine._scan_lock.locked()
 
     status_text = (
@@ -388,34 +391,35 @@ async def command_status_handler(message: types.Message) -> None:
     if is_scanning_real:
         # Получаем детальный статус сканирования
         state = engine.state
-        category = state.get("category", "Авто-микс")
-        stage = state.get("stage", "В процессе")
-        cur_idx = state.get('current_market_index', 0)
-        tot = state.get('total_markets', 0)
-        title = state.get('current_market_title', 'Поиск...')
-        url = state.get('current_market_url', '')
-        scout = state.get('scout_status', '⏳ Ожидает')
-        swing = state.get('swing_status', '⏳ Ожидает')
-        shadow = state.get('shadow_status', '⏳ Ожидает')
-        ideas = state.get('ideas_found', 0)
+        if isinstance(state, dict):
+            category = state.get("category", "Авто-микс")
+            stage = state.get("stage", "В процессе")
+            cur_idx = state.get('current_market_index', 0)
+            tot = state.get('total_markets', 0)
+            title = state.get('current_market_title', 'Поиск...')
+            url = state.get('current_market_url', '')
+            scout = state.get('scout_status', '⏳ Ожидает')
+            swing = state.get('swing_status', '⏳ Ожидает')
+            shadow = state.get('shadow_status', '⏳ Ожидает')
+            ideas = state.get('ideas_found', 0)
 
-        market_link = f"<a href='{url}'>{title}</a>" if url else f"<b>{title}</b>"
+            market_link = f"<a href='{url}'>{title}</a>" if url else f"<b>{title}</b>"
 
-        progress_line = ""
-        if tot > 0:
-            progress_line = f"● 📊 <b>Прогресс:</b> Рынок <code>{cur_idx}</code> из <code>{tot}</code>\n"
+            progress_line = ""
+            if tot > 0:
+                progress_line = f"● 📊 <b>Прогресс:</b> Рынок <code>{cur_idx}</code> из <code>{tot}</code>\n"
 
-        status_text += (
-            f"\n\n⚡️ <b>Детали текущего сканирования:</b>\n"
-            f"● 📋 <b>Категория:</b> {category}\n"
-            f"● ⚙️ <b>Этап:</b> {stage}\n"
-            f"{progress_line}"
-            f"● 🎯 <b>Активный рынок:</b> {market_link}\n"
-            f"● 🕵️‍♂️ <b>SCOUT:</b> {scout}\n"
-            f"● 🚀 <b>SWING:</b> {swing}\n"
-            f"● 👤 <b>SHADOW:</b> {shadow}\n"
-            f"● <i>💡 Найдено идей (консенсус): {ideas}</i>"
-        )
+            status_text += (
+                f"\n\n⚡️ <b>Детали текущего сканирования:</b>\n"
+                f"● 📋 <b>Категория:</b> {category}\n"
+                f"● ⚙️ <b>Этап:</b> {stage}\n"
+                f"{progress_line}"
+                f"● 🎯 <b>Активный рынок:</b> {market_link}\n"
+                f"● 🕵️‍♂️ <b>SCOUT:</b> {scout}\n"
+                f"● 🚀 <b>SWING:</b> {swing}\n"
+                f"● 👤 <b>SHADOW:</b> {shadow}\n"
+                f"● <i>💡 Найдено идей (консенсус): {ideas}</i>"
+            )
 
     await message.answer(status_text)
 
@@ -1061,8 +1065,7 @@ def get_active_scan_status_text() -> str:
     Формирует подробный HTML-отчет о текущем прогрессе сканирования и статусах агентов.
     """
     try:
-        from core.engine import CoreEngine
-        engine = CoreEngine()
+        engine = get_core_engine()
         state = engine.state
     except Exception as e:
         logger.error(f"Ошибка получения статуса сканирования из CoreEngine: {e}")
@@ -1100,8 +1103,7 @@ def get_active_scan_status_text() -> str:
 
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:
-    from core.engine import CoreEngine
-    engine = CoreEngine()
+    engine = get_core_engine()
     if _scan_lock.locked() or engine._scan_lock.locked():
         status_text = get_active_scan_status_text()
         await message.answer(status_text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -1120,8 +1122,7 @@ async def command_scan_handler(message: types.Message) -> None:
 
 @dp.callback_query(F.data.startswith("scan_"))
 async def callback_scan_handler(callback: CallbackQuery) -> None:
-    from core.engine import CoreEngine
-    engine = CoreEngine()
+    engine = get_core_engine()
     if _scan_lock.locked() or engine._scan_lock.locked():
         await callback.answer()
         status_text = get_active_scan_status_text()
@@ -1227,14 +1228,16 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                         try:
                             await status_msg.edit_text(new_html, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
                             last_text = new_html
+                        except TelegramRetryAfter as e:
+                            logger.warning(f"Flood control in update_message: waiting for {e.retry_after} seconds.")
+                            await asyncio.sleep(e.retry_after)
                         except Exception:
                             pass
     
         updater_task = asyncio.create_task(update_message())
         
         try:
-            from core.engine import CoreEngine, NoMarketsFoundError
-            engine = CoreEngine()
+            from core.engine import NoMarketsFoundError
             
             SCAN_TIMEOUT_SEC = 1800
             await asyncio.wait_for(
