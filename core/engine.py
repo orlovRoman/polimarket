@@ -127,7 +127,29 @@ class CoreEngine:
         _update_state(category=category or "Авто-микс", stage="Скрининг рынков", total_markets=0, ideas_found=0)
 
         # 1. Скрининг
-        screened_market_ids = run_screening(self.adapter, self.nexus, category, market_id, summary_callback)
+        try:
+            screened_market_ids = run_screening(self.adapter, self.nexus, category, market_id, summary_callback)
+        except LLMUnavailableError as e:
+            agent_name = getattr(e, "agent_name", "NEXUS")
+            log(f"🔴 LLM API недоступен для агента {agent_name} во время скрининга.")
+            if summary_callback:
+                try:
+                    reply_markup = {
+                        "inline_keyboard": [
+                            [{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]
+                        ]
+                    }
+                    text = f"🔴 <b>LLM недоступна у агента {agent_name}</b>. Сканирование остановлено. Попробуйте позже."
+                    import inspect
+                    sig = inspect.signature(summary_callback)
+                    if "reply_markup" in sig.parameters:
+                        summary_callback(text, reply_markup=reply_markup)
+                    else:
+                        summary_callback(text)
+                except Exception as cb_err:
+                    logger.error(f"summary_callback error: {cb_err}")
+            _update_state(stage="Ошибка (LLM недоступна)")
+            return 0
 
         # 2. Отбор
         cat_msg = f" в категории '{category}'" if category else " (авто-микс)"
@@ -271,11 +293,23 @@ class CoreEngine:
                 
                 mark_market_analyzed(m.id, m.price)
                 
-            except LLMUnavailableError:
-                log("🔴 LLM API недоступен. Сканирование прервано.")
+            except LLMUnavailableError as e:
+                agent_name = getattr(e, "agent_name", "UNKNOWN")
+                log(f"🔴 LLM API недоступен для агента {agent_name}. Сканирование прервано.")
                 if summary_callback:
                     try:
-                        summary_callback("🔴 <b>LLM недоступна</b>. Сканирование остановлено. Попробуйте позже.")
+                        reply_markup = {
+                            "inline_keyboard": [
+                                [{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]
+                            ]
+                        }
+                        text = f"🔴 <b>LLM недоступна у агента {agent_name}</b>. Сканирование остановлено. Попробуйте позже."
+                        import inspect
+                        sig = inspect.signature(summary_callback)
+                        if "reply_markup" in sig.parameters:
+                            summary_callback(text, reply_markup=reply_markup)
+                        else:
+                            summary_callback(text)
                     except Exception as cb_err:
                         logger.error(f"summary_callback error: {cb_err}")
                 break
@@ -358,8 +392,8 @@ class CoreEngine:
                         clean_id = str(db_chat_id).replace('-100', '')
                         source_url = f"https://t.me/c/{clean_id}/{effective_message_id}"
 
-            def _notify(msg: str) -> None:
-                send_telegram_to_chat(msg, chat_id)
+            def _notify(msg: str, reply_markup: dict = None) -> None:
+                send_telegram_to_chat(msg, chat_id, reply_markup=reply_markup)
 
             for m in markets[:3]:
                 try:

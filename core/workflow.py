@@ -26,7 +26,7 @@ from agents.polymarket_swing_agent.src.agent import SwingAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent
 from agents.orchestrator.src.agent import NexusAgent
 
-_SESSION_DEDUP_TTL_SEC: int = 600
+_SESSION_DEDUP_TTL_SEC: int = 1800
 _analyzed_in_session: Dict[str, float] = {}
 
 def _cleanup_session_dedup() -> None:
@@ -120,7 +120,9 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             if not prefiltered:
                 return []
 
-            screen_result = nexus.screen_markets(prefiltered, top_n=30)
+            from agents.shared.python.db import get_recently_analyzed_market_ids
+            already_analyzed = get_recently_analyzed_market_ids(within_seconds=SCREENING_INTERVAL_SEC)
+            screen_result = nexus.screen_markets(prefiltered, top_n=30, exclude_ids=already_analyzed)
             screened_market_ids = screen_result.get("top_candidates", [])
             correlations_count = len(screen_result.get("correlations", []))
             

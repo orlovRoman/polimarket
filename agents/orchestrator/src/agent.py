@@ -83,11 +83,16 @@ class NexusAgent:
         cleaned = re.sub(r'^[-\s]*id[:\-_]\s*', '', cleaned, flags=re.IGNORECASE)
         return cleaned.strip()
 
-    def screen_markets(self, markets_compact: list, top_n: int = 30) -> dict:
+    def screen_markets(self, markets_compact: list, top_n: int = 30, exclude_ids: list = None) -> dict:
         """
         Скринирует ВСЕ рынки и возвращает Top-N кандидатов + корреляции.
         Один LLM-вызов с JSON-выходом.
         """
+        exclude_set = set(exclude_ids or [])
+        if exclude_set:
+            markets_compact = [m for m in markets_compact if m['id'] not in exclude_set]
+            logger.info(f"[NEXUS] Исключено уже проанализированных: {len(exclude_set)} рынков")
+
         from config import MAX_SCREENING_MARKETS
         if len(markets_compact) > MAX_SCREENING_MARKETS:
             logger.warning(f"[NEXUS] Обрезаем список рынков: {len(markets_compact)} → {MAX_SCREENING_MARKETS}")

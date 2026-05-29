@@ -18,9 +18,22 @@ def with_retry(max_attempts: int = 3, initial_backoff: float = 2.0):
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
+            agent_name = "UNKNOWN"
+            if args:
+                self_obj = args[0]
+                agent_name = getattr(self_obj, "name", self_obj.__class__.__name__)
+
             # Сначала проверяем, не DEAD или DEGRADED ли шлюз (в режиме backoff)
-            if not llm_health_gate.check_availability():
-                raise LLMUnavailableError(f"LLM API is DEGRADED. Retry after {llm_health_gate.retry_after_safe}")
+            try:
+                if not llm_health_gate.check_availability():
+                    raise LLMUnavailableError(
+                        f"LLM API is DEGRADED. Retry after {llm_health_gate.retry_after_safe}",
+                        agent_name=agent_name
+                    )
+            except LLMUnavailableError as e:
+                if getattr(e, "agent_name", "UNKNOWN") == "UNKNOWN":
+                    raise LLMUnavailableError(str(e), agent_name=agent_name) from e
+                raise
             backoff = initial_backoff
             last_error = None
             
@@ -50,13 +63,13 @@ def with_retry(max_attempts: int = 3, initial_backoff: float = 2.0):
                     if attempt == max_attempts:
                         break
                         
-                    logger.warning(f"LLM call failed (attempt {attempt}/{max_attempts}): {e}. Retrying in {backoff}s...")
+                    logger.warning(f"[{agent_name}] LLM call failed (attempt {attempt}/{max_attempts}): {e}. Retrying in {backoff}s...")
                     time.sleep(backoff)
                     backoff *= 2.0
                     
             # Если мы дошли до сюда, все попытки исчерпаны
             llm_health_gate.record_error(429) # Принудительно регистрируем сбой
-            raise LLMUnavailableError(f"LLM API is unavailable after {max_attempts} attempts. Last error: {last_error}")
+            raise LLMUnavailableError(f"LLM API is unavailable after {max_attempts} attempts. Last error: {last_error}", agent_name=agent_name)
             
         return wrapper
     return decorator

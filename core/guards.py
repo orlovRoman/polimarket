@@ -4,7 +4,9 @@ import threading
 
 class LLMUnavailableError(Exception):
     """Исключение, выбрасываемое когда LLM недоступна (DEAD state)."""
-    pass
+    def __init__(self, message: str, agent_name: str = "UNKNOWN"):
+        super().__init__(message)
+        self.agent_name = agent_name
 
 class LLMHealthGate:
     def __init__(self):

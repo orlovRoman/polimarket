@@ -834,6 +834,17 @@ def get_last_analyzed_price(market_id: str) -> Optional[float]:
         row = cursor.fetchone()
         return row['last_price'] if row else None
 
+def get_recently_analyzed_market_ids(within_seconds: int = 1800) -> list:
+    """Возвращает список ID рынков, которые были проанализированы в течение последних N секунд."""
+    init_db()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT market_id FROM analyzed_markets 
+            WHERE analyzed_at > datetime('now', '-' || ? || ' seconds')
+        """, (within_seconds,))
+        return [row['market_id'] for row in cursor.fetchall()]
+
 def get_markets_on_cooldown(cooldown_hours: int = 4) -> set:
     """Возвращает set market_id, проанализированных менее N часов назад."""
     with get_connection() as conn:
