@@ -47,6 +47,9 @@ init_db()
 _nexus_agent: NexusAgent | None = None
 _core_engine = None
 
+_processed_message_ids: set[tuple[int, int]] = set()
+_MAX_MSG_ID_CACHE = 500
+
 def get_core_engine():
     """Возвращает единственный экземпляр CoreEngine (синглтон)."""
     global _core_engine
@@ -1697,9 +1700,43 @@ async def command_lists_handler(message: types.Message) -> None:
 
 @dp.message(F.text)
 async def conversational_handler(message: types.Message) -> None:
-    # Игнорируем команды
+    sender = getattr(message.from_user, 'username', None) or getattr(message.from_user, 'id', 'unknown')
+    is_forward = message.forward_origin is not None
+    is_bot_msg = getattr(message.from_user, 'is_bot', False)
+
+    logger.debug(
+        f"[MSG] chat={message.chat.id} from={sender} "
+        f"is_bot={is_bot_msg} is_forward={is_forward} "
+        f"via_bot={message.via_bot is not None} "
+        f"text_preview={message.text[:50]!r}"
+    )
+
+    # 1. Игнорируем команды
     if message.text.startswith("/"):
         return
+
+    # 2. Фильтруем нежелательные источники сообщений
+    if is_bot_msg:
+        logger.info(f"[FILTERED] Бот-сообщение от {sender} пропущено")
+        return
+    if is_forward:
+        logger.info(f"[FILTERED] Форвард от {sender} пропущен")
+        return
+    if message.via_bot is not None:
+        logger.info(f"[FILTERED] Сообщение via bot от {sender} пропущено")
+        return
+    if message.from_user is None:
+        logger.info(f"[FILTERED] Сообщение без живого автора в chat={message.chat.id} пропущено")
+        return
+
+    # 3. Дедупликация
+    msg_key = (message.chat.id, message.message_id)
+    if msg_key in _processed_message_ids:
+        logger.warning(f"Дублирующееся сообщение пропущено: {msg_key}")
+        return
+    _processed_message_ids.add(msg_key)
+    if len(_processed_message_ids) > _MAX_MSG_ID_CACHE:
+        _processed_message_ids.clear()
         
     chat_id = message.chat.id
     user_text = message.text
@@ -1710,8 +1747,16 @@ async def conversational_handler(message: types.Message) -> None:
     # Получаем историю чата (последние 15 сообщений для контекста)
     history = await asyncio.to_thread(get_chat_history, chat_id, 15)
     
-    # Отправляем запрос к Gemini
-    response_text = await asyncio.to_thread(ask_gemini, user_text, history)
+    # Отправляем запрос к Gemini с таймаутом
+    try:
+        response_text = await asyncio.wait_for(
+            asyncio.to_thread(ask_gemini, user_text, history),
+            timeout=60.0  # 60 секунд — разумный лимит для диалога
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"[conversational_handler] ask_gemini timeout для chat_id={chat_id}")
+        await message.answer("⏱ Gemini API не ответил за 60 сек. Попробуй позже.")
+        return
     
     # Не сохраняем в историю ошибки (таймаут или сбой API)
     if not response_text.startswith("Ошибка"):
