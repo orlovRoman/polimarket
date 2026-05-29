@@ -131,6 +131,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             items = []
             for event in data:
                 event_slug = event.get('slug')
+                event_desc = event.get('description', '')
                 for m in event.get('markets', []):
                     # Добавляем slug события для генерации правильного URL
                     if 'slug' not in m or not m['slug']:
@@ -138,17 +139,22 @@ class PolymarketAdapter(BaseMarketAdapter):
                     else:
                         # Polymarket URL часто использует slug события
                         m['event_slug'] = event_slug
+                    if not m.get("description"):
+                        m["description"] = event_desc
                     items.append(m)
         else:
             events = self.fetch_raw_events(limit)
             items = []
             for event in events:
                 event_slug = event.get('slug')
+                event_desc = event.get('description', '')
                 for m in event.get('markets', []):
                     if 'slug' not in m or not m['slug']:
                         m['slug'] = event_slug
                     else:
                         m['event_slug'] = event_slug
+                    if not m.get("description"):
+                        m["description"] = event_desc
                     items.append(m)
         
         for item in items:
@@ -278,11 +284,14 @@ class PolymarketAdapter(BaseMarketAdapter):
         items = []
         for event in events:
             event_slug = event.get('slug')
+            event_desc = event.get('description', '')
             for m in event.get('markets', []):
                 if 'slug' not in m or not m['slug']:
                     m['slug'] = event_slug
                 else:
                     m['event_slug'] = event_slug
+                if not m.get("description"):
+                    m["description"] = event_desc
                 items.append(m)
         return self._parse_markets(items, limit)
 
