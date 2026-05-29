@@ -49,6 +49,7 @@ _core_engine = None
 
 from collections import deque
 _processed_message_ids: deque[tuple[int, int]] = deque(maxlen=500)
+_processed_callback_ids: deque[str] = deque(maxlen=200)
 
 def get_core_engine():
     """Возвращает единственный экземпляр CoreEngine (синглтон)."""
@@ -132,28 +133,38 @@ class AuthMiddleware(BaseMiddleware):
         if isinstance(event, types.Message):
             if event.date:
                 try:
-                    from datetime import datetime, timedelta
                     now = datetime.now(event.date.tzinfo)
                     if (now - event.date) > timedelta(seconds=30):
                         return
                 except Exception:
                     pass
-                    
+
+        # Stale check for CallbackQuery — игнорируем кнопки из сообщений старше 10 минут
+        if isinstance(event, types.CallbackQuery) and event.message:
+            msg_date = event.message.date
+            if msg_date:
+                try:
+                    now = datetime.now(msg_date.tzinfo)
+                    if (now - msg_date) > timedelta(minutes=10):
+                        await event.answer("⚠️ Сессия устарела. Повторите команду заново.", show_alert=True)
+                        return
+                except Exception:
+                    pass
+
         # Auth check
         user_id = str(event.from_user.id) if hasattr(event, "from_user") and event.from_user else None
         chat_id = str(event.chat.id) if hasattr(event, "chat") and event.chat else None
         if not chat_id and hasattr(event, "message") and event.message:
             chat_id = str(event.message.chat.id)
-        
+
         allowed = False
         if AUTHORIZED_CHAT_ID:
             if chat_id and chat_id == AUTHORIZED_CHAT_ID:
                 allowed = True
             elif user_id and user_id == AUTHORIZED_CHAT_ID:
                 allowed = True
-                
+
         if not allowed:
-            # Предупреждаем неавторизованного пользователя
             if isinstance(event, types.Message):
                 try:
                     await event.answer("⛔ <b>Доступ заблокирован.</b>\nВаш Telegram ID не авторизован в настройках бота.")
@@ -947,17 +958,17 @@ async def command_restart_handler(message: types.Message) -> None:
     await message.answer("🔄 <b>Перезапуск бота через 3 секунды...</b>\nСлужба завершает процессы.", parse_mode="HTML")
     logging.warning("Получена команда /restart. Закрываю сессию и завершаю процесс...")
     
-    import asyncio
     await asyncio.sleep(3)
-    
-    # Изящное завершение: закрываем сессию Telegram, чтобы ОС успела снять файловую блокировку
+
+    # Изящное завершение сессии Telegram
     try:
         await bot.session.close()
     except Exception:
         pass
-        
-    import sys
-    sys.exit(0)
+
+    # sys.exit(0) НЕ останавливает процесс с активными потоками (asyncio.to_thread).
+    # os._exit(0) завершает процесс немедленно — systemd сделает рестарт.
+    os._exit(0)
 
 @dp.message(Command("arbitrage"))
 async def command_arbitrage_handler(message: types.Message) -> None:
@@ -1161,6 +1172,12 @@ async def command_scan_handler(message: types.Message) -> None:
 
 @dp.callback_query(F.data.startswith("scan_"))
 async def callback_scan_handler(callback: CallbackQuery) -> None:
+    # Дедупликация: игнорируем повторно доставленные callback'и
+    if callback.id in _processed_callback_ids:
+        await callback.answer()
+        return
+    _processed_callback_ids.append(callback.id)
+
     engine = get_core_engine()
     if _scan_lock.locked() or engine._scan_lock.locked():
         await callback.answer()
