@@ -61,9 +61,9 @@ def test_route_ambiguous_high_spread_calls_llm_and_parses_json():
 # Интеграционные тесты для run_agent_evaluation
 # ────────────────────────────────────────────────────────────────────────
 
-def test_run_agent_evaluation_checks_top_3_and_routes_ambiguous():
+def test_run_agent_evaluation_checks_top_5_and_routes_ambiguous():
     """Проверяем, что run_agent_evaluation:
-    1. Берет до 3 корреляций из get_market_correlations.
+    1. Берет до 5 корреляций из get_market_correlations (по константе _MAX_CORR_PEERS).
     2. Вызывает get_market для получения peer рынков.
     3. Вызывает math_pre_filter для каждого peer.
     4. Для AMBIGUOUS со спредом >= 8% вызывает route_ambiguous.
@@ -85,6 +85,8 @@ def test_run_agent_evaluation_checks_top_3_and_routes_ambiguous():
         {"market_id_a": "main", "market_id_b": "peer2", "title_a": "main", "title_b": "peer2", "correlation_type": "thematic", "confidence": 0.8, "description": "test"},
         {"market_id_a": "main", "market_id_b": "peer3", "title_a": "main", "title_b": "peer3", "correlation_type": "thematic", "confidence": 0.7, "description": "test"},
         {"market_id_a": "main", "market_id_b": "peer4", "title_a": "main", "title_b": "peer4", "correlation_type": "thematic", "confidence": 0.6, "description": "test"},
+        {"market_id_a": "main", "market_id_b": "peer5", "title_a": "main", "title_b": "peer5", "correlation_type": "thematic", "confidence": 0.5, "description": "test"},
+        {"market_id_a": "main", "market_id_b": "peer6", "title_a": "main", "title_b": "peer6", "correlation_type": "thematic", "confidence": 0.4, "description": "test"},
     ]
     
     peer_markets = {
@@ -92,6 +94,8 @@ def test_run_agent_evaluation_checks_top_3_and_routes_ambiguous():
         "peer2": _mkt("peer2", "Market peer2", 0.48),
         "peer3": _mkt("peer3", "Market peer3", 0.50),
         "peer4": _mkt("peer4", "Market peer4", 0.50),
+        "peer5": _mkt("peer5", "Market peer5", 0.50),
+        "peer6": _mkt("peer6", "Market peer6", 0.50),
     }
     
     adapter = MagicMock()
@@ -100,11 +104,15 @@ def test_run_agent_evaluation_checks_top_3_and_routes_ambiguous():
     # 1. peer1: AMBIGUOUS, спред 15% (>= 8%)
     # 2. peer2: AMBIGUOUS, спред 4% (< 8%)
     # 3. peer3: CONFIRMED_NO_ARBI
-    # peer4 не должен проверяться, так как мы берем только top-3
+    # peer4, peer5: CONFIRMED_NO_ARBI
+    # peer6 не должен проверяться, так как мы берем только top-5
     mf_results = {
         "peer1": MathFilterResult(FilterDecision.AMBIGUOUS, "price_divergence", 15.0, "", ""),
         "peer2": MathFilterResult(FilterDecision.AMBIGUOUS, "price_divergence", 4.0, "", ""),
         "peer3": MathFilterResult(FilterDecision.CONFIRMED_NO_ARBI, "price_divergence", 0.0, "", ""),
+        "peer4": MathFilterResult(FilterDecision.CONFIRMED_NO_ARBI, "price_divergence", 0.0, "", ""),
+        "peer5": MathFilterResult(FilterDecision.CONFIRMED_NO_ARBI, "price_divergence", 0.0, "", ""),
+        "peer6": MathFilterResult(FilterDecision.CONFIRMED_NO_ARBI, "price_divergence", 0.0, "", ""),
     }
     
     def fake_math_pre_filter(m_a, m_b):
@@ -125,17 +133,18 @@ def test_run_agent_evaluation_checks_top_3_and_routes_ambiguous():
         
         sig, swing_sig, ctx = run_agent_evaluation(m, scout, swing, update_state, adapter=adapter)
         
-        # Проверяем, что get_market вызвался только для peer1, peer2, peer3
-        assert adapter.get_market.call_count == 3
+        # Проверяем, что get_market вызвался для peer1 - peer5
+        assert adapter.get_market.call_count == 5
         adapter.get_market.assert_any_call("peer1")
         adapter.get_market.assert_any_call("peer2")
         adapter.get_market.assert_any_call("peer3")
+        adapter.get_market.assert_any_call("peer4")
+        adapter.get_market.assert_any_call("peer5")
         with pytest.raises(AssertionError):
-            adapter.get_market.assert_any_call("peer4")
+            adapter.get_market.assert_any_call("peer6")
             
         # Проверяем, что route_ambiguous вызвался ровно 1 раз (для peer1, т.к. там спред 15% >= 8%)
         mock_route.assert_called_once()
-        # Проверяем аргументы вызова route_ambiguous
         call_args = mock_route.call_args[0]
         assert call_args[0].spread_pct == 15.0
         assert call_args[1].id == "main"

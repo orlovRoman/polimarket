@@ -248,10 +248,9 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
                     )
                 # Разные события (разный оракул/дата) — оставляем AMBIGUOUS
                 instruction = (
-                    f"⚠️ Требует открытой позиции: "
-                    f"SELL YES на [{higher_market.title}] ({p_higher*100:.0f}¢) "
-                    f"при наличии позиции. Альтернатива: сигнал LLM для BUY YES на [{lower_market.title}] ({p_lower*100:.0f}¢) "
-                    f"как недооценённый рынок. Спред: {spread:.1f}%."
+                    f"⚠️ Рынок [{lower_market.title}]({lower_market.url}) ({p_lower*100:.0f}¢) "
+                    f"потенциально недооценён относительно [{higher_market.title}] ({p_higher*100:.0f}¢). "
+                    f"Спред: {spread:.1f}%. Требует подтверждения LLM (разные оракулы/даты)."
                 )
                 return MathFilterResult(
                     decision=FilterDecision.AMBIGUOUS,

@@ -7,6 +7,9 @@ from typing import Optional, Callable, Set, Dict
 
 from core.models import Market, Signal, SwingSignal, AgentOpinion, IdeaDecision
 from core.context import MarketContext
+
+_MAX_CORR_PEERS: int = 5   # топ-N корреляций для math_pre_filter
+
 from config import logger, SCREENING_INTERVAL_SEC, SCAN_LIMIT_DEFAULT, MIN_EDGE_DEFAULT, MAX_SCREENING_MARKETS
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import (
@@ -313,7 +316,7 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     corr_list = get_market_correlations(m.id)
     if corr_list:
         lines = []
-        for c in corr_list[:3]:
+        for c in corr_list[:_MAX_CORR_PEERS]:
             conf_pct = int(float(c["confidence"]) * 100) if float(c["confidence"]) <= 1.0 \
                        else int(c["confidence"])
             peer_title = c["title_b"] if c["market_id_a"] == m.id else c["title_a"]
@@ -332,7 +335,7 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
 
         if adapter:
             best_arb_result = None
-            for c in corr_list[:3]:          # проверяем топ-3 корреляции
+            for c in corr_list[:_MAX_CORR_PEERS]:          # проверяем топ-N корреляции
                 peer_id = c["market_id_b"] if c["market_id_a"] == m.id else c["market_id_a"]
                 try:
                     peer_market = adapter.get_market(peer_id)
@@ -341,12 +344,15 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
                     mf = math_pre_filter(m, peer_market)
                     # Роутим AMBIGUOUS с большим спредом через мини-LLM
                     if mf.decision == FilterDecision.AMBIGUOUS and mf.spread_pct >= 8.0:
-                        arb_verdict = route_ambiguous(mf, m, peer_market, api_key=scout.api_key)
-                        if arb_verdict and arb_verdict.get("confirmed_arb"):
-                            logger.info(f"[arb_router] Арбитраж подтверждён: {m.title} ↔ {peer_market.title}")
-                            # Апгрейдим mf до confirmed для отображения в Telegram
-                            from dataclasses import replace
-                            mf = replace(mf, decision=FilterDecision.CONFIRMED_ARBITRAGE, has_arbitrage=True)
+                        if api_key:
+                            arb_verdict = route_ambiguous(mf, m, peer_market, api_key=api_key)
+                            if arb_verdict and arb_verdict.get("confirmed_arb"):
+                                logger.info(f"[arb_router] Арбитраж подтверждён: {m.title} ↔ {peer_market.title}")
+                                # Апгрейдим mf до confirmed для отображения в Telegram
+                                from dataclasses import replace
+                                mf = replace(mf, decision=FilterDecision.CONFIRMED_ARBITRAGE, has_arbitrage=True)
+                        else:
+                            logger.warning("[workflow] route_ambiguous пропущен: нет api_key")
                     # Запоминаем лучший результат (с наибольшим спредом)
                     if best_arb_result is None or mf.spread_pct > best_arb_result.spread_pct:
                         best_arb_result = mf

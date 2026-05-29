@@ -43,6 +43,8 @@ def find_complementary_pairs(
     results: list[tuple[Market, Market, MathFilterResult]] = []
 
     for i, a in enumerate(markets):
+        if len(results) >= max_pairs:   # ← FIX: guard вверху внешнего цикла
+            break
         for b in markets[i + 1:]:
             if not _quick_pair_check(a.title, b.title):
                 continue
@@ -61,9 +63,7 @@ def find_complementary_pairs(
                 results.append((a, b, mf))
 
             if len(results) >= max_pairs:
-                break
-        if len(results) >= max_pairs:
-            break
+                break   # ← внутренний цикл
 
     results.sort(key=lambda x: x[2].spread_pct, reverse=True)
     logger.info(f"[arb_scanner] Найдено {len(results)} пар (min_spread={min_spread_pct}%)")
