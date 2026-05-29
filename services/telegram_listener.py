@@ -2,6 +2,8 @@ import os
 import re
 import sys
 import asyncio
+import threading
+import httpx
 from pathlib import Path
 from datetime import datetime
 import requests
@@ -9,9 +11,16 @@ import requests
 # Подключаем корень проекта для правильных импортов
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import TG_API_ID, TG_API_HASH, TG_PHONE, PROJECT_ROOT
+from config import (
+    TG_API_ID, TG_API_HASH, TG_PHONE, PROJECT_ROOT,
+    GOOGLE_API_KEY, TELEGRAM_GROUP2_SOURCE,
+    TELEGRAM_GROUP2_TARGET_ID, WHALE_ALERT_MIN_USD
+)
 from agents.shared.python.db import save_trader_transaction, get_connection
 from agents.shared.adapters.polymarket import PolymarketAdapter
+
+_API_ANALYZE_TIMEOUT = 10.0
+
 
 # Папка для файла сессии Telethon
 SESSION_DIR = PROJECT_ROOT / "vault"
@@ -186,17 +195,20 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
             print(f"[Listener] 🗞 ТРИГГЕР: Важная новость ({source})! Запуск сканирования для {market_id}...")
             msg_text = f"🗞 <b>ТРИГГЕР (News):</b> Запущен внеочередной скан для рынка <code>{market_id}</code>"
             
-        # Запускаем внеочередное сканирование через API движка
-        import threading
         from core.engine import CoreEngine
         def _trigger_scan():
-            eng = CoreEngine()
-            source_url = post_url or market_url or ""
-            source_text = post_text or (
-                f"Whale transaction detected: ${amount_usd:,.0f}" if source == "whale"
-                else f"Triggered by: {source}"
-            )
-            eng.run_team_discussion(market_id=market_id, trigger_type="event_driven", source_url=source_url, source_text=source_text)
+            try:
+                eng = CoreEngine()
+                source_url = post_url or market_url or ""
+                source_text = post_text or (
+                    f"Whale transaction detected: ${amount_usd:,.0f}" if source == "whale"
+                    else f"Triggered by: {source}"
+                )
+                eng.run_team_discussion(market_id=market_id, trigger_type="event_driven", source_url=source_url, source_text=source_text)
+            except RuntimeError as e:
+                print(f"[Listener] ⚠️ trigger_nexus_scan: сканирование занято: {e}")
+            except Exception as e:
+                print(f"[Listener] ❌ trigger_nexus_scan: неожиданная ошибка: {e}")
         threading.Thread(target=_trigger_scan, daemon=True).start()
             
         # Отправляем подтверждение в Telegram
@@ -255,7 +267,6 @@ async def main():
     client = TelegramClient(SESSION_PATH, int(api_id), api_hash)
     
     # Инициализация NewsProcessor для новостных каналов
-    from config import GOOGLE_API_KEY, TELEGRAM_GROUP2_SOURCE, TELEGRAM_GROUP2_TARGET_ID, WHALE_ALERT_MIN_USD
     from agents.orchestrator.src.news_processor import NewsProcessor
     news_processor = NewsProcessor(api_key=GOOGLE_API_KEY)
     
@@ -316,8 +327,7 @@ async def main():
                         first_line = text.split('\n')[0][:30]
                         source_label = f"[{chat_name}] {first_line}..."
                         
-                    import httpx
-                    async with httpx.AsyncClient() as c:
+                    async with httpx.AsyncClient(timeout=_API_ANALYZE_TIMEOUT) as c:
                         try:
                             await c.post(
                                 f"http://127.0.0.1:8000/api/analyze/{post_id}",
@@ -331,6 +341,8 @@ async def main():
                                     "source_text": source_label
                                 }
                             )
+                        except httpx.TimeoutException:
+                            print(f"[Listener] ⏱️ Таймаут при вызове /api/analyze/{post_id} (>{_API_ANALYZE_TIMEOUT}с) — анализ не запущен")
                         except Exception as e:
                             print(f"[Listener] Ошибка вызова API: {e}")
 
