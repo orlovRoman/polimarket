@@ -268,10 +268,6 @@ def _send_cerebras(payload: dict, model: str, api_key: str, timeout: int) -> Tup
         headers=headers,
         timeout=timeout
     )
-    if response.status_code == 429:
-        CEREBRAS_RATE_LIMIT_WAIT_SEC = 20
-        logger.warning(f"Ошибка 429 от Cerebras ({model}). Ждем {CEREBRAS_RATE_LIMIT_WAIT_SEC} секунд...")
-        time.sleep(CEREBRAS_RATE_LIMIT_WAIT_SEC)
     response.raise_for_status()
     openai_res = response.json()
     result = convert_openai_to_gemini(openai_res)
@@ -422,7 +418,6 @@ def generate_content_with_fallback(
         logger.error(f"Error reading model config for {agent_name}: {e}")
 
     prompt_text = extract_prompt_from_payload(payload)
-    gemini_attempt = 0
 
     # 4. Перебираем планы и ключи
     for provider, model in plans:
@@ -467,7 +462,6 @@ def generate_content_with_fallback(
                 # BUG-1 & BUG-2: Двигаем round-robin индекс Cerebras только при реальной HTTP-ошибке (4xx/5xx)
                 # и нормализуем индекс, чтобы он не рос бесконечно
                 if provider == "cerebras":
-                    import requests
                     if isinstance(e, requests.exceptions.HTTPError):
                         _cer_idx_now = int(get_memory("cer_rr_index", 0))
                         cer_models = providers["cerebras"]["models"]
@@ -475,11 +469,7 @@ def generate_content_with_fallback(
                 # Переходим к следующему ключу этого же провайдера
                 continue
                 
-        # Если это был Gemini и мы прошлись по всем ключам, делаем экспоненциальный бэкоф перед следующей моделью
-        if provider == "gemini":
-            backoff = min(0.5 * (2 ** gemini_attempt), 5.0)
-            time.sleep(backoff)
-            gemini_attempt += 1
+            
             
     # 5. Если все провайдеры, модели и ключи дали ошибку
     logger.error(f"[{agent_name}] Критическая ошибка: все доступные модели и ключи вернули ошибку.")
