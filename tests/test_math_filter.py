@@ -34,11 +34,11 @@ def test_monotonicity_violation():
     market_a = make_market("SpaceX IPO above $3T", 0.90)
     market_b = make_market("SpaceX IPO above $1.8T", 0.60)
     result = math_pre_filter(market_a, market_b)
-    assert result.decision == FilterDecision.AMBIGUOUS
+    assert result.decision == FilterDecision.CONFIRMED_ARBITRAGE
     assert result.arbitrage_type == "monotonicity_violation"
     assert result.spread_pct == pytest.approx(30.0, abs=0.1)
-    assert result.has_arbitrage is False
-    assert "⚠️ Требует открытой позиции" in result.trade_instruction
+    assert result.has_arbitrage is True
+    assert "BUY YES" in result.trade_instruction
 
 def test_same_thresholds_different_platforms():
     a = make_market("SpaceX IPO above $3T", 0.12, platform="polymarket")

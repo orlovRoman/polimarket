@@ -9,7 +9,7 @@
     "description": "Нарушение монотонности — реальный арбитраж",
     "market_a": {"title": "SpaceX valuation above $3T", "price": 0.85, "platform": "polymarket"},
     "market_b": {"title": "SpaceX valuation above $1T", "price": 0.60, "platform": "polymarket"},
-    "expected_decision": "AMBIGUOUS"
+    "expected_decision": "CONFIRMED_ARBITRAGE"
   },
   {
     "description": "Кросс-платформа маленький спред — не арбитраж",

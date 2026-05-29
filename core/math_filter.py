@@ -224,7 +224,7 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             if spread >= min_spread_pct:
                 # Если это одно событие — математически гарантированный арбитраж,
                 # LLM не нужен: P(X>high) > P(X>low) логически невозможно.
-                same_event = _check_same_event(higher_market.title, lower_market.title)
+                same_event = (higher_market.platform == lower_market.platform) and _check_same_event(higher_market.title, lower_market.title)
                 if same_event:
                     instruction = (
                         f"BUY YES на [{lower_market.title}]({lower_market.url}) "

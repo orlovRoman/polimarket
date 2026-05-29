@@ -327,16 +327,32 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
         )
         logger.info(f"  Correlation hint: {len(corr_list)} связей для {m.id}")
         
-        from core.math_filter import math_pre_filter
+        from core.math_filter import math_pre_filter, FilterDecision
+        from core.arb_router import route_ambiguous
+
         if adapter:
-            for c in corr_list[:1]:
+            best_arb_result = None
+            for c in corr_list[:3]:          # проверяем топ-3 корреляции
                 peer_id = c["market_id_b"] if c["market_id_a"] == m.id else c["market_id_a"]
                 try:
                     peer_market = adapter.get_market(peer_id)
-                    if peer_market:
-                        context.math_filter_result = math_pre_filter(m, peer_market)
+                    if not peer_market:
+                        continue
+                    mf = math_pre_filter(m, peer_market)
+                    # Роутим AMBIGUOUS с большим спредом через мини-LLM
+                    if mf.decision == FilterDecision.AMBIGUOUS and mf.spread_pct >= 8.0:
+                        arb_verdict = route_ambiguous(mf, m, peer_market, api_key=scout.api_key)
+                        if arb_verdict and arb_verdict.get("confirmed_arb"):
+                            logger.info(f"[arb_router] Арбитраж подтверждён: {m.title} ↔ {peer_market.title}")
+                            # Апгрейдим mf до confirmed для отображения в Telegram
+                            from dataclasses import replace
+                            mf = replace(mf, decision=FilterDecision.CONFIRMED_ARBITRAGE, has_arbitrage=True)
+                    # Запоминаем лучший результат (с наибольшим спредом)
+                    if best_arb_result is None or mf.spread_pct > best_arb_result.spread_pct:
+                        best_arb_result = mf
+                        context.math_filter_result = mf
                 except Exception as e:
-                    logger.error(f"Error in math_pre_filter for {peer_id}: {e}")
+                    logger.error(f"[workflow] math_pre_filter error for peer {peer_id}: {e}")
                 
     # ────────────────────────────────────────────────────────────────────────
 
