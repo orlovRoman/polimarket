@@ -361,14 +361,14 @@ def generate_content_with_fallback(
             "send_func": PROVIDERS_CONFIG["gemini"]["send_func"],
         },
         "openrouter": {
-            "keys": list(PROVIDERS_CONFIG["openrouter"]["keys"]),
+            "keys": [k for k in [os.getenv("OPENROUTER_API_KEY", "")] if k and k.strip()],
             "models": list(dict.fromkeys(
-                ([default_model] if (not is_gemini_model and not is_cerebras_model) else []) + list(PROVIDERS_CONFIG["openrouter"]["models"])
+                ([default_model] if (not is_gemini_model and not is_cerebras_model) else []) + [os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")]
             )),
             "send_func": PROVIDERS_CONFIG["openrouter"]["send_func"],
         },
         "cerebras": {
-            "keys": list(PROVIDERS_CONFIG["cerebras"]["keys"]),
+            "keys": [k for k in [os.getenv("CEREBRAS_API_KEY", "")] if k and k.strip()],
             "models": list(dict.fromkeys(
                 ([default_model] if is_cerebras_model else []) + list(PROVIDERS_CONFIG["cerebras"]["models"])
             )),

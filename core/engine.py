@@ -452,7 +452,40 @@ class CoreEngine:
                     await asyncio.to_thread(send_telegram_to_chat, f"⚠️ {e}", chat_id)
                     break
                 except Exception as e:
-                    logger.error(f"analyze_post_async error for {m.id}: {e}")
+                    from core.guards import LLMUnavailableError
+                    # Проверяем, является ли это ошибкой недоступности LLM
+                    is_llm_err = isinstance(e, LLMUnavailableError)
+                    if not is_llm_err and hasattr(e, '__cause__'):
+                        is_llm_err = isinstance(e.__cause__, LLMUnavailableError)
+                        
+                    if is_llm_err:
+                        logger.warning(f"Gemini API limits hit (429/403) for market {m.id}. Sending fast basic signal fallback.")
+                        price_yes = int(m.price * 100)
+                        price_no = 100 - price_yes
+                        
+                        fast_msg = (
+                            f"⚡️ <b>Быстрый сигнал (Gemini лимиты 429/403):</b>\n"
+                            f"<a href='{m.url}'>{m.title}</a>\n"
+                            f"🟢 YES: {price_yes}¢ | 🔴 NO: {price_no}¢\n"
+                            f"📅 Закрытие: {m.close_time.strftime('%Y-%m-%d %H:%M') if m.close_time else 'Unknown'}\n"
+                        )
+                        if source_url:
+                            fast_msg += f"📡 <b>Триггер:</b> <a href='{source_url}'>{source_text or 'Пост'}</a>\n"
+                        if m.volume:
+                            fast_msg += f"📊 <b>Объем:</b> ${m.volume:,.0f}\n"
+                            
+                        fast_msg += "\n⚠️ <i>Глубокий анализ агентов пропущен из-за превышения лимитов API Gemini (429/403).</i>"
+                        
+                        mid = m.id[:40]
+                        market_action_markup = {
+                            "inline_keyboard": [[
+                                {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
+                                {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"}
+                            ]]
+                        }
+                        await asyncio.to_thread(send_telegram_to_chat, fast_msg, chat_id, reply_markup=market_action_markup)
+                    else:
+                        logger.error(f"analyze_post_async error for {m.id}: {e}")
                 finally:
                     # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
                     await asyncio.sleep(2)
