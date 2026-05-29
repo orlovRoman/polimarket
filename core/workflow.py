@@ -225,7 +225,7 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
         future_reddit.cancel()
         future_wiki.cancel()
         future_hn.cancel()
-        executor.shutdown(wait=True, cancel_futures=True)
+        executor.shutdown(wait=False, cancel_futures=True)
 
     # Google Trends — последовательно (не thread-safe)
     trends_data = fetch_google_trends(search_query)

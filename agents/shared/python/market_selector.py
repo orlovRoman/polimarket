@@ -124,18 +124,19 @@ class MarketSelector:
     def _filter(self, markets: List[Market], scan_category: str = None) -> List[Market]:
         """
         Фильтрует рынки:
-        - Убирает истёкшие (close_time в прошлом)
+        - Убирает истёкшие или закрывающиеся менее чем через 12 часов рынки
         - Убирает абсолютно мертвые цены (< 0.01 или > 0.99)
         - Убирает на cooldown, ЕСЛИ их цена не изменилась значительно (>= 3%)
         - Убирает рынки из списков 'Игнорировать' и 'Следить'
         """
+        MIN_HOURS_TO_CLOSE = 12
         now = datetime.now(timezone.utc)
         cooldown_ids = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
         
         filtered = []
         for m in markets:
-            # Рынок уже закрыт
-            if m.close_time <= now:
+            # Рынок уже закрыт или закроется в течение 12 часов
+            if (m.close_time - now).total_seconds() < MIN_HOURS_TO_CLOSE * 3600:
                 continue
             
             # Рынок в списке Игнорировать или Следить — пропускаем при стандартном скане

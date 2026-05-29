@@ -319,7 +319,7 @@ def generate_content_with_fallback(
     payload: dict,
     default_model: str = "gemini-2.5-flash",
     agent_name: str = "AGENT",
-    timeout: int = 120,
+    timeout: int = 30,
     market_id: Optional[str] = None
 ) -> Tuple[Optional[dict], str]:
     """
@@ -338,21 +338,30 @@ def generate_content_with_fallback(
         secondary = os.getenv("GOOGLE_API_KEY_SECONDARY", "AIzaSyByIvR_9P2sj74EkN8mxWU5-VC4koRwIFM")
         _gemini_keys = [k for k in [api_key, secondary] if k and k.strip()]
 
+    # Разделяем дефолтную модель по провайдерам, чтобы не слать некорректные модели в Gemini API
+    is_gemini_model = default_model.startswith("gemini-") or default_model in PROVIDERS_CONFIG["gemini"]["models"]
+    is_cerebras_model = default_model.startswith("qwen") or default_model in PROVIDERS_CONFIG["cerebras"]["models"]
+
     providers = {
         "gemini": {
             "keys": _gemini_keys,
-            # БАГ 1 ФИКС: дедупликация через dict.fromkeys (сохраняет порядок)
-            "models": list(dict.fromkeys([default_model] + list(PROVIDERS_CONFIG["gemini"]["models"]))),
+            "models": list(dict.fromkeys(
+                ([default_model] if is_gemini_model else []) + list(PROVIDERS_CONFIG["gemini"]["models"])
+            )),
             "send_func": PROVIDERS_CONFIG["gemini"]["send_func"],
         },
         "openrouter": {
             "keys": list(PROVIDERS_CONFIG["openrouter"]["keys"]),
-            "models": list(PROVIDERS_CONFIG["openrouter"]["models"]),
+            "models": list(dict.fromkeys(
+                ([default_model] if (not is_gemini_model and not is_cerebras_model) else []) + list(PROVIDERS_CONFIG["openrouter"]["models"])
+            )),
             "send_func": PROVIDERS_CONFIG["openrouter"]["send_func"],
         },
         "cerebras": {
             "keys": list(PROVIDERS_CONFIG["cerebras"]["keys"]),
-            "models": list(PROVIDERS_CONFIG["cerebras"]["models"]),
+            "models": list(dict.fromkeys(
+                ([default_model] if is_cerebras_model else []) + list(PROVIDERS_CONFIG["cerebras"]["models"])
+            )),
             "send_func": PROVIDERS_CONFIG["cerebras"]["send_func"],
         },
     }
