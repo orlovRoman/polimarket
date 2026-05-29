@@ -47,8 +47,8 @@ init_db()
 _nexus_agent: NexusAgent | None = None
 _core_engine = None
 
-_processed_message_ids: set[tuple[int, int]] = set()
-_MAX_MSG_ID_CACHE = 500
+from collections import deque
+_processed_message_ids: deque[tuple[int, int]] = deque(maxlen=500)
 
 def get_core_engine():
     """Возвращает единственный экземпляр CoreEngine (синглтон)."""
@@ -1781,9 +1781,7 @@ async def conversational_handler(message: types.Message) -> None:
     if msg_key in _processed_message_ids:
         logger.warning(f"Дублирующееся сообщение пропущено: {msg_key}")
         return
-    _processed_message_ids.add(msg_key)
-    if len(_processed_message_ids) > _MAX_MSG_ID_CACHE:
-        _processed_message_ids.clear()
+    _processed_message_ids.append(msg_key)
         
     chat_id = message.chat.id
     user_text = message.text

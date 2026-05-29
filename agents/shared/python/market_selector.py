@@ -42,12 +42,21 @@ class MarketSelector:
         if category:
             # Ручной скан: одна категория
             raw = self._fetch_category(category, total_limit * 2)
+            filtered = self._filter(raw, category, min_hours=12)
         else:
             # Автоскан: микс стратегий
-            raw = self._fetch_mixed(total_limit * 3)
-
-        # Фильтрация
-        filtered = self._filter(raw, category)
+            regular_raw = self._fetch_mixed_no_ending(total_limit * 3)
+            
+            per_strategy = int(max((total_limit * 3) // 4, 5))
+            ending_raw = []
+            try:
+                ending_raw = self.adapter.list_markets_ending_soon(limit=per_strategy)
+            except Exception as e:
+                print(f"[MarketSelector] Ошибка стратегии ending_soon: {e}")
+                
+            filtered_regular = self._filter(regular_raw, category, min_hours=12)
+            filtered_ending = self._filter(ending_raw, category, min_hours=1)
+            filtered = filtered_regular + filtered_ending
 
         # Scoring + дедупликация
         seen_ids = set()
@@ -62,9 +71,9 @@ class MarketSelector:
         
         return [m for _, m in scored[:total_limit]]
 
-    def _fetch_mixed(self, fetch_limit: int) -> List[Market]:
-        """Собирает рынки из нескольких стратегий."""
-        per_strategy = int(max(fetch_limit // 4, 5))
+    def _fetch_mixed_no_ending(self, fetch_limit: int) -> List[Market]:
+        """Собирает регулярные рынки из нескольких стратегий (без ending_soon)."""
+        per_strategy = int(max(fetch_limit // 3, 5))
         all_markets = []
 
         # Стратегия 1: Mid-volume с offset (ротация)
@@ -80,14 +89,7 @@ class MarketSelector:
         except Exception as e:
             print(f"[MarketSelector] Ошибка стратегии mid_volume: {e}")
 
-        # Стратегия 2: Закрывающиеся скоро (волатильность)
-        try:
-            ending = self.adapter.list_markets_ending_soon(limit=per_strategy)
-            all_markets.extend(ending)
-        except Exception as e:
-            print(f"[MarketSelector] Ошибка стратегии ending_soon: {e}")
-
-        # Стратегия 3: Категория из ротации
+        # Стратегия 2: Категория из ротации
         try:
             cat_idx = get_memory("category_rotation_idx") or 0
             cat = SCAN_CATEGORIES[cat_idx % len(SCAN_CATEGORIES)]
@@ -97,7 +99,7 @@ class MarketSelector:
         except Exception as e:
             print(f"[MarketSelector] Ошибка стратегии category_rotation: {e}")
 
-        # Стратегия 4: Top volume (fallback, текущее поведение)
+        # Стратегия 3: Top volume (fallback, текущее поведение)
         try:
             top = self.adapter.list_markets(limit=per_strategy)
             all_markets.extend(top)
@@ -121,22 +123,21 @@ class MarketSelector:
             print(f"[MarketSelector] Ошибка загрузки категории '{category}': {e}")
             return []
 
-    def _filter(self, markets: List[Market], scan_category: str = None) -> List[Market]:
+    def _filter(self, markets: List[Market], scan_category: str = None, min_hours: int = 12) -> List[Market]:
         """
         Фильтрует рынки:
-        - Убирает истёкшие или закрывающиеся менее чем через 12 часов рынки
+        - Убирает истёкшие или закрывающиеся менее чем через min_hours часов рынки
         - Убирает абсолютно мертвые цены (< 0.01 или > 0.99)
         - Убирает на cooldown, ЕСЛИ их цена не изменилась значительно (>= 3%)
         - Убирает рынки из списков 'Игнорировать' и 'Следить'
         """
-        MIN_HOURS_TO_CLOSE = 12
         now = datetime.now(timezone.utc)
         cooldown_ids = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
         
         filtered = []
         for m in markets:
-            # Рынок уже закрыт или закроется в течение 12 часов
-            if (m.close_time - now).total_seconds() < MIN_HOURS_TO_CLOSE * 3600:
+            # Рынок уже закрыт или закроется в течение min_hours часов
+            if (m.close_time - now).total_seconds() < min_hours * 3600:
                 continue
             
             # Рынок в списке Игнорировать или Следить — пропускаем при стандартном скане

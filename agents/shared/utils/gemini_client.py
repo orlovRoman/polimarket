@@ -328,6 +328,16 @@ def generate_content_with_fallback(
     """
     from agents.shared.python.db import get_memory, save_memory
 
+    # Настраиваем тайм-аут по умолчанию динамически
+    if timeout == 30:
+        model_key = default_model.lower() if default_model else ""
+        if "gemini-2.5-pro" in model_key:
+            timeout = 90
+        elif "gemini-2.5-flash" in model_key:
+            timeout = 45
+        else:
+            timeout = 30
+
     # Строим рабочий словарь providers явно (без deepcopy, чтобы MagicMock в тестах работал).
     # Ключи gemini: если PROVIDERS_CONFIG["gemini"]["keys"] непустой (патч в тестах),
     # используем его напрямую; иначе строим из api_key + secondary из env.
@@ -416,6 +426,9 @@ def generate_content_with_fallback(
                             seen.add(m)
                             plans.insert(0, ("gemini", m))
                 elif prov_override == "openrouter":
+                    if db_model and db_model.lower().startswith("gemini-"):
+                        logger.warning(f"[{agent_name}] Модель {db_model} несовместима с OpenRouter, сброс на дефолт")
+                        db_model = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
                     plans = [p for p in plans if p[0] != "openrouter"]
                     plans.insert(0, ("openrouter", db_model))
                 elif prov_override == "cerebras":
