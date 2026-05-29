@@ -409,6 +409,8 @@ def generate_content_with_fallback(
                     plans.insert(0, ("openrouter", db_model))
                 elif prov_override == "cerebras":
                     plans = [p for p in plans if p[0] != "cerebras"]
+                    if not db_model:
+                        db_model = "cerebras_round_robin"
                     if db_model == "cerebras_round_robin":
                         cer_idx = int(get_memory("cer_rr_index", 0))
                         cer_models = providers["cerebras"]["models"]
@@ -448,7 +450,8 @@ def generate_content_with_fallback(
                 # Обновляем round-robin для Cerebras при успехе
                 if provider == "cerebras":
                     cer_idx = int(get_memory("cer_rr_index", 0))
-                    save_memory("cer_rr_index", cer_idx + 1)
+                    cer_models = providers["cerebras"]["models"]
+                    save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
                     
                 save_memory(f"consecutive_failures_{agent_name}", 0)
                 return result, model
@@ -461,11 +464,14 @@ def generate_content_with_fallback(
                     agent_name, model, prompt_text, error=f"Key {key_idx+1} Error: {error_msg}",
                     latency_ms=latency_ms, market_id=market_id
                 )
-                # БАГ 2 ФИКС: при любой ошибке Cerebras двигаем round-robin индекс
-                # (раньше он обновлялся только при успехе → 429 замараживал round-robin)
+                # BUG-1 & BUG-2: Двигаем round-robin индекс Cerebras только при реальной HTTP-ошибке (4xx/5xx)
+                # и нормализуем индекс, чтобы он не рос бесконечно
                 if provider == "cerebras":
-                    _cer_idx_now = int(get_memory("cer_rr_index", 0))
-                    save_memory("cer_rr_index", _cer_idx_now + 1)
+                    import requests
+                    if isinstance(e, requests.exceptions.HTTPError):
+                        _cer_idx_now = int(get_memory("cer_rr_index", 0))
+                        cer_models = providers["cerebras"]["models"]
+                        save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
                 # Переходим к следующему ключу этого же провайдера
                 continue
                 
