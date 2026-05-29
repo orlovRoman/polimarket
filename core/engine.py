@@ -348,9 +348,15 @@ class CoreEngine:
             logger.info(f"Post {post_id}: Found {len(markets)} markets, starting analysis.")
 
             effective_message_id = source_message_id or message_id
-            if not source_url and source_username and effective_message_id:
-                clean_username = source_username.lstrip('@')
-                source_url = f"https://t.me/{clean_username}/{effective_message_id}"
+            if not source_url and effective_message_id:
+                if source_username:
+                    clean_username = source_username.lstrip('@')
+                    source_url = f"https://t.me/{clean_username}/{effective_message_id}"
+                else:
+                    db_chat_id = post_info.get('chat_id')
+                    if db_chat_id:
+                        clean_id = str(db_chat_id).replace('-100', '')
+                        source_url = f"https://t.me/c/{clean_id}/{effective_message_id}"
 
             def _notify(msg: str) -> None:
                 send_telegram_to_chat(msg, chat_id)
