@@ -178,7 +178,7 @@ def estimate_llm_cost(model_name: str, input_tokens: int, output_tokens: int) ->
         return (input_tokens * 0.075 / 1_000_000) + (output_tokens * 0.30 / 1_000_000)
         
     # 3. Тарифы Gemini Pro (2.5 / 1.5)
-    if "gemini-2.5-pro" in model or "gemini-1.5-pro" in model or "pro" in model:
+    if "gemini-2.5-pro" in model or "gemini-1.5-pro" in model or ("gemini" in model and "pro" in model):
         # $1.25 / 1M input, $5.00 / 1M output
         return (input_tokens * 1.25 / 1_000_000) + (output_tokens * 5.00 / 1_000_000)
         
@@ -635,6 +635,17 @@ def get_nice_model_name(model_id: str) -> str:
         return f"✨ {formatted}"
     return formatted
 
+def _shorten_key(key: str) -> str:
+    """
+    Сокращает ключ модели с использованием хэша, если его длина превышает 30 символов,
+    чтобы гарантировать длину callback_data (sm_{agent}_{key}) <= 64 байт.
+    """
+    if len(key) > 30:
+        import hashlib
+        h = hashlib.md5(key.encode("utf-8")).hexdigest()[:8]
+        return f"{key[:20]}_{h}"
+    return key
+
 def get_dynamic_models_mapping() -> dict:
     """Динамически формирует маппинг на основе доступных моделей в PROVIDERS_CONFIG."""
     from agents.shared.utils.gemini_client import PROVIDERS_CONFIG
@@ -643,13 +654,13 @@ def get_dynamic_models_mapping() -> dict:
     
     # 1. Gemini
     for m in PROVIDERS_CONFIG["gemini"]["models"]:
-        key = "gemini_" + m.replace("-", "_").replace(".", "_")
-        mapping[key] = ("gemini", m, get_nice_model_name(m))
+        key = m.replace("-", "_").replace(".", "_")
+        mapping[_shorten_key(key)] = ("gemini", m, get_nice_model_name(m))
         
     # Принудительно добавляем Thinking, если его нет в PROVIDERS_CONFIG
     think_model = "gemini-2.0-flash-thinking-exp-01-21"
     if not any(v[1] == think_model for v in mapping.values()):
-        mapping["geminithink"] = ("gemini", think_model, get_nice_model_name(think_model))
+        mapping[_shorten_key("geminithink")] = ("gemini", think_model, get_nice_model_name(think_model))
         
     # 2. OpenRouter
     or_models = list(PROVIDERS_CONFIG["openrouter"]["models"])
@@ -661,13 +672,13 @@ def get_dynamic_models_mapping() -> dict:
     for m in or_models:
         suffix = m.split("/")[-1].split(":")[0].replace("-", "_").replace(".", "_")
         key = f"or_{suffix}"
-        mapping[key] = ("openrouter", m, get_nice_model_name(m))
+        mapping[_shorten_key(key)] = ("openrouter", m, get_nice_model_name(m))
         
     # 3. Cerebras
-    mapping["cerebras"] = ("cerebras", "cerebras_round_robin", "⚡ Cerebras (Round Robin)")
+    mapping[_shorten_key("cerebras")] = ("cerebras", "cerebras_round_robin", "⚡ Cerebras (Round Robin)")
     for m in PROVIDERS_CONFIG["cerebras"]["models"]:
         key = "cerebras_" + m.replace("-", "_").replace(".", "_")
-        mapping[key] = ("cerebras", m, f"⚡ Cerebras ({m})")
+        mapping[_shorten_key(key)] = ("cerebras", m, f"⚡ Cerebras ({m})")
     
     return mapping
 
@@ -683,21 +694,30 @@ async def send_models_menu(message_or_callback):
         "ARBITRAGE": "gemini-2.5-pro"
     }
     
+    # Сбор данных о моделях параллельно
+    def fetch_model(agent):
+        if agent == "NEXUS":
+            return get_memory("selected_model", "gemini-2.5-flash")
+        return get_agent_model(agent, default_models[agent])
+
+    active_models_tasks = [asyncio.to_thread(fetch_model, agent) for agent in agents]
+    token_usage_tasks = [asyncio.to_thread(get_detailed_token_usage_last_24h, agent) for agent in agents]
+
+    active_models = await asyncio.gather(*active_models_tasks)
+    usages = await asyncio.gather(*token_usage_tasks)
+
+    models_by_agent = dict(zip(agents, active_models))
+    usages_by_agent = dict(zip(agents, usages))
+    
     dashboard_lines = []
     dashboard_lines.append("🤖 <b>Панель AI Моделей и Расходов (24ч):</b>\n")
     
     for agent in agents:
-        # Получаем активную модель
-        if agent == "NEXUS":
-            active_model = get_memory("selected_model", "gemini-2.5-flash")
-        else:
-            active_model = await asyncio.to_thread(get_agent_model, agent, default_models[agent])
-            
+        active_model = models_by_agent[agent]
         dashboard_lines.append(f"● <b>Агент {agent}</b>")
         dashboard_lines.append(f"  Активная модель: <code>{get_nice_model_name(active_model)}</code>")
         
-        # Получаем детальный расход за 24 часа
-        usage = await asyncio.to_thread(get_detailed_token_usage_last_24h, agent)
+        usage = usages_by_agent[agent]
         
         # Фильтруем модели с 0 токенов, чтобы динамически скрывать неиспользуемые
         usage_active = [item for item in usage if item.get("total_tokens", 0) > 0]
