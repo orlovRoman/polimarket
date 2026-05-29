@@ -7,7 +7,7 @@ from typing import Optional, Callable, Set, Dict
 
 from core.models import Market, Signal, SwingSignal, AgentOpinion, IdeaDecision
 from core.context import MarketContext
-from config import logger, SCREENING_INTERVAL_SEC, SCAN_LIMIT_DEFAULT, MIN_EDGE_DEFAULT
+from config import logger, SCREENING_INTERVAL_SEC, SCAN_LIMIT_DEFAULT, MIN_EDGE_DEFAULT, MAX_SCREENING_MARKETS
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import (
     save_market, get_last_analyzed_price, mark_market_analyzed, 
@@ -114,6 +114,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             logger.info(f"  Загружено {len(all_compact)} рынков для скрининга")
 
             prefiltered = _prefilter_markets(all_compact)
+            prefiltered = prefiltered[:MAX_SCREENING_MARKETS]
             logger.info(f"  Pre-filter: {len(all_compact)} → {len(prefiltered)} рынков перед NEXUS")
 
             if not prefiltered:

@@ -88,7 +88,7 @@ class NexusAgent:
         Скринирует ВСЕ рынки и возвращает Top-N кандидатов + корреляции.
         Один LLM-вызов с JSON-выходом.
         """
-        MAX_SCREENING_MARKETS = 120
+        from config import MAX_SCREENING_MARKETS
         if len(markets_compact) > MAX_SCREENING_MARKETS:
             logger.warning(f"[NEXUS] Обрезаем список рынков: {len(markets_compact)} → {MAX_SCREENING_MARKETS}")
             markets_compact = markets_compact[:MAX_SCREENING_MARKETS]

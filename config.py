@@ -57,6 +57,9 @@ ARB_MIN_MATCH_SCORE = float(os.getenv("ARB_MIN_MATCH_SCORE", "0.50"))
 ARB_MIN_SPREAD_ALERT = float(os.getenv("ARB_MIN_SPREAD_ALERT", "5.0"))
 ARB_MAX_DAYS_DIFF = int(os.getenv("ARB_MAX_DAYS_DIFF", "30"))
 
+# Максимальное число рынков, передаваемое в NEXUS скринер
+MAX_SCREENING_MARKETS = int(os.getenv("MAX_SCREENING_MARKETS", "120"))
+
 # Бюджет на один арбитражный трейд (USD)
 CORRIDOR_BUDGET_PER_TRADE = float(os.getenv("CORRIDOR_BUDGET_PER_TRADE", "200.0"))
 
