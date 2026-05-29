@@ -25,9 +25,11 @@ def _quick_pair_check(title_a: str, title_b: str, min_common: int = 2) -> bool:
     """
     words_a = set(re.findall(r'\b[a-z]{3,}\b', title_a.lower())) - _STOPWORDS
     words_b = set(re.findall(r'\b[a-z]{3,}\b', title_b.lower())) - _STOPWORDS
+    if not words_a or not words_b:
+        return False
     common = len(words_a & words_b)
-    # Для коротких заголовков (≤4 слова) достаточно 1 общего
-    effective_min = 1 if min(len(words_a), len(words_b)) <= 4 else min_common
+    # Для коротких заголовков (≤4 слова) достаточно 1 общего, если min_common не переопределен явно
+    effective_min = 1 if min_common == 2 and min(len(words_a), len(words_b)) <= 4 else min_common
     return common >= effective_min
 
 def find_complementary_pairs(

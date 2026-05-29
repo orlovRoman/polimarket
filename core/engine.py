@@ -25,13 +25,17 @@ import inspect
 import traceback
 import html
 
-_markup_cache = {}
+from core.guards import LLMUnavailableError
+
+_markup_cache: dict = {}
+_markup_cache_lock = threading.Lock()
 
 def _callback_accepts_reply_markup(func) -> bool:
     """Кэширует результат проверки наличия reply_markup в сигнатуре колбэка."""
     try:
-        if func in _markup_cache:
-            return _markup_cache[func]
+        with _markup_cache_lock:
+            if func in _markup_cache:
+                return _markup_cache[func]
     except TypeError:
         # func нехэшируем (например, functools.partial). Обходим кэш.
         pass
@@ -39,10 +43,11 @@ def _callback_accepts_reply_markup(func) -> bool:
     try:
         sig = inspect.signature(func)
         res = "reply_markup" in sig.parameters
-        try:
-            _markup_cache[func] = res
-        except TypeError:
-            pass
+        with _markup_cache_lock:
+            try:
+                _markup_cache[func] = res
+            except TypeError:
+                pass
         return res
     except (ValueError, TypeError):
         return False
@@ -471,51 +476,11 @@ class CoreEngine:
                 except RuntimeError as e:
                     await asyncio.to_thread(send_telegram_to_chat, f"⚠️ {e}", chat_id)
                     break
+                except LLMUnavailableError as e:
+                    logger.warning(f"Gemini API limits hit для market {m.id}. Fast fallback.")
+                    await self._send_fast_signal(m, source_url, source_text, chat_id)
                 except Exception as e:
-                    from core.guards import LLMUnavailableError
-                    # Проверяем, является ли это ошибкой недоступности LLM (включая всю цепочку причин e, e.__cause__, e.__context__)
-                    is_llm_err = isinstance(e, LLMUnavailableError)
-                    if not is_llm_err:
-                        cause = e
-                        for _ in range(5):  # защита от бесконечного цикла
-                            cause = getattr(cause, '__cause__', None) or getattr(cause, '__context__', None)
-                            if cause is None:
-                                break
-                            if isinstance(cause, LLMUnavailableError):
-                                is_llm_err = True
-                                break
-                        
-                    if is_llm_err:
-                        logger.warning(f"Gemini API limits hit (429/403) for market {m.id}. Sending fast basic signal fallback.")
-                        price_yes = int(m.price * 100)
-                        price_no = 100 - price_yes
-                        
-                        fast_msg = (
-                            f"⚡️ <b>Быстрый сигнал (Gemini лимиты 429/403):</b>\n"
-                            f"<a href='{m.url}'>{m.title}</a>\n"
-                            f"🟢 YES: {price_yes}¢ | 🔴 NO: {price_no}¢\n"
-                            f"📅 Закрытие: {m.close_time.strftime('%Y-%m-%d %H:%M') if m.close_time else 'Unknown'}\n"
-                        )
-                        if source_url:
-                            fast_msg += f"📡 <b>Триггер:</b> <a href='{source_url}'>{source_text or 'Пост'}</a>\n"
-                        if m.volume is not None:
-                            try:
-                                fast_msg += f"📊 <b>Объем:</b> ${float(m.volume):,.0f}\n"
-                            except (TypeError, ValueError):
-                                pass
-                            
-                        fast_msg += "\n⚠️ <i>Глубокий анализ агентов пропущен из-за превышения лимитов API Gemini (429/403).</i>"
-                        
-                        mid = m.id[:40]
-                        market_action_markup = {
-                            "inline_keyboard": [[
-                                {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
-                                {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"}
-                            ]]
-                        }
-                        await asyncio.to_thread(send_telegram_to_chat, fast_msg, chat_id, reply_markup=market_action_markup)
-                    else:
-                        logger.error(f"analyze_post_async error for {m.id}: {e}")
+                    logger.error(f"analyze_post_async error for {m.id}: {e}")
                 finally:
                     # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
                     await asyncio.sleep(2)
@@ -526,3 +491,38 @@ class CoreEngine:
             logger.error(f"analyze_post_async fatal error for post {post_id}: {e}")
             # Сбрасываем статус, чтобы можно было перезапустить при желании
             mark_telegram_post_status(post_id, 'ERROR')
+
+    async def _send_fast_signal(
+        self, m: Market, source_url: Optional[str], source_text: Optional[str], chat_id: Any
+    ) -> None:
+        """
+        Строит и отправляет быстрое сообщение (fallback) при недоступности LLM.
+        """
+        from services.notifications import send_telegram_to_chat
+        price_yes = int(m.price * 100)
+        price_no = 100 - price_yes
+        
+        fast_msg = (
+            f"⚡️ <b>Быстрый сигнал (Gemini лимиты 429/403):</b>\n"
+            f"<a href='{m.url}'>{m.title}</a>\n"
+            f"🟢 YES: {price_yes}¢ | 🔴 NO: {price_no}¢\n"
+            f"📅 Закрытие: {m.close_time.strftime('%Y-%m-%d %H:%M') if m.close_time else 'Unknown'}\n"
+        )
+        if source_url:
+            fast_msg += f"📡 <b>Триггер:</b> <a href='{source_url}'>{source_text or 'Пост'}</a>\n"
+        if m.volume is not None:
+            try:
+                fast_msg += f"📊 <b>Объем:</b> ${float(m.volume):,.0f}\n"
+            except (TypeError, ValueError):
+                pass
+            
+        fast_msg += "\n⚠️ <i>Глубокий анализ агентов пропущен из-за превышения лимитов API Gemini (429/403).</i>"
+        
+        mid = m.id[:40]
+        market_action_markup = {
+            "inline_keyboard": [[
+                {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
+                {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"}
+            ]]
+        }
+        await asyncio.to_thread(send_telegram_to_chat, fast_msg, chat_id, reply_markup=market_action_markup)
