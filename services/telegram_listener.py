@@ -88,6 +88,9 @@ _BOT_SIGNATURES = [
     "Анализирую...",
 ]
 
+# Каналы, сообщения которых обрабатываются как whale/trader сигналы
+_WHALE_CHANNELS = frozenset({"polymarketalerthub", "radarpolybot"})
+
 def is_bot_message(text: str) -> bool:
     """
     Проверяет, является ли сообщение системным ответом самого бота.
@@ -220,6 +223,101 @@ def parse_whale_alert(text: str, entities=None) -> dict:
         if price_usd_match:
             result["price"] = float(price_usd_match.group(1))
             
+    return result
+
+def parse_radar_signal(text: str, entities=None) -> dict:
+    """
+    Парсит DCA-сигнал трейдера из канала radarpolybot.
+
+    Формат сообщения:
+      [Market Title](https://polymarket.com/event/slug)
+      ⚡️ Buy Yes
+      ├ Amount: $11,136
+      ├ Entry: 15¢ → Now: 90¢
+      └ To win: $74,240 (6.7x)
+      🧑💼 Trader: Parz1vaI · [Copy Trade](https://polymarket.com/profile/0x...)
+      ├ Win Rate: 67%
+      ├ P&L: +$5,187
+
+    URL рынка и профиля трейдера приходят через Telegram entities (скрытые ссылки),
+    а не как сырой текст — поэтому приоритет на entities, текст только как fallback.
+    """
+    result = {
+        "wallet": None,
+        "alias": None,
+        "market_url": None,
+        "outcome": None,
+        "amount_usd": 0.0,
+        "price": None,           # entry price (нормализованная)
+        "entry_price": None,     # сырая entry цена в долях
+        "current_price": None,   # текущая цена в долях
+        "win_rate": None,        # int, процент
+    }
+
+    # 1. URL рынка и кошелька — приоритет из entities (скрытые ссылки Markdown)
+    if entities:
+        for ent in entities:
+            if not (hasattr(ent, 'url') and ent.url):
+                continue
+            url = ent.url
+            if "polymarket.com/event/" in url or "polymarket.com/market/" in url:
+                if not result["market_url"]:
+                    result["market_url"] = url.split("?")[0]
+            elif "polymarket.com/profile/" in url:
+                profile_match = re.search(r'/profile/(0x[a-fA-F0-9]{40})', url)
+                if profile_match:
+                    result["wallet"] = profile_match.group(1).lower()
+                else:
+                    username_match = re.search(r'/profile/([a-zA-Z0-9_-]+)', url)
+                    if username_match:
+                        result["alias"] = username_match.group(1)
+                        result["wallet"] = f"username:{username_match.group(1).lower()}"
+
+    # 2. Fallback: ищем raw URL в тексте (если entities нет или не дали результата)
+    if not result["market_url"]:
+        raw_urls = re.findall(r'https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+', text)
+        if raw_urls:
+            result["market_url"] = raw_urls[0].split("?")[0]
+
+    if not result["wallet"]:
+        wallet_match = re.search(r'(0x[a-fA-F0-9]{40})', text)
+        if wallet_match:
+            result["wallet"] = wallet_match.group(1).lower()
+
+    # 3. Outcome: "Buy Yes" / "Buy No"
+    if re.search(r'\bBuy\s+Yes\b', text, re.IGNORECASE):
+        result["outcome"] = "YES"
+    elif re.search(r'\bBuy\s+No\b', text, re.IGNORECASE):
+        result["outcome"] = "NO"
+
+    # 4. Amount: $11,136
+    amount_match = re.search(r'Amount:\s*\$([0-9,]+(?:\.[0-9]+)?)', text)
+    if amount_match:
+        result["amount_usd"] = float(amount_match.group(1).replace(",", ""))
+
+    # 5. Entry: 15¢ → Now: 90¢
+    entry_match = re.search(r'Entry:\s*([0-9.]+)\s*¢', text)
+    if entry_match:
+        entry_val = float(entry_match.group(1)) / 100.0
+        result["entry_price"] = entry_val
+        result["price"] = entry_val  # entry — это цена входа трейдера
+
+    now_match = re.search(r'Now:\s*([0-9.]+)\s*¢', text)
+    if now_match:
+        result["current_price"] = float(now_match.group(1)) / 100.0
+
+    # 6. Win Rate: 67%
+    wr_match = re.search(r'Win Rate:\s*([0-9]+)%', text)
+    if wr_match:
+        result["win_rate"] = int(wr_match.group(1))
+
+    # 7. Alias из строки "Trader: Name"
+    alias_match = re.search(r'(?:🧑💼\s*)?Trader:\s*([A-Za-z0-9_]+)', text)
+    if alias_match and not result["alias"]:
+        result["alias"] = alias_match.group(1)
+        if not result["wallet"]:
+            result["wallet"] = f"username:{alias_match.group(1).lower()}"
+
     return result
 
 def build_tg_post_url(chat, msg_id: int) -> str:
@@ -423,10 +521,17 @@ async def main():
                         except Exception as e:
                             print(f"[Listener] Ошибка вызова API: {e}")
 
-            if "polymarketalerthub" in chat_name.lower():
-                # 2. Сохраняем алерт о ките в БД в любом случае
-                bet_info = parse_whale_alert(text, event.message.entities)
-                
+            if chat_name.lower() in _WHALE_CHANNELS:
+                # ── Ветка для whale/trader каналов ──────────────────────────────
+                # Каждый канал имеет свой формат — выбираем нужный парсер
+                if chat_name.lower() == "radarpolybot":
+                    bet_info = parse_radar_signal(text, event.message.entities)
+                    print(f"[Listener] 🎯 radarpolybot сигнал: outcome={bet_info['outcome']} | "
+                          f"amount=${bet_info['amount_usd']:,.0f} | entry={bet_info['entry_price']} | "
+                          f"now={bet_info['current_price']} | market_url={bet_info['market_url']}")
+                else:
+                    bet_info = parse_whale_alert(text, event.message.entities)
+            
                 if bet_info["wallet"] and bet_info["market_url"]:
                     market_ids = resolve_market_ids_from_url(bet_info["market_url"])
                     if market_ids:
@@ -439,50 +544,79 @@ async def main():
                                 price=bet_info["price"],
                                 alias=bet_info["alias"]
                             )
-                            print(f"[Listener] ✅ Сделка сохранена: Кошелек {bet_info['wallet']} | Сумма ${bet_info['amount_usd']:,.0f} | Исход {bet_info['outcome']} | Рынок {m_id}")
-                        
-                        # Если это НЕ целевой канал для глубокого анализа, запускаем старый точечный скан
-                        if bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and market_ids and not is_target_source:
+                            print(f"[Listener] ✅ Сделка сохранена: "
+                                  f"Кошелек {bet_info['wallet']} | "
+                                  f"Сумма ${bet_info['amount_usd']:,.0f} | "
+                                  f"Исход {bet_info['outcome']} | "
+                                  f"Рынок {m_id}")
+            
+                        # Запускаем точечный скан если сумма достаточна и это не целевой глубокий анализ
+                        if bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and not is_target_source:
                             await trigger_nexus_scan(
-                                market_ids[0], 
-                                bet_info["amount_usd"], 
-                                source="whale", 
+                                market_ids[0],
+                                bet_info["amount_usd"],
+                                source="whale",
                                 market_url=bet_info["market_url"] or "",
                                 post_url=tg_post_url,
-                                post_text=text[:200]
+                                post_text=text[:500]   # увеличили с 200 до 500 — whale-сигнал длиннее
                             )
+                elif bet_info["market_url"] and not bet_info["wallet"]:
+                    # Есть URL рынка но нет кошелька — минимальный триггер без сохранения транзакции
+                    market_ids = resolve_market_ids_from_url(bet_info["market_url"])
+                    if market_ids and bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and not is_target_source:
+                        print(f"[Listener] ⚠️ Нет кошелька, но есть market_url. Только скан.")
+                        await trigger_nexus_scan(
+                            market_ids[0],
+                            bet_info["amount_usd"],
+                            source="whale",
+                            market_url=bet_info["market_url"],
+                            post_url=tg_post_url,
+                            post_text=text[:500]
+                        )
+            
             else:
-                # 3. Ветка для других новостных групп (если они не попали в глубокий анализ)
+                # ── Ветка для новостных каналов ──────────────────────────────────
                 if not is_target_source:
-                    # Сначала пробуем найти прямую ссылку на Polymarket в тексте
-                    pm_url_match = re.search(
-                        r'https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+', text
-                    )
-                    if pm_url_match:
-                        market_ids = resolve_market_ids_from_url(pm_url_match.group(0))
+                    # Приоритет 1: URL рынка в entities (скрытые ссылки)
+                    pm_url = None
+                    if event.message.entities:
+                        for ent in event.message.entities:
+                            if hasattr(ent, 'url') and ent.url:
+                                if 'polymarket.com/event/' in ent.url or 'polymarket.com/market/' in ent.url:
+                                    pm_url = ent.url.split('?')[0]
+                                    break
+            
+                    # Приоритет 2: сырой URL в тексте
+                    if not pm_url:
+                        pm_url_match = re.search(
+                            r'https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+', text
+                        )
+                        if pm_url_match:
+                            pm_url = pm_url_match.group(0)
+            
+                    if pm_url:
+                        market_ids = resolve_market_ids_from_url(pm_url)
                         if market_ids:
                             print(f"[Listener] 🔗 Найден прямой URL рынка в сигнале из {chat_name}. Триггерим.")
                             await trigger_nexus_scan(
                                 market_ids[0],
                                 source=chat_name,
-                                market_url=pm_url_match.group(0),
+                                market_url=pm_url,
                                 post_url=tg_post_url,
-                                post_text=text[:200]
+                                post_text=text[:500]
                             )
-                            return   # не тратим LLM-запрос
-
-                    # Только если прямой ссылки нет — используем LLM
+                            return  # не тратим LLM-запрос
+            
+                    # Приоритет 3: LLM — только если URL не нашли
                     markets = news_processor.find_relevant_markets(text)
                     if markets:
                         print(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
-                        
-                        # Передаём market_url чтобы source_url не деградировал до scheduled
                         await trigger_nexus_scan(
                             markets[0].id,
                             source=chat_name,
                             market_url=getattr(markets[0], 'url', ''),
                             post_url=tg_post_url,
-                            post_text=text[:200]
+                            post_text=text[:500]
                         )
                     else:
                         print(f"[Listener] ⚪️ Для новости из {chat_name} рынки на Polymarket не найдены.")

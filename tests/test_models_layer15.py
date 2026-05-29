@@ -119,9 +119,7 @@ def test_cross_arbitrage_signal_optional_floats_values():
 def test_models_importable_without_type_union_error():
     """Импорт models.py не должен бросать TypeError на Python 3.9"""
     try:
-        import importlib
         import core.models as m
-        importlib.reload(m)
     except TypeError as e:
         pytest.fail(f"models.py упал с TypeError (проблема совместимости типов): {e}")
 

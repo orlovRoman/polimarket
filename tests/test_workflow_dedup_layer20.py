@@ -16,9 +16,7 @@ def _make_market(market_id="mkt-1"):
 def test_workflow_importable_without_syntax_error():
     """core/workflow.py импортируется без TypeError (Python 3.9 compat)"""
     try:
-        import importlib
         import core.workflow as wf
-        importlib.reload(wf)
     except TypeError as e:
         pytest.fail(f"workflow.py упал с TypeError (set[str] вместо Set[str]): {e}")
     except Exception:

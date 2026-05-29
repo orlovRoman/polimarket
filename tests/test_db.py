@@ -32,6 +32,10 @@ def db_module(tmp_path):
     db_file = tmp_path / "test.db"
 
     # Подготовим заглушки для импортов, которые нужны db.py
+    original_config = sys.modules.get("config")
+    original_core = sys.modules.get("core")
+    original_core_models = sys.modules.get("core.models")
+
     fake_config = types.ModuleType("config")
     fake_config.DB_PATH = db_file
     sys.modules["config"] = fake_config
@@ -42,7 +46,7 @@ def db_module(tmp_path):
     for cls_name in ("Market", "Signal", "MarketCorrelation"):
         setattr(core_models, cls_name, object)
     core_pkg.models = core_models
-    sys.modules.setdefault("core", core_pkg)
+    sys.modules["core"] = core_pkg
     sys.modules["core.models"] = core_models
 
     # Перезагружаем db каждый раз, чтобы сбросить глобальное состояние
@@ -61,6 +65,20 @@ def db_module(tmp_path):
 
     # Очистка sys.modules от нашего модуля
     sys.modules.pop("db_fresh", None)
+    if original_config:
+        sys.modules["config"] = original_config
+    else:
+        sys.modules.pop("config", None)
+        
+    if original_core:
+        sys.modules["core"] = original_core
+    else:
+        sys.modules.pop("core", None)
+        
+    if original_core_models:
+        sys.modules["core.models"] = original_core_models
+    else:
+        sys.modules.pop("core.models", None)
 
 
 # ─────────────────────────────────────────────

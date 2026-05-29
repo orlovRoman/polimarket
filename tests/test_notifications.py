@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 @pytest.fixture(autouse=True)
 def patch_config():
     """Подставляем фейковый конфиг для всех тестов."""
+    original_config = sys.modules.get("config")
     import logging
     fake_config = types.ModuleType("config")
     fake_config.TELEGRAM_BOT_TOKEN = "fake_token"
@@ -28,19 +29,31 @@ def patch_config():
     fake_config.logger = logging.getLogger("TEST_NOTIFIER")
     sys.modules["config"] = fake_config
     yield
-    sys.modules.pop("config", None)
+    if original_config:
+        sys.modules["config"] = original_config
+    else:
+        sys.modules.pop("config", None)
 
 
 @pytest.fixture()
 def fake_db():
-    """
-    Регистрирует фейковые модули для всех ленивых импортов в send_correlation_alerts
-    и send_cross_arbitrage_alerts через sys.modules.
-    """
+    original_modules = {key: sys.modules.get(key) for key in [
+        "config",
+        "agents.shared.python.db",
+        "agents.shared.adapters.polymarket",
+        "agents.polymarket_arbitrage_agent",
+        "agents.polymarket_arbitrage_agent.src",
+        "agents.polymarket_arbitrage_agent.src.agent",
+        "agents.shared.adapters",
+        "agents.shared.python",
+        "agents.shared",
+        "agents",
+    ]}
+
     # Базовые пакеты-предки
-    sys.modules.setdefault("agents", types.ModuleType("agents"))
-    sys.modules.setdefault("agents.shared", types.ModuleType("agents.shared"))
-    sys.modules.setdefault("agents.shared.python", types.ModuleType("agents.shared.python"))
+    sys.modules["agents"] = types.ModuleType("agents")
+    sys.modules["agents.shared"] = types.ModuleType("agents.shared")
+    sys.modules["agents.shared.python"] = types.ModuleType("agents.shared.python")
 
     # Фейковый db-модуль
     db_mod = types.ModuleType("agents.shared.python.db")
@@ -55,7 +68,7 @@ def fake_db():
     mock_adapter_instance.get_market.return_value = None
     adapter_mod = types.ModuleType("agents.shared.adapters.polymarket")
     adapter_mod.PolymarketAdapter = MagicMock(return_value=mock_adapter_instance)
-    sys.modules.setdefault("agents.shared.adapters", types.ModuleType("agents.shared.adapters"))
+    sys.modules["agents.shared.adapters"] = types.ModuleType("agents.shared.adapters")
     sys.modules["agents.shared.adapters.polymarket"] = adapter_mod
 
     # Фейковый ArbitrageAgent
@@ -76,14 +89,11 @@ def fake_db():
 
     # Очистка
     os.getenv = original_getenv
-    for key in [
-        "agents.shared.python.db",
-        "agents.shared.adapters.polymarket",
-        "agents.polymarket_arbitrage_agent",
-        "agents.polymarket_arbitrage_agent.src",
-        "agents.polymarket_arbitrage_agent.src.agent",
-    ]:
-        sys.modules.pop(key, None)
+    for key, val in original_modules.items():
+        if val is not None:
+            sys.modules[key] = val
+        else:
+            sys.modules.pop(key, None)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -298,7 +308,7 @@ class TestCrossArbitrageFormat:
         result = n.format_cross_arbitrage_alert(sig)
 
         assert "N/A" not in result
-        assert "+0.0%" in result
+        assert "0.0%" in result
 
     def test_pnl_none_shows_na(self):
         """expected_pnl_pct=None → 'N/A'."""

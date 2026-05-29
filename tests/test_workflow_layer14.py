@@ -96,10 +96,11 @@ def test_run_agent_evaluation_futures_cancelled_after_timeout():
 
 
 def test_executor_shutdown_called_even_on_exception():
-    """executor.shutdown должен вызываться даже если _safe_result падает"""
+    """executor.shutdown вызывается даже если _safe_result упал"""
     from core.workflow import run_agent_evaluation
 
     m = _make_market()
+    m.id = "mkt-layer14-unique"
     scout = MagicMock(); scout.estimate_market.return_value = None
     swing = MagicMock(); swing.estimate_market.return_value = None
     update_state = MagicMock()
@@ -124,7 +125,12 @@ def test_executor_shutdown_called_even_on_exception():
          patch("core.checkpoint.save_checkpoint"), \
          patch("core.workflow.MarketContext", return_value=_make_context(m)), \
          patch("config.llm_health_gate") as mock_gate, \
-         patch("core.workflow._safe_result", side_effect=Exception("mock fetch error")):
+         patch("core.workflow._safe_result", side_effect=Exception("mock fetch error")), \
+         patch("core.workflow.get_memory", return_value=None):
+        
+        from core.workflow import _analyzed_in_session
+        _analyzed_in_session.clear()
+        
         mock_gate.check_availability.return_value = True
         try:
             run_agent_evaluation(m, scout, swing, update_state)

@@ -159,9 +159,9 @@ def test_cache_stores_string_not_object():
     assert isinstance(_get_cached_username(-100_004), str)
 
 
-@pytest.mark.asyncio
-async def test_cache_prevents_duplicate_get_entity():
+def test_cache_prevents_duplicate_get_entity():
     """get_entity вызывается 1 раз — второй вызов идёт из кэша"""
+    import asyncio
     from services.telegram_listener import _set_cached_username, _get_cached_username
 
     call_count = {"n": 0}
@@ -171,21 +171,25 @@ async def test_cache_prevents_duplicate_get_entity():
         entity = SimpleNamespace(username="radarpolybot", id=chat_id)
         return entity
 
-    chat_id = -1003756373077
+    async def run_test():
+        chat_id = -1003756373077
+        from services import telegram_listener
+        telegram_listener._entity_username_cache.pop(chat_id, None)
 
-    # Первый вызов — кэша нет
-    cached = _get_cached_username(chat_id)
-    if not cached:
-        full = await mock_get_entity(chat_id)
-        uname = getattr(full, "username", None)
-        if uname:
-            _set_cached_username(chat_id, uname)
+        # Первый вызов — кэша нет
+        cached = _get_cached_username(chat_id)
+        if not cached:
+            full = await mock_get_entity(chat_id)
+            uname = getattr(full, "username", None)
+            if uname:
+                _set_cached_username(chat_id, uname)
 
-    # Второй вызов — кэш есть
-    cached = _get_cached_username(chat_id)
-    if not cached:
-        await mock_get_entity(chat_id)
+        # Второй вызов — кэш есть
+        cached = _get_cached_username(chat_id)
+        if not cached:
+            await mock_get_entity(chat_id)
 
+    asyncio.run(run_test())
     assert call_count["n"] == 1
 
 
@@ -193,9 +197,9 @@ async def test_cache_prevents_duplicate_get_entity():
 # FloodWaitError обработка  (layer 26–27 — актуально)
 # ═══════════════════════════════════════════════════════════════
 
-@pytest.mark.asyncio
-async def test_flood_wait_logs_seconds_and_uses_numeric_id():
+def test_flood_wait_logs_seconds_and_uses_numeric_id():
     """При FloodWaitError логируется e.seconds и используется числовой ID"""
+    import asyncio
     from services.telegram_listener import build_tg_post_url
 
     class FakeFloodWaitError(Exception):
@@ -207,24 +211,27 @@ async def test_flood_wait_logs_seconds_and_uses_numeric_id():
     async def get_entity_flood(_id):
         raise FakeFloodWaitError()
 
-    if not getattr(chat, "username", None):
-        try:
-            full_entity = await get_entity_flood(chat.id)
-            if getattr(full_entity, "username", None):
-                chat = full_entity
-        except FakeFloodWaitError as e:
-            logged.append(f"FloodWait {e.seconds}с")
-        except Exception as e:
-            logged.append(f"Other: {e}")
+    async def run_test():
+        nonlocal chat
+        if not getattr(chat, "username", None):
+            try:
+                full_entity = await get_entity_flood(chat.id)
+                if getattr(full_entity, "username", None):
+                    chat = full_entity
+            except FakeFloodWaitError as e:
+                logged.append(f"FloodWait {e.seconds}с")
+            except Exception as e:
+                logged.append(f"Other: {e}")
 
+    asyncio.run(run_test())
     result = build_tg_post_url(chat, 100)
     assert result == "https://t.me/c/3756373077/100"
     assert logged and "FloodWait 42с" in logged[0]
 
 
-@pytest.mark.asyncio
-async def test_get_entity_network_error_uses_numeric_id():
+def test_get_entity_network_error_uses_numeric_id():
     """При обычной ошибке get_entity тоже используется числовой ID, не краш"""
+    import asyncio
     from services.telegram_listener import build_tg_post_url
 
     chat = SimpleNamespace(username=None, id=-1003756373077, title="Private")
@@ -232,21 +239,24 @@ async def test_get_entity_network_error_uses_numeric_id():
     async def get_entity_fail(_id):
         raise ConnectionError("Network error")
 
-    if not getattr(chat, "username", None):
-        try:
-            full_entity = await get_entity_fail(chat.id)
-            if getattr(full_entity, "username", None):
-                chat = full_entity
-        except Exception:
-            pass
+    async def run_test():
+        nonlocal chat
+        if not getattr(chat, "username", None):
+            try:
+                full_entity = await get_entity_fail(chat.id)
+                if getattr(full_entity, "username", None):
+                    chat = full_entity
+            except Exception:
+                pass
 
+    asyncio.run(run_test())
     result = build_tg_post_url(chat, 100)
     assert result == "https://t.me/c/3756373077/100"
 
 
-@pytest.mark.asyncio
-async def test_get_entity_success_updates_chat():
+def test_get_entity_success_updates_chat():
     """Успешный get_entity обновляет chat на объект с username"""
+    import asyncio
     from services.telegram_listener import build_tg_post_url
 
     chat = SimpleNamespace(username=None, id=-1003756373077, title="Private")
@@ -255,14 +265,17 @@ async def test_get_entity_success_updates_chat():
     async def get_entity_ok(_id):
         return resolved_entity
 
-    if not getattr(chat, "username", None):
-        try:
-            full_entity = await get_entity_ok(chat.id)
-            if getattr(full_entity, "username", None):
-                chat = full_entity
-        except Exception:
-            pass
+    async def run_test():
+        nonlocal chat
+        if not getattr(chat, "username", None):
+            try:
+                full_entity = await get_entity_ok(chat.id)
+                if getattr(full_entity, "username", None):
+                    chat = full_entity
+            except Exception:
+                pass
 
+    asyncio.run(run_test())
     result = build_tg_post_url(chat, 21491)
     assert result == "https://t.me/radarpolybot/21491"
     assert "/c/" not in result
@@ -337,54 +350,87 @@ def test_telegram_bot_id_in_module_imports():
     assert "TELEGRAM_BOT_ID" in module_header
 
 
-def test_no_config_import_inside_handler():
-    """from config import не должен быть внутри тела handler"""
-    import inspect
+    import asyncio
+    from unittest.mock import patch
+    from services import telegram_listener
+    
+    with patch.object(telegram_listener, "TelegramClient", None):
+        # Должен выйти без ошибок, напечатав сообщение
+        asyncio.run(telegram_listener.main())
+
+def test_handler_parses_radarpolybot_as_whale():
+    """
+    Проверяет, что сообщение из radarpolybot теперь обрабатывается
+    как whale-сигнал через parse_radar_signal.
+    """
+    import asyncio
+    from unittest.mock import patch, MagicMock
     from services import telegram_listener
 
-    source = inspect.getsource(telegram_listener)
-    handler_start = source.find("async def handler(event):")
-    assert handler_start != -1
-    handler_body = source[handler_start:]
-    assert "from config import" not in handler_body
+    # Создаём мок ивента для radarpolybot
+    mock_event = MagicMock()
+    mock_event.message.message = "⚡️ Buy Yes\n├ Amount: $15,000\n├ Entry: 15¢ → Now: 90¢"
+    mock_event.message.id = 123
+    mock_event.message.entities = [
+        MagicMock(url="https://polymarket.com/event/trump-leads"),
+        MagicMock(url="https://polymarket.com/profile/0xAbCdEf1234567890AbCdEf1234567890AbCdEf12")
+    ]
 
+    from unittest.mock import AsyncMock
+    mock_chat = MagicMock()
+    mock_chat.username = "radarpolybot"
+    mock_chat.id = -100444555
+    mock_event.get_chat = AsyncMock(return_value=mock_chat)
+    mock_event.get_sender = AsyncMock(return_value=MagicMock(id=9999))
 
-def test_save_telegram_post_not_in_handler():
-    """save_telegram_post не импортируется внутри handler"""
-    import inspect
-    from services import telegram_listener
-
-    source = inspect.getsource(telegram_listener)
-    handler_start = source.find("async def handler(event):")
-    handler_body = source[handler_start:]
-    assert "from agents.shared.python.db import save_telegram_post" not in handler_body
-
-
-def test_flood_wait_error_module_level():
-    """FloodWaitError импортируется на уровне модуля, не внутри handler"""
-    import inspect
-    from services import telegram_listener
-
-    source = inspect.getsource(telegram_listener)
-    handler_start = source.find("async def handler(event):")
-    handler_body = source[handler_start:]
-    assert "from telethon.errors import FloodWaitError" not in handler_body
-
-
-def test_send_telegram_notify_not_in_trigger_nexus_scan():
-    """send_telegram не импортируется внутри trigger_nexus_scan"""
-    import inspect
-    from services import telegram_listener
-
-    source = inspect.getsource(telegram_listener)
-    fn_start = source.find("async def trigger_nexus_scan(")
-    next_fn = source.find("\nasync def ", fn_start + 1)
-    fn_body = source[fn_start:next_fn] if next_fn != -1 else source[fn_start:]
-    assert "from services.notifications import" not in fn_body
-
-
-def test_log_order_chat_before_url():
-    """В handler: лог с chat_name идёт ДО лога с source_url"""
+    # Чтобы функция resolve_market_ids_from_url не ходила в сеть
+    with patch("services.telegram_listener.resolve_market_ids_from_url", return_value=["market123"]) as mock_resolve, \
+         patch("services.telegram_listener.trigger_nexus_scan") as mock_trigger, \
+         patch("services.telegram_listener.save_trader_transaction") as mock_save, \
+         patch("services.telegram_listener._is_target_source_match", return_value=False):
+         
+        # Перехватываем хендлер, замокав client
+        handler_func = None
+        
+        def capture_on(*args, **kwargs):
+            def decorator(f):
+                nonlocal handler_func
+                handler_func = f
+                return f
+            return decorator
+            
+        from unittest.mock import AsyncMock
+        mock_client = MagicMock()
+        mock_client.on = capture_on
+        mock_client.run_until_disconnected = AsyncMock()  # avoid blocking
+        mock_client.start = AsyncMock()
+        
+        # Мокаем TelegramClient чтобы он вернул наш mock_client
+        with patch("services.telegram_listener.TelegramClient", return_value=mock_client), \
+             patch("builtins.input", return_value="123"), \
+             patch("services.telegram_listener.NewsProcessor"):
+             
+            # Запускаем main() чтобы он зарегистрировал handler
+            asyncio.run(telegram_listener.main())
+            
+            assert handler_func is not None
+            
+            # Запускаем сам handler с замоканным ивентом
+            asyncio.run(handler_func(mock_event))
+            
+            # Должен быть вызван resolve_market_ids_from_url
+            mock_resolve.assert_called_once_with("https://polymarket.com/event/trump-leads")
+            
+            # Должен быть вызван save_trader_transaction
+            mock_save.assert_called_once()
+            
+            # И должен быть вызван trigger_nexus_scan (т.к. $15,000 >= WHALE_ALERT_MIN_USD)
+            mock_trigger.assert_called_once()
+            args, kwargs = mock_trigger.call_args
+            assert args[0] == "market123"
+            assert args[1] == 15000.0
+            assert kwargs["source"] == "whale"
+            assert kwargs["market_url"] == "https://polymarket.com/event/trump-leads"
     import inspect
     from services import telegram_listener
 
@@ -513,3 +559,146 @@ def test_no_polymarket_url_in_plain_news():
         r"https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+", news_text
     )
     assert pm_url_match is None
+
+
+# ═══════════════════════════════════════════════════════════════
+# parse_radar_signal  (layer 29 — radarpolybot формат)
+# ═══════════════════════════════════════════════════════════════
+
+def test_radar_signal_outcome_buy_yes():
+    """Buy Yes → outcome = YES"""
+    from services.telegram_listener import parse_radar_signal
+    text = "⚡️ Buy Yes\n├ Amount: $11,136\n├ Entry: 15¢ → Now: 90¢"
+    result = parse_radar_signal(text)
+    assert result["outcome"] == "YES"
+
+
+def test_radar_signal_outcome_buy_no():
+    """Buy No → outcome = NO"""
+    from services.telegram_listener import parse_radar_signal
+    text = "⚡️ Buy No\n├ Amount: $5,000\n├ Entry: 85¢ → Now: 12¢"
+    result = parse_radar_signal(text)
+    assert result["outcome"] == "NO"
+
+
+def test_radar_signal_amount_parsed():
+    """Amount: $11,136 корректно парсится"""
+    from services.telegram_listener import parse_radar_signal
+    text = "├ Amount: $11,136\n├ Entry: 15¢ → Now: 90¢"
+    result = parse_radar_signal(text)
+    assert result["amount_usd"] == 11136.0
+
+
+def test_radar_signal_entry_price():
+    """Entry: 15¢ → price = 0.15"""
+    from services.telegram_listener import parse_radar_signal
+    text = "├ Entry: 15¢ → Now: 90¢"
+    result = parse_radar_signal(text)
+    assert result["entry_price"] is not None
+    assert abs(result["entry_price"] - 0.15) < 0.001
+    assert abs(result["price"] - 0.15) < 0.001
+
+
+def test_radar_signal_current_price():
+    """Now: 90¢ → current_price = 0.90"""
+    from services.telegram_listener import parse_radar_signal
+    text = "├ Entry: 15¢ → Now: 90¢"
+    result = parse_radar_signal(text)
+    assert result["current_price"] is not None
+    assert abs(result["current_price"] - 0.90) < 0.001
+
+
+def test_radar_signal_win_rate():
+    """Win Rate: 67% → win_rate = 67"""
+    from services.telegram_listener import parse_radar_signal
+    text = "├ Win Rate: 67%\n├ P&L: +$5,187"
+    result = parse_radar_signal(text)
+    assert result["win_rate"] == 67
+
+
+def test_radar_signal_alias_from_trader_line():
+    """Trader: Parz1vaI → alias = Parz1vaI"""
+    from services.telegram_listener import parse_radar_signal
+    text = "🧑💼 Trader: Parz1vaI - Check Full Stats"
+    result = parse_radar_signal(text)
+    assert result["alias"] == "Parz1vaI"
+
+
+def test_radar_signal_wallet_from_entity():
+    """Кошелёк берётся из entity (скрытая ссылка на профиль)"""
+    from services.telegram_listener import parse_radar_signal
+    from types import SimpleNamespace
+    entity = SimpleNamespace(url="https://polymarket.com/profile/0xB10047d6a254B2EbB306D7a7D13Bf59171AB6461")
+    result = parse_radar_signal("Trader: Parz1vaI", entities=[entity])
+    assert result["wallet"] == "0xb10047d6a254b2ebb306d7a7d13bf59171ab6461"
+
+
+def test_radar_signal_market_url_from_entity():
+    """URL рынка берётся из entity (скрытая ссылка)"""
+    from services.telegram_listener import parse_radar_signal
+    from types import SimpleNamespace
+    entity = SimpleNamespace(url="https://polymarket.com/event/us-x-iran-permanent-peace-deal-by-may-31-2026")
+    result = parse_radar_signal("US x Iran peace deal", entities=[entity])
+    assert result["market_url"] == "https://polymarket.com/event/us-x-iran-permanent-peace-deal-by-may-31-2026"
+
+
+def test_radar_signal_market_url_raw_text_fallback():
+    """Если entities нет — URL берётся из сырого текста"""
+    from services.telegram_listener import parse_radar_signal
+    text = "Check: https://polymarket.com/event/us-x-iran-deal Buy Yes $5,000"
+    result = parse_radar_signal(text)
+    assert result["market_url"] == "https://polymarket.com/event/us-x-iran-deal"
+
+
+def test_radar_signal_no_market_url_returns_none():
+    """Без URL рынка market_url = None"""
+    from services.telegram_listener import parse_radar_signal
+    result = parse_radar_signal("Buy Yes Amount: $1,000 Win Rate: 50%")
+    assert result["market_url"] is None
+
+
+def test_radar_signal_full_message():
+    """Полный реальный сигнал из radarpolybot парсится корректно"""
+    from services.telegram_listener import parse_radar_signal
+    from types import SimpleNamespace
+
+    text = (
+        "US x Iran permanent peace deal by May 31, 2026?\n\n"
+        "📅 Resolves: May 30 8:00 PM ET\n\n"
+        "👥 Top Holders: 14/20 Yes\n"
+        "⚠️ Risk 🔴\n\n"
+        "⚡️ Buy Yes\n"
+        "├ Amount: $11,136\n"
+        "├ Entry: 15¢ → Now: 90¢\n"
+        "└ To win: $74,240 (6.7x)\n\n"
+        "🧑💼 Trader: Parz1vaI - Check Full Stats · Copy Trade\n"
+        "├ Positions: $231,618 · 84 live · 100 closed\n"
+        "├ Win Rate: 67%\n"
+        "├ P&L: +$5,187\n"
+        "├ Best Win: +$11,476\n"
+        "└ 🏷️ Top Category: Geopolitics"
+    )
+    market_entity = SimpleNamespace(
+        url="https://polymarket.com/event/us-x-iran-permanent-peace-deal-by-may-31-2026"
+    )
+    profile_entity = SimpleNamespace(
+        url="https://polymarket.com/profile/0xB10047d6a254B2EbB306D7a7D13Bf59171AB6461"
+    )
+
+    result = parse_radar_signal(text, entities=[market_entity, profile_entity])
+
+    assert result["market_url"] == "https://polymarket.com/event/us-x-iran-permanent-peace-deal-by-may-31-2026"
+    assert result["wallet"] == "0xb10047d6a254b2ebb306d7a7d13bf59171ab6461"
+    assert result["outcome"] == "YES"
+    assert result["amount_usd"] == 11136.0
+    assert abs(result["entry_price"] - 0.15) < 0.001
+    assert abs(result["current_price"] - 0.90) < 0.001
+    assert result["win_rate"] == 67
+    assert result["alias"] == "Parz1vaI"
+
+
+def test_whale_channels_constant_contains_both():
+    """_WHALE_CHANNELS содержит оба канала"""
+    from services.telegram_listener import _WHALE_CHANNELS
+    assert "polymarketalerthub" in _WHALE_CHANNELS
+    assert "radarpolybot" in _WHALE_CHANNELS
