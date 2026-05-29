@@ -161,7 +161,7 @@ def parse_whale_alert(text: str, entities=None) -> dict:
             
     return result
 
-async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: str = "whale", market_url: str = ""):
+async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: str = "whale", market_url: str = "", post_url: str = "", post_text: str = ""):
     """
     Триггерит Orchestrator NEXUS для мгновенного точечного анализа рынка
     при обнаружении крупной сделки или новости.
@@ -179,12 +179,11 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
         from core.engine import CoreEngine
         def _trigger_scan():
             eng = CoreEngine()
-            source_url = market_url or ""
-            source_text = ""
-            if source == "whale" and amount_usd:
-                source_text = f"Whale transaction detected: ${amount_usd:,.0f}"
-            else:
-                source_text = f"Triggered by: {source}"
+            source_url = post_url or market_url or ""
+            source_text = post_text or (
+                f"Whale transaction detected: ${amount_usd:,.0f}" if source == "whale"
+                else f"Triggered by: {source}"
+            )
             eng.run_team_discussion(market_id=market_id, trigger_type="event_driven", source_url=source_url, source_text=source_text)
         threading.Thread(target=_trigger_scan, daemon=True).start()
             
@@ -347,18 +346,44 @@ async def main():
                         
                         # Если это НЕ целевой канал для глубокого анализа, запускаем старый точечный скан
                         if bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and market_ids and not is_target_source:
-                            await trigger_nexus_scan(market_ids[0], bet_info["amount_usd"], source="whale", market_url=bet_info["market_url"] or "")
+                            tg_post_url = ""
+                            username = getattr(chat, 'username', None)
+                            if username:
+                                tg_post_url = f"https://t.me/{username}/{event.message.id}"
+                            else:
+                                clean_id = str(chat.id).replace('-100', '')
+                                tg_post_url = f"https://t.me/c/{clean_id}/{event.message.id}"
+                                
+                            await trigger_nexus_scan(
+                                market_ids[0], 
+                                bet_info["amount_usd"], 
+                                source="whale", 
+                                market_url=bet_info["market_url"] or "",
+                                post_url=tg_post_url,
+                                post_text=text[:200]
+                            )
             else:
                 # 3. Ветка для других новостных групп (если они не попали в глубокий анализ)
                 if not is_target_source:
                     markets = news_processor.find_relevant_markets(text)
                     if markets:
                         print(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
+                        
+                        tg_post_url = ""
+                        username = getattr(chat, 'username', None)
+                        if username:
+                            tg_post_url = f"https://t.me/{username}/{event.message.id}"
+                        else:
+                            clean_id = str(chat.id).replace('-100', '')
+                            tg_post_url = f"https://t.me/c/{clean_id}/{event.message.id}"
+                            
                         # Передаём market_url чтобы source_url не деградировал до scheduled
                         await trigger_nexus_scan(
                             markets[0].id,
                             source=chat_name,
-                            market_url=getattr(markets[0], 'url', '')
+                            market_url=getattr(markets[0], 'url', ''),
+                            post_url=tg_post_url,
+                            post_text=text[:200]
                         )
                     else:
                         print(f"[Listener] ⚪️ Для новости из {chat_name} рынки на Polymarket не найдены.")
