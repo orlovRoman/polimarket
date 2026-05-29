@@ -166,7 +166,14 @@ def format_cross_arbitrage_alert(signal) -> str:
         risk_emoji = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}.get(risk, "🟡")
         pa_str = f" @ <b>{int(price_a)}¢</b>" if price_a is not None else ""
         pb_str = f" @ <b>{int(price_b)}¢</b>" if price_b is not None else ""
-        pnl_str = f"<b>+{pnl:.1f}%</b>" if pnl is not None else "N/A"  # Баг #4: 0.0 — тоже валидный P&L
+        if pnl is None:
+            pnl_str = "N/A"
+        elif pnl > 0:
+            pnl_str = f"<b>+{pnl:.1f}%</b>"
+        elif pnl < 0:
+            pnl_str = f"<b>{pnl:.1f}%</b>"
+        else:
+            pnl_str = "<b>0.0%</b>"
         plat_a = signal.market_a_platform.upper()
         plat_b = signal.market_b_platform.upper()
         trade_block = (
@@ -250,7 +257,10 @@ def send_synthetic_corridor_alerts() -> None:
             return
 
         for row in new_signals:
-            signal = SyntheticCorridorSignal(**row)
+            valid_fields = SyntheticCorridorSignal.model_fields.keys()
+            signal = SyntheticCorridorSignal.model_validate(
+                {k: row[k] for k in row if k in valid_fields}
+            )
             alert_key = signal.signal_id
             
             if is_alert_already_sent(alert_key):
@@ -271,11 +281,21 @@ def send_synthetic_corridor_alerts() -> None:
 
 def format_temporal_corridor_alert(signal) -> str:
     p_corridor_str = f"P(коридор)=<b>{signal.p_in_corridor*100:.0f}%</b> | " if signal.p_in_corridor > 0 else ""
+    
+    def _format_dt(dt) -> str:
+        from datetime import datetime
+        if isinstance(dt, str):
+            try:
+                dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+            except:
+                return dt
+        return dt.strftime('%d %b') if hasattr(dt, 'strftime') else str(dt)
+        
     return (
         f"🕐 <b>Временной коридор (Temporal Arbitrage)</b>\n\n"
         f"📍 <b>{signal.event_title[:50]}</b>\n"
-        f"📅 NO до <b>{signal.early_leg.expiry.strftime('%d %b')}</b> ({signal.early_leg.entry_cost*100:.0f}¢)\n"
-        f"📅 YES до <b>{signal.late_leg.expiry.strftime('%d %b')}</b> ({signal.late_leg.entry_cost*100:.0f}¢)\n"
+        f"📅 NO до <b>{_format_dt(signal.early_leg.expiry)}</b> ({signal.early_leg.entry_cost*100:.0f}¢)\n"
+        f"📅 YES до <b>{_format_dt(signal.late_leg.expiry)}</b> ({signal.late_leg.entry_cost*100:.0f}¢)\n"
         # Баг #2: p_in_corridor не сохраняется в БД и всегда 0.0 — скрываем нулевое значение
         f"📊 {p_corridor_str}gap=<b>{signal.date_gap_days}д</b>\n"
         f"💰 Реальный спред: <b>+{signal.real_spread_pct:.1f}%</b> | Q-score: <b>{signal.quality_score:.2f}</b>\n"
@@ -294,13 +314,30 @@ def send_temporal_corridor_alerts() -> None:
         if not new_signals_data:
             return
 
-        class DummyLeg:
-            def __init__(self, expiry_str, cost):
-                self.expiry = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
-                self.entry_cost = cost
+        from dataclasses import dataclass
 
-        class DummySignal:
-            pass
+        @dataclass
+        class TemporalLeg:
+            expiry: datetime
+            entry_cost: float
+
+        @dataclass
+        class TemporalSignalView:
+            event_title: str
+            event_url: str
+            early_leg: TemporalLeg
+            late_leg: TemporalLeg
+            p_in_corridor: float
+            date_gap_days: int
+            real_spread_pct: float
+            quality_score: float
+            ev_usd: float
+            early_stake_usd: float
+            late_stake_usd: float
+            exit_rule: str
+            pnl_s1_before_early: float
+            pnl_s2_in_corridor: float
+            pnl_s3_never: float
 
         for row in new_signals_data:
             signal_id = row["signal_id"]
@@ -311,24 +348,31 @@ def send_temporal_corridor_alerts() -> None:
                 mark_temporal_corridor_alerted(signal_id)
                 continue
 
-            sig = DummySignal()
-            sig.event_title = row["event_title"]
-            sig.event_url = row["event_url"]
-            sig.early_leg = DummyLeg(row["early_expiry"], row["early_cost"])
-            sig.late_leg = DummyLeg(row["late_expiry"], row["late_cost"])
-            sig.p_in_corridor = 0.0 # omitted from db
-            sig.date_gap_days = row["date_gap_days"]
-            sig.real_spread_pct = row["real_spread_pct"]
-            sig.quality_score = row["quality_score"]
-            sig.ev_usd = row["ev_usd"]
-            sig.early_stake_usd = row["early_stake_usd"]
-            sig.late_stake_usd = row["late_stake_usd"]
-            sig.exit_rule = row["exit_rule"]
-
-            total_stake = row["early_stake_usd"] + row["late_stake_usd"]
-            sig.pnl_s1_before_early = row["late_contracts"] - total_stake
-            sig.pnl_s2_in_corridor = row["early_contracts"] + row["late_contracts"] - total_stake
-            sig.pnl_s3_never = row["early_contracts"] - total_stake
+            total_stake = row.get("early_stake_usd", 0.0) + row.get("late_stake_usd", 0.0)
+            
+            sig = TemporalSignalView(
+                event_title=row.get("event_title", ""),
+                event_url=row.get("event_url", ""),
+                early_leg=TemporalLeg(
+                    expiry=datetime.fromisoformat(row["early_expiry"].replace("Z", "+00:00")),
+                    entry_cost=row.get("early_cost", 0.0)
+                ),
+                late_leg=TemporalLeg(
+                    expiry=datetime.fromisoformat(row["late_expiry"].replace("Z", "+00:00")),
+                    entry_cost=row.get("late_cost", 0.0)
+                ),
+                p_in_corridor=0.0,
+                date_gap_days=row.get("date_gap_days", 0),
+                real_spread_pct=row.get("real_spread_pct", 0.0),
+                quality_score=row.get("quality_score", 0.0),
+                ev_usd=row.get("ev_usd", 0.0),
+                early_stake_usd=row.get("early_stake_usd", 0.0),
+                late_stake_usd=row.get("late_stake_usd", 0.0),
+                exit_rule=row.get("exit_rule", ""),
+                pnl_s1_before_early=row.get("late_contracts", 0.0) - total_stake,
+                pnl_s2_in_corridor=row.get("early_contracts", 0.0) + row.get("late_contracts", 0.0) - total_stake,
+                pnl_s3_never=row.get("early_contracts", 0.0) - total_stake
+            )
 
             text = format_temporal_corridor_alert(sig)
             success = send_telegram(text)
