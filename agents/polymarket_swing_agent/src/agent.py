@@ -56,33 +56,8 @@ class SwingAgent:
             
         perf_summary = get_performance_summary("SWING", 10) or "История оценок пуста — первые прогнозы."
 
-        # --- STEP 1: Grounding search (без JSON schema) ---
-        search_query_llm = getattr(context, 'search_query', market.title)
-        grounded_context = ""
-        try:
-            search_payload = {
-                "contents": [{"role": "user", "parts": [{"text": (
-                    f"Search for the latest news, social media mentions, and viral activity "
-                    f"about: '{search_query_llm}'. "
-                    f"Focus on content from the last 48 hours. "
-                    f"Return key findings as bullet points with source and date."
-                )}]}],
-                "tools": [{"google_search": {}}]
-            }
-            from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
-            search_result, _ = generate_content_with_fallback(
-                api_key=self.api_key,
-                payload=search_payload,
-                default_model=self.model,
-                agent_name="SWING",
-                market_id=market.id
-            )
-            if search_result:
-                grounded_context = extract_response_text(search_result)
-                if not grounded_context:
-                    grounded_context = "Google Search: результатов не найдено."
-        except Exception as e:
-            grounded_context = f"Google Search: ошибка ({e})"
+        # --- STEP 1: Grounding search из контекста ---
+        grounded_context = getattr(context, 'grounded_context', 'Grounding не выполнен.')
 
         from agents.shared.utils.hype_calculator import HypeMetrics, calculate_hype_potential
         from agents.shared.utils.prompt_guards import guard_news_with_age

@@ -167,6 +167,30 @@ def _safe_result(future: concurrent.futures.Future, default, timeout: int = 15):
         return default
 
 
+def _fetch_grounded_context(market: Market, api_key: str, model: str) -> str:
+    """
+    Один LLM-вызов с google_search. Результат используется SCOUT и SWING.
+    """
+    try:
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": (
+                f"Search for the latest news and data about: '{market.title}'. "
+                f"Return key findings as bullet points with source and date."
+            )}]}],
+            "tools": [{"google_search": {}}]
+        }
+        from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
+        result, _ = generate_content_with_fallback(
+            api_key=api_key, payload=payload,
+            default_model=model, agent_name="GROUNDING", market_id=market.id
+        )
+        text = extract_response_text(result) if result else ""
+        return text or "Grounding: результатов не найдено."
+    except Exception as e:
+        return f"Grounding: ошибка ({e})"
+
+
+
 def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None):
     _cleanup_session_dedup()
 
@@ -234,6 +258,15 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     # Google Trends — последовательно (не thread-safe)
     trends_data = fetch_google_trends(search_query)
 
+    api_key = getattr(scout, 'api_key', None) or getattr(swing, 'api_key', None)
+    model = getattr(scout, 'model', None) or getattr(swing, 'model', None) or "gemini-2.5-flash"
+    
+    grounded = ""
+    if api_key:
+        grounded = _fetch_grounded_context(m, api_key, model)
+    else:
+        grounded = "Grounding не выполнен (нет API-ключа)."
+
     context = MarketContext(
         market=m,
         news_titles=news_titles,
@@ -245,7 +278,8 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
         source_url=source_url,
         source_text=source_text,
         triggered_at=triggered_at,
-        search_query=search_query
+        search_query=search_query,
+        grounded_context=grounded
     )
 
     # ── Вариант 2: обогащаем контекст корреляциями ──────────────────────────

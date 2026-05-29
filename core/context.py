@@ -32,3 +32,4 @@ class MarketContext(BaseModel):
     
     # Можно расширять (X/Twitter, Onchain metrics, etc.)
     math_filter_result: Optional[Any] = None
+    grounded_context: str = ""
