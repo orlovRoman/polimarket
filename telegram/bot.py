@@ -23,7 +23,7 @@ from agents.shared.python.db import (
     save_chat_message, get_chat_history, init_db, get_db_stats, get_signals,
     cleanup_chat_history, cleanup_stale_signals,
     add_to_market_list, remove_from_market_list, is_in_market_list,
-    get_market_list, is_alert_already_sent
+    get_market_list, is_alert_already_sent, archive_signal_by_id
 )
 from agents.orchestrator.src.agent import NexusAgent
 
@@ -1333,7 +1333,9 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
     
     response = f"🚀 <b>Торговые сигналы ({start_idx + 1}-{min(start_idx + chunk_size, len(signals))} из {len(signals)}):</b>\n\n"
     
-    for s in chunk:
+    keycaps = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣"}
+    
+    for idx, s in enumerate(chunk, 1):
         edge_pct = (s['edge'] or 0) * 100
         target = s.get('target_outcome', 'YES')
         price = s['market_price']
@@ -1345,8 +1347,9 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
         if len(summary_safe) > 500:
             summary_safe = summary_safe[:500] + "..."
             
+        emoji = keycaps.get(idx, "📍")
         response += (
-            f"📍 <b>{title_safe}</b>\n"
+            f"{emoji} <b>{title_safe}</b>\n"
             f"🎯 <b>Рекомендация: Покупать {target}</b> (по цене ~{price:.3f})\n"
             f"📈 Edge (преимущество): <b>+{edge_pct:.1f}%</b> | Уверенность: {s['confidence']}\n"
             f"📝 {summary_safe}\n"
@@ -1354,6 +1357,22 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
         )
         
     keyboard = build_paginated_keyboard(page, total_pages, "ideas_page")
+    
+    # Добавляем кнопки для удаления (архивирования) каждого сигнала на текущей странице
+    delete_buttons = []
+    for idx, s in enumerate(chunk, 1):
+        truncated_id = s['id'][:30]
+        # Делаем короткий заголовок, чтобы кнопка помещалась и выглядела эстетично
+        short_title = s['title'][:20] + "..." if len(s['title']) > 20 else s['title']
+        delete_buttons.append([
+            InlineKeyboardButton(
+                text=f"🗑️ Удалить {idx}: {short_title}",
+                callback_data=f"del_sig_{page}_{truncated_id}"
+            )
+        ])
+        
+    keyboard.inline_keyboard = delete_buttons + keyboard.inline_keyboard
+    
     await send_or_edit(message_or_callback, response, keyboard)
 
 async def send_penny_page(message_or_callback, page: int = 0) -> None:
@@ -1459,6 +1478,34 @@ async def command_ideas_handler(message: types.Message) -> None:
 @dp.callback_query(F.data.startswith("ideas_page_"))
 async def callback_ideas_page_handler(callback: CallbackQuery) -> None:
     page = int(callback.data.split("_")[2])
+    await send_ideas_page(callback, page=page)
+
+@dp.callback_query(F.data.startswith("del_sig_"))
+async def callback_delete_signal(callback: CallbackQuery) -> None:
+    """Удаляет (архивирует) сигнал из списка идей."""
+    parts = callback.data.split("_")
+    # callback.data format: del_sig_{page}_{truncated_id}
+    # parts looks like: ['del', 'sig', '{page}', '{truncated_id_part1}', ...]
+    if len(parts) < 4:
+        await callback.answer("⚠️ Неверный формат ID.", show_alert=True)
+        return
+        
+    try:
+        page = int(parts[2])
+    except ValueError:
+        page = 0
+        
+    truncated_id = "_".join(parts[3:])
+    
+    # Архивируем в фоновом пуле
+    success = await asyncio.to_thread(archive_signal_by_id, truncated_id)
+    
+    if success:
+        await callback.answer("🗑️ Идея архивирована и убрана из списка.", show_alert=True)
+    else:
+        await callback.answer("⚠️ Идея не найдена или уже удалена.", show_alert=True)
+        
+    # Перерисовываем страницу
     await send_ideas_page(callback, page=page)
 
 @dp.message(Command("history"))

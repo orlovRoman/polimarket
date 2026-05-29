@@ -885,6 +885,19 @@ def get_signals(limit: int = 5):
         """, (limit,))
         return [dict(row) for row in cursor.fetchall()]
 
+def archive_signal_by_id(signal_id: str) -> bool:
+    """Устанавливает статус 'ARCHIVED' для сигнала по его ID (или по началу ID, если передан усечённый).
+    Возвращает True, если был изменен хотя бы один сигнал."""
+    use_like = len(signal_id) < 36
+    query_id = f"{signal_id}%" if use_like else signal_id
+    op = "LIKE" if use_like else "="
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"UPDATE signals SET status = 'ARCHIVED' WHERE id {op} ?",
+            (query_id,)
+        )
+        return cursor.rowcount > 0
+
 def save_market(market: Market):
     with get_connection() as conn:
         cursor = conn.cursor()
