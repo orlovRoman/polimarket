@@ -173,7 +173,7 @@ class CoreEngine:
                 except Exception as cb_err:
                     logger.error(f"summary_callback error: {cb_err}")
             _update_state(stage="Ошибка (LLM недоступна)")
-            return 0
+            raise e
 
         # 2. Отбор
         cat_msg = f" в категории '{category}'" if category else " (авто-микс)"
@@ -354,7 +354,7 @@ class CoreEngine:
                             summary_callback(text)
                     except Exception as cb_err:
                         logger.error(f"summary_callback error: {cb_err}")
-                break
+                raise e
             except Exception as e:
                 error_msg = f"[ОШИБКА] Рынок {m.title}: {e}\n<pre>{html.escape(traceback.format_exc())}</pre>"
                 log(f"[ОШИБКА] Рынок {m.title}: {e}\n{traceback.format_exc()}")
