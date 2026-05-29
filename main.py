@@ -231,7 +231,7 @@ async def start_system():
 
     scheduler.add_job(scheduled_resolution, 'interval', hours=6)
     
-    scheduler.add_job(scheduled_job)  # немедленный запуск при старте
+    # scheduler.add_job(scheduled_job)  # немедленный запуск при старте (отключено, чтобы не блокировать ручной /scan при перезапуске)
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
     scheduler.add_job(scheduled_cross_arbitrage_scan, 'interval', hours=4)  # кросс-арбитраж каждые 4 ч
