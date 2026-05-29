@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     TG_API_ID, TG_API_HASH, TG_PHONE, PROJECT_ROOT,
     GOOGLE_API_KEY, TELEGRAM_GROUP2_SOURCE,
-    TELEGRAM_GROUP2_TARGET_ID, WHALE_ALERT_MIN_USD
+    TELEGRAM_GROUP2_TARGET_ID, WHALE_ALERT_MIN_USD,
+    TELEGRAM_BOT_ID
 )
 from agents.shared.python.db import save_trader_transaction, get_connection
 from agents.shared.adapters.polymarket import PolymarketAdapter
@@ -277,6 +278,8 @@ async def main():
         for s in target_sources:
             if s not in chats_to_listen:
                 chats_to_listen.append(s.replace('@', ''))
+                
+    _entity_cache: dict = {}   # chat_id → entity с username
         
     @client.on(events.NewMessage(chats=chats_to_listen))
     async def handler(event):
@@ -287,12 +290,11 @@ async def main():
         # Защита от бесконечного цикла:
         # Приоритет 1 — проверяем sender ID (надёжно, не зависит от текста)
         try:
-            from config import TELEGRAM_BOT_ID
             if TELEGRAM_BOT_ID:
                 sender = await event.get_sender()
                 if getattr(sender, 'id', None) == int(TELEGRAM_BOT_ID):
                     return
-        except (ImportError, Exception):
+        except Exception:
             pass  # TELEGRAM_BOT_ID не задан — используем fallback
 
         # Приоритет 2 — точные строки-сигнатуры бота (fallback)
@@ -304,20 +306,28 @@ async def main():
         
         # Если username не получен — пробуем получить полный entity
         if not getattr(chat, 'username', None):
-            try:
-                full_entity = await client.get_entity(chat.id)
-                if getattr(full_entity, 'username', None):
-                    chat = full_entity
-            except Exception as e:
-                print(f"[Listener] ⚠️ Не удалось получить полный entity для {chat.id}: {e}")
+            cached = _entity_cache.get(chat.id)
+            if cached:
+                chat = cached
+            else:
+                try:
+                    from telethon.errors import FloodWaitError
+                    full_entity = await client.get_entity(chat.id)
+                    if getattr(full_entity, 'username', None):
+                        _entity_cache[chat.id] = full_entity   # кэшируем
+                        chat = full_entity
+                except FloodWaitError as e:
+                    print(f"[Listener] ⏳ FloodWait: get_entity заблокирован на {e.seconds}с "
+                          f"для chat {chat.id}. Используем числовой ID.")
+                except Exception as e:
+                    print(f"[Listener] ⚠️ Не удалось получить полный entity для {chat.id}: {e}")
 
         chat_name = chat.username or chat.title or str(chat.id)
         msg_id = event.message.id
         
+        print(f"\n[Listener] 🔔 Получено новое сообщение из {chat_name}:\n{text[:120]}...")
         tg_post_url = build_tg_post_url(chat, msg_id)
         print(f"[Listener] 🔗 source_url = {tg_post_url}")
-        
-        print(f"\n[Listener] 🔔 Получено новое сообщение из {chat_name}:\n{text[:120]}...")
         
         try:
             is_target_source = False

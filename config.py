@@ -39,6 +39,7 @@ TG_PHONE = os.getenv("TG_PHONE", "")
 # Ключи бота и чата для уведомлений
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+TELEGRAM_BOT_ID = os.getenv("TELEGRAM_BOT_ID", "")
 
 # Настройки для второй группы (Event-driven)
 TELEGRAM_GROUP2_SOURCE = os.getenv("TELEGRAM_GROUP2_SOURCE", "group2_source") # Канал, который слушает Telethon
