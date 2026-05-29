@@ -270,13 +270,14 @@ def send_synthetic_corridor_alerts() -> None:
         logger.error(f"[Notifier] Ошибка отправки синтетического коридора: {e}")
 
 def format_temporal_corridor_alert(signal) -> str:
+    p_corridor_str = f"P(коридор)=<b>{signal.p_in_corridor*100:.0f}%</b> | " if signal.p_in_corridor > 0 else ""
     return (
         f"🕐 <b>Временной коридор (Temporal Arbitrage)</b>\n\n"
         f"📍 <b>{signal.event_title[:50]}</b>\n"
         f"📅 NO до <b>{signal.early_leg.expiry.strftime('%d %b')}</b> ({signal.early_leg.entry_cost*100:.0f}¢)\n"
         f"📅 YES до <b>{signal.late_leg.expiry.strftime('%d %b')}</b> ({signal.late_leg.entry_cost*100:.0f}¢)\n"
         # Баг #2: p_in_corridor не сохраняется в БД и всегда 0.0 — скрываем нулевое значение
-        f"📊 {'P(коридор)=<b>' + f"{signal.p_in_corridor*100:.0f}" + '%</b> | ' if signal.p_in_corridor > 0 else ''}gap=<b>{signal.date_gap_days}д</b>\n"
+        f"📊 {p_corridor_str}gap=<b>{signal.date_gap_days}д</b>\n"
         f"💰 Реальный спред: <b>+{signal.real_spread_pct:.1f}%</b> | Q-score: <b>{signal.quality_score:.2f}</b>\n"
         f"🎯 S1=${signal.pnl_s1_before_early:.0f} | S2=<b>${signal.pnl_s2_in_corridor:.0f}</b> | S3=${signal.pnl_s3_never:.0f}\n"
         f"💵 EV: <b>${signal.ev_usd:.2f}</b> (бюджет ${signal.early_stake_usd + signal.late_stake_usd:.0f})\n"
