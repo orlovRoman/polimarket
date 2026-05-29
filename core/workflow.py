@@ -349,7 +349,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         logger.info("  SCOUT и SWING: Идей не найдено.")
         update_state(scout_status="⚪️ Идея не найдена", swing_status="⚪️ Идея не найдена")
 
-    if summary_callback and decision.status == 'saved':
+    if summary_callback and decision.status in ('saved', 'no_consensus'):
         # Определяем действие
         price_yes = int(m.price * 100)
         price_no = 100 - price_yes
@@ -428,6 +428,12 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
                 summary_text += f"⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{math_result.trade_instruction}\n\n"
             else:
                 logger.warning(f"[math_filter] has_arbitrage=True but trade_instruction empty for {m.id}")
+
+        # Итоговое решение консенсуса
+        if decision.status == 'saved':
+            summary_text += "✨ <b>ИТОГ: Идея подтверждена консенсусом и добавлена в список торговых идей /ideas.</b>\n\n"
+        else:
+            summary_text += "🛑 <b>ИТОГ: Консенсус не достигнут (SHADOW отклонил). Идея НЕ добавляется в список /ideas.</b>\n\n"
 
         # Кнопки Игнорировать / Следить (market_id трункируется до 40 симв — лимит callback_data 64 байта)
         mid = m.id[:40]
