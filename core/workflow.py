@@ -1,8 +1,9 @@
 import os
 import sys
+import time
 import concurrent.futures
 from datetime import datetime, timezone
-from typing import Optional, Callable
+from typing import Optional, Callable, Set, Dict
 
 from core.models import Market, Signal, SwingSignal, AgentOpinion, IdeaDecision
 from core.context import MarketContext
@@ -25,7 +26,15 @@ from agents.polymarket_swing_agent.src.agent import SwingAgent
 from agents.polymarket_insider_agent.src.agent import ShadowAgent
 from agents.orchestrator.src.agent import NexusAgent
 
-_analyzed_in_session: set[str] = set()
+_SESSION_DEDUP_TTL_SEC: int = 600
+_analyzed_in_session: Dict[str, float] = {}
+
+def _cleanup_session_dedup() -> None:
+    """Удаляем устаревшие ключи из in-memory дедупликатора."""
+    cutoff = time.monotonic() - _SESSION_DEDUP_TTL_SEC
+    expired = [k for k, ts in _analyzed_in_session.items() if ts < cutoff]
+    for k in expired:
+        del _analyzed_in_session[k]
 
 def _prefilter_markets(markets_compact: list) -> list:
     """
@@ -152,29 +161,37 @@ def _safe_result(future: concurrent.futures.Future, default, timeout: int = 15):
 
 
 def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None):
-    # FIX #1: дедупликация — один рынок не анализируется дважды в одной сессии
+    _cleanup_session_dedup()
+
+    # In-session дедупликация (быстрая проверка без БД)
     dedup_key = f"{m.id}:{trigger_type}"
     if dedup_key in _analyzed_in_session:
-        logger.info(f"[workflow] Пропуск дубля: {m.id} ({trigger_type}) уже проанализирован в этой сессии")
+        logger.info(
+            f"[workflow] Пропуск дубля (in-session): {m.id} "
+            f"({trigger_type}), добавлен {time.monotonic() - _analyzed_in_session[dedup_key]:.0f}с назад"
+        )
         return None, None, None
-    _analyzed_in_session.add(dedup_key)
+    _analyzed_in_session[dedup_key] = time.monotonic()
 
+    # БД-уровень дедупликации (межсессионная защита)
     last_analysis_key = f"last_analysis:{m.id}"
     last_raw = get_memory(last_analysis_key)
     if last_raw:
         try:
             last_dt = datetime.fromisoformat(last_raw)
             age_sec = (datetime.now(timezone.utc) - last_dt).total_seconds()
-            if age_sec < 600:  # 10 минут
+            if age_sec < _SESSION_DEDUP_TTL_SEC:
                 logger.info(
-                    f"[workflow] Дедупликация: рынок {m.id} уже анализировался "
+                    f"[workflow] Дедупликация (БД): рынок {m.id} уже анализировался "
                     f"{age_sec:.0f}с назад (trigger={trigger_type}), пропускаем"
                 )
                 return None, None, None
         except (ValueError, TypeError):
             pass
 
-    save_memory(last_analysis_key, datetime.now(timezone.utc).isoformat(), category='cache', ttl=600)
+    # Записываем ДО анализа — защищает от дублей даже при сбое LLM.
+    # Цена: пропуск одного повтора за следующие 10 мин при падении анализа.
+    save_memory(last_analysis_key, datetime.now(timezone.utc).isoformat(), category='cache', ttl=_SESSION_DEDUP_TTL_SEC)
 
     # Guard: проверяем доступность LLM перед запуском
     from config import llm_health_gate  # глобальный инстанс
