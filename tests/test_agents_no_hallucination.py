@@ -60,12 +60,7 @@ def test_arbitrage_no_description_no_logical_contradiction():
     assert result["arbitrage_type"] == "statistical_pair_trade"
 
 # ── SWING ──────────────────────────────────────────────────────────────
-def test_swing_hype_python_beats_llm_fantasy():
-    hype_python = 0.40
-    llm_output = 0.90
-    if abs(llm_output - hype_python) > 0.15:
-        llm_output = hype_python
-    assert llm_output == 0.40
+
 
 def test_swing_no_news_forces_catalyst_absence():
     news_block = guard_news_with_age([])

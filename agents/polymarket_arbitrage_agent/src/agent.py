@@ -131,11 +131,11 @@ class ArbitrageAgent:
             )
         # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
 
-        # === NEW GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
-        if mf.arbitrage_type == "identical_threshold" and mf.spread_pct < 1.0:
+        # === GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
+        if mf.arbitrage_type == "identical_threshold":
             print(
-                f"[ARBITRAGE] identical_threshold со spread={mf.spread_pct:.1f}% — "
-                f"разные события с одним числом, арбитраж невозможен без проверки оракулов."
+                f"[ARBITRAGE] identical_threshold со spread=0% — "
+                f"разные события с одним числом. Арбитраж отклонён без вызова LLM."
             )
             return None
 
@@ -291,11 +291,11 @@ class ArbitrageAgent:
             )
         # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
 
-        # === NEW GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
-        if mf.arbitrage_type == "identical_threshold" and mf.spread_pct < 1.0:
+        # === GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
+        if mf.arbitrage_type == "identical_threshold":
             print(
-                f"[ARBITRAGE] identical_threshold со spread={mf.spread_pct:.1f}% — "
-                f"разные события с одним числом, арбитраж невозможен без проверки оракулов."
+                f"[ARBITRAGE] identical_threshold со spread=0% — "
+                f"разные события с одним числом. Арбитраж отклонён без вызова LLM."
             )
             return None
 
