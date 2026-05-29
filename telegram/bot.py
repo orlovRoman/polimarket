@@ -105,6 +105,7 @@ async def set_commands(bot: Bot):
     commands = [
         BotCommand(command="start", description="Начало работы"),
         BotCommand(command="help", description="Справка по командам"),
+        BotCommand(command="monitor", description="Управление мониторингом (Вкл/Выкл)"),
         BotCommand(command="status", description="Проверка статуса системы"),
         BotCommand(command="scan", description="Запуск анализа рынков"),
         BotCommand(command="ideas", description="Просмотр найденных идей"),
@@ -126,6 +127,50 @@ async def set_commands(bot: Bot):
 
 # Глобальный лок для предотвращения одновременных запусков сканирования
 _scan_lock = asyncio.Lock()
+
+# ── Управление мониторингом (через /monitor) ──────────────────────────────────
+_monitoring_task: asyncio.Task | None = None
+_monitoring_stop_event: asyncio.Event | None = None
+_scheduler = None          # Передаётся из main.py через set_scheduler()
+_auto_schedule_enabled = False  # По умолчанию — холодный старт (выкл)
+_SCHEDULE_JOB_ID = "scheduled_market_scan"
+
+def set_scheduler(scheduler) -> None:
+    """Передаёт ссылку на AsyncIOScheduler из main.py для управления авто-расписанием."""
+    global _scheduler
+    _scheduler = scheduler
+
+def _is_monitoring_active() -> bool:
+    """Возвращает True, если фоновый цикл мониторинга активен."""
+    return _monitoring_task is not None and not _monitoring_task.done()
+
+async def continuous_monitoring_loop() -> None:
+    """Непрерывный цикл сканирования рынков (запускается через /monitor).
+    Интервал: 5 минут между итерациями. Останавливается по _monitoring_stop_event."""
+    global _monitoring_task, _monitoring_stop_event
+    logger.info("▶️ continuous_monitoring_loop запущен")
+    try:
+        while True:
+            if _monitoring_stop_event and _monitoring_stop_event.is_set():
+                logger.info("⏹ Мониторинг остановлен по запросу пользователя")
+                break
+            try:
+                # Импортируем здесь, чтобы избежать циклических импортов
+                from main import scheduled_job
+                await scheduled_job()
+            except Exception as e:
+                logger.error(f"[Monitor] Ошибка в итерации: {e}", exc_info=True)
+            # Ждём 5 минут, но проверяем stop_event каждые 5 сек
+            for _ in range(60):  # 60 * 5 сек = 5 минут
+                if _monitoring_stop_event and _monitoring_stop_event.is_set():
+                    break
+                await asyncio.sleep(5)
+    except asyncio.CancelledError:
+        logger.info("⏹ Мониторинг отменён (CancelledError)")
+    finally:
+        _monitoring_task = None
+        _monitoring_stop_event = None
+        logger.info("▶️ continuous_monitoring_loop завершён")
 
 class AuthMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
@@ -267,6 +312,7 @@ async def command_help_handler(message: types.Message) -> None:
     help_text = (
         "📚 <b>Справочник команд NEXUS:</b>\n\n"
         "<b>Основные:</b>\n"
+        "🚦 /monitor — управление мониторингом (Вкл/Выкл + авто-расписание)\n"
         "🚀 /scan — запустить поиск идей (выбор из 7 категорий)\n"
         "💡 /ideas — показать последние 5 активных сигналов\n"
         "⚙️ /status — детальный статус агентов и метрики (в т.ч. Точность SCOUT*)\n"
@@ -286,6 +332,111 @@ async def command_help_handler(message: types.Message) -> None:
         "<i>Ты также можешь просто писать мне вопросы в чат — я отвечу, используя контекст нашей команды.</i>"
     )
     await message.answer(help_text)
+
+
+def build_monitor_keyboard() -> InlineKeyboardMarkup:
+    """Строит клавиатуру панели мониторинга с актуальными статусами."""
+    monitoring_active = _is_monitoring_active()
+    schedule_on = _auto_schedule_enabled
+    rows = []
+    if monitoring_active:
+        rows.append([InlineKeyboardButton(text="⏹ Остановить мониторинг", callback_data="monitor_stop")])
+    else:
+        rows.append([InlineKeyboardButton(text="▶️ Запустить мониторинг", callback_data="monitor_start")])
+    schedule_label = f"⏰ Авто-расписание: {'🟢 Вкл' if schedule_on else '🔴 Выкл'}"
+    rows.append([InlineKeyboardButton(text=schedule_label, callback_data="monitor_schedule_toggle")])
+    rows.append([InlineKeyboardButton(text="🔄 Обновить статус", callback_data="monitor_refresh")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_monitor_text() -> str:
+    """Формирует текст панели мониторинга."""
+    monitoring_active = _is_monitoring_active()
+    schedule_on = _auto_schedule_enabled
+    monitoring_status = "🟢 <b>Активен</b> (цикл каждые 5 мин)" if monitoring_active else "🔴 <b>Остановлен</b>"
+    schedule_status = "🟢 <b>Включено</b> (каждые 5 мин)" if schedule_on else "🔴 <b>Выключено</b>"
+    return (
+        "🚦 <b>Управление мониторингом NEXUS</b>\n\n"
+        f"● Мониторинг: {monitoring_status}\n"
+        f"● Авто-расписание: {schedule_status}\n\n"
+        "<i>▶️ <b>Запустить</b> — включает непрерывный цикл сканирования.\n"
+        "⏰ <b>Авто-расписание</b> — apscheduler запускает сканирование каждые 5 мин независимо.\n"
+        "После рестарта бота оба режима всегда выключены (холодный старт).</i>"
+    )
+
+
+@dp.message(Command("monitor"))
+async def command_monitor_handler(message: types.Message) -> None:
+    """Панель управления мониторингом: Вкл/Выкл, Авто-расписание."""
+    await message.answer(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+
+
+@dp.callback_query(F.data == "monitor_refresh")
+async def callback_monitor_refresh(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+    await callback.answer("Обновлено")
+
+
+@dp.callback_query(F.data == "monitor_start")
+async def callback_monitor_start(callback: CallbackQuery) -> None:
+    global _monitoring_task, _monitoring_stop_event
+    if _is_monitoring_active():
+        await callback.answer("⚠️ Мониторинг уже запущен", show_alert=False)
+        await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+        return
+    _monitoring_stop_event = asyncio.Event()
+    _monitoring_task = asyncio.create_task(continuous_monitoring_loop())
+    await callback.answer("▶️ Мониторинг запущен!")
+    await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+    logger.info("▶️ Мониторинг запущен пользователем через Telegram")
+
+
+@dp.callback_query(F.data == "monitor_stop")
+async def callback_monitor_stop(callback: CallbackQuery) -> None:
+    global _monitoring_stop_event
+    if not _is_monitoring_active():
+        await callback.answer("ℹ️ Мониторинг уже остановлен", show_alert=False)
+        await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
+        return
+    if _monitoring_stop_event:
+        _monitoring_stop_event.set()
+    await callback.answer("⏹ Сигнал остановки отправлен")
+    await callback.message.edit_text(
+        build_monitor_text() + "\n\n<i>⏳ Цикл завершит текущую итерацию и остановится...</i>",
+        reply_markup=build_monitor_keyboard(), parse_mode="HTML"
+    )
+    logger.info("⏹ Запрос остановки мониторинга от пользователя через Telegram")
+
+
+@dp.callback_query(F.data == "monitor_schedule_toggle")
+async def callback_monitor_schedule_toggle(callback: CallbackQuery) -> None:
+    global _auto_schedule_enabled
+    if _scheduler is None:
+        await callback.answer("⚠️ Планировщик не инициализирован", show_alert=True)
+        return
+    if _auto_schedule_enabled:
+        try:
+            _scheduler.remove_job(_SCHEDULE_JOB_ID)
+            logger.info("⏰ Авто-расписание выключено пользователем")
+        except Exception:
+            pass
+        _auto_schedule_enabled = False
+        await callback.answer("🔴 Авто-расписание выключено")
+    else:
+        try:
+            from main import scheduled_job
+            _scheduler.add_job(
+                scheduled_job, 'interval', minutes=5,
+                id=_SCHEDULE_JOB_ID, replace_existing=True
+            )
+            logger.info("⏰ Авто-расписание включено пользователем (каждые 5 мин)")
+        except Exception as e:
+            logger.error(f"Ошибка включения авто-расписания: {e}", exc_info=True)
+            await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+            return
+        _auto_schedule_enabled = True
+        await callback.answer("🟢 Авто-расписание включено (каждые 5 мин)")
+    await callback.message.edit_text(build_monitor_text(), reply_markup=build_monitor_keyboard(), parse_mode="HTML")
 
 @dp.message(Command("synthetic"))
 async def command_synthetic_handler(message: types.Message) -> None:
@@ -394,12 +545,16 @@ async def command_status_handler(message: types.Message) -> None:
 
     engine = get_core_engine()
     is_scanning_real = _scan_lock.locked() or engine._scan_lock.locked()
+    is_monitoring = _is_monitoring_active()
+    monitoring_status = "🟢 Активен" if is_monitoring else "🔴 Остановлен"
+    schedule_status = "🟢 Вкл (5 мин)" if _auto_schedule_enabled else "🔴 Выкл"
 
     status_text = (
-        "📊 <b>Статус системы (24/7 Monitoring):</b>\n\n"
+        "📊 <b>Статус системы:</b>\n\n"
+        f"● <b>Мониторинг:</b> {monitoring_status}\n"
+        f"● <b>Авто-расписание:</b> {schedule_status}\n"
         "● <b>Оркестратор NEXUS:</b> 🟢 Активен\n"
         "● <b>Агенты (SCOUT, SWING, SHADOW, ARBITRAGE):</b> 🟢 Готовы\n"
-        f"● <b>Telegram Слушатель:</b> 🟢 Активен (5 мин)\n"
         f"● <b>Trend Hunter:</b> {'🟢 Активен (2 ч)' if trend_hunter_enabled else '🔴 Отключен'}\n"
         f"● <b>Тренды-оповещения:</b> {'🟢 Включены' if trend_hunter_alerts else '🔴 Отключены'}\n"
         f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
@@ -413,7 +568,7 @@ async def command_status_handler(message: types.Message) -> None:
         f"  Мнений агентов: {stats.get('opinions', '?')}\n"
         f"  Vault файлов: {stats.get('vault_files', '?')}\n"
         f"  Размер БД: {stats.get('db_size_kb', 0):.0f} KB\n\n"
-        f"🕒 <b>Последнее авто-сканирование:</b>\n<code>{last_scan_str}</code>\n"
+        f"🕒 <b>Последнее сканирование:</b>\n<code>{last_scan_str}</code>\n"
         f"🎯 <b>Последний поиск трендов:</b>\n<code>{trend_hunter_last_run}</code>"
     )
 

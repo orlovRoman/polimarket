@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from typing import Optional, List
 import logging
@@ -117,15 +118,52 @@ class NewsProcessor:
             logger.error(f"[NewsProcessor] Ошибка валидации релевантности: {e}. Отклоняем все рынки.")
             return []
 
+    def _extract_markets_from_urls(self, text: str) -> List[Market]:
+        """
+        Этап 0: Извлекаем прямые ссылки на Polymarket из текста.
+        Работает для постов формата 'Top Holder Activity' и других,
+        где ссылка polymarket.com/event/SLUG уже содержится в сообщении.
+        0 токенов LLM — просто regex + один API-запрос.
+        """
+        pattern = r'https?://(?:www\.)?polymarket\.com/(?:event|market)/([A-Za-z0-9_-]+)'
+        slugs = list(dict.fromkeys(re.findall(pattern, text)))  # уникальные, порядок сохранён
+        if not slugs:
+            return []
+        markets = []
+        seen_ids = set()
+        for slug in slugs:
+            try:
+                found = self.adapter.get_event_by_slug(slug)
+                for m in found:
+                    if m.id not in seen_ids:
+                        seen_ids.add(m.id)
+                        markets.append(m)
+                        logger.info(f"[NewsProcessor] Этап 0: найден рынок '{m.title}' по slug '{slug}'")
+            except Exception as e:
+                logger.debug(f"[NewsProcessor] Этап 0: ошибка для slug '{slug}': {e}")
+        return markets
+
     def find_relevant_markets(self, text: str) -> List[Market]:
         """
-        Анализирует текст новости, извлекает ключевые слова и ищет подходящие рынки.
+        Анализирует текст новости и ищет подходящие рынки.
 
+        Этап 0: Извлечение прямых polymarket.com ссылок (быстро, 0 токенов LLM)
         Этап 1: LLM → ключевые слова → Polymarket search API → список кандидатов
         Этап 2: LLM → валидация релевантности кандидатов к тексту новости
 
-        Возвращает список объектов Market, прошедших оба этапа.
+        Этапы 1-2 запускаются только если Этап 0 не дал результатов.
+        Возвращает список объектов Market.
         """
+        # ── Этап 0: Прямые ссылки на Polymarket ──────────────────────────────
+        direct_markets = self._extract_markets_from_urls(text)
+        if direct_markets:
+            logger.info(
+                f"[NewsProcessor] Этап 0 завершён: найдено {len(direct_markets)} рынков "
+                f"по прямым ссылкам. LLM-этапы пропущены."
+            )
+            return direct_markets
+
+        # ── Этапы 1-2: LLM-пайплайн (fallback если нет прямых ссылок) ───────
         prompt = f"""
 Ты — финансовый аналитик. Прочитай следующий пост из новостного канала и выдели 1-3 самых релевантных ключевых слова или коротких фраз на английском языке, по которым можно найти связанные рынки предсказаний (на платформе Polymarket).
 

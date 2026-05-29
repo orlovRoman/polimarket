@@ -216,7 +216,8 @@ async def start_system():
         logger.info("🚨 Получен сигнал завершения, запускаем shutdown...")
         loop.create_task(_shutdown())
     
-    scheduler.add_job(scheduled_job, 'interval', minutes=5)
+    # Авто-запуск сканирования ОТКЛЮЧЁН — управление через /monitor в Telegram
+    # scheduler.add_job(scheduled_job, 'interval', minutes=5)
     
     # Запускаем резолюцию рынков (и обновление episodes) каждые 6 часов
     from agents.shared.python.resolution import resolve_closed_markets
@@ -257,6 +258,10 @@ async def start_system():
 
     logger.info("Планировщик настроен.")
     scheduler.start()
+
+    # Передаём scheduler в bot.py для управления авто-расписанием через /monitor
+    from telegram.bot import set_scheduler
+    set_scheduler(scheduler)
 
     logger.info("Запуск FastAPI...")
     api_task = asyncio.create_task(start_fastapi())

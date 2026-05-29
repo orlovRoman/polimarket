@@ -417,6 +417,37 @@ class PolymarketAdapter(BaseMarketAdapter):
         print(f"[PolymarketAdapter] Загружено {len(all_markets)} рынков (compact)")
         return all_markets
 
+    def get_event_by_slug(self, slug: str) -> List[Market]:
+        """
+        Получает рынки по slug события или рынка.
+        Сначала пытается найти событие (event) по slug, так как на Polymarket URL обычно ведут на события.
+        Если не найдено, пытается найти конкретный рынок по slug.
+        """
+        markets = []
+        # 1. Попытка получить событие
+        try:
+            resp = self.session.get(f"{self.api_url}/events", params={"slug": slug}, timeout=15)
+            resp.raise_for_status()
+            events = resp.json()
+            if events and isinstance(events, list):
+                markets = self.parse_events_to_markets(events, limit=50)
+                if markets:
+                    return markets
+        except Exception as e:
+            print(f"[PolymarketAdapter] get_event_by_slug (events step) error: {e}")
+
+        # 2. Попытка получить конкретный рынок, если событие не найдено
+        try:
+            resp = self.session.get(f"{self.api_url}/markets", params={"slug": slug}, timeout=15)
+            resp.raise_for_status()
+            raw_markets = resp.json()
+            if raw_markets and isinstance(raw_markets, list):
+                markets = self._parse_markets(raw_markets, limit=50)
+        except Exception as e:
+            print(f"[PolymarketAdapter] get_event_by_slug (markets step) error: {e}")
+
+        return markets
+
     def search_markets(self, query: str, limit: int = 10) -> List[Market]:
         """Ищет активные рынки на Polymarket по ключевому слову/запросу."""
         params = {

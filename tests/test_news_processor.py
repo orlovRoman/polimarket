@@ -206,8 +206,44 @@ class TestFindRelevantMarkets:
     def test_llm_extraction_failure_returns_empty(self, mock_generate):
         """При ошибке LLM на первом этапе — пустой список."""
         mock_generate.return_value = (None, "model")
-
         np = NewsProcessor(api_key="test-key")
         result = np.find_relevant_markets("Любой текст")
 
         assert result == []
+
+
+class TestExtractMarketsFromUrls:
+    """Тесты для Этапа 0 — извлечение прямых ссылок на Polymarket."""
+
+    def test_extracts_nothing_when_no_urls(self):
+        np = NewsProcessor(api_key="test-key")
+        result = np._extract_markets_from_urls("Просто новость без ссылок")
+        assert result == []
+
+    @patch("agents.shared.adapters.polymarket.PolymarketAdapter.get_event_by_slug")
+    def test_extracts_markets_from_valid_url(self, mock_get_event):
+        np = NewsProcessor(api_key="test-key")
+        market = _make_market("m1", "Will Gabriel Attal win the 2027 French presidential election?")
+        mock_get_event.return_value = [market]
+
+        text = "Top Holder Activity\n\nWill Gabriel Attal win the 2027 French presidential election? (https://polymarket.com/event/next-french-presidential-election) · Vol: $1.4M"
+        result = np._extract_markets_from_urls(text)
+
+        mock_get_event.assert_called_once_with("next-french-presidential-election")
+        assert len(result) == 1
+        assert result[0].id == "m1"
+
+    @patch("agents.shared.adapters.polymarket.PolymarketAdapter.get_event_by_slug")
+    @patch("agents.orchestrator.src.news_processor.generate_content_with_fallback")
+    def test_find_relevant_markets_skips_llm_when_urls_found(self, mock_generate, mock_get_event):
+        np = NewsProcessor(api_key="test-key")
+        market = _make_market("m1", "French election")
+        mock_get_event.return_value = [market]
+
+        text = "https://polymarket.com/event/next-french-presidential-election"
+        result = np.find_relevant_markets(text)
+
+        mock_get_event.assert_called_once_with("next-french-presidential-election")
+        mock_generate.assert_not_called()
+        assert len(result) == 1
+        assert result[0].id == "m1"
