@@ -83,11 +83,97 @@ class SwingAgent:
         except Exception as e:
             grounded_context = f"Google Search: ошибка ({e})"
 
+        from agents.shared.utils.hype_calculator import HypeMetrics, calculate_hype_potential
+        from agents.shared.utils.prompt_guards import guard_news_with_age
+        import re
+
+        # Считаем метрики для hype_potential
+        price_history = price_history or []
+        price_now = market.price
+        price_6h_ago = price_history[-7]["price"] if len(price_history) >= 7 else price_now
+        price_delta_6h = price_now - price_6h_ago
+
+        close_dt = market.close_time
+        hours_to_close = max((close_dt - datetime.utcnow()).total_seconds() / 3600, 0)
+
+        # Trends score
+        trends_raw = context.trends_data  # строка или число — парсим
+        trends_match = re.search(r'\d+', str(trends_raw))
+        trends_score = int(trends_match.group()) if trends_match else 0
+        trends_delta = 0  # если нет истории Trends
+
+        # Reddit
+        reddit_top = 0
+        for post in (context.reddit_posts or []):
+            score = post.get("score", 0) if isinstance(post, dict) else 0
+            reddit_top = max(reddit_top, score)
+
+        # Вспомогательная функция _is_recent
+        def _is_recent(item: str, reference_time: datetime, max_hours: float = 6.0) -> bool:
+            match = re.match(r'^\[([^\]]+)\]', item)
+            if not match:
+                return False
+            date_str = match.group(1)
+            if date_str == "дата неизвестна":
+                return False
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%a, %d %b %Y", "%d %b %Y"):
+                try:
+                    dt = datetime.strptime(date_str.strip(), fmt)
+                    age_hours = (reference_time - dt).total_seconds() / 3600
+                    return 0 <= age_hours <= max_hours
+                except ValueError:
+                    continue
+            return False
+
+        # Свежие новости за 6ч
+        now = datetime.utcnow()
+        recent_news_count = sum(
+            1 for item in (context.news_titles or [])
+            if _is_recent(item, now, max_hours=6)
+        )
+
+        hype_score, hype_breakdown = calculate_hype_potential(HypeMetrics(
+            trends_score=trends_score,
+            trends_delta=trends_delta,
+            reddit_top_score=reddit_top,
+            recent_news_count=recent_news_count,
+            price_delta_6h=price_delta_6h,
+            hours_to_close=hours_to_close,
+        ))
+
+        # Форматируем новости для guard_news_with_age с датами
+        news_items_to_guard = []
+        for item in (context.news_titles or []):
+            match = re.match(r'^\[([^\]]+)\]\s*(.*)$', item)
+            if match:
+                date_str = match.group(1)
+                title_part = match.group(2)
+                iso_date = None
+                if date_str != "дата неизвестна":
+                    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%a, %d %b %Y", "%d %b %Y"):
+                        try:
+                            dt = datetime.strptime(date_str.strip(), fmt)
+                            iso_date = dt.isoformat()
+                            break
+                        except ValueError:
+                            continue
+                news_items_to_guard.append({"title": title_part, "published": iso_date})
+            else:
+                news_items_to_guard.append({"title": item, "published": None})
+
+        news_block = guard_news_with_age(
+            news_items_to_guard,
+            now=now
+        )
+
         prompt = f"""
-Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
-Описание: {market.description}
-Исход: {market.outcome}
+Текущая цена: {market.price}
+Дата закрытия: {market.close_time} ({hours_to_close:.0f}ч осталось)
+
+{hype_breakdown}
+
+{news_block}
 
 [Твоя производительность и работа над ошибками]
 {perf_summary}
@@ -100,9 +186,6 @@ class SwingAgent:
 {wiki_block}
 
 {price_history_str}
-
-Последние заголовки RSS:
-{chr(10).join(news_titles) if news_titles else "RSS новостей не найдено."}
 
 Последние посты с Reddit:
 {chr(10).join(reddit_posts) if reddit_posts else "Постов на Reddit не найдено."}
@@ -185,6 +268,28 @@ class SwingAgent:
                     analysis = None
                     continue
                 
+                # Гард: проверяем отклонение hype_potential
+                llm_hype = float(analysis.get("hype_potential", hype_score))
+                if abs(llm_hype - hype_score) > 0.15:
+                    print(
+                        f"[SWING] hype_potential от LLM={llm_hype:.2f} отклоняется от "
+                        f"Python-расчёта={hype_score:.2f} на {abs(llm_hype - hype_score):.2f}. "
+                        f"Используем Python-расчёт."
+                    )
+                    analysis["hype_potential"] = hype_score
+
+                # Гард: проверяем обоснование target_exit_price в swing_verdict
+                exit_price = analysis.get("target_exit_price")
+                verdict = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
+                if exit_price and str(exit_price) not in verdict:
+                    print(
+                        f"[SWING] target_exit_price={exit_price} не упомянут в swing_verdict. "
+                        f"Обоснование отсутствует."
+                    )
+                    analysis["swing_verdict"] = (
+                        f"{verdict} [⚠️ целевая цена {exit_price} не обоснована в тексте]"
+                    )
+
                 recommendation = analysis.get("recommendation", "ignore").lower()
                 hype_potential = float(analysis.get("hype_potential", 0))
                 target_outcome = analysis.get("target_outcome", "YES")
