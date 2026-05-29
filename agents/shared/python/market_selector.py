@@ -14,7 +14,7 @@ from config import (
     PRICE_RANGE_MIN, PRICE_RANGE_MAX, SCAN_CATEGORIES
 )
 from agents.shared.python.db import (
-    get_memory, save_memory, get_markets_on_cooldown, get_last_analyzed_price,
+    get_memory, save_memory, get_markets_on_cooldown, get_last_analyzed_prices,
     get_all_listed_market_ids
 )
 from core.models import Market
@@ -43,11 +43,11 @@ class MarketSelector:
         
         if category:
             # Ручной скан: одна категория
-            raw = self._fetch_category(category, total_limit * 2, now=now)
+            raw = self._fetch_category(category, total_limit * 2, now=now, min_hours=12)
             filtered = self._filter(raw, category, min_hours=12, now=now)
         else:
             # Автоскан: микс стратегий
-            regular_raw = self._fetch_mixed_no_ending(total_limit * 3, now=now)
+            regular_raw = self._fetch_mixed_no_ending(total_limit * 3)
             
             per_strategy = int(max((total_limit * 3) // 4, 5))
             ending_raw = []
@@ -73,7 +73,7 @@ class MarketSelector:
         
         return [m for _, m in scored[:total_limit]]
 
-    def _fetch_mixed_no_ending(self, fetch_limit: int, now: datetime = None) -> List[Market]:
+    def _fetch_mixed_no_ending(self, fetch_limit: int) -> List[Market]:
         """Собирает регулярные рынки из нескольких стратегий (без ending_soon)."""
         per_strategy = int(max(fetch_limit // 3, 5))
         all_markets = []
@@ -95,7 +95,7 @@ class MarketSelector:
         try:
             cat_idx = get_memory("category_rotation_idx") or 0
             cat = SCAN_CATEGORIES[cat_idx % len(SCAN_CATEGORIES)]
-            cat_markets = self._fetch_category(cat, per_strategy, now=now)
+            cat_markets = self._fetch_category(cat, per_strategy, min_hours=12)
             all_markets.extend(cat_markets)
             save_memory("category_rotation_idx", cat_idx + 1, category='cache')
         except Exception as e:
@@ -110,7 +110,7 @@ class MarketSelector:
 
         return all_markets
 
-    def _fetch_category(self, category: str, limit: int, now: datetime = None) -> List[Market]:
+    def _fetch_category(self, category: str, limit: int, now: datetime = None, min_hours: int = 12) -> List[Market]:
         """Получает рынки по категории."""
         if now is None:
             now = datetime.now(timezone.utc)
@@ -120,7 +120,7 @@ class MarketSelector:
                 all_markets = self.adapter.list_markets_paged(limit=500, offset=0, order="volume")
                 all_markets += self.adapter.list_markets_paged(limit=500, offset=500, order="volume")
                 # Предфильтр: убираем уже закрытые до price-фильтра
-                alive = [m for m in all_markets if (m.close_time - now).total_seconds() > 3600]
+                alive = [m for m in all_markets if (m.close_time - now).total_seconds() > min_hours * 3600]
                 penny = [m for m in alive if 0.01 <= m.price <= 0.05 or 0.95 <= m.price <= 0.99]
                 return penny[:limit]
             
@@ -141,6 +141,7 @@ class MarketSelector:
             now = datetime.now(timezone.utc)
         cooldown_ids = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
         listed_ids = get_all_listed_market_ids()
+        last_prices = get_last_analyzed_prices(cooldown_ids)
         
         filtered = []
         for m in markets:
@@ -159,7 +160,7 @@ class MarketSelector:
                 
             # Рынок на cooldown
             if m.id in cooldown_ids:
-                last_price = get_last_analyzed_price(m.id)
+                last_price = last_prices.get(m.id)
                 if last_price is not None:
                     price_diff = abs(last_price - m.price)
                     if price_diff < 0.03:

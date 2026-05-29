@@ -956,6 +956,18 @@ def get_last_analyzed_price(market_id: str) -> Optional[float]:
         row = cursor.fetchone()
         return row['last_price'] if row else None
 
+def get_last_analyzed_prices(market_ids: set) -> dict[str, float]:
+    """Возвращает {market_id: last_price} одним запросом для всех ID."""
+    if not market_ids:
+        return {}
+    placeholders = ','.join('?' * len(market_ids))
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT market_id, last_price FROM analyzed_markets WHERE market_id IN ({placeholders})",
+            tuple(market_ids)
+        ).fetchall()
+    return {row['market_id']: row['last_price'] for row in rows if row['last_price'] is not None}
+
 def get_recently_analyzed_market_ids(within_seconds: int = 1800) -> list:
     """Возвращает список ID рынков, которые были проанализированы в течение последних N секунд."""
     init_db()

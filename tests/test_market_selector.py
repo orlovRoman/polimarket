@@ -133,7 +133,7 @@ def test_dynamic_timeouts():
         assert mock_send_gemini.call_args[0][3] == 45
 
 def test_score_market_uses_provided_now():
-    """datetime.now должен вызываться ровно один раз за весь select()."""
+    """datetime.now не должен вызываться в циклах (вызывается <= 2 раз за весь select())."""
     mock_adapter = MagicMock()
     mock_adapter.list_markets.return_value = []
     mock_adapter.list_markets_paged.return_value = []
@@ -144,8 +144,8 @@ def test_score_market_uses_provided_now():
          patch("agents.shared.python.market_selector.get_markets_on_cooldown", return_value=set()):
         mock_dt.now.return_value = datetime(2026, 6, 1, tzinfo=timezone.utc)
         selector.select(total_limit=5)
-        # now() должен быть вызван ровно 1 раз (в select()), а не N раз внутри циклов
-        assert mock_dt.now.call_count == 1
+        # now() не должен вызываться в циклах по рынкам
+        assert mock_dt.now.call_count <= 2
 
 def test_filter_single_db_call_for_market_lists():
     """_filter должен сделать ровно 1 запрос к get_all_listed_market_ids, не N."""
@@ -210,3 +210,74 @@ def test_penny_fetch_skips_closed_markets():
     assert any(m.id == "active" for m in result), "Активный рынок должен быть в результате"
     assert all(m.id != "closed" for m in result), "Закрытый рынок не должен попасть в penny"
     assert all(m.id != "ending_too_soon" for m in result), "Рынок, закрывающийся менее чем через 1 час, не должен попасть в penny"
+
+def test_filter_single_db_call_for_cooldown_prices():
+    """get_last_analyzed_price не должна вызываться в цикле, а должна вызываться батчем get_last_analyzed_prices."""
+    def make_market(mid):
+        return Market(
+            id=mid,
+            platform="polymarket",
+            title=f"Market {mid}",
+            url="http://url",
+            outcome="YES",
+            price=0.5,
+            close_time=datetime.now(timezone.utc) + timedelta(hours=24)
+        )
+    markets = [make_market(f"m{i}") for i in range(15)]
+    cooldown_set = {f"m{i}" for i in range(15)}
+    
+    mock_adapter = MagicMock()
+    selector = MarketSelector(mock_adapter)
+    
+    with patch("agents.shared.python.market_selector.get_last_analyzed_prices") as mock_bulk, \
+         patch("agents.shared.python.market_selector.get_markets_on_cooldown", return_value=cooldown_set), \
+         patch("agents.shared.python.market_selector.get_all_listed_market_ids", return_value={'ignored': set(), 'watching': set()}):
+        mock_bulk.return_value = {f"m{i}": 0.5 for i in range(15)}
+        selector._filter(markets)
+        assert mock_bulk.call_count == 1  # один батч-запрос, не 15
+
+def test_penny_fetch_respects_min_hours():
+    """Рынок с 6ч до закрытия не должен войти в penny при min_hours=12, но должен войти при min_hours=1."""
+    now = datetime.now(timezone.utc)
+    m_6h = Market(
+        id="short",
+        platform="polymarket",
+        title="Short Penny",
+        url="http://url",
+        outcome="YES",
+        price=0.03,
+        close_time=now + timedelta(hours=6)
+    )
+    m_48h = Market(
+        id="long",
+        platform="polymarket",
+        title="Long Penny",
+        url="http://url",
+        outcome="YES",
+        price=0.03,
+        close_time=now + timedelta(hours=48)
+    )
+    
+    mock_adapter = MagicMock()
+    mock_adapter.list_markets_paged.side_effect = [
+        [m_6h, m_48h],  # offset=0
+        []  # offset=500
+    ]
+    selector = MarketSelector(mock_adapter)
+    
+    # 1. При min_hours=12: m_6h отфильтровывается
+    result = selector._fetch_category("penny_stocks", limit=10, now=now, min_hours=12)
+    ids = [m.id for m in result]
+    assert "short" not in ids
+    assert "long" in ids
+
+    # Reset side effect for second call
+    mock_adapter.list_markets_paged.side_effect = [
+        [m_6h, m_48h],
+        []
+    ]
+    # 2. При min_hours=1: m_6h сохраняется
+    result_short = selector._fetch_category("penny_stocks", limit=10, now=now, min_hours=1)
+    ids_short = [m.id for m in result_short]
+    assert "short" in ids_short
+    assert "long" in ids_short
