@@ -385,6 +385,38 @@ async def command_status_handler(message: types.Message) -> None:
         accuracy_line += "накапливается..."
     status_text += accuracy_line
 
+    if is_scanning_real:
+        # Получаем детальный статус сканирования
+        state = engine.state
+        category = state.get("category", "Авто-микс")
+        stage = state.get("stage", "В процессе")
+        cur_idx = state.get('current_market_index', 0)
+        tot = state.get('total_markets', 0)
+        title = state.get('current_market_title', 'Поиск...')
+        url = state.get('current_market_url', '')
+        scout = state.get('scout_status', '⏳ Ожидает')
+        swing = state.get('swing_status', '⏳ Ожидает')
+        shadow = state.get('shadow_status', '⏳ Ожидает')
+        ideas = state.get('ideas_found', 0)
+
+        market_link = f"<a href='{url}'>{title}</a>" if url else f"<b>{title}</b>"
+
+        progress_line = ""
+        if tot > 0:
+            progress_line = f"● 📊 <b>Прогресс:</b> Рынок <code>{cur_idx}</code> из <code>{tot}</code>\n"
+
+        status_text += (
+            f"\n\n⚡️ <b>Детали текущего сканирования:</b>\n"
+            f"● 📋 <b>Категория:</b> {category}\n"
+            f"● ⚙️ <b>Этап:</b> {stage}\n"
+            f"{progress_line}"
+            f"● 🎯 <b>Активный рынок:</b> {market_link}\n"
+            f"● 🕵️‍♂️ <b>SCOUT:</b> {scout}\n"
+            f"● 🚀 <b>SWING:</b> {swing}\n"
+            f"● 👤 <b>SHADOW:</b> {shadow}\n"
+            f"● <i>💡 Найдено идей (консенсус): {ideas}</i>"
+        )
+
     await message.answer(status_text)
 
 @dp.message(Command("performance"))
@@ -1004,10 +1036,51 @@ async def command_correlations_handler(message: types.Message) -> None:
     await message.answer(summary)
 
 
+def get_active_scan_status_text() -> str:
+    """
+    Формирует подробный HTML-отчет о текущем прогрессе сканирования и статусах агентов.
+    """
+    from core.engine import CoreEngine
+    engine = CoreEngine()
+    state = engine.state
+
+    category = state.get("category", "Авто-микс")
+    stage = state.get("stage", "В процессе")
+    cur_idx = state.get('current_market_index', 0)
+    tot = state.get('total_markets', 0)
+    title = state.get('current_market_title', 'Поиск...')
+    url = state.get('current_market_url', '')
+    scout = state.get('scout_status', '⏳ Ожидает')
+    swing = state.get('swing_status', '⏳ Ожидает')
+    shadow = state.get('shadow_status', '⏳ Ожидает')
+    ideas = state.get('ideas_found', 0)
+
+    market_link = f"<a href='{url}'>{title}</a>" if url else f"<b>{title}</b>"
+
+    progress_line = ""
+    if tot > 0:
+        progress_line = f"● 📊 <b>Прогресс:</b> Рынок <code>{cur_idx}</code> из <code>{tot}</code>\n"
+
+    return (
+        f"⚠️ <b>Сканирование уже запущено. Пожалуйста, подождите.</b>\n\n"
+        f"● 📋 <b>Категория:</b> {category}\n"
+        f"● ⚙️ <b>Этап:</b> {stage}\n"
+        f"{progress_line}"
+        f"● 🎯 <b>Активный рынок:</b> {market_link}\n\n"
+        f"🕵️‍♂️ <b>SCOUT:</b> {scout}\n"
+        f"🚀 <b>SWING:</b> {swing}\n"
+        f"👤 <b>SHADOW:</b> {shadow}\n\n"
+        f"<i>💡 Найдено идей (консенсус): {ideas}</i>"
+    )
+
+
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:
-    if _scan_lock.locked():
-        await message.answer("⚠️ Сканирование уже запущено. Пожалуйста, подождите.")
+    from core.engine import CoreEngine
+    engine = CoreEngine()
+    if _scan_lock.locked() or engine._scan_lock.locked():
+        status_text = get_active_scan_status_text()
+        await message.answer(status_text, parse_mode="HTML", disable_web_page_preview=True)
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1023,8 +1096,12 @@ async def command_scan_handler(message: types.Message) -> None:
 
 @dp.callback_query(F.data.startswith("scan_"))
 async def callback_scan_handler(callback: CallbackQuery) -> None:
-    if _scan_lock.locked():
-        await callback.answer("⚠️ Сканирование уже запущено. Пожалуйста, подождите.", show_alert=True)
+    from core.engine import CoreEngine
+    engine = CoreEngine()
+    if _scan_lock.locked() or engine._scan_lock.locked():
+        await callback.answer()
+        status_text = get_active_scan_status_text()
+        await callback.message.answer(status_text, parse_mode="HTML", disable_web_page_preview=True)
         return
 
     category = callback.data.replace("scan_", "")
