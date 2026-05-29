@@ -1,7 +1,7 @@
 import requests
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from .base_adapter import BaseMarketAdapter
 from core.models import Market
@@ -176,6 +176,11 @@ class PolymarketAdapter(BaseMarketAdapter):
                 
                 if not outcomes or not prices:
                     continue
+                if item.get("closed") is True or item.get("closed") == "true":
+                    continue
+                close_time = self._get_end_date(item)
+                if close_time <= datetime.now(timezone.utc):
+                    continue
                 
                 # Используем event_slug если есть (из events API), иначе берем slug самого рынка
                 url_slug = item.get("event_slug", item.get("slug"))
@@ -251,6 +256,11 @@ class PolymarketAdapter(BaseMarketAdapter):
                 prices = json.loads(item.get("outcomePrices", "[]"))
                 if not outcomes or not prices:
                     continue
+                if item.get("closed") is True or item.get("closed") == "true":
+                    continue
+                close_time = self._get_end_date(item)
+                if close_time <= datetime.now(timezone.utc):
+                    continue
                 url_slug = item.get("event_slug", item.get("slug"))
                 
                 # Форматируем заголовок и описание с ценами YES/NO
@@ -314,6 +324,11 @@ class PolymarketAdapter(BaseMarketAdapter):
         prices = json.loads(item.get("outcomePrices", "[]"))
         
         if not outcomes or not prices:
+            return None
+        if item.get("closed") is True or item.get("closed") == "true":
+            return None
+        close_time = self._get_end_date(item)
+        if close_time <= datetime.now(timezone.utc):
             return None
         
         # Форматируем заголовок и описание с ценами YES/NO
