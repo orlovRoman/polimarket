@@ -85,6 +85,8 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
                         cached = json.loads(cached)
                     except (json.JSONDecodeError, TypeError):
                         cached = []
+                if not isinstance(cached, list):
+                    logger.warning(f"[workflow] Unexpected type for screened_market_ids: {type(cached)}. Expected list.")
                 return cached if isinstance(cached, list) else []
         except (ValueError, TypeError):
             pass
@@ -131,6 +133,18 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
 
 
+def _safe_result(future: concurrent.futures.Future, default, timeout: int = 15):
+    """Получает результат Future с таймаутом; возвращает default при любой ошибке."""
+    try:
+        return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        logger.warning(f"[workflow] fetch timed out after {timeout}s, using default")
+        return default
+    except Exception as e:
+        logger.warning(f"[workflow] fetch failed: {e}, using default")
+        return default
+
+
 def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None):
     # Guard: проверяем доступность LLM перед запуском
     from config import llm_health_gate  # глобальный инстанс
@@ -145,16 +159,18 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     
     from agents.shared.utils.web_search import fetch_wikipedia_context
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        future_rss = executor.submit(fetch_rss_news, search_query)
-        future_reddit = executor.submit(fetch_reddit_news, search_query)
-        future_wiki = executor.submit(fetch_wikipedia_context, search_query)
-        future_hn = executor.submit(fetch_hackernews, search_query)
-        
-        news_titles = future_rss.result()
-        reddit_posts = future_reddit.result()
-        wiki_context = future_wiki.result()
-        hn_posts = future_hn.result()
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+    future_rss = executor.submit(fetch_rss_news, search_query)
+    future_reddit = executor.submit(fetch_reddit_news, search_query)
+    future_wiki = executor.submit(fetch_wikipedia_context, search_query)
+    future_hn = executor.submit(fetch_hackernews, search_query)
+    
+    news_titles = _safe_result(future_rss, default=[], timeout=15)
+    reddit_posts = _safe_result(future_reddit, default=[], timeout=15)
+    wiki_context = _safe_result(future_wiki, default="", timeout=20)
+    hn_posts = _safe_result(future_hn, default=[], timeout=15)
+    
+    executor.shutdown(wait=False)
 
     # Google Trends — последовательно (не thread-safe)
     trends_data = fetch_google_trends(search_query)
@@ -293,14 +309,18 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         if signal:
             summary_text += "🧠 <b>SCOUT (Фундаментал):</b>\n"
             cause = getattr(signal, 'signal_cause', '') or getattr(signal, 'summary', '')
-            summary_text += f"🎯 Причина: {cause}\n"
+            if cause:
+                summary_text += f"🎯 Причина: {cause}\n"
             risk = getattr(signal, 'signal_risk', '') or getattr(signal, 'details', '')
-            summary_text += f"⚖️ Риск: {risk}\n"
+            if risk:
+                summary_text += f"⚖️ Риск: {risk}\n"
             oracle_risk = getattr(signal, 'oracle_risk', '')
             if oracle_risk:
                 summary_text += f"👁️ Оракул-риск: {oracle_risk}\n"
             verdict = getattr(signal, 'signal_verdict', '') or getattr(signal, 'trade_action', '')
-            summary_text += f"📝 Вердикт: {verdict}\n\n"
+            if verdict:
+                summary_text += f"📝 Вердикт: {verdict}\n"
+            summary_text += "\n"
         
         if swing_signal:
             summary_text += "🏄 <b>SWING (Хайп):</b>\n"
@@ -315,7 +335,9 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             if risk:
                 summary_text += f"⚖️ Риск: {risk}\n"
             verdict = getattr(swing_signal, 'swing_verdict', '') or getattr(swing_signal, 'recommendation', '')
-            summary_text += f"📝 Вердикт: {verdict}\n\n"
+            if verdict:
+                summary_text += f"📝 Вердикт: {verdict}\n"
+            summary_text += "\n"
             
         if opinion_shadow:
             shadow_status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
@@ -329,7 +351,9 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             if execution_risk:
                 summary_text += f"⚖️ Исполнение: {execution_risk}\n"
             verdict = getattr(opinion_shadow, 'shadow_verdict', '') or getattr(opinion_shadow, 'opinion', '')
-            summary_text += f"📝 Вердикт: {verdict}\n\n"
+            if verdict:
+                summary_text += f"📝 Вердикт: {verdict}\n"
+            summary_text += "\n"
             
         # Арбитраж из math_filter (если есть)
         math_result = getattr(context, 'math_filter_result', None)
@@ -352,8 +376,11 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         "shadow_reason": (opinion_shadow.opinion or "")[:200] if opinion_shadow else "",
         "final_outcome": decision.status
     }
-    if signal or swing_signal or opinion_shadow:
-        save_idea_audit(m.id, m.title, audit)
+    try:
+        if signal or swing_signal or opinion_shadow:
+            save_idea_audit(m.id, m.title, audit)
+    except Exception as e:
+        logger.error(f"[workflow] save_idea_audit failed for {m.id}: {e}")
     
     from core.checkpoint import save_checkpoint, verify_checkpoint
     save_checkpoint(f"consensus_{m.id}", status="ok")
@@ -364,29 +391,32 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
 
     # Эпизодическая память агентов (Спринт 7)
     from agents.shared.python.db import save_agent_episode
-    if signal:
-        save_agent_episode(
-            agent_name="SCOUT",
-            event_type="signal_evaluated",
-            summary=f"Opinion: {getattr(signal, 'signal_verdict', 'buy')} | Reason: {getattr(signal, 'signal_cause', getattr(signal, 'details', ''))}",
-            market_id=m.id,
-            market_title=m.title
-        )
-        
-    if swing_signal:
-        save_agent_episode(
-            agent_name="SWING",
-            event_type="signal_evaluated",
-            summary=f"Opinion: {getattr(swing_signal, 'swing_verdict', 'buy')} | Reason: {getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))}",
-            market_id=m.id,
-            market_title=m.title
-        )
-        
-    if opinion_shadow:
-        save_agent_episode(
-            agent_name="SHADOW",
-            event_type="signal_evaluated",
-            summary=f"Opinion: {getattr(opinion_shadow, 'shadow_verdict', 'agree')} | Reason: {getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))}",
-            market_id=m.id,
-            market_title=m.title
-        )
+    try:
+        if signal:
+            save_agent_episode(
+                agent_name="SCOUT",
+                event_type="signal_evaluated",
+                summary=f"Opinion: {getattr(signal, 'signal_verdict', 'buy')} | Reason: {getattr(signal, 'signal_cause', getattr(signal, 'details', ''))}",
+                market_id=m.id,
+                market_title=m.title
+            )
+            
+        if swing_signal:
+            save_agent_episode(
+                agent_name="SWING",
+                event_type="signal_evaluated",
+                summary=f"Opinion: {getattr(swing_signal, 'swing_verdict', 'buy')} | Reason: {getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))}",
+                market_id=m.id,
+                market_title=m.title
+            )
+            
+        if opinion_shadow:
+            save_agent_episode(
+                agent_name="SHADOW",
+                event_type="signal_evaluated",
+                summary=f"Opinion: {getattr(opinion_shadow, 'shadow_verdict', 'agree')} | Reason: {getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))}",
+                market_id=m.id,
+                market_title=m.title
+            )
+    except Exception as e:
+        logger.error(f"[workflow] save_agent_episode failed for {m.id}: {e}")
