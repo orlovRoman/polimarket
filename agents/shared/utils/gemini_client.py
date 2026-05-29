@@ -205,259 +205,256 @@ def extract_response_text(result: dict) -> str:
         raw = json.dumps(result)
         raise ValueError(f"Не удалось извлечь текст ответа. API вернуло: {raw[:MAX_ERR_DUMP]}{'...' if len(raw) > MAX_ERR_DUMP else ''}") from e
 
+def _send_gemini(payload: dict, model: str, api_key: str, timeout: int) -> Tuple[dict, int, int]:
+    """Отправка запроса напрямую в Google Gemini API."""
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    gemini_payload = json.loads(json.dumps(payload))
+    if "tools" in gemini_payload and "generationConfig" in gemini_payload:
+        gen_cfg = gemini_payload["generationConfig"]
+        if "responseMimeType" in gen_cfg or "response_mime_type" in gen_cfg:
+            gen_cfg.pop("responseMimeType", None)
+            gen_cfg.pop("response_mime_type", None)
+            gen_cfg.pop("responseSchema", None)
+            gen_cfg.pop("response_schema", None)
+            
+    response = requests.post(api_url, json=gemini_payload, timeout=timeout)
+    response.raise_for_status()
+    result = response.json()
+    if "candidates" not in result or not result["candidates"]:
+        raise ValueError("No candidates in response")
+        
+    usage_meta = result.get("usageMetadata", {})
+    input_tokens = usage_meta.get("promptTokenCount", 0)
+    output_tokens = usage_meta.get("candidatesTokenCount", 0)
+    return result, input_tokens, output_tokens
+
+def _send_openrouter(payload: dict, model: str, api_key: str, timeout: int) -> Tuple[dict, int, int]:
+    """Отправка запроса в OpenRouter API (конвертация в формат OpenAI)."""
+    openai_payload = convert_gemini_to_openai(payload, model_name=model)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/orlovRoman/polimarket",
+        "X-Title": "Polymarket Bot Team"
+    }
+    response = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        json=openai_payload,
+        headers=headers,
+        timeout=timeout
+    )
+    response.raise_for_status()
+    openai_res = response.json()
+    if "error" in openai_res:
+        raise ValueError(str(openai_res["error"]))
+    if "choices" not in openai_res or not openai_res["choices"]:
+        raise ValueError("No choices in response")
+        
+    result = convert_openai_to_gemini(openai_res)
+    prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
+    completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
+    return result, prompt_tokens, completion_tokens
+
+def _send_cerebras(payload: dict, model: str, api_key: str, timeout: int) -> Tuple[dict, int, int]:
+    """Отправка запроса в Cerebras API (конвертация в формат OpenAI, без строгого json)."""
+    openai_payload = convert_gemini_to_openai(payload, model_name=model, strict_json=False)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    response = requests.post(
+        "https://api.cerebras.ai/v1/chat/completions",
+        json=openai_payload,
+        headers=headers,
+        timeout=timeout
+    )
+    if response.status_code == 429:
+        CEREBRAS_RATE_LIMIT_WAIT_SEC = 20
+        logger.warning(f"Ошибка 429 от Cerebras ({model}). Ждем {CEREBRAS_RATE_LIMIT_WAIT_SEC} секунд...")
+        time.sleep(CEREBRAS_RATE_LIMIT_WAIT_SEC)
+    response.raise_for_status()
+    openai_res = response.json()
+    result = convert_openai_to_gemini(openai_res)
+    prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
+    completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
+    return result, prompt_tokens, completion_tokens
+
+
+# Реестр провайдеров и конфигурация.
+# Вынесен на уровень модуля для тестируемости (можно патчить в тестах).
+# Для добавления 3-го провайдера достаточно прописать его ключ, модели и функцию-обработчик здесь.
+# ВАЖНО: ключи gemini['keys'] формируются динамически внутри generate_content_with_fallback,
+# чтобы prepend-ить первичный api_key, переданный в аргументах.
+PROVIDERS_CONFIG: dict = {
+    "gemini": {
+        # keys будут собраны динамически (prepend api_key + secondary из env)
+        "keys": [],
+        "models": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro"],
+        "send_func": _send_gemini
+    },
+    "openrouter": {
+        "keys": [os.getenv("OPENROUTER_API_KEY", "")],
+        "models": [os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")],
+        "send_func": _send_openrouter
+    },
+    "cerebras": {
+        "keys": [os.getenv("CEREBRAS_API_KEY", "")],
+        "models": ["qwen-3-235b-a22b-instruct-2507", "gpt-oss-120b", "zai-glm-4.7", "llama3.1-8b"],
+        "send_func": _send_cerebras
+    }
+}
+
+
 def generate_content_with_fallback(
-    api_key: str, 
-    payload: dict, 
-    default_model: str = "gemini-2.5-flash", 
+    api_key: str,
+    payload: dict,
+    default_model: str = "gemini-2.5-flash",
     agent_name: str = "AGENT",
     timeout: int = 120,
     market_id: Optional[str] = None
 ) -> Tuple[Optional[dict], str]:
     """
-    Выполняет HTTP POST запрос к API с автоматической маршрутизацией.
+    Выполняет HTTP POST запрос к API с автоматической маршрутизацией по провайдерам,
+    моделям и ключам с поддержкой автоматического переключения при ошибках.
     """
-    or_key = os.getenv("OPENROUTER_API_KEY")
-    or_model_default = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
-    or_model = os.getenv(f"OPENROUTER_MODEL_{agent_name.upper()}", or_model_default)
+    from agents.shared.python.db import get_memory, save_memory
+
+    # Строим рабочий словарь providers явно (без deepcopy, чтобы MagicMock в тестах работал).
+    # Ключи gemini: если PROVIDERS_CONFIG["gemini"]["keys"] непустой (патч в тестах),
+    # используем его напрямую; иначе строим из api_key + secondary из env.
+    _gemini_keys_override = PROVIDERS_CONFIG["gemini"].get("keys") or []
+    if _gemini_keys_override:
+        _gemini_keys = list(_gemini_keys_override)
+    else:
+        secondary = os.getenv("GOOGLE_API_KEY_SECONDARY", "AIzaSyByIvR_9P2sj74EkN8mxWU5-VC4koRwIFM")
+        _gemini_keys = [k for k in [api_key, secondary] if k and k.strip()]
+
+    providers = {
+        "gemini": {
+            "keys": _gemini_keys,
+            "models": [default_model] + list(PROVIDERS_CONFIG["gemini"]["models"]),
+            "send_func": PROVIDERS_CONFIG["gemini"]["send_func"],
+        },
+        "openrouter": {
+            "keys": list(PROVIDERS_CONFIG["openrouter"]["keys"]),
+            "models": list(PROVIDERS_CONFIG["openrouter"]["models"]),
+            "send_func": PROVIDERS_CONFIG["openrouter"]["send_func"],
+        },
+        "cerebras": {
+            "keys": list(PROVIDERS_CONFIG["cerebras"]["keys"]),
+            "models": list(PROVIDERS_CONFIG["cerebras"]["models"]),
+            "send_func": PROVIDERS_CONFIG["cerebras"]["send_func"],
+        },
+    }
     
-    models = []
-    
-    cer_key = os.getenv("CEREBRAS_API_KEY")
-    cer_models = [
-        "qwen-3-235b-a22b-instruct-2507",
-        "gpt-oss-120b",
-        "zai-glm-4.7",
-        "llama3.1-8b"
-    ]
-    
-    if cer_key:
-        models.append("cerebras")
-    if or_key:
-        models.append("openrouter")
-        
-    gemini_models = [default_model, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro"]
-    for m in gemini_models:
-        if m not in models:
-            models.append(m)
-            
-    # Чтение ручной настройки из БД
+    # 1. Фильтруем провайдеров, оставляя только тех, у кого заданы API-ключи
+    active_providers = []
+    for prov_name, cfg in providers.items():
+        cfg["keys"] = [k for k in cfg["keys"] if k and k.strip()]
+        if cfg["keys"]:
+            active_providers.append(prov_name)
+
+    # 2. Формируем список планов исполнения: (provider, model)
+    plans = []
+
+    # Cerebras
+    if "cerebras" in active_providers:
+        cer_idx = int(get_memory("cer_rr_index", 0))
+        cer_models = providers["cerebras"]["models"]
+        cer_model = cer_models[cer_idx % len(cer_models)]
+        plans.append(("cerebras", cer_model))
+
+    # OpenRouter
+    if "openrouter" in active_providers:
+        or_model_default = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+        or_model = os.getenv(f"OPENROUTER_MODEL_{agent_name.upper()}", or_model_default)
+        plans.append(("openrouter", or_model))
+
+    # Gemini
+    if "gemini" in active_providers:
+        seen = set()
+        for m in providers["gemini"]["models"]:
+            if m not in seen:
+                seen.add(m)
+                plans.append(("gemini", m))
+
+    # 3. Учитываем ручную настройку моделей из БД
     try:
-        from agents.shared.python.db import get_memory
-        config = get_memory(f"agent_config_{agent_name.upper()}")
-        if config and isinstance(config, dict):
-            provider = config.get("provider")
-            db_model = config.get("model")
-            if provider == "openrouter":
-                or_model = db_model
-                if "openrouter" in models: models.remove("openrouter")
-                models.insert(0, "openrouter")
-            elif provider == "cerebras":
-                # db_model can be ignored for cerebras since we cycle through cer_models anyway
-                if "cerebras" in models: models.remove("cerebras")
-                models.insert(0, "cerebras")
-            elif provider == "gemini":
-                default_model = db_model
-                if db_model in models: models.remove(db_model)
-                models.insert(0, db_model)
+        config_db = get_memory(f"agent_config_{agent_name.upper()}")
+        if config_db and isinstance(config_db, dict):
+            prov_override = config_db.get("provider")
+            db_model = config_db.get("model")
+            if prov_override in active_providers:
+                if prov_override == "gemini":
+                    plans = [p for p in plans if p[0] != "gemini"]
+                    seen = set()
+                    for m in [db_model] + providers["gemini"]["models"]:
+                        if m not in seen:
+                            seen.add(m)
+                            plans.insert(0, ("gemini", m))
+                elif prov_override == "openrouter":
+                    plans = [p for p in plans if p[0] != "openrouter"]
+                    plans.insert(0, ("openrouter", db_model))
+                elif prov_override == "cerebras":
+                    plans = [p for p in plans if p[0] != "cerebras"]
+                    plans.insert(0, ("cerebras", db_model))
     except Exception as e:
         logger.error(f"Error reading model config for {agent_name}: {e}")
-            
-    prompt_text = extract_prompt_from_payload(payload)
 
+    prompt_text = extract_prompt_from_payload(payload)
     gemini_attempt = 0
-    for current_model in models:
-        start_time = time.time()
+
+    # 4. Перебираем планы и ключи
+    for provider, model in plans:
+        cfg = providers[provider]
+        send_func = cfg["send_func"]
+        keys = cfg["keys"]
         
-        # --- ВЕТКА OPENROUTER ---
-        if current_model == "openrouter":
-            if not or_key:
-                continue
-                
-            logger.info(f"[{agent_name}] Отправка запроса в OpenRouter API (модель {or_model})...")
+        for key_idx, key in enumerate(keys):
+            start_time = time.time()
+            logger.info(f"[{agent_name}] Отправка запроса в {provider} (модель {model}, ключ {key_idx+1}/{len(keys)})...")
             try:
-                openai_payload = convert_gemini_to_openai(payload, model_name=or_model)
+                result, in_tokens, out_tokens = send_func(payload, model, key, timeout)
                 
-                headers = {
-                    "Authorization": f"Bearer {or_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com/orlovRoman/polimarket",
-                    "X-Title": "Polymarket Bot Team"
-                }
+                # Успешный запрос!
+                latency_ms = int((time.time() - start_time) * 1000)
+                total_tokens = in_tokens + out_tokens
+                response_text = extract_response_text(result)
                 
-                response = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    json=openai_payload,
-                    headers=headers,
-                    timeout=timeout
+                LLMLogger.log_call(
+                    agent_name, model, prompt_text, response=response_text,
+                    input_tokens=in_tokens, output_tokens=out_tokens, total_tokens=total_tokens,
+                    latency_ms=latency_ms, market_id=market_id
                 )
                 
-                latency_ms = int((time.time() - start_time) * 1000)
-                if response.status_code == 200:
-                    openai_res = response.json()
+                # Обновляем round-robin для Cerebras при успехе
+                if provider == "cerebras":
+                    cer_idx = int(get_memory("cer_rr_index", 0))
+                    save_memory("cer_rr_index", cer_idx + 1)
                     
-                    if "error" in openai_res:
-                        logger.error(f"[{agent_name}] Ошибка в ответе OpenRouter API: {openai_res['error']}")
-                        LLMLogger.log_call(agent_name, or_model, prompt_text, error=str(openai_res['error']), latency_ms=latency_ms, market_id=market_id)
-                        continue
-                        
-                    if "choices" not in openai_res or not openai_res["choices"]:
-                        logger.error(f"[{agent_name}] Ответ OpenRouter API не содержит choices: {openai_res}")
-                        LLMLogger.log_call(agent_name, or_model, prompt_text, error="No choices", latency_ms=latency_ms, market_id=market_id)
-                        continue
-                        
-                    result = convert_openai_to_gemini(openai_res)
-                    
-                    prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
-                    completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
-                    total_tokens = prompt_tokens + completion_tokens
-                    
-                    response_text = extract_response_text(result)
-                    LLMLogger.log_call(
-                        agent_name, or_model, prompt_text, response=response_text,
-                        input_tokens=prompt_tokens, output_tokens=completion_tokens, total_tokens=total_tokens,
-                        latency_ms=latency_ms, market_id=market_id
-                    )
-                            
-                    save_memory(f"consecutive_failures_{agent_name}", 0)
-                    return result, or_model
-                else:
-                    logger.error(f"[{agent_name}] Ошибка OpenRouter API ({response.status_code}): {response.text}")
-                    LLMLogger.log_call(agent_name, or_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
+                save_memory(f"consecutive_failures_{agent_name}", 0)
+                return result, model
+                
             except Exception as e:
-                logger.error(f"[{agent_name}] Исключение при запросе к OpenRouter: {e}")
                 latency_ms = int((time.time() - start_time) * 1000)
-                LLMLogger.log_call(agent_name, or_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
-            continue
-            
-        # --- ВЕТКА CEREBRAS ---
-        if current_model == "cerebras":
-            if not cer_key:
+                error_msg = str(e)
+                logger.warning(f"[{agent_name}] Ошибка вызова {provider} ({model}) с ключом {key_idx+1}: {error_msg}")
+                LLMLogger.log_call(
+                    agent_name, model, prompt_text, error=f"Key {key_idx+1} Error: {error_msg}",
+                    latency_ms=latency_ms, market_id=market_id
+                )
+                # Переходим к следующему ключу этого же провайдера
                 continue
                 
-            cer_idx = int(get_memory("cer_rr_index", 0))
+        # Если это был Gemini и мы прошлись по всем ключам, делаем экспоненциальный бэкоф перед следующей моделью
+        if provider == "gemini":
+            backoff = min(0.5 * (2 ** gemini_attempt), 5.0)
+            time.sleep(backoff)
+            gemini_attempt += 1
             
-            for i in range(len(cer_models)):
-                cer_model = cer_models[(cer_idx + i) % len(cer_models)]
-                logger.info(f"[{agent_name}] Отправка запроса в Cerebras API (модель {cer_model})...")
-                cer_start_time = time.time()
-                try:
-                    # strict_json=False: Cerebras не поддерживает OpenAI json_schema strict mode
-                    openai_payload = convert_gemini_to_openai(payload, model_name=cer_model, strict_json=False)
-                    
-                    headers = {
-                        "Authorization": f"Bearer {cer_key}",
-                        "Content-Type": "application/json"
-                    }
-                    
-                    response = requests.post(
-                        "https://api.cerebras.ai/v1/chat/completions",
-                        json=openai_payload,
-                        headers=headers,
-                        timeout=timeout
-                    )
-                    
-                    latency_ms = int((time.time() - cer_start_time) * 1000)
-                    if response.status_code == 200:
-                        openai_res = response.json()
-                        result = convert_openai_to_gemini(openai_res)
-                        
-                        prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
-                        completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
-                        total_tokens = prompt_tokens + completion_tokens
-                        
-                        response_text = extract_response_text(result)
-                        LLMLogger.log_call(
-                            agent_name, cer_model, prompt_text, response=response_text,
-                            input_tokens=prompt_tokens, output_tokens=completion_tokens, total_tokens=total_tokens,
-                            latency_ms=latency_ms, market_id=market_id
-                        )
-                        
-                        save_memory(f"consecutive_failures_{agent_name}", 0)
-                        save_memory("cer_rr_index", cer_idx + 1)
-                        return result, cer_model
-                    elif response.status_code == 429:
-                        CEREBRAS_RATE_LIMIT_WAIT_SEC = 20
-                        logger.warning(f"[{agent_name}] Ошибка 429 от Cerebras ({cer_model}). Ждем {CEREBRAS_RATE_LIMIT_WAIT_SEC} секунд сброса лимита...")
-                        time.sleep(CEREBRAS_RATE_LIMIT_WAIT_SEC)
-                        logger.error(f"[{agent_name}] Ошибка Cerebras API ({response.status_code}) для {cer_model}: {response.text}")
-                        LLMLogger.log_call(agent_name, cer_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
-                    else:
-                        logger.error(f"[{agent_name}] Ошибка Cerebras API ({response.status_code}) для {cer_model}: {response.text}")
-                        LLMLogger.log_call(agent_name, cer_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
-                except Exception as e:
-                    logger.error(f"[{agent_name}] Исключение при запросе к Cerebras ({cer_model}): {e}")
-                    latency_ms = int((time.time() - cer_start_time) * 1000)
-                    LLMLogger.log_call(agent_name, cer_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
-            continue
-            
-        # --- ВЕТКА GEMINI ---
-        keys_to_try = [api_key]
-        sec_api_key = os.getenv("GOOGLE_API_KEY_SECONDARY")
-        if sec_api_key and sec_api_key != api_key:
-            keys_to_try.append(sec_api_key)
-            
-        gemini_success = False
-        for current_key in keys_to_try:
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={current_key}"
-            
-            logger.info(f"[{agent_name}] Отправка запроса в Gemini API (модель {current_model})...")
-            try:
-                # Копируем payload, чтобы не модифицировать его для других провайдеров в цикле
-                gemini_payload = json.loads(json.dumps(payload))
-                if "tools" in gemini_payload and "generationConfig" in gemini_payload:
-                    gen_cfg = gemini_payload["generationConfig"]
-                    if "responseMimeType" in gen_cfg or "response_mime_type" in gen_cfg:
-                        logger.info(f"[{agent_name}] Обнаружены tools. Удаляем responseMimeType из generationConfig для Gemini...")
-                        gen_cfg.pop("responseMimeType", None)
-                        gen_cfg.pop("response_mime_type", None)
-                        gen_cfg.pop("responseSchema", None)
-                        gen_cfg.pop("response_schema", None)
-                
-                response = requests.post(api_url, json=gemini_payload, timeout=timeout)
-                latency_ms = int((time.time() - start_time) * 1000)
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    
-                    usage_meta = result.get("usageMetadata", {})
-                    input_tokens = usage_meta.get("promptTokenCount", 0)
-                    output_tokens = usage_meta.get("candidatesTokenCount", 0)
-                    total_tokens = input_tokens + output_tokens
-                    
-                    if "candidates" in result and result["candidates"]:
-                        response_text = extract_response_text(result)
-                        LLMLogger.log_call(
-                            agent_name, current_model, prompt_text, response=response_text,
-                            input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens,
-                            latency_ms=latency_ms, market_id=market_id
-                        )
-                        save_memory(f"consecutive_failures_{agent_name}", 0)
-                        return result, current_model
-                    else:
-                        logger.warning(f"[{agent_name}] Модель {current_model} вернула успешный статус 200, но без кандидатов.")
-                        LLMLogger.log_call(agent_name, current_model, prompt_text, error="No candidates", latency_ms=latency_ms, market_id=market_id)
-                        continue  # Попробуем следующий ключ или модель
-                        
-                elif response.status_code == 429:
-                    logger.warning(f"[{agent_name}] Ограничение лимита (429) для {current_model} на текущем ключе. Пробуем альтернативу...")
-                    LLMLogger.log_call(agent_name, current_model, prompt_text, error="HTTP 429", latency_ms=latency_ms, market_id=market_id)
-                else:
-                    logger.error(f"[{agent_name}] Ошибка API ({response.status_code}) для {current_model}: {response.text}")
-                    LLMLogger.log_call(agent_name, current_model, prompt_text, error=f"HTTP {response.status_code}: {response.text}", latency_ms=latency_ms, market_id=market_id)
-                    
-            except Exception as e:
-                logger.error(f"[{agent_name}] Исключение при запросе к {current_model}: {e}")
-                latency_ms = int((time.time() - start_time) * 1000)
-                LLMLogger.log_call(agent_name, current_model, prompt_text, error=str(e), latency_ms=latency_ms, market_id=market_id)
-            
-        # Экспоненциальный бэкоф между попытками Gemini
-        backoff = min(0.5 * (2 ** gemini_attempt), 5.0)
-        time.sleep(backoff)
-        gemini_attempt += 1
-        
-    logger.error(f"[{agent_name}] Критическая ошибка: все доступные модели вернули ошибку.")
+    # 5. Если все провайдеры, модели и ключи дали ошибку
+    logger.error(f"[{agent_name}] Критическая ошибка: все доступные модели и ключи вернули ошибку.")
     
-    # Обработка длительной недоступности
     fail_key = f"consecutive_failures_{agent_name}"
     failures = int(get_memory(fail_key) or 0) + 1
     save_memory(fail_key, failures)
@@ -466,9 +463,10 @@ def generate_content_with_fallback(
         logger.warning(f"[{agent_name}] Достигнут лимит последовательных ошибок ({failures}). Отправка уведомления.")
         from services.notifications import send_telegram
         send_telegram(
-            text=f"⚠️ <b>СБОЙ LLM-МОДЕЛИ</b>\n\nАгент <b>{agent_name}</b> не смог получить ответ от моделей {failures} раза подряд.\nВозможно, модель недоступна или исчерпан лимит запросов.\nВыберите другую модель:",
+            text=f"⚠️ <b>СБОЙ LLM-МОДЕЛЕЙ И КЛЮЧЕЙ</b>\n\nАгент <b>{agent_name}</b> не смог получить ответ ни от одной модели или ключа {failures} раза подряд.\nВыберите другую модель:",
             reply_markup={"inline_keyboard": [[{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]]}
         )
-        save_memory(fail_key, 0) # Сброс после уведомления, чтобы не спамить
+        save_memory(fail_key, 0)
         
-    return None, default_model
+    from core.guards import LLMUnavailableError
+    raise LLMUnavailableError(f"Все модели и ключи LLM вернули ошибку для агента {agent_name}.", agent_name=agent_name)
