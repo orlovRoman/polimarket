@@ -122,7 +122,7 @@ def guard_news_with_age(news_items: list, now: Optional[datetime] = None) -> str
                 
                 # Нормализация временных зон для предотвращения TypeError
                 if now.tzinfo is not None and pub_dt.tzinfo is None:
-                    pub_dt = pub_dt.replace(tzinfo=now.tzinfo)
+                    pub_dt = pub_dt.replace(tzinfo=timezone.utc)
                 elif now.tzinfo is None and pub_dt.tzinfo is not None:
                     pub_dt = pub_dt.replace(tzinfo=None)
                     
