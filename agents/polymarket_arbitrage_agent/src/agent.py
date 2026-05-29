@@ -105,6 +105,9 @@ class ArbitrageAgent:
                 action_a, action_b = "BUY_YES", "BUY_YES"
             elif mf.arbitrage_type == "monotonicity_violation":
                 action_a, action_b = "BUY_YES", "BUY_NO"
+            elif mf.arbitrage_type == "price_divergence":
+                action_a = "BUY_YES" if market_a.price < market_b.price else "SKIP"
+                action_b = "BUY_YES" if market_b.price < market_a.price else "SKIP"
             else:
                 action_a, action_b = "BUY_YES", "SELL_YES"
 
@@ -264,6 +267,9 @@ class ArbitrageAgent:
                 action_a, action_b = "BUY_YES", "BUY_YES"
             elif mf.arbitrage_type == "monotonicity_violation":
                 action_a, action_b = "BUY_YES", "BUY_NO"
+            elif mf.arbitrage_type == "price_divergence":
+                action_a = "BUY_YES" if market_a.price < market_b.price else "SKIP"
+                action_b = "BUY_YES" if market_b.price < market_a.price else "SKIP"
             else:
                 action_a, action_b = "BUY_YES", "SELL_YES"
 

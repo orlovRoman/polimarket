@@ -103,16 +103,39 @@ def validate_trade_instruction(instruction: str) -> tuple[bool, str]:
             return False, f"Недопустимая операция '{op}' — шорт на Polymarket невозможен без открытой позиции."
     return True, "OK"
 
-def _check_same_event(title_a: str, title_b: str) -> bool:
+def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = False) -> bool:
     """
     Грубая проверка: описывают ли рынки одно событие.
     Если ключевые слова сильно расходятся — это разные события.
     """
+    if not allow_different_dates:
+        # Мгновенно отсекаем разные годы или разные кварталы
+        years_a = set(re.findall(r'\b(202\d|203\d)\b', title_a.lower()))
+        years_b = set(re.findall(r'\b(202\d|203\d)\b', title_b.lower()))
+        if years_a and years_b and years_a != years_b:
+            return False
+
+        quarters_a = set(re.findall(r'\bq[1-4]\b', title_a.lower()))
+        quarters_b = set(re.findall(r'\bq[1-4]\b', title_b.lower()))
+        if quarters_a and quarters_b and quarters_a != quarters_b:
+            return False
+
     stopwords = {
         'will', 'the', 'a', 'an', 'in', 'by', 'of', 'to', 'at', 'on', 'for',
         'above', 'below', 'over', 'under', 'hit', 'hits', 'reach', 'exceed',
         'its', 'be', 'is', 'are', 'was', 'close', 'closing', 'end', 'finish',
         'market', 'cap', 'price', 'value', 'valuation', 'worth',  # финансовые нейтральные
+        'win', 'wins', 'election', 'elections', 'presidential', 'us', 'usa',
+        'who', 'whom', 'whose', 'which', 'what', 'where', 'when', 'how', 'why',
+        'close', 'closes', 'closed'
+    }
+    time_markers = {
+        'q1', 'q2', 'q3', 'q4', 'jan', 'feb', 'mar', 'apr',
+        'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+        'january', 'february', 'march', 'april', 'june', 'july',
+        'august', 'september', 'october', 'november', 'december',
+        'quarter', 'year', 'month', 'week', 'day', 'daily', 'weekly',
+        'monthly', 'quarterly', 'yearly'
     }
     # Нормализация: заменяем известные синонимы
     aliases = {
@@ -122,15 +145,18 @@ def _check_same_event(title_a: str, title_b: str) -> bool:
     }
     def normalize(title: str) -> set:
         words = set(re.findall(r'\b\w+\b', title.lower())) - stopwords
+        # Сначала маппим синонимы, чтобы sp500/s&p не удалились как цифры
+        words = {aliases.get(w, w) for w in words}
         words = {w for w in words if not re.search(r'\d', w)}
-        return {aliases.get(w, w) for w in words}
+        words -= time_markers
+        return words
 
     a_words = normalize(title_a)
     b_words = normalize(title_b)
     if not a_words or not b_words:
         return False
     overlap = len(a_words & b_words) / min(len(a_words), len(b_words))
-    return overlap >= 0.40  # минимум 40% совпадение ключевых слов
+    return overlap >= 0.50  # минимум 50% совпадение ключевых слов
 
 def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 5.0, check_logical_implication: bool = False) -> MathFilterResult:
     # 1. Monotonicity
@@ -267,7 +293,7 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
     # 3b. Logical implication (A ⊃ B) — только на одной платформе
     if check_logical_implication and market_a.platform == market_b.platform:
         # NEW: проверяем что это одно событие
-        if not _check_same_event(market_a.title, market_b.title):
+        if not _check_same_event(market_a.title, market_b.title, allow_different_dates=True):
             return MathFilterResult(
                 decision=FilterDecision.CONFIRMED_NO_ARBI,
                 arbitrage_type="different_events",
