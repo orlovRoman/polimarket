@@ -22,9 +22,17 @@ from agents.shared.python.db import save_trader_transaction, get_connection, sav
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from services.notifications import send_telegram as send_telegram_notify
 
+import types
+from types import SimpleNamespace
+from core.engine import CoreEngine
+from agents.orchestrator.src.news_processor import NewsProcessor
+
 try:
+    from telethon import TelegramClient, events
     from telethon.errors import FloodWaitError
 except ImportError:
+    TelegramClient = None
+    events = None
     FloodWaitError = Exception
 
 _ENTITY_CACHE_TTL = 3600
@@ -43,9 +51,14 @@ def _is_target_source_match(chat_name: str, chat_id: int, target_sources: list[s
     """Точное совпадение по username или chat_id, без подстрочного поиска."""
     name_lower = chat_name.lower()
     chat_id_str = str(chat_id)
+    # Нормализуем: убираем -100 prefix для сравнения с пользовательским вводом
+    clean_chat_id = chat_id_str.replace('-100', '').lstrip('-')
+    
     for s in target_sources:
         clean_s = s.replace('@', '').lower()
-        if clean_s == name_lower or clean_s == chat_id_str:
+        if (clean_s == name_lower or
+            clean_s == chat_id_str or
+            clean_s.lstrip('-') == clean_chat_id):
             return True
     return False
 
@@ -225,7 +238,6 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
             print(f"[Listener] 🗞 ТРИГГЕР: Важная новость ({source})! Запуск сканирования для {market_id}...")
             msg_text = f"🗞 <b>ТРИГГЕР (News):</b> Запущен внеочередной скан для рынка <code>{market_id}</code>"
             
-        from core.engine import CoreEngine
         def _trigger_scan():
             try:
                 eng = CoreEngine()
@@ -290,13 +302,10 @@ async def main():
         api_hash = api_hash_input
         phone = phone_input
         
-    from telethon import TelegramClient, events
-    
     print(f"[Listener] Инициализация Telegram клиента (сессия: {SESSION_PATH})...")
     client = TelegramClient(SESSION_PATH, int(api_id), api_hash)
     
     # Инициализация NewsProcessor для новостных каналов
-    from agents.orchestrator.src.news_processor import NewsProcessor
     news_processor = NewsProcessor(api_key=GOOGLE_API_KEY)
     
     chats_to_listen = ['polymarketalerthub', 'radarpolybot']
@@ -334,11 +343,11 @@ async def main():
         if not getattr(chat, 'username', None):
             cached_username = _get_cached_username(chat.id)
             if cached_username:
-                chat = type('CachedChat', (), {
-                    'username': cached_username,
-                    'id': chat.id,
-                    'title': getattr(chat, 'title', '')
-                })()
+                chat = SimpleNamespace(
+                    username=cached_username,
+                    id=chat.id,
+                    title=getattr(chat, 'title', '')
+                )
             else:
                 try:
                     full_entity = await client.get_entity(chat.id)
@@ -427,6 +436,24 @@ async def main():
             else:
                 # 3. Ветка для других новостных групп (если они не попали в глубокий анализ)
                 if not is_target_source:
+                    # Сначала пробуем найти прямую ссылку на Polymarket в тексте
+                    pm_url_match = re.search(
+                        r'https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+', text
+                    )
+                    if pm_url_match:
+                        market_ids = resolve_market_ids_from_url(pm_url_match.group(0))
+                        if market_ids:
+                            print(f"[Listener] 🔗 Найден прямой URL рынка в сигнале из {chat_name}. Триггерим.")
+                            await trigger_nexus_scan(
+                                market_ids[0],
+                                source=chat_name,
+                                market_url=pm_url_match.group(0),
+                                post_url=tg_post_url,
+                                post_text=text[:200]
+                            )
+                            return   # не тратим LLM-запрос
+
+                    # Только если прямой ссылки нет — используем LLM
                     markets = news_processor.find_relevant_markets(text)
                     if markets:
                         print(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
