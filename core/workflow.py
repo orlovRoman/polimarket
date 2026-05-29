@@ -372,49 +372,49 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             summary_text += "🧠 <b>SCOUT (Фундаментал):</b>\n"
             cause = getattr(signal, 'signal_cause', '') or getattr(signal, 'summary', '')
             if cause:
-                summary_text += f"🎯 Причина: {cause}\n"
+                summary_text += f"🎯 <b>Причина:</b> {cause}\n"
             risk = getattr(signal, 'signal_risk', '') or getattr(signal, 'details', '')
             if risk:
-                summary_text += f"⚖️ Риск: {risk}\n"
+                summary_text += f"⚖️ <b>Риск:</b> {risk}\n"
             oracle_risk = getattr(signal, 'oracle_risk', '')
             if oracle_risk:
-                summary_text += f"👁️ Оракул-риск: {oracle_risk}\n"
+                summary_text += f"👁️ <b>Оракул-риск:</b> {oracle_risk}\n"
             verdict = getattr(signal, 'signal_verdict', '') or getattr(signal, 'trade_action', '')
             if verdict:
-                summary_text += f"📝 Вердикт: {verdict}\n"
+                summary_text += f"📝 <b>Вердикт:</b> {verdict}\n"
             summary_text += "\n"
         
         if swing_signal:
             summary_text += "🏄 <b>SWING (Хайп):</b>\n"
             catalyst = getattr(swing_signal, 'catalyst', '')
             if catalyst:
-                summary_text += f"🚀 Катализатор: {catalyst}\n"
+                summary_text += f"🚀 <b>Катализатор:</b> {catalyst}\n"
             else:
                 quiet_reason = getattr(swing_signal, 'catalyst_absence_reason', '')
                 if quiet_reason:
-                    summary_text += f"💤 Почему тихо: {quiet_reason}\n"
+                    summary_text += f"💤 <b>Почему тихо:</b> {quiet_reason}\n"
             risk = getattr(swing_signal, 'swing_risk', '') or getattr(swing_signal, 'details', '')
             if risk:
-                summary_text += f"⚖️ Риск: {risk}\n"
+                summary_text += f"⚖️ <b>Риск:</b> {risk}\n"
             verdict = getattr(swing_signal, 'swing_verdict', '') or getattr(swing_signal, 'recommendation', '')
             if verdict:
-                summary_text += f"📝 Вердикт: {verdict}\n"
+                summary_text += f"📝 <b>Вердикт:</b> {verdict}\n"
             summary_text += "\n"
             
         if opinion_shadow:
             shadow_status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
             summary_text += f"🛡️ <b>SHADOW (Инфраструктура):</b> {shadow_status}\n"
             liq = getattr(opinion_shadow, 'liquidity_risk', 'MEDIUM').upper()
-            summary_text += f"💧 Риск ликвидности: {liq}\n"
+            summary_text += f"💧 <b>Риск ликвидности:</b> {liq}\n"
             ob = getattr(opinion_shadow, 'orderbook_facts', '')
             if ob:
-                summary_text += f"📊 Ордербук: {ob}\n"
+                summary_text += f"📊 <b>Ордербук:</b> {ob}\n"
             execution_risk = getattr(opinion_shadow, 'risk_assessment', '')
             if execution_risk:
-                summary_text += f"⚖️ Исполнение: {execution_risk}\n"
+                summary_text += f"⚖️ <b>Исполнение:</b> {execution_risk}\n"
             verdict = getattr(opinion_shadow, 'shadow_verdict', '') or getattr(opinion_shadow, 'opinion', '')
             if verdict:
-                summary_text += f"📝 Вердикт: {verdict}\n"
+                summary_text += f"📝 <b>Вердикт:</b> {verdict}\n"
             summary_text += "\n"
             
         # Арбитраж из math_filter (если есть)
