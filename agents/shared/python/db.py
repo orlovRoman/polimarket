@@ -540,16 +540,20 @@ def add_to_market_list(market_id: str, market_title: str, list_type: str, base_p
 
 def remove_from_market_list(market_id: str, list_type: str = None) -> int:
     """Удаляет рынок из списка. Если list_type=None — удаляет из обоих. Возвращает кол-во удалённых строк."""
+    use_like = len(market_id) < 36
+    query_id = f"{market_id}%" if use_like else market_id
+    op = "LIKE" if use_like else "="
+
     with get_connection() as conn:
         if list_type:
             cursor = conn.execute(
-                "DELETE FROM market_lists WHERE market_id = ? AND list_type = ?",
-                (market_id, list_type)
+                f"DELETE FROM market_lists WHERE market_id {op} ? AND list_type = ?",
+                (query_id, list_type)
             )
         else:
             cursor = conn.execute(
-                "DELETE FROM market_lists WHERE market_id = ?",
-                (market_id,)
+                f"DELETE FROM market_lists WHERE market_id {op} ?",
+                (query_id,)
             )
         rows = cursor.rowcount
     logger.info(f"[MarketLists] Рынок {market_id!r} удалён из '{list_type or 'все'}' ({rows} строк).")

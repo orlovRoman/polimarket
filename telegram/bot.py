@@ -45,10 +45,15 @@ init_db()
 # Это исключает тяжёлую синхронную работу (загрузка промпта, инициализация Gemini)
 # внутри импорта и при конкурентных запросах нет нескольких экземпляров агента.
 _nexus_agent: NexusAgent | None = None
+_core_engine = None
+
 def get_core_engine():
-    """Возвращает единственный экземпляр CoreEngine."""
+    """Возвращает единственный экземпляр CoreEngine (синглтон)."""
+    global _core_engine
     from core.engine import CoreEngine
-    return CoreEngine()
+    if _core_engine is None or type(_core_engine) is not CoreEngine:
+        _core_engine = CoreEngine()
+    return _core_engine
 
 
 def get_nexus_agent() -> NexusAgent:
@@ -1574,14 +1579,30 @@ async def callback_lists_remove(callback: CallbackQuery) -> None:
 
 
 def _extract_market_title_from_message(message) -> str:
-    """Извлекает заголовок рынка из текста сообщения (первая строка после заголовка рынка)."""
+    """Извлекает заголовок рынка из текста сообщения (сначала ищет ссылку, потом фолбек на текст)."""
+    import re
     try:
         text = message.text or message.caption or ""
-        # Берём первую непустую строку как название (макс 80 симв)
+        
+        # Ищем первую HTML ссылку <a>...</a>
+        match = re.search(r"<a href=['\"][^'\"]*['\"][^>]*>(.*?)</a>", text, re.IGNORECASE)
+        if match:
+            title = match.group(1).strip()
+            title = re.sub(r"<[^>]+>", "", title)  # Убираем внутренние теги
+            if len(title) > 3:
+                return title[:80]
+                
+        # Фолбек: ищем первую содержательную строку
         for line in text.splitlines():
             line = line.strip()
-            if line and not line.startswith('#') and len(line) > 5:
-                return line[:80]
+            if not line or line.startswith('#'):
+                continue
+            # Пропускаем строки с эмодзи-заголовками
+            if any(x in line for x in ("🗣️", "🎯", "👁", "🚨", "🔔")):
+                continue
+            line_clean = re.sub(r"<[^>]+>", "", line).strip()
+            if len(line_clean) > 5:
+                return line_clean[:80]
     except Exception:
         pass
     return "(без названия)"

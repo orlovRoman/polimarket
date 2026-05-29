@@ -16,8 +16,12 @@ logger = logging.getLogger("WatchlistMonitor")
 
 # Интервал опроса, секунды
 POLL_INTERVAL_SEC = 10 * 60  # 10 минут
-# Порог изменения цены (абсолютное значение, от 0 до 1), соответствует +50%
+# Порог изменения цены (относительное изменение, от 0 до 1)
 PRICE_CHANGE_THRESHOLD = 0.50
+# Граничная цена, ниже которой рынок считается penny (дешевым)
+MIN_BASE_PRICE = 0.05
+# Лимит на размер вочлиста
+MAX_WATCHLIST_SIZE = 50
 
 
 async def run_watchlist_monitor(bot, chat_id: str) -> None:
@@ -28,6 +32,10 @@ async def run_watchlist_monitor(bot, chat_id: str) -> None:
     :param bot: Экземпляр aiogram Bot (для отправки уведомлений)
     :param chat_id: Telegram chat_id авторизованного пользователя
     """
+    if not chat_id or chat_id.strip() == "":
+        logger.warning("[WatchlistMonitor] TELEGRAM_CHAT_ID не задан. Фоновый мониторинг отключен.")
+        return
+
     logger.info("[WatchlistMonitor] Фоновый мониторинг запущен.")
     await asyncio.sleep(30)  # немного ждём после старта, пока бот инициализируется
     
@@ -58,49 +66,72 @@ async def _check_watchlist(bot, chat_id: str) -> None:
     entries = await asyncio.to_thread(get_market_list, 'watching')
     if not entries:
         return
+        
+    # Ограничиваем размер вочлиста
+    if len(entries) > MAX_WATCHLIST_SIZE:
+        logger.warning(f"[WatchlistMonitor] Размер watchlist ({len(entries)}) превышает лимит {MAX_WATCHLIST_SIZE}. Проверяются первые {MAX_WATCHLIST_SIZE} рынков.")
+        entries = entries[:MAX_WATCHLIST_SIZE]
     
     logger.info(f"[WatchlistMonitor] Проверяю {len(entries)} рынков в watchlist...")
     adapter = PolymarketAdapter()
+    sem = asyncio.Semaphore(5)
     
-    # Временная метка цикла (для дедупликации: одно уведомление за цикл)
-    cycle_ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")  # точность до минуты
+    # Временная метка цикла (почасовая точность для надежной дедупликации)
+    cycle_ts = datetime.now(timezone.utc).strftime("%Y%m%d%H")
     
-    for entry in entries:
-        market_id = entry['market_id']
-        market_title = entry.get('market_title', market_id)
-        base_price = entry.get('last_price') or entry.get('base_price')
-        
-        try:
-            market = await asyncio.to_thread(adapter.get_market, market_id)
-            if not market:
-                logger.warning(f"[WatchlistMonitor] Рынок {market_id} не найден в API.")
-                continue
+    async def process_entry(entry):
+        async with sem:
+            market_id = entry['market_id']
+            base_price = entry.get('last_price') or entry.get('base_price')
             
-            current_price = market.price
-            
-            # Проверяем порог изменения цены
-            if base_price is not None and base_price > 0:
-                change = abs(current_price - base_price) / base_price
+            try:
+                market = await asyncio.to_thread(adapter.get_market, market_id)
+                if not market:
+                    logger.warning(f"[WatchlistMonitor] Рынок {market_id} не найден в API.")
+                    return
                 
-                if change >= PRICE_CHANGE_THRESHOLD:
-                    alert_key = f"watch_{market_id}_{cycle_ts}"
-                    already_sent = await asyncio.to_thread(is_alert_already_sent, alert_key)
+                current_price = market.price
+                
+                # Проверяем порог изменения цены
+                if base_price is not None and base_price > 0:
+                    is_penny = base_price < MIN_BASE_PRICE
+                    abs_change = abs(current_price - base_price)
                     
-                    if not already_sent:
-                        logger.info(
-                            f"[WatchlistMonitor] Триггер! {market_id}: "
-                            f"{base_price:.3f} -> {current_price:.3f} ({change * 100:.1f}%)"
-                        )
-                        await _send_watchlist_alert(
-                            bot, chat_id, market, base_price, current_price, change
-                        )
-                        await asyncio.to_thread(mark_alert_sent, alert_key, "watchlist_price_spike")
-            
-            # Обновляем last_price (это станет базой для следующего цикла)
-            await asyncio.to_thread(update_watchlist_price, market_id, current_price)
-            
-        except Exception as e:
-            logger.error(f"[WatchlistMonitor] Ошибка при проверке рынка {market_id}: {e}")
+                    trigger = False
+                    change_pct = 0.0
+                    if is_penny:
+                        # Для дешевых рынков триггеримся только при абсолютном скачке цены >= 0.03 (3 цента)
+                        if abs_change >= 0.03:
+                            trigger = True
+                            change_pct = abs_change / base_price if base_price > 0 else 0.0
+                    else:
+                        change_pct = abs_change / base_price
+                        if change_pct >= PRICE_CHANGE_THRESHOLD:
+                            trigger = True
+                            
+                    if trigger:
+                        alert_key = f"watch_{market_id}_{cycle_ts}"
+                        already_sent = await asyncio.to_thread(is_alert_already_sent, alert_key)
+                        
+                        if not already_sent:
+                            logger.info(
+                                f"[WatchlistMonitor] Триггер! {market_id}: "
+                                f"{base_price:.3f} -> {current_price:.3f} (change: {change_pct * 100:.1f}%)"
+                            )
+                            await _send_watchlist_alert(
+                                bot, chat_id, market, base_price, current_price, change_pct
+                            )
+                            await asyncio.to_thread(mark_alert_sent, alert_key, "watchlist_price_spike")
+                
+                # Обновляем last_price (это станет базой для следующего цикла)
+                await asyncio.to_thread(update_watchlist_price, market_id, current_price)
+                
+            except Exception as e:
+                logger.error(f"[WatchlistMonitor] Ошибка при проверке рынка {market_id}: {e}")
+
+    # Запускаем задачи параллельно
+    tasks = [process_entry(entry) for entry in entries]
+    await asyncio.gather(*tasks)
 
 
 async def _send_watchlist_alert(bot, chat_id: str, market, base_price: float, current_price: float, change_pct: float) -> None:
