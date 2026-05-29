@@ -65,6 +65,10 @@ def _prefilter_markets(markets_compact: list) -> list:
 def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, market_id: str, summary_callback=None) -> list:
 
     if category or market_id:
+        logger.debug(
+            f"[screening] Точечный режим "
+            f"(category={category!r}, market_id={market_id!r}), скрининг пропущен"
+        )
         return []
         
     last_screen_raw = get_memory("last_screen_time")
@@ -138,10 +142,10 @@ def _safe_result(future: concurrent.futures.Future, default, timeout: int = 15):
     try:
         return future.result(timeout=timeout)
     except concurrent.futures.TimeoutError:
-        logger.warning(f"[workflow] fetch timed out after {timeout}s, using default")
+        logger.info(f"[workflow] fetch timed out after {timeout}s, using default")
         return default
     except Exception as e:
-        logger.warning(f"[workflow] fetch failed: {e}, using default")
+        logger.warning(f"[workflow] fetch failed unexpectedly: {e}, using default")
         return default
 
 
@@ -165,12 +169,17 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     future_wiki = executor.submit(fetch_wikipedia_context, search_query)
     future_hn = executor.submit(fetch_hackernews, search_query)
     
-    news_titles = _safe_result(future_rss, default=[], timeout=15)
-    reddit_posts = _safe_result(future_reddit, default=[], timeout=15)
-    wiki_context = _safe_result(future_wiki, default="", timeout=20)
-    hn_posts = _safe_result(future_hn, default=[], timeout=15)
-    
-    executor.shutdown(wait=False)
+    try:
+        news_titles = _safe_result(future_rss, default=[], timeout=15)
+        reddit_posts = _safe_result(future_reddit, default=[], timeout=15)
+        wiki_context = _safe_result(future_wiki, default="", timeout=20)
+        hn_posts = _safe_result(future_hn, default=[], timeout=15)
+    finally:
+        future_rss.cancel()
+        future_reddit.cancel()
+        future_wiki.cancel()
+        future_hn.cancel()
+        executor.shutdown(wait=False)
 
     # Google Trends — последовательно (не thread-safe)
     trends_data = fetch_google_trends(search_query)
@@ -257,12 +266,16 @@ def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signa
     shadow_ok = opinion_shadow and opinion_shadow.agree
     
     valid_scout = signal is not None
-    valid_swing = swing_signal is not None and getattr(swing_signal, 'recommendation', '').lower() == 'buy'
+    swing_rec = getattr(swing_signal, 'recommendation', '').lower() if swing_signal else ''
+    valid_swing_buy = swing_signal is not None and swing_rec == 'buy'
+    swing_analyzed = swing_signal is not None
     
-    if (valid_scout or valid_swing) and shadow_ok:
+    if (valid_scout or valid_swing_buy) and shadow_ok:
         status = 'saved'
-    elif (valid_scout or valid_swing):
+    elif (valid_scout or valid_swing_buy):
         status = 'no_consensus'
+    elif swing_analyzed:
+        status = 'no_signal_swing_hold'
     else:
         status = 'no_signal'
         

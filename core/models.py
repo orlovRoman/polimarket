@@ -100,7 +100,7 @@ class MarketCorrelation(BaseModel):
 class IdeaDecision(BaseModel):
     """Финальный результат консенсуса по рынку."""
     market_id: str
-    status: Literal['saved', 'no_consensus', 'no_signal']
+    status: Literal['saved', 'no_consensus', 'no_signal', 'no_signal_swing_hold']
     scout_signal: Optional[Signal] = None
     swing_signal: Optional[SwingSignal] = None
     shadow_opinion: Optional[AgentOpinion] = None
