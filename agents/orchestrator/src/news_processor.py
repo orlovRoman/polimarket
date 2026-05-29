@@ -140,7 +140,7 @@ class NewsProcessor:
                     continue
                     
                 # Интеллектуальный скоринг рынков для приоритизации нужных рынков в группе
-                def score_market(m):
+                def score_market(m, _slug=slug):
                     score = 0
                     # Очищаем название рынка от YES/NO цен в скобках на конце
                     clean_title = re.sub(r'\s*\([^)]*\)\s*$', '', m.title).strip().lower()
@@ -152,14 +152,16 @@ class NewsProcessor:
                     words_text = set(w for w in re.findall(r'[a-z0-9]+', clean_text) if len(w) >= 3)
                     score += len(words_title.intersection(words_text)) * 10
                     # Если URL-slug содержится в url самого рынка
-                    if slug.lower() in m.url.lower():
+                    if _slug.lower() in m.url.lower():
                         score += 50
                     # Дополнительный приоритет активным рынкам в неопределенной зоне
                     if 0.01 < m.price < 0.99:
                         score += 5
                     return score
                     
-                sorted_found = sorted(found, key=score_market, reverse=True)
+                # Предвычисляем оценки релевантности для избежания повторных вычислений при логировании
+                market_scores = {m.id: score_market(m) for m in found}
+                sorted_found = sorted(found, key=lambda m: market_scores[m.id], reverse=True)
                 
                 for m in sorted_found:
                     if m.id not in seen_ids:
@@ -167,7 +169,7 @@ class NewsProcessor:
                         markets.append(m)
                         logger.info(
                             f"[NewsProcessor] Этап 0: найден рынок '{m.title}' по slug '{slug}' "
-                            f"(score: {score_market(m)}, price: {m.price})"
+                            f"(score: {market_scores[m.id]}, price: {m.price})"
                         )
             except Exception as e:
                 logger.debug(f"[NewsProcessor] Этап 0: ошибка для slug '{slug}': {e}")
@@ -253,7 +255,7 @@ class NewsProcessor:
                     f"{[m.title[:60] for m in markets]}"
                 )
                 for m in markets:
-                    if m.id not in seen_ids:
+                    if m.id not in seen_ids and len(all_found) < 10:
                         seen_ids.add(m.id)
                         all_found.append(m)
 

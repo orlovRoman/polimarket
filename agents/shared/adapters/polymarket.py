@@ -1,9 +1,18 @@
 import requests
 import json
+import logging
 from datetime import datetime
 from typing import List, Optional
 from .base_adapter import BaseMarketAdapter
 from core.models import Market
+
+logger = logging.getLogger("PolymarketAdapter")
+
+def _clean_slug_for_search(slug: str) -> str:
+    """Очищает slug от стоп-слов для более надежного текстового поиска в public-search."""
+    stopwords = {'will', 'the', 'a', 'an', 'in', 'by', 'to', 'be', 'or', 'and', 'of', 'for'}
+    words = [w for w in slug.replace('-', ' ').split() if w.lower() not in stopwords]
+    return ' '.join(words[:6])  # берём первые 6 смысловых слов
 
 class PolymarketAdapter(BaseMarketAdapter):
     @staticmethod
@@ -273,6 +282,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                     close_time=self._get_end_date(item),
                     tokens=tokens,
                     volume=volume,
+                    condition_id=item.get("conditionId"),
                 )
                 markets.append(m)
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
@@ -411,23 +421,24 @@ class PolymarketAdapter(BaseMarketAdapter):
                     break
                     
             except Exception as e:
-                print(f"[PolymarketAdapter] Ошибка при загрузке страницы {offset // 100}: {e}")
+                logger.error(f"[PolymarketAdapter] Ошибка при загрузке страницы {offset // 100}: {e}")
                 break
         
-        print(f"[PolymarketAdapter] Загружено {len(all_markets)} рынков (compact)")
+        logger.info(f"[PolymarketAdapter] Загружено {len(all_markets)} рынков (compact)")
         return all_markets
 
     def get_event_by_slug(self, slug: str) -> List[Market]:
         """
         Получает рынки по slug события или рынка.
-        Использует /public-search эндпоинт для гибкого текстового поиска по slug (поддерживает неточные/устаревшие slug).
+        Использует /public-search эндпоинт для гибкого текстового поиска по очищенному от стоп-слов slug.
         Если не найдено, делает fallback на точные эндпоинты /events и /markets.
         """
         markets = []
         
-        # 1. Попытка через гибкий /public-search
+        # 1. Попытка через гибкий /public-search с очищенным запросом
         try:
-            resp = self.session.get(f"{self.api_url}/public-search", params={"q": slug}, timeout=15)
+            cleaned_q = _clean_slug_for_search(slug)
+            resp = self.session.get(f"{self.api_url}/public-search", params={"q": cleaned_q}, timeout=15)
             resp.raise_for_status()
             data = resp.json()
             
@@ -445,7 +456,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 if markets:
                     return markets
         except Exception as e:
-            print(f"[PolymarketAdapter] get_event_by_slug (public-search step) error: {e}")
+            logger.error(f"[PolymarketAdapter] get_event_by_slug (public-search step) error: {e}")
 
         # 2. Fallback: точное совпадение по /events?slug=
         try:
@@ -457,7 +468,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 if markets:
                     return markets
         except Exception as e:
-            print(f"[PolymarketAdapter] get_event_by_slug (fallback events step) error: {e}")
+            logger.error(f"[PolymarketAdapter] get_event_by_slug (fallback events step) error: {e}")
 
         # 3. Fallback: точное совпадение по /markets?slug=
         try:
@@ -467,7 +478,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             if raw_markets and isinstance(raw_markets, list):
                 markets = self._parse_markets(raw_markets, limit=50)
         except Exception as e:
-            print(f"[PolymarketAdapter] get_event_by_slug (fallback markets step) error: {e}")
+            logger.error(f"[PolymarketAdapter] get_event_by_slug (fallback markets step) error: {e}")
 
         return markets
 
@@ -501,7 +512,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             if unique_markets:
                 return unique_markets[:limit]
         except Exception as e:
-            print(f"[PolymarketAdapter] search_markets (public-search) error: {e}")
+            logger.error(f"[PolymarketAdapter] search_markets (public-search) error: {e}")
 
         # Fallback на оригинальный /markets?query=
         try:
@@ -515,5 +526,5 @@ class PolymarketAdapter(BaseMarketAdapter):
             response.raise_for_status()
             return self._parse_markets(response.json(), limit)
         except Exception as e:
-            print(f"[PolymarketAdapter] search_markets (fallback) error: {e}")
+            logger.error(f"[PolymarketAdapter] search_markets (fallback) error: {e}")
             return []
