@@ -124,16 +124,43 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             already_analyzed = get_recently_analyzed_market_ids(within_seconds=SCREENING_INTERVAL_SEC)
             
             from core.market_scorer import screen_markets_code
-            screened_market_ids = screen_markets_code(
-                [m for m in prefiltered if m['id'] not in set(already_analyzed)],
-                top_n=30
-            )
-            correlations_count = 0
-            
+            from core.arb_scanner import find_complementary_pairs
+            from agents.shared.python.db import save_correlation
+            from core.models import MarketCorrelation
+
+            # 1. Скоринг без LLM
+            candidates = [m for m in prefiltered if m['id'] not in set(already_analyzed)]
+            screened_market_ids = screen_markets_code(candidates, top_n=30)
+
+            # 2. Корреляции без LLM
+            #    Нужны полные объекты Market для math_pre_filter
+            screened_markets_full = [
+                adapter.get_market(mid) for mid in screened_market_ids
+            ]
+            screened_markets_full = [m for m in screened_markets_full if m is not None]
+
+            arb_pairs = find_complementary_pairs(screened_markets_full, min_spread_pct=5.0)
+            correlations_count = len(arb_pairs)
+
+            for (ma, mb, mf) in arb_pairs:
+                try:
+                    save_correlation(MarketCorrelation(
+                        market_id_a=ma.id,
+                        market_id_b=mb.id,
+                        title_a=ma.title,
+                        title_b=mb.title,
+                        correlation_type="arbitrage" if mf.has_arbitrage else "thematic",
+                        description=mf.reasoning[:200],
+                        confidence=min(mf.spread_pct / 20.0, 1.0),  # нормализуем спред → confidence
+                    ))
+                except Exception as e:
+                    logger.error(f"[screening] save_correlation error: {e}")
+
             save_memory("screened_market_ids", screened_market_ids, category='cache', ttl=SCREENING_INTERVAL_SEC)
             save_memory("last_screen_time", now.isoformat(), category='cache', ttl=SCREENING_INTERVAL_SEC)
             
-            logger.info(f"  [screening] score_markets_code: отобрано {len(screened_market_ids)} кандидатов")
+            logger.info(f"[screening] Код отобрал {len(screened_market_ids)} кандидатов, "
+                        f"найдено {correlations_count} арб-пар")
             
             if correlations_count > 0 and summary_callback:
                 from services.notifications import send_correlation_alerts
