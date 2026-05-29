@@ -107,7 +107,12 @@ def test_callback_accepts_reply_markup_cached():
     assert _callback_accepts_reply_markup(callback_with_markup) is True
     assert _callback_accepts_reply_markup(callback_without_markup) is False
 
-    # Повторные вызовы — должны возвращаться из кэша (lru_cache)
+    import functools
+    partial_callback = functools.partial(callback_with_markup, reply_markup=None)
+    # functools.partial является нехэшируемым объектом, хелпер должен обходить кэш без краша
+    assert _callback_accepts_reply_markup(partial_callback) is True
+
+    # Повторные вызовы — должны возвращаться из кэша (для хэшируемых)
     call_log = []
     original_signature = inspect.signature
 
@@ -116,13 +121,13 @@ def test_callback_accepts_reply_markup_cached():
         return original_signature(func, **kwargs)
 
     with patch('inspect.signature', side_effect=counting_signature):
-        # После кэширования — inspect.signature НЕ должен вызываться снова
+        # После кэширования — inspect.signature НЕ должен вызываться снова для хэшируемых
         _callback_accepts_reply_markup(callback_with_markup)
         _callback_accepts_reply_markup(callback_without_markup)
 
     assert len(call_log) == 0, (
         f"inspect.signature вызвана {len(call_log)} раз после кэширования. "
-        f"Ожидали 0 (lru_cache должен отдавать результат без пересчёта)."
+        f"Ожидали 0 (кэш должен отдавать результат без пересчёта)."
     )
 
 
@@ -205,3 +210,36 @@ def test_processing_dedup_prevents_race_condition():
         )
 
     asyncio.run(run_test())
+
+
+# ═══════════════════════════════════════════════════════════
+# TD-3: Безопасность инициализации синглтона CoreEngine
+# ═══════════════════════════════════════════════════════════
+
+def test_engine_singleton_initialization_safety():
+    """
+    Если во время __init__ CoreEngine происходит ошибка (например, в init_db),
+    self.initialized не должен быть True (singleton не перейдет в неконсистентное состояние),
+    и инстанс синглтона сбрасывается для повторной попытки.
+    """
+    from core.engine import CoreEngine
+
+    # Сбрасываем синглтон перед тестом
+    CoreEngine._instance = None
+
+    def mock_init_db_error():
+        raise RuntimeError("DB init failed")
+
+    with patch('core.engine.init_db', side_effect=mock_init_db_error), \
+         patch('core.engine.ScoutAgent'), \
+         patch('core.engine.SwingAgent'), \
+         patch('core.engine.ShadowAgent'), \
+         patch('core.engine.NexusAgent'), \
+         patch('core.engine.PolymarketAdapter'):
+        
+        with pytest.raises(RuntimeError, match="DB init failed"):
+            CoreEngine()
+
+        # Так как DB init упал, _instance должен быть сброшен в None
+        assert CoreEngine._instance is None
+

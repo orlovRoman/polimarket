@@ -22,14 +22,28 @@ from services.notifications import send_telegram as send_telegram_alert
 logger = logging.getLogger("CoreEngine")
 
 import inspect
-from functools import lru_cache
+import traceback
+import html
 
-@lru_cache(maxsize=128)
+_markup_cache = {}
+
 def _callback_accepts_reply_markup(func) -> bool:
-    """Кэшируем результат inspect.signature — дорогая операция."""
+    """Кэширует результат проверки наличия reply_markup в сигнатуре колбэка."""
+    try:
+        if func in _markup_cache:
+            return _markup_cache[func]
+    except TypeError:
+        # func нехэшируем (например, functools.partial). Обходим кэш.
+        pass
+
     try:
         sig = inspect.signature(func)
-        return "reply_markup" in sig.parameters
+        res = "reply_markup" in sig.parameters
+        try:
+            _markup_cache[func] = res
+        except TypeError:
+            pass
+        return res
     except (ValueError, TypeError):
         return False
 
@@ -75,8 +89,8 @@ class CoreEngine:
                 self.shadow = ShadowAgent(api_key=self.api_key)
                 self.nexus = NexusAgent(api_key=self.api_key)
                 self.adapter = PolymarketAdapter()
-                self.initialized = True
                 init_db()
+                self.initialized = True
             except Exception:
                 CoreEngine._instance = None  # позволяет пересоздать после исправления конфига
                 raise
@@ -322,8 +336,6 @@ class CoreEngine:
                         logger.error(f"summary_callback error: {cb_err}")
                 break
             except Exception as e:
-                import traceback
-                import html
                 error_msg = f"[ОШИБКА] Рынок {m.title}: {e}\n<pre>{html.escape(traceback.format_exc())}</pre>"
                 log(f"[ОШИБКА] Рынок {m.title}: {e}\n{traceback.format_exc()}")
                 if summary_callback:
