@@ -27,12 +27,19 @@ class Signal(BaseModel):
     edge: Optional[float] = None
     confidence: float
     
-    @field_validator('confidence', 'edge')
+    @field_validator('confidence')
     @classmethod
-    def clamp_percentages(cls, v):
+    def clamp_confidence(cls, v):
         if v is None:
             return v
         return max(0.0, min(1.0, float(v)))
+
+    @field_validator('edge')
+    @classmethod
+    def clamp_edge(cls, v):
+        if v is None:
+            return v
+        return max(-1.0, min(1.0, float(v)))
 
     priority: Literal['low', 'medium', 'high']
     summary: str
@@ -57,7 +64,7 @@ class SwingSignal(BaseModel):
     summary: str = ""
     details: str = ""
     hype_potential: float
-    recommendation: str        # "buy" | "ignore"
+    recommendation: str        # "buy" | "ignore" — нормализуется валидатором
     target_outcome: str        # "YES" | "NO"
     target_exit_price: float
     confidence: float
@@ -71,6 +78,16 @@ class SwingSignal(BaseModel):
     
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    @field_validator('recommendation', mode='before')
+    @classmethod
+    def normalize_recommendation(cls, v: str) -> str:
+        normalized = str(v).lower().strip()
+        if normalized in ('buy', 'buy_yes', 'yes', 'long'):
+            return 'buy'
+        if normalized in ('ignore', 'hold', 'no', 'skip', 'sell', 'neutral', 'no_signal'):
+            return 'ignore'
+        return normalized
+
 class AgentOpinion(BaseModel):
     agent_name: str
     market_id: str = ""
@@ -82,7 +99,12 @@ class AgentOpinion(BaseModel):
     orderbook_facts: str = ""    
     risk_assessment: str = ""    
     shadow_verdict: str = ""     
-    liquidity_risk: str = "medium"  # "low" | "medium" | "high"
+    liquidity_risk: str = "MEDIUM"  # "LOW" | "MEDIUM" | "HIGH"
+
+    @field_validator('liquidity_risk', mode='before')
+    @classmethod
+    def normalize_liquidity_risk(cls, v: str) -> str:
+        return str(v).upper()
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -141,9 +163,9 @@ class CrossArbitrageSignal(BaseModel):
     # ── Торговые рекомендации ─────────────────────────────────────────────
     action_a: str = "SKIP"                     # BUY_YES | BUY_NO | SELL_YES | SKIP
     action_b: str = "SKIP"                     # аналогично
-    entry_price_a_cents: float | None = None   # точка входа A в центах (0–100)
-    entry_price_b_cents: float | None = None   # точка входа B в центах (0–100)
-    expected_pnl_pct: float | None = None      # ожидаемый P&L в % при бюджете $100
+    entry_price_a_cents: Optional[float] = None   # точка входа A в центах (0–100)
+    entry_price_b_cents: Optional[float] = None   # точка входа B в центах (0–100)
+    expected_pnl_pct: Optional[float] = None      # ожидаемый P&L в % при бюджете $100
     risk_level: Literal["LOW", "MEDIUM", "HIGH"] = "MEDIUM"
 
     status: Literal["new", "alerted", "expired"] = "new"
