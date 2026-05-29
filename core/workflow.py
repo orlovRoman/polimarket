@@ -237,7 +237,8 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
         trigger_type=trigger_type,
         source_url=source_url,
         source_text=source_text,
-        triggered_at=triggered_at
+        triggered_at=triggered_at,
+        search_query=search_query
     )
 
     # ── Вариант 2: обогащаем контекст корреляциями ──────────────────────────

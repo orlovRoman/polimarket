@@ -22,6 +22,7 @@ class MarketContext(BaseModel):
     hn_posts: List[str] = Field(default_factory=list)
     smart_money: Optional[SmartMoneySummary] = None
     correlation_hint: str = ""
+    search_query: str = ""
     
     # --- Event metadata ---
     trigger_type: Literal["scheduled", "event_driven"] = "scheduled"

@@ -6,6 +6,7 @@ from core.models import Market, Signal
 from core.context import MarketContext
 from agents.shared.python.db import get_memory, get_agent_episodes, get_performance_summary
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
+from agents.shared.python.llm_wrapper import with_retry
 
 class SwingAgent:
     """
@@ -20,7 +21,6 @@ class SwingAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    from agents.shared.python.llm_wrapper import with_retry
     @with_retry(max_attempts=3, initial_backoff=2.0)
     def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
         """
@@ -45,7 +45,7 @@ class SwingAgent:
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
 
-        wiki_block = "\n".join(wiki_context) if wiki_context else "Wikipedia-данных нет."
+        wiki_block = wiki_context or "Wikipedia-данных нет."
 
         # Загружаем эпизодическую память (последние оценки)
         episodes = get_agent_episodes("SWING", event_type="signal_evaluated", limit=3)
@@ -56,8 +56,7 @@ class SwingAgent:
         perf_summary = get_performance_summary("SWING", 10) or "История оценок пуста — первые прогнозы."
 
         # --- STEP 1: Grounding search (без JSON schema) ---
-        from agents.shared.utils.web_search import build_search_query
-        search_query_llm = build_search_query(market.title)
+        search_query_llm = getattr(context, 'search_query', market.title)
         grounded_context = ""
         try:
             search_payload = {
@@ -157,6 +156,9 @@ class SwingAgent:
         
         from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
         
+        from agents.shared.utils.language_guard import validate_russian_fields
+        TEXT_FIELDS = ["reasoning", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict", "risk", "verdict"]
+        
         analysis = None
         for attempt in range(2):
             result, active_model = generate_content_with_fallback(
@@ -175,6 +177,13 @@ class SwingAgent:
                 # Очистим возможные markdown блоки, если Grok игнорирует schema
                 content = content.replace("```json", "").replace("```", "").strip()
                 analysis = json.loads(content, strict=False)
+                
+                # FIX #1: проверяем язык — если нарушение, повторяем запрос
+                bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
+                if bad_field:
+                    print(f"[SWING] Попытка {attempt+1}: поле '{bad_field}' содержит запрещённые символы, повторяем запрос...")
+                    analysis = None
+                    continue
                 
                 recommendation = analysis.get("recommendation", "ignore").lower()
                 hype_potential = float(analysis.get("hype_potential", 0))

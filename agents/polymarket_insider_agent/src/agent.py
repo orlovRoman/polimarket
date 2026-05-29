@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import Optional
 from core.models import Market, AgentOpinion
 from core.context import MarketContext
+from core.context import MarketContext
 from agents.shared.python.db import get_agent_episodes, get_performance_summary
+from agents.shared.python.llm_wrapper import with_retry
 
 class ShadowAgent:
     """
@@ -24,7 +26,6 @@ class ShadowAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
-    from agents.shared.python.llm_wrapper import with_retry
     @with_retry(max_attempts=3, initial_backoff=2.0)
     def analyze_idea(self, context: 'MarketContext', scout_opinion: str, orderbook: Optional[dict] = None, price_history: list = None) -> Optional[AgentOpinion]:
         """
@@ -142,6 +143,9 @@ YES dominance:   {smart_money.yes_dominance:.0%}
         
         from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
         
+        from agents.shared.utils.language_guard import validate_russian_fields
+        TEXT_FIELDS = ["opinion", "orderbook_facts", "risk_assessment", "shadow_verdict", "liquidity_risk"]
+        
         analysis = None
         for attempt in range(2):
             result, active_model = generate_content_with_fallback(
@@ -159,6 +163,14 @@ YES dominance:   {smart_money.yes_dominance:.0%}
                 content = extract_response_text(result)
                 content = content.replace("```json", "").replace("```", "").strip()
                 analysis = json.loads(content, strict=False)
+                
+                # FIX #1: проверяем язык — если нарушение, повторяем запрос
+                bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
+                if bad_field:
+                    print(f"[SHADOW] Попытка {attempt+1}: поле '{bad_field}' содержит запрещённые символы, повторяем запрос...")
+                    analysis = None
+                    continue
+                
                 break
             except json.JSONDecodeError as e:
                 print(f"[SHADOW] Ошибка парсинга JSON (попытка {attempt+1}): {e}")

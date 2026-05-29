@@ -9,6 +9,7 @@ from agents.shared.python.db import save_signal, get_connection, get_memory, get
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 import logging
+from agents.shared.python.llm_wrapper import with_retry
 
 logger = logging.getLogger("scout_agent")
 
@@ -32,7 +33,6 @@ class ScoutAgent:
             self.system_instruction = f.read()
         self._adapter = None
 
-    from agents.shared.python.llm_wrapper import with_retry
     @with_retry(max_attempts=3, initial_backoff=2.0)
     def estimate_market(self, context: 'MarketContext') -> Optional[Signal]:
         """
@@ -107,7 +107,7 @@ class ScoutAgent:
                     f"{math_analysis}"
                 )
 
-        wiki_block = "\n".join(wiki_context) if wiki_context else "Wikipedia-данных нет."
+        wiki_block = wiki_context or "Wikipedia-данных нет."
         
         # Загружаем эпизодическую память (последние оценки)
         episodes = get_agent_episodes("SCOUT", event_type="signal_evaluated", limit=3)
@@ -128,8 +128,7 @@ class ScoutAgent:
             )
 
         # --- STEP 1: Grounding search (без JSON schema) ---
-        from agents.shared.utils.web_search import build_search_query
-        search_query_llm = build_search_query(market.title)
+        search_query_llm = getattr(context, 'search_query', market.title)
         grounded_context = ""
         try:
             search_payload = {
@@ -231,6 +230,9 @@ class ScoutAgent:
         
         from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
         
+        from agents.shared.utils.language_guard import validate_russian_fields
+        TEXT_FIELDS = ["reasoning", "signal", "cause", "risk", "oracle_risk", "verdict"]
+        
         analysis = None
         for attempt in range(2):
             result, active_model = generate_content_with_fallback(
@@ -248,6 +250,17 @@ class ScoutAgent:
                 content = extract_response_text(result)
                 content = content.replace("```json", "").replace("```", "").strip()
                 analysis = json.loads(content, strict=False)
+                
+                # FIX #1: проверяем язык — если нарушение, повторяем запрос
+                bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
+                if bad_field:
+                    logger.warning(
+                        f"[{self.name}] Попытка {attempt+1}: поле '{bad_field}' содержит "
+                        f"запрещённые символы, повторяем запрос..."
+                    )
+                    analysis = None
+                    continue
+
                 break
             except json.JSONDecodeError as e:
                 logger.warning(f"[{self.name}] Не удалось распарсить JSON (попытка {attempt+1}): {e}")
