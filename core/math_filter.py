@@ -222,6 +222,31 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
         if p_higher > p_lower:
             spread = (p_higher - p_lower) * 100
             if spread >= min_spread_pct:
+                # Если это одно событие — математически гарантированный арбитраж,
+                # LLM не нужен: P(X>high) > P(X>low) логически невозможно.
+                same_event = _check_same_event(higher_market.title, lower_market.title)
+                if same_event:
+                    instruction = (
+                        f"BUY YES на [{lower_market.title}]({lower_market.url}) "
+                        f"({p_lower*100:.0f}¢). "
+                        f"Обоснование: порог {min(t_a[0], t_b[0]):.0f} не может стоить дешевле "
+                        f"порога {max(t_a[0], t_b[0]):.0f} при одном событии. "
+                        f"Спред: {spread:.1f}%."
+                    )
+                    is_valid, reason = validate_trade_instruction(instruction)
+                    return MathFilterResult(
+                        decision=FilterDecision.CONFIRMED_ARBITRAGE,
+                        arbitrage_type="monotonicity_violation",
+                        spread_pct=spread,
+                        reasoning=(
+                            f"Нарушение монотонности подтверждено: рынки описывают одно событие "
+                            f"(overlap ≥ 50%). P(>{max(t_a[0],t_b[0]):.0f})={p_higher:.2f} > "
+                            f"P(>{min(t_a[0],t_b[0]):.0f})={p_lower:.2f}."
+                        ),
+                        trade_instruction=instruction if is_valid else f"⚠️ {reason}",
+                        has_arbitrage=is_valid,
+                    )
+                # Разные события (разный оракул/дата) — оставляем AMBIGUOUS
                 instruction = (
                     f"⚠️ Требует открытой позиции: "
                     f"SELL YES на [{higher_market.title}] ({p_higher*100:.0f}¢) "
