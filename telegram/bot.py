@@ -686,8 +686,20 @@ def get_dynamic_models_mapping() -> dict:
     
     return mapping
 
+def get_configured_agent_model(agent: str, default_model: str) -> str:
+    """Возвращает настроенную вручную модель для агента, либо дефолтную."""
+    from agents.shared.python.db import get_memory
+    config = get_memory(f"agent_config_{agent}")
+    if config and isinstance(config, dict) and config.get("model"):
+        return config["model"]
+    if agent == "NEXUS":
+        selected_model = get_memory("selected_model")
+        if selected_model:
+            return selected_model
+    return default_model
+
 async def send_models_menu(message_or_callback):
-    from agents.shared.python.db import get_memory, get_agent_model, get_detailed_token_usage_last_24h
+    from agents.shared.python.db import get_memory, get_detailed_token_usage_last_24h
     
     agents = ["NEXUS", "SCOUT", "SWING", "SHADOW", "ARBITRAGE"]
     default_models = {
@@ -700,9 +712,7 @@ async def send_models_menu(message_or_callback):
     
     # Сбор данных о моделях параллельно
     def fetch_model(agent):
-        if agent == "NEXUS":
-            return get_memory("selected_model", "gemini-2.5-flash")
-        return get_agent_model(agent, default_models[agent])
+        return get_configured_agent_model(agent, default_models[agent])
 
     active_models_tasks = [asyncio.to_thread(fetch_model, agent) for agent in agents]
     token_usage_tasks = [asyncio.to_thread(get_detailed_token_usage_last_24h, agent) for agent in agents]

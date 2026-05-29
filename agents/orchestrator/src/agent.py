@@ -134,8 +134,12 @@ class NexusAgent:
 """
         
         # Используем более свежую модель если доступна
-        selected_model = self.db_manager.get_memory("selected_model")
-        current_model = selected_model if selected_model else self.model_name
+        config_db = self.db_manager.get_memory("agent_config_NEXUS")
+        if config_db and isinstance(config_db, dict) and config_db.get("model"):
+            current_model = config_db["model"]
+        else:
+            selected_model = self.db_manager.get_memory("selected_model")
+            current_model = selected_model if selected_model else self.model_name
         
         payload = {
             "contents": [{"role": "user", "parts": [{"text": screening_prompt}]}],
@@ -529,8 +533,12 @@ class NexusAgent:
         Основной цикл обработки запроса с поддержкой многошаговых вызовов функций.
         """
         # Динамически получаем модель из БД (если пользователь изменил ее через Telegram)
-        selected_model = self.db_manager.get_memory("selected_model")
-        current_model = selected_model if selected_model else self.model_name
+        config_db = self.db_manager.get_memory("agent_config_NEXUS")
+        if config_db and isinstance(config_db, dict) and config_db.get("model"):
+            current_model = config_db["model"]
+        else:
+            selected_model = self.db_manager.get_memory("selected_model")
+            current_model = selected_model if selected_model else self.model_name
 
         contents = list(history) if history else []
         contents.append({"role": "user", "parts": [{"text": prompt}]})

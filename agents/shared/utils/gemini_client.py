@@ -409,7 +409,13 @@ def generate_content_with_fallback(
                     plans.insert(0, ("openrouter", db_model))
                 elif prov_override == "cerebras":
                     plans = [p for p in plans if p[0] != "cerebras"]
-                    plans.insert(0, ("cerebras", db_model))
+                    if db_model == "cerebras_round_robin":
+                        cer_idx = int(get_memory("cer_rr_index", 0))
+                        cer_models = providers["cerebras"]["models"]
+                        resolved_model = cer_models[cer_idx % len(cer_models)]
+                        plans.insert(0, ("cerebras", resolved_model))
+                    else:
+                        plans.insert(0, ("cerebras", db_model))
     except Exception as e:
         logger.error(f"Error reading model config for {agent_name}: {e}")
 

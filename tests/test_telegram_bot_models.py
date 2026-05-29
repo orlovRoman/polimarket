@@ -249,3 +249,80 @@ def test_get_nice_model_name_smoke(model_id, expected_contains):
         f"get_nice_model_name('{model_id}') = '{result}', "
         f"ожидалось вхождение '{expected_contains}'"
     )
+
+
+def test_get_configured_agent_model():
+    """Тест для get_configured_agent_model, проверяющий правильность выбора и фолбэков."""
+    from telegram.bot import get_configured_agent_model
+
+    # 1. Если настроек в базе нет, должен возвращать default_model
+    with patch("agents.shared.python.db.get_memory", return_value=None):
+        assert get_configured_agent_model("SHADOW", "default-val") == "default-val"
+        assert get_configured_agent_model("NEXUS", "default-val") == "default-val"
+
+    # 2. Если для обычного агента есть ручные настройки
+    def mock_get_memory(key, *args, **kwargs):
+        if key == "agent_config_SHADOW":
+            return {"provider": "openrouter", "model": "llama-3.3"}
+        return None
+
+    with patch("agents.shared.python.db.get_memory", side_effect=mock_get_memory):
+        assert get_configured_agent_model("SHADOW", "default-val") == "llama-3.3"
+
+    # 3. Обратная совместимость для NEXUS через selected_model
+    def mock_nexus_legacy(key, *args, **kwargs):
+        if key == "selected_model":
+            return "legacy-model"
+        return None
+
+    with patch("agents.shared.python.db.get_memory", side_effect=mock_nexus_legacy):
+        assert get_configured_agent_model("NEXUS", "default-val") == "legacy-model"
+
+    # 4. Если для NEXUS есть и legacy selected_model, и новый agent_config_NEXUS, новый в приоритете
+    def mock_nexus_both(key, *args, **kwargs):
+        if key == "agent_config_NEXUS":
+            return {"provider": "gemini", "model": "new-gemini"}
+        if key == "selected_model":
+            return "legacy-model"
+        return None
+
+    with patch("agents.shared.python.db.get_memory", side_effect=mock_nexus_both):
+        assert get_configured_agent_model("NEXUS", "default-val") == "new-gemini"
+
+
+def test_cerebras_round_robin_resolution():
+    """Тест проверяет, что cerebras_round_robin корректно разрешается в реальную модель в gemini_client.py."""
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, PROVIDERS_CONFIG
+    import os
+
+    # Мокаем БД-память и http-запросы
+    db_memory = {
+        "agent_config_SHADOW": {"provider": "cerebras", "model": "cerebras_round_robin"},
+        "cer_rr_index": 2
+    }
+    
+    def mock_get_memory(key, default=None):
+        return db_memory.get(key, default)
+
+    mock_send = MagicMock(return_value=({"candidates": [{"content": {"parts": [{"text": "response"}]}}]}, 10, 20))
+    
+    with patch("agents.shared.python.db.get_memory", side_effect=mock_get_memory), \
+         patch("agents.shared.python.db.save_memory") as mock_save_memory, \
+         patch.dict(PROVIDERS_CONFIG["cerebras"], {
+             "keys": ["test-key"],
+             "send_func": mock_send,
+             "models": ["model-a", "model-b", "model-c"]
+         }):
+        
+        _, resolved_model = generate_content_with_fallback(
+            api_key="gemini-key",
+            payload={"contents": [{"parts": [{"text": "hello"}]}]},
+            default_model="gemini-2.5-flash",
+            agent_name="SHADOW"
+        )
+        
+        # cer_rr_index = 2, models = ["model-a", "model-b", "model-c"]. 2 % 3 = 2 -> model-c
+        assert resolved_model == "model-c"
+        mock_send.assert_called_once()
+        # Проверяем, что в send_func передана именно реальная модель, а не строка "cerebras_round_robin"
+        assert mock_send.call_args[0][1] == "model-c"
