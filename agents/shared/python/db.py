@@ -541,18 +541,24 @@ def add_to_market_list(market_id: str, market_title: str, list_type: str, base_p
 def remove_from_market_list(market_id: str, list_type: str = None) -> int:
     """Удаляет рынок из списка. Если list_type=None — удаляет из обоих. Возвращает кол-во удалённых строк."""
     use_like = len(market_id) < 36
-    query_id = f"{market_id}%" if use_like else market_id
-    op = "LIKE" if use_like else "="
+    if use_like:
+        query_id = f"{_escape_like(market_id)}%"
+        op = "LIKE ?"
+        escape_clause = "ESCAPE '\\'"
+    else:
+        query_id = market_id
+        op = "= ?"
+        escape_clause = ""
 
     with get_connection() as conn:
         if list_type:
             cursor = conn.execute(
-                f"DELETE FROM market_lists WHERE market_id {op} ? AND list_type = ?",
+                f"DELETE FROM market_lists WHERE market_id {op} {escape_clause} AND list_type = ?",
                 (query_id, list_type)
             )
         else:
             cursor = conn.execute(
-                f"DELETE FROM market_lists WHERE market_id {op} ?",
+                f"DELETE FROM market_lists WHERE market_id {op} {escape_clause}",
                 (query_id,)
             )
         rows = cursor.rowcount
@@ -835,7 +841,7 @@ def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summari
             old_msgs = [f"{r['role']}: {r['content'][:200]}" for r in cursor.fetchall()]
             if old_msgs:
                 summary_to_save = (
-                    f"[Архив диалога от {datetime.now().strftime('%Y-%m-%d')}]: "
+                    f"[Архив диалога от {datetime.now(timezone.utc).strftime('%Y-%m-%d')}]: "
                     + " | ".join(old_msgs[:10])
                 )
 
@@ -851,7 +857,7 @@ def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summari
 
     if summary_to_save:
         save_memory(
-            key=f"chat_archive_{chat_id}_{datetime.now().strftime('%Y%m%d')}",
+            key=f"chat_archive_{chat_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}",
             value=summary_to_save,
             category='episodic',
             priority=5,
@@ -889,11 +895,15 @@ def archive_signal_by_id(signal_id: str) -> bool:
     """Устанавливает статус 'ARCHIVED' для сигнала по его ID (или по началу ID, если передан усечённый).
     Возвращает True, если был изменен хотя бы один сигнал."""
     use_like = len(signal_id) < 36
-    query_id = f"{signal_id}%" if use_like else signal_id
-    op = "LIKE" if use_like else "="
+    if use_like:
+        query_id = f"{_escape_like(signal_id)}%"
+        op = "LIKE ? ESCAPE '\\'"
+    else:
+        query_id = signal_id
+        op = "= ?"
     with get_connection() as conn:
         cursor = conn.execute(
-            f"UPDATE signals SET status = 'ARCHIVED' WHERE id {op} ?",
+            f"UPDATE signals SET status = 'ARCHIVED' WHERE id {op}",
             (query_id,)
         )
         return cursor.rowcount > 0

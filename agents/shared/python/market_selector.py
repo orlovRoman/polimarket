@@ -39,10 +39,12 @@ class MarketSelector:
         """
         total_limit = int(total_limit)  # Защита от float из json.loads
         
+        now = datetime.now(timezone.utc)
+        
         if category:
             # Ручной скан: одна категория
             raw = self._fetch_category(category, total_limit * 2)
-            filtered = self._filter(raw, category, min_hours=12)
+            filtered = self._filter(raw, category, min_hours=12, now=now)
         else:
             # Автоскан: микс стратегий
             regular_raw = self._fetch_mixed_no_ending(total_limit * 3)
@@ -54,8 +56,8 @@ class MarketSelector:
             except Exception as e:
                 print(f"[MarketSelector] Ошибка стратегии ending_soon: {e}")
                 
-            filtered_regular = self._filter(regular_raw, category, min_hours=12)
-            filtered_ending = self._filter(ending_raw, category, min_hours=1)
+            filtered_regular = self._filter(regular_raw, category, min_hours=12, now=now)
+            filtered_ending = self._filter(ending_raw, category, min_hours=1, now=now)
             filtered = filtered_regular + filtered_ending
 
         # Scoring + дедупликация
@@ -64,7 +66,7 @@ class MarketSelector:
         for m in filtered:
             if m.id not in seen_ids:
                 seen_ids.add(m.id)
-                scored.append((self._score_market(m, category), m))
+                scored.append((self._score_market(m, category, now=now), m))
 
         # Сортируем по убыванию скора
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -123,7 +125,7 @@ class MarketSelector:
             print(f"[MarketSelector] Ошибка загрузки категории '{category}': {e}")
             return []
 
-    def _filter(self, markets: List[Market], scan_category: str = None, min_hours: int = 12) -> List[Market]:
+    def _filter(self, markets: List[Market], scan_category: str = None, min_hours: int = 12, now: datetime = None) -> List[Market]:
         """
         Фильтрует рынки:
         - Убирает истёкшие или закрывающиеся менее чем через min_hours часов рынки
@@ -131,7 +133,8 @@ class MarketSelector:
         - Убирает на cooldown, ЕСЛИ их цена не изменилась значительно (>= 3%)
         - Убирает рынки из списков 'Игнорировать' и 'Следить'
         """
-        now = datetime.now(timezone.utc)
+        if now is None:
+            now = datetime.now(timezone.utc)
         cooldown_ids = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
         
         filtered = []
@@ -165,12 +168,13 @@ class MarketSelector:
         
         return filtered
 
-    def _score_market(self, market: Market, scan_category: str = None) -> float:
+    def _score_market(self, market: Market, scan_category: str = None, now: datetime = None) -> float:
         """
         Scoring-функция. Чем выше скор — тем интереснее рынок для анализа.
         """
+        if now is None:
+            now = datetime.now(timezone.utc)
         score = 0.0
-        now = datetime.now(timezone.utc)
 
         # Если это режим penny_stocks, даем им максимальный приоритет
         if scan_category == "penny_stocks":

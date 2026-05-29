@@ -131,3 +131,18 @@ def test_dynamic_timeouts():
             timeout=30
         )
         assert mock_send_gemini.call_args[0][3] == 45
+
+def test_score_market_uses_provided_now():
+    """datetime.now должен вызываться ровно один раз за весь select()."""
+    mock_adapter = MagicMock()
+    mock_adapter.list_markets.return_value = []
+    mock_adapter.list_markets_paged.return_value = []
+    mock_adapter.list_markets_ending_soon.return_value = []
+    selector = MarketSelector(mock_adapter)
+    
+    with patch("agents.shared.python.market_selector.datetime") as mock_dt, \
+         patch("agents.shared.python.market_selector.get_markets_on_cooldown", return_value=set()):
+        mock_dt.now.return_value = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        selector.select(total_limit=5)
+        # now() должен быть вызван ровно 1 раз (в select()), а не N раз внутри циклов
+        assert mock_dt.now.call_count == 1

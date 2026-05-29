@@ -45,6 +45,16 @@ def temp_db():
             FOREIGN KEY (market_id) REFERENCES markets (id)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS market_lists (
+            market_id TEXT PRIMARY KEY,
+            market_title TEXT,
+            list_type TEXT,
+            base_price REAL,
+            last_price REAL,
+            added_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     # Заполняем тестовыми данными
     conn.execute("INSERT INTO markets (id, platform, title, url, price) VALUES ('mkt_1', 'polymarket', 'Test Market 1', 'http://url1', 0.55)")
@@ -88,6 +98,37 @@ def test_archive_signal_by_id_truncated(temp_db):
 def test_archive_signal_not_found(temp_db):
     """Проверяем поведение при несуществующем ID."""
     assert archive_signal_by_id("scout_nonexistent") is False
+
+def test_archive_signal_by_id_escapes_special_chars(temp_db):
+    """signal_id с % и _ не должен матчить другие сигналы из-за LIKE."""
+    temp_db.execute("""
+        INSERT INTO signals (id, type, market_id, platform, confidence, priority, summary, details, status)
+        VALUES ('scout_mkt%1_1780000000', 'MISPRICING', 'mkt_1', 'polymarket', 0.8, 'HIGH', 'S1', 'D1', 'PENDING')
+    """)
+    temp_db.execute("""
+        INSERT INTO signals (id, type, market_id, platform, confidence, priority, summary, details, status)
+        VALUES ('scout_mktXXX1_1780000000', 'MISPRICING', 'mkt_1', 'polymarket', 0.8, 'HIGH', 'S2', 'D2', 'PENDING')
+    """)
+    temp_db.commit()
+
+    truncated = "scout_mkt%1_1780000000"[:30]
+    assert archive_signal_by_id(truncated) is True
+
+    cursor = temp_db.execute("SELECT status FROM signals WHERE id = 'scout_mktXXX1_1780000000'")
+    assert cursor.fetchone()["status"] == "PENDING"
+
+def test_remove_from_market_list_no_wildcard_bleed(temp_db):
+    """remove_from_market_list не должна затрагивать другие рынки из-за спецсимволов LIKE."""
+    from agents.shared.python.db import add_to_market_list, remove_from_market_list, is_in_market_list
+    add_to_market_list("mkt%1", "Test %", "ignored")
+    add_to_market_list("mkt_1", "Test _", "ignored")
+    add_to_market_list("mkt_regular", "Test Regular", "ignored")
+
+    remove_from_market_list("mkt%1")
+
+    assert is_in_market_list("mkt%1", "ignored") is False
+    assert is_in_market_list("mkt_1", "ignored") is True
+    assert is_in_market_list("mkt_regular", "ignored") is True
 
 def test_send_ideas_page_renders_buttons(temp_db):
     """Проверяем, что send_ideas_page правильно рендерит кнопки удаления."""
