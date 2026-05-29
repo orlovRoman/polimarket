@@ -36,22 +36,8 @@ class ShadowAgent:
         
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Форматируем данные ордербука
-        orderbook_str = "Данные ордербука недоступны."
-        if orderbook:
-            orderbook_str = (
-                f"=== ДАННЫЕ ОРДЕРБУКА (CLOB API) ===\n"
-                f"Спред: {orderbook.get('spread', 'N/A')}\n"
-                f"Top Bid: {orderbook.get('top_bid', 'N/A')} | Top Ask: {orderbook.get('top_ask', 'N/A')}\n"
-                f"Глубина Bid (5 lvl): ${orderbook.get('bid_depth_5', 0):,.0f} | Ask: ${orderbook.get('ask_depth_5', 0):,.0f}\n"
-                f"Всего уровней — Bids: {orderbook.get('total_bids', 0)} | Asks: {orderbook.get('total_asks', 0)}"
-            )
-            # Добавляем асимметрию
-            bid_d = orderbook.get('bid_depth_5', 0)
-            ask_d = orderbook.get('ask_depth_5', 0)
-            if ask_d > 0:
-                ratio = bid_d / ask_d
-                orderbook_str += f"\nАсимметрия Bid/Ask: {ratio:.1f}x"
+        from agents.shared.utils.prompt_guards import guard_orderbook, guard_smart_money
+        orderbook_str = guard_orderbook(orderbook)
         
         # Форматируем историю цен
         price_history_str = "История цен недоступна."
@@ -62,18 +48,8 @@ class ShadowAgent:
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
                 
-        # ОНЧЕЙН АКТИВНОСТЬ (Smart Money)
-        sm_block = "Ончейн данные недоступны."
-        if smart_money and smart_money.available:
-            sm_block = f"""
-=== ОНЧЕЙН АКТИВНОСТЬ (Smart Money) ===
-Всего объём YES: ${smart_money.total_yes_usd:,.0f}
-Всего объём NO:  ${smart_money.total_no_usd:,.0f}
-YES dominance:   {smart_money.yes_dominance:.0%}
-
-Топ кошельки:
-{smart_money.summary}
-"""
+        target_outcome = "NO" if "NO" in scout_opinion else "YES"
+        sm_block = guard_smart_money(smart_money, target_outcome)
         
         # Загружаем RAG-память из Obsidian
         try:
@@ -91,6 +67,11 @@ YES dominance:   {smart_money.yes_dominance:.0%}
             
         perf_summary = get_performance_summary("SHADOW", 10) or "История оценок пуста — первые прогнозы."
 
+        orderbook_unavailable_note = (
+            "\n⛔ ОРДЕРБУК ПУСТОЙ: confidence ОБЯЗАН быть ≤ 0.30. "
+            "agree=true ТОЛЬКО если пустой стакан не означает отсутствие $10 ликвидности.\n"
+        ) if not orderbook else ""
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -103,7 +84,7 @@ YES dominance:   {smart_money.yes_dominance:.0%}
 {rag_context}
 
 {orderbook_str}
-
+{orderbook_unavailable_note}
 {price_history_str}
 
 {sm_block}
@@ -178,6 +159,28 @@ YES dominance:   {smart_money.yes_dominance:.0%}
         
         if not analysis:
             return None
+
+        # Гард: если ордербук недоступен, confidence не должен быть высоким
+        if not orderbook:
+            declared_confidence = float(analysis.get("confidence", 0.5))
+            if declared_confidence > 0.40:
+                print(
+                    f"[SHADOW] Ордербук недоступен, но confidence={declared_confidence:.2f} > 0.40. "
+                    f"Принудительно снижаем до 0.30."
+                )
+                analysis["confidence"] = 0.30
+                analysis["liquidity_risk"] = "medium"
+
+        # Гард: если smart_money недоступен, проверить что в тексте нет упоминания "Smart Money подтверждают"
+        if not (smart_money and getattr(smart_money, "available", False)):
+            for field in ["opinion", "risk_assessment", "shadow_verdict"]:
+                text = analysis.get(field, "")
+                if "smart money подтверждают" in text.lower() or "киты подтверждают" in text.lower():
+                    print(f"[SHADOW] Поле '{field}' содержит упоминание Smart Money без данных. Очищаем.")
+                    import re
+                    text = re.sub(r'(?i)smart money подтверждают', 'данные по крупным трейдерам недоступны', text)
+                    text = re.sub(r'(?i)киты подтверждают', 'данные по крупным трейдерам недоступны', text)
+                    analysis[field] = text
             
         try:
             op_text = analysis.get("opinion", "").strip()
