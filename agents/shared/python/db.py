@@ -576,6 +576,20 @@ def is_in_market_list(market_id: str, list_type: str) -> bool:
     return row is not None
 
 
+def get_all_listed_market_ids() -> dict[str, set]:
+    """Возвращает {'ignored': {id1, id2...}, 'watching': {id3...}} одним запросом."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT market_id, list_type FROM market_lists"
+        ).fetchall()
+    result = {'ignored': set(), 'watching': set()}
+    for row in rows:
+        lt = row['list_type']
+        if lt in result:
+            result[lt].add(row['market_id'])
+    return result
+
+
 def get_market_list(list_type: str) -> List[dict]:
     """Возвращает все рынки из указанного списка в виде list[dict]."""
     assert list_type in ('ignored', 'watching'), f"Неизвестный list_type: {list_type}"

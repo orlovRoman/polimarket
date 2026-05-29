@@ -199,3 +199,46 @@ def test_callback_delete_signal_flow():
             mock_send_ideas.assert_called_once_with(mock_callback, page=2)
             
     asyncio.run(run_test())
+
+def test_archive_signal_exact_36_char_id(temp_db):
+    """ID ровно 36 символов = UUID, должен идти через =, не LIKE."""
+    uuid_id = "a" * 36
+    temp_db.execute("""
+        INSERT INTO signals (id, type, market_id, platform, confidence, priority, summary, details, status)
+        VALUES (?, 'MISPRICING', 'mkt_1', 'polymarket', 0.8, 'HIGH', 'S_UUID', 'D_UUID', 'PENDING')
+    """, (uuid_id,))
+    temp_db.commit()
+    
+    # Также добавим сигнал с префиксом UUID, чтобы убедиться, что LIKE не матчит его
+    longer_id = uuid_id + "-extra"
+    temp_db.execute("""
+        INSERT INTO signals (id, type, market_id, platform, confidence, priority, summary, details, status)
+        VALUES (?, 'MISPRICING', 'mkt_1', 'polymarket', 0.8, 'HIGH', 'S_UUID_EXTRA', 'D_UUID_EXTRA', 'PENDING')
+    """, (longer_id,))
+    temp_db.commit()
+    
+    result = archive_signal_by_id(uuid_id)
+    assert result is True
+    
+    # uuid_id должен быть архивирован
+    row = temp_db.execute("SELECT status FROM signals WHERE id = ?", (uuid_id,)).fetchone()
+    assert row['status'] == 'ARCHIVED'
+    
+    # longer_id не должен быть архивирован (так как поиск шел по = а не LIKE)
+    row_longer = temp_db.execute("SELECT status FROM signals WHERE id = ?", (longer_id,)).fetchone()
+    assert row_longer['status'] == 'PENDING'
+
+def test_archive_signal_short_id_prefix_match(temp_db):
+    """Короткий ID должен матчить через LIKE prefix."""
+    full_id = "abc123xyz-full-signal-id"
+    temp_db.execute("""
+        INSERT INTO signals (id, type, market_id, platform, confidence, priority, summary, details, status)
+        VALUES (?, 'MISPRICING', 'mkt_1', 'polymarket', 0.8, 'HIGH', 'S_SHORT', 'D_SHORT', 'PENDING')
+    """, (full_id,))
+    temp_db.commit()
+    
+    result = archive_signal_by_id("abc123")  # префикс < 36 символов
+    assert result is True
+    
+    row = temp_db.execute("SELECT status FROM signals WHERE id = ?", (full_id,)).fetchone()
+    assert row['status'] == 'ARCHIVED'

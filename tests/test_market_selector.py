@@ -146,3 +146,67 @@ def test_score_market_uses_provided_now():
         selector.select(total_limit=5)
         # now() должен быть вызван ровно 1 раз (в select()), а не N раз внутри циклов
         assert mock_dt.now.call_count == 1
+
+def test_filter_single_db_call_for_market_lists():
+    """_filter должен сделать ровно 1 запрос к get_all_listed_market_ids, не N."""
+    def make_market(mid):
+        return Market(
+            id=mid,
+            platform="polymarket",
+            title=f"Market {mid}",
+            url="http://url",
+            outcome="YES",
+            price=0.5,
+            close_time=datetime.now(timezone.utc) + timedelta(hours=24)
+        )
+    markets = [make_market(f"m{i}") for i in range(20)]
+    mock_adapter = MagicMock()
+    selector = MarketSelector(mock_adapter)
+    with patch("agents.shared.python.market_selector.get_all_listed_market_ids") as mock_fn, \
+         patch("agents.shared.python.market_selector.get_markets_on_cooldown", return_value=set()):
+        mock_fn.return_value = {'ignored': set(), 'watching': set()}
+        selector._filter(markets)
+        assert mock_fn.call_count == 1  # независимо от len(markets)
+
+def test_penny_fetch_skips_closed_markets():
+    """penny_stocks fetch должен отфильтровывать закрытые и закрывающиеся в течение 1 часа рынки."""
+    now = datetime.now(timezone.utc)
+    closed = Market(
+        id="closed",
+        platform="polymarket",
+        title="Closed Penny",
+        url="http://url",
+        outcome="YES",
+        price=0.03,
+        close_time=now - timedelta(hours=1)
+    )
+    ending_too_soon = Market(
+        id="ending_too_soon",
+        platform="polymarket",
+        title="Ending Too Soon Penny",
+        url="http://url",
+        outcome="YES",
+        price=0.03,
+        close_time=now + timedelta(minutes=30)
+    )
+    active = Market(
+        id="active",
+        platform="polymarket",
+        title="Active Penny",
+        url="http://url",
+        outcome="YES",
+        price=0.04,
+        close_time=now + timedelta(days=5)
+    )
+    
+    mock_adapter = MagicMock()
+    mock_adapter.list_markets_paged.side_effect = [
+        [closed, ending_too_soon],  # offset=0
+        [active]  # offset=500
+    ]
+    selector = MarketSelector(mock_adapter)
+    result = selector._fetch_category("penny_stocks", limit=10, now=now)
+    
+    assert any(m.id == "active" for m in result), "Активный рынок должен быть в результате"
+    assert all(m.id != "closed" for m in result), "Закрытый рынок не должен попасть в penny"
+    assert all(m.id != "ending_too_soon" for m in result), "Рынок, закрывающийся менее чем через 1 час, не должен попасть в penny"
