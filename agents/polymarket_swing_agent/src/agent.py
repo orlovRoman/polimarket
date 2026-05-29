@@ -182,18 +182,15 @@ class SwingAgent:
         schema = {
             "type": "OBJECT",
             "properties": {
-                "hype_potential": {"type": "NUMBER", "description": "0.0 to 1.0"},
-                "recommendation": {"type": "STRING", "description": "buy or ignore"},
                 "target_outcome": {"type": "STRING"},
                 "target_exit_price": {"type": "NUMBER"},
-                "confidence": {"type": "NUMBER"},
                 "reasoning": {"type": "STRING"},
                 "catalyst": {"type": "STRING"},
                 "catalyst_absence_reason": {"type": "STRING"},
                 "swing_risk": {"type": "STRING"},
                 "swing_verdict": {"type": "STRING"}
             },
-            "required": ["hype_potential", "recommendation", "target_outcome", "target_exit_price", "confidence", "reasoning", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict"]
+            "required": ["target_outcome", "target_exit_price", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict"]
         }
         
         payload = {
@@ -238,15 +235,11 @@ class SwingAgent:
                     analysis = None
                     continue
                 
-                # Гард: проверяем отклонение hype_potential
-                llm_hype = float(analysis.get("hype_potential", hype_score))
-                if abs(llm_hype - hype_score) > 0.15:
-                    print(
-                        f"[SWING] hype_potential от LLM={llm_hype:.2f} отклоняется от "
-                        f"Python-расчёта={hype_score:.2f} на {abs(llm_hype - hype_score):.2f}. "
-                        f"Используем Python-расчёт."
-                    )
-                    analysis["hype_potential"] = hype_score
+                from core.swing_rules import swing_decision
+                recommendation, confidence = swing_decision(hype_score, market.price)
+                analysis["recommendation"] = recommendation
+                analysis["confidence"] = confidence
+                analysis["hype_potential"] = hype_score
 
                 # Гард: проверяем обоснование target_exit_price в swing_verdict
                 exit_price = analysis.get("target_exit_price")
