@@ -10,7 +10,7 @@ from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, LinkPreviewOptions
 from dotenv import load_dotenv
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -199,9 +199,9 @@ def build_paginated_keyboard(page: int, total_pages: int, prefix: str) -> Inline
 async def send_or_edit(message_or_callback, text: str, keyboard: InlineKeyboardMarkup = None) -> None:
     """Вспомогательная функция для отправки нового или редактирования существующего сообщения."""
     if isinstance(message_or_callback, types.Message):
-        await message_or_callback.answer(text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+        await message_or_callback.answer(text, reply_markup=keyboard, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
-        await message_or_callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+        await message_or_callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
         await message_or_callback.answer()
 
 @dp.message(CommandStart())
@@ -945,7 +945,7 @@ async def command_arbitrage_handler(message: types.Message) -> None:
                 f"🎯 Действие: <b>{s.trade_instruction}</b>\n\n"
             )
             
-        await status_msg.edit_text(response, parse_mode="HTML", disable_web_page_preview=True)
+        await status_msg.edit_text(response, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
         
     except Exception as e:
         error_text = tb.format_exc()[-800:]  # последние 800 символов трассировки
@@ -983,7 +983,7 @@ async def command_corridor_handler(message: types.Message) -> None:
                 f"🚪 {s.exit_rule[:100]}\n"
                 f"🔗 <a href='{s.event_url}'>Открыть</a>\n\n"
             )
-        await status_msg.edit_text(text, parse_mode="HTML", disable_web_page_preview=True)
+        await status_msg.edit_text(text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
     except Exception as e:
         logger.error(f"[TC] Ошибка в команде /corridor: {e}", exc_info=True)
         await status_msg.edit_text(f"❌ Ошибка сканирования: {e}")
@@ -1046,7 +1046,7 @@ async def command_correlations_handler(message: types.Message) -> None:
 
     for signal in found_signals:
         text = format_cross_arbitrage_alert(signal)
-        await message.answer(text, disable_web_page_preview=True)
+        await message.answer(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
 
     summary = (
         f"✅ Найдено торговых идей: <b>{found}</b> из {len(corrs)} корреляций."
@@ -1060,9 +1060,13 @@ def get_active_scan_status_text() -> str:
     """
     Формирует подробный HTML-отчет о текущем прогрессе сканирования и статусах агентов.
     """
-    from core.engine import CoreEngine
-    engine = CoreEngine()
-    state = engine.state
+    try:
+        from core.engine import CoreEngine
+        engine = CoreEngine()
+        state = engine.state
+    except Exception as e:
+        logger.error(f"Ошибка получения статуса сканирования из CoreEngine: {e}")
+        return "⚠️ <b>Сканирование запущено.</b>\n<i>Информацию о текущем рынке и агентах получить не удалось, так как система инициализируется. Пожалуйста, подождите...</i> 🔄"
 
     category = state.get("category", "Авто-микс")
     stage = state.get("stage", "В процессе")
@@ -1100,7 +1104,7 @@ async def command_scan_handler(message: types.Message) -> None:
     engine = CoreEngine()
     if _scan_lock.locked() or engine._scan_lock.locked():
         status_text = get_active_scan_status_text()
-        await message.answer(status_text, parse_mode="HTML", disable_web_page_preview=True)
+        await message.answer(status_text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1121,7 +1125,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
     if _scan_lock.locked() or engine._scan_lock.locked():
         await callback.answer()
         status_text = get_active_scan_status_text()
-        await callback.message.answer(status_text, parse_mode="HTML", disable_web_page_preview=True)
+        await callback.message.answer(status_text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
         return
 
     category = callback.data.replace("scan_", "")
@@ -1212,7 +1216,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                         else:
                             actual_markup = reply_markup
                     try:
-                        await callback.message.answer(summary, parse_mode="HTML", disable_web_page_preview=True, reply_markup=actual_markup)
+                        await callback.message.answer(summary, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True), reply_markup=actual_markup)
                     except Exception as e:
                         print(f"Ошибка отправки summary: {e}")
                 
@@ -1221,7 +1225,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                     new_html = render_dashboard(current_state)
                     if new_html != last_text:
                         try:
-                            await status_msg.edit_text(new_html, parse_mode="HTML", disable_web_page_preview=True)
+                            await status_msg.edit_text(new_html, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
                             last_text = new_html
                         except Exception:
                             pass
@@ -1239,13 +1243,13 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
             )
             if current_state:
                 final_html = render_dashboard(current_state)
-                await status_msg.edit_text(final_html + "\n\n<b>✅ ПРОЦЕСС ЗАВЕРШЕН</b>", parse_mode="HTML", disable_web_page_preview=True)
+                await status_msg.edit_text(final_html + "\n\n<b>✅ ПРОЦЕСС ЗАВЕРШЕН</b>", parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
             await callback.message.answer("✅ Сканирование завершено! Используйте /ideas чтобы увидеть результат.")
         except NoMarketsFoundError as e:
             if current_state:
                 final_html = render_dashboard(current_state)
                 try:
-                    await status_msg.edit_text(final_html + f"\n\n<b>⚠️ {e}</b>", parse_mode="HTML", disable_web_page_preview=True)
+                    await status_msg.edit_text(final_html + f"\n\n<b>⚠️ {e}</b>", parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
                 except Exception:
                     pass
             await callback.message.answer(f"⚠️ {e}")

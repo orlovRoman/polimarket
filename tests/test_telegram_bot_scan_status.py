@@ -4,6 +4,7 @@
 import pytest
 import asyncio
 from unittest.mock import MagicMock, patch, AsyncMock
+from aiogram.types import LinkPreviewOptions
 from telegram.bot import get_active_scan_status_text, command_scan_handler, callback_scan_handler, command_status_handler
 
 def test_get_active_scan_status_text_empty():
@@ -60,7 +61,7 @@ def test_command_scan_handler_locked():
              patch("telegram.bot.get_active_scan_status_text", return_value="FAKE_SCANNING_STATUS"):
             await command_scan_handler(mock_message)
             
-        mock_message.answer.assert_called_once_with("FAKE_SCANNING_STATUS", parse_mode="HTML", disable_web_page_preview=True)
+        mock_message.answer.assert_called_once_with("FAKE_SCANNING_STATUS", parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
 
     asyncio.run(run_test())
 
@@ -76,7 +77,7 @@ def test_callback_scan_handler_locked():
             await callback_scan_handler(mock_callback)
             
         mock_callback.answer.assert_called_once()
-        mock_callback.message.answer.assert_called_once_with("FAKE_CALLBACK_STATUS", parse_mode="HTML", disable_web_page_preview=True)
+        mock_callback.message.answer.assert_called_once_with("FAKE_CALLBACK_STATUS", parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
 
     asyncio.run(run_test())
 
@@ -89,9 +90,10 @@ def test_command_status_handler_scanning():
             "category": "⚽ Спорт",
             "stage": "Скрининг",
             "current_market_title": "Ronaldo retires?",
-            "scout_status": "⏳ Ожидает",
-            "swing_status": "⏳ Ожидает",
-            "shadow_status": "⏳ Ожидает",
+            "scout_status": "🟢 Edge (0.12)",
+            "swing_status": "🚀 Ждет памп",
+            "shadow_status": "⏳ Проверяет...",
+            "ideas_found": 1,
         }
         
         # Мокаем БД и локи
@@ -113,5 +115,14 @@ def test_command_status_handler_scanning():
         assert "Детали текущего сканирования" in sent_text
         assert "⚽ Спорт" in sent_text
         assert "Ronaldo retires?" in sent_text
+        
+        # Проверяем наличие всех агентов и статусов (BUG-3)
+        assert "SCOUT" in sent_text
+        assert "SWING" in sent_text
+        assert "SHADOW" in sent_text
+        assert "🟢 Edge (0.12)" in sent_text
+        assert "🚀 Ждет памп" in sent_text
+        assert "⏳ Проверяет..." in sent_text
+        assert "найдено идей" in sent_text.lower()
 
     asyncio.run(run_test())
