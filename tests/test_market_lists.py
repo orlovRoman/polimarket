@@ -4,7 +4,7 @@ import sys
 import types
 import importlib
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import pytest
 
 @pytest.fixture()
@@ -58,6 +58,64 @@ def db_module(tmp_path):
         sys.modules["core.models"] = original_core_models
     else:
         sys.modules.pop("core.models", None)
+
+
+@pytest.fixture()
+def selector_module(db_module):
+    """
+    Временно очищает sys.modules от фейковых заглушек, чтобы импортировать
+    market_selector с реальным config.py, затем восстанавливает их.
+    """
+    # Патчим импорт db в market_selector, чтобы он читал из нашей тестовой db_module
+    original_db = sys.modules.get("agents.shared.python.db")
+    sys.modules["agents.shared.python.db"] = db_module
+    
+    # Сохраняем оригинальные модули
+    original_config = sys.modules.get("config")
+    original_core = sys.modules.get("core")
+    original_core_models = sys.modules.get("core.models")
+    original_core_guards = sys.modules.get("core.guards")
+    
+    # Удаляем фейковые модули
+    sys.modules.pop("config", None)
+    sys.modules.pop("core", None)
+    sys.modules.pop("core.models", None)
+    sys.modules.pop("core.guards", None)
+
+    db_mod_path = str(
+        Path(__file__).parent.parent / "agents" / "shared" / "python" / "market_selector.py"
+    )
+    spec = importlib.util.spec_from_file_location("market_selector_fresh", db_mod_path)
+    selector_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(selector_mod)
+    
+    yield selector_mod
+    
+    # Восстанавливаем оригинальные модули
+    if original_config:
+        sys.modules["config"] = original_config
+    else:
+        sys.modules.pop("config", None)
+        
+    if original_core:
+        sys.modules["core"] = original_core
+    else:
+        sys.modules.pop("core", None)
+        
+    if original_core_models:
+        sys.modules["core.models"] = original_core_models
+    else:
+        sys.modules.pop("core.models", None)
+        
+    if original_core_guards:
+        sys.modules["core.guards"] = original_core_guards
+    else:
+        sys.modules.pop("core.guards", None)
+        
+    if original_db:
+        sys.modules["agents.shared.python.db"] = original_db
+    else:
+        sys.modules.pop("agents.shared.python.db", None)
 
 
 def test_add_and_check_ignored(db_module):
@@ -147,7 +205,7 @@ def test_watchlist_price_update(db_module):
     assert lst[0]["base_price"] == 0.50
 
 
-def test_market_selector_filters_lists(db_module):
+def test_market_selector_filters_lists(db_module, selector_module):
     """Проверяет, что MarketSelector исключает рынки из списков 'ignored' и 'watching'."""
     # Создаем фиктивный адаптер
     class FakeMarket:
@@ -159,7 +217,7 @@ def test_market_selector_filters_lists(db_module):
             self.url = f"https://polymarket.com/market/{id}"
 
     now = datetime.now(timezone.utc)
-    future_time = now + __import__('datetime').timedelta(days=10)
+    future_time = now + timedelta(days=10)
     
     m_normal = FakeMarket("normal_1", "Normal Market", 0.5, future_time)
     m_ignored = FakeMarket("ignored_1", "Ignored Market", 0.5, future_time)
@@ -169,52 +227,13 @@ def test_market_selector_filters_lists(db_module):
     db_module.add_to_market_list(m_ignored.id, m_ignored.title, "ignored", None)
     db_module.add_to_market_list(m_watching.id, m_watching.title, "watching", 0.5)
     
-    # Патчим импорт db в market_selector, чтобы он читал из нашей тестовой db_module
-    sys.modules["agents.shared.python.db"] = db_module
-    
-    # Временно восстанавливаем оригинальные модули
-    original_config = sys.modules.get("config")
-    original_core = sys.modules.get("core")
-    original_core_models = sys.modules.get("core.models")
-    
-    sys.modules.pop("config", None)
-    sys.modules.pop("core", None)
-    sys.modules.pop("core.models", None)
-    sys.modules.pop("core.guards", None)
-
-    db_mod_path = str(
-        Path(__file__).parent.parent / "agents" / "shared" / "python" / "market_selector.py"
-    )
-    spec = importlib.util.spec_from_file_location("market_selector_fresh", db_mod_path)
-    selector_mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(selector_mod)
-    
-    # Возвращаем все обратно
-    if original_config:
-        sys.modules["config"] = original_config
-    else:
-        sys.modules.pop("config", None)
-        
-    if original_core:
-        sys.modules["core"] = original_core
-    else:
-        sys.modules.pop("core", None)
-        
-    if original_core_models:
-        sys.modules["core.models"] = original_core_models
-    else:
-        sys.modules.pop("core.models", None)
-
     class FakeAdapter:
         pass
         
-    selector = selector_mod.MarketSelector(FakeAdapter())
+    selector = selector_module.MarketSelector(FakeAdapter())
     
     # Прогоняем метод _filter напрямую
     filtered = selector._filter([m_normal, m_ignored, m_watching])
     
     assert len(filtered) == 1
     assert filtered[0].id == "normal_1"
-    
-    # Очищаем sys.modules
-    sys.modules.pop("agents.shared.python.db", None)

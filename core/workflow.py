@@ -218,14 +218,14 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     try:
         news_titles = _safe_result(future_rss, default=[], timeout=15)
         reddit_posts = _safe_result(future_reddit, default=[], timeout=15)
-        wiki_context = _safe_result(future_wiki, default="", timeout=20)
+        wiki_context = _safe_result(future_wiki, default=[], timeout=20)
         hn_posts = _safe_result(future_hn, default=[], timeout=15)
     finally:
         future_rss.cancel()
         future_reddit.cancel()
         future_wiki.cancel()
         future_hn.cancel()
-        executor.shutdown(wait=False)
+        executor.shutdown(wait=True, cancel_futures=True)
 
     # Google Trends — последовательно (не thread-safe)
     trends_data = fetch_google_trends(search_query)
