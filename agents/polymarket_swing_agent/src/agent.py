@@ -31,6 +31,7 @@ class SwingAgent:
         reddit_posts = context.reddit_posts
         wiki_context = context.wiki_context
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        price_hist = price_history or []
         
         try:
             from agents.shared.utils.rag import get_rag_context
@@ -40,8 +41,8 @@ class SwingAgent:
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
 
         price_history_str = "История цен недоступна."
-        if price_history:
-            lines = [f"  {p['recorded_at']}: {p['price']:.4f}" for p in price_history[-6:]]
+        if price_hist:
+            lines = [f"  {p['recorded_at']}: {p['price']:.4f}" for p in price_hist[-6:]]
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
 
@@ -88,9 +89,8 @@ class SwingAgent:
         import re
 
         # Считаем метрики для hype_potential
-        price_history = price_history or []
         price_now = market.price
-        price_6h_ago = price_history[-7]["price"] if len(price_history) >= 7 else price_now
+        price_6h_ago = price_hist[-7]["price"] if len(price_hist) >= 7 else price_now
         price_delta_6h = price_now - price_6h_ago
 
         close_dt = market.close_time
@@ -107,39 +107,6 @@ class SwingAgent:
         for post in (context.reddit_posts or []):
             score = post.get("score", 0) if isinstance(post, dict) else 0
             reddit_top = max(reddit_top, score)
-
-        # Вспомогательная функция _is_recent
-        def _is_recent(item: str, reference_time: datetime, max_hours: float = 6.0) -> bool:
-            match = re.match(r'^\[([^\]]+)\]', item)
-            if not match:
-                return False
-            date_str = match.group(1)
-            if date_str == "дата неизвестна":
-                return False
-            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%a, %d %b %Y", "%d %b %Y"):
-                try:
-                    dt = datetime.strptime(date_str.strip(), fmt)
-                    age_hours = (reference_time - dt).total_seconds() / 3600
-                    return 0 <= age_hours <= max_hours
-                except ValueError:
-                    continue
-            return False
-
-        # Свежие новости за 6ч
-        now = datetime.utcnow()
-        recent_news_count = sum(
-            1 for item in (context.news_titles or [])
-            if _is_recent(item, now, max_hours=6)
-        )
-
-        hype_score, hype_breakdown = calculate_hype_potential(HypeMetrics(
-            trends_score=trends_score,
-            trends_delta=trends_delta,
-            reddit_top_score=reddit_top,
-            recent_news_count=recent_news_count,
-            price_delta_6h=price_delta_6h,
-            hours_to_close=hours_to_close,
-        ))
 
         # Форматируем новости для guard_news_with_age с датами
         news_items_to_guard = []
@@ -161,6 +128,29 @@ class SwingAgent:
             else:
                 news_items_to_guard.append({"title": item, "published": None})
 
+        # Теперь считаем recent_news_count из уже обработанного списка
+        recent_news_count = 0
+        now = datetime.utcnow()
+        for ni in news_items_to_guard:
+            pub = ni.get("published")
+            if pub:
+                try:
+                    pub_dt = datetime.fromisoformat(pub)
+                    age_h = (now - pub_dt).total_seconds() / 3600
+                    if 0 <= age_h <= 6:
+                        recent_news_count += 1
+                except Exception:
+                    pass
+
+        hype_score, hype_breakdown = calculate_hype_potential(HypeMetrics(
+            trends_score=trends_score,
+            trends_delta=trends_delta,
+            reddit_top_score=reddit_top,
+            recent_news_count=recent_news_count,
+            price_delta_6h=price_delta_6h,
+            hours_to_close=hours_to_close,
+        ))
+
         news_block = guard_news_with_age(
             news_items_to_guard,
             now=now
@@ -177,8 +167,6 @@ class SwingAgent:
 
 [Твоя производительность и работа над ошибками]
 {perf_summary}
-Текущая цена исхода (YES): {market.price}
-Дата закрытия рынка: {market.close_time.strftime("%Y-%m-%d %H:%M:%S")}
 
 {rag_context}
 

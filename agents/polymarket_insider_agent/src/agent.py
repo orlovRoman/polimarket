@@ -160,27 +160,34 @@ class ShadowAgent:
         if not analysis:
             return None
 
-        # Гард: если ордербук недоступен, confidence не должен быть высоким
+        # === POST-VALIDATION GUARDS ===
+        import logging
+        logger = logging.getLogger("shadow_agent")
+
+        # Гард 1: ордербук недоступен → confidence не может быть > 0.40
         if not orderbook:
-            declared_confidence = float(analysis.get("confidence", 0.5))
-            if declared_confidence > 0.40:
-                print(
-                    f"[SHADOW] Ордербук недоступен, но confidence={declared_confidence:.2f} > 0.40. "
+            declared = float(analysis.get("confidence", 0.5))
+            if declared > 0.40:
+                logger.warning(
+                    f"[SHADOW] Ордербук недоступен, но confidence={declared:.2f}. "
                     f"Принудительно снижаем до 0.30."
                 )
                 analysis["confidence"] = 0.30
                 analysis["liquidity_risk"] = "medium"
 
-        # Гард: если smart_money недоступен, проверить что в тексте нет упоминания "Smart Money подтверждают"
+        # Гард 2: нет данных Smart Money → убрать упоминание из текстов
         if not (smart_money and getattr(smart_money, "available", False)):
+            hallucination_phrases = [
+                "smart money подтверждают",
+                "киты подтверждают",
+                "крупные трейдеры подтверждают",
+                "институциональные покупки",
+            ]
             for field in ["opinion", "risk_assessment", "shadow_verdict"]:
                 text = analysis.get(field, "")
-                if "smart money подтверждают" in text.lower() or "киты подтверждают" in text.lower():
-                    print(f"[SHADOW] Поле '{field}' содержит упоминание Smart Money без данных. Очищаем.")
-                    import re
-                    text = re.sub(r'(?i)smart money подтверждают', 'данные по крупным трейдерам недоступны', text)
-                    text = re.sub(r'(?i)киты подтверждают', 'данные по крупным трейдерам недоступны', text)
-                    analysis[field] = text
+                if any(p in text.lower() for p in hallucination_phrases):
+                    logger.warning(f"[SHADOW] Поле '{field}' содержит упоминание Smart Money без данных.")
+                    analysis[field] = text + " [⚠️ данные по крупным трейдерам недоступны]"
             
         try:
             op_text = analysis.get("opinion", "").strip()

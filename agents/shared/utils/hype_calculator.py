@@ -3,8 +3,11 @@
 Вычисляет числовую оценку хайп-потенциала на основе сигналов.
 LLM получает готовое число + декомпозицию — не выдумывает его самостоятельно.
 """
+import math
 from dataclasses import dataclass
 from typing import Optional
+
+_LOG_REDDIT_MAX = math.log10(5000)
 
 
 @dataclass
@@ -35,8 +38,7 @@ def calculate_hype_potential(m: HypeMetrics) -> tuple[float, str]:
     trends_component = max(0, min(trends_norm + trends_delta_bonus, 1.0))
 
     # Reddit (логарифмическая шкала: 0→0, 100→0.3, 1000→0.6, 5000→1.0)
-    import math
-    reddit_norm = min(math.log10(max(m.reddit_top_score, 1)) / math.log10(5000), 1.0)
+    reddit_norm = min(math.log10(max(m.reddit_top_score, 1)) / _LOG_REDDIT_MAX, 1.0)
 
     # Новости за 6ч (0→0, 1→0.4, 3→0.7, 5+→1.0)
     news_norm = min(m.recent_news_count / 5, 1.0)

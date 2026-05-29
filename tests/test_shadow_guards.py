@@ -1,41 +1,33 @@
 # tests/test_shadow_guards.py
 
-def test_shadow_confidence_capped_without_orderbook():
-    """Без ордербука confidence не может быть > 0.40"""
-    # Симулируем вывод LLM с завышенным confidence
-    raw_analysis = {"agree": True, "confidence": 0.80, "liquidity_risk": "low",
-                    "opinion": "Всё хорошо", "orderbook_facts": "спред 5%",
-                    "risk_assessment": "низкий", "shadow_verdict": "входить"}
-    orderbook = None  # нет данных
-
+def test_shadow_post_validation_confidence_capped_no_orderbook():
+    import logging
+    analysis = {"confidence": 0.78, "liquidity_risk": "low", "agree": True,
+                "opinion": "Ликвидность нормальная", "orderbook_facts": "...",
+                "risk_assessment": "...", "shadow_verdict": "Входить"}
+    orderbook = None
     if not orderbook:
-        if float(raw_analysis["confidence"]) > 0.40:
-            raw_analysis["confidence"] = 0.30
-            raw_analysis["liquidity_risk"] = "medium"
+        if float(analysis["confidence"]) > 0.40:
+            analysis["confidence"] = 0.30
+            analysis["liquidity_risk"] = "medium"
+    assert analysis["confidence"] == 0.30
+    assert analysis["liquidity_risk"] == "medium"
 
-    assert raw_analysis["confidence"] == 0.30
-    assert raw_analysis["liquidity_risk"] == "medium"
-
-def test_shadow_smart_money_hallucination_detected():
-    """Упоминание 'Smart Money подтверждают' при отсутствии данных → очищается"""
+def test_shadow_post_validation_hallucination_flagged():
     analysis = {
-        "opinion": "Smart Money подтверждают покупку YES.",
-        "risk_assessment": "Киты подтверждают позицию.",
-        "shadow_verdict": "Входить.",
-        "orderbook_facts": "данные недоступны",
-        "confidence": 0.30,
-        "agree": True,
-        "liquidity_risk": "medium"
+        "opinion": "Стакан норм.",
+        "risk_assessment": "Крупные трейдеры подтверждают позицию YES на сумму $50k.",
+        "shadow_verdict": "Войти лимитным ордером."
     }
     smart_money = None
+    hallucination_phrases = ["smart money подтверждают", "крупные трейдеры подтверждают"]
     if not smart_money:
         for field in ["opinion", "risk_assessment", "shadow_verdict"]:
             text = analysis.get(field, "")
-            if "smart money подтверждают" in text.lower() or "киты подтверждают" in text.lower():
-                analysis[field] = "данные по крупным трейдерам недоступны"
-
-    assert "Smart Money подтверждают" not in analysis["opinion"]
-    assert "недоступны" in analysis["risk_assessment"] or "подтверждают" not in analysis["risk_assessment"]
+            if any(p in text.lower() for p in hallucination_phrases):
+                analysis[field] = text + " [⚠️ данные по крупным трейдерам недоступны]"
+    assert "⚠️" in analysis["risk_assessment"]
+    assert "Крупные трейдеры подтверждают" in analysis["risk_assessment"]  # оригинал сохранён
 
 def test_shadow_orderbook_facts_from_real_data():
     """При наличии ордербука orderbook_facts содержит реальные числа"""

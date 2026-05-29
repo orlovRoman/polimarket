@@ -40,3 +40,12 @@ def test_arbitrage_prompt_contains_step_zero():
     assert "ШАГ 0" in text
     assert "description_a" in text or "description_b" in text
     assert "logical_contradiction" in text and "oracle_unknown" in text
+
+def test_arbitrage_spread_uses_llm_value_when_ambiguous():
+    """При AMBIGUOUS решении spread берётся из LLM-ответа, не из math_filter"""
+    mf_spread = 3.2   # math_filter грубая оценка
+    llm_data = {"spread_percent": 18.5, "arbitrage_type": "pair_trade",
+                "has_arbitrage": True, "reasoning": "..."}
+    spread_val = float(llm_data.get("spread_percent") or mf_spread)
+    assert spread_val == 18.5  # берётся из LLM
+

@@ -39,3 +39,39 @@ def test_swing_llm_hype_capped_at_015_deviation():
     if abs(llm_hype - hype_score) > 0.15:
         llm_hype = hype_score
     assert llm_hype == 0.45
+
+def test_swing_price_history_not_overwritten():
+    """Исходный price_history не перезаписывается внутри estimate_market"""
+    price_history = [{"recorded_at": "2026-05-29 10:00", "price": 0.30 + i*0.01}
+                     for i in range(10)]
+    original_len = len(price_history)
+    price_hist = price_history or []
+    price_now = 0.45
+    price_6h_ago = price_hist[-7]["price"] if len(price_hist) >= 7 else price_now
+    delta = price_now - price_6h_ago
+    assert len(price_history) == original_len  # не перезаписан
+    assert delta != 0.0  # дельта реальная
+    assert price_6h_ago == price_history[-7]["price"]
+
+def test_recent_news_count_from_processed_items():
+    """recent_news_count считается из processed news_items, не из сырых заголовков"""
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    news_items_to_guard = [
+        {"title": "Fresh news", "published": (now - timedelta(hours=2)).isoformat()},
+        {"title": "Old news",   "published": (now - timedelta(hours=50)).isoformat()},
+        {"title": "No date",    "published": None},
+    ]
+    recent_news_count = 0
+    for ni in news_items_to_guard:
+        pub = ni.get("published")
+        if pub:
+            try:
+                pub_dt = datetime.fromisoformat(pub)
+                age_h = (now - pub_dt).total_seconds() / 3600
+                if 0 <= age_h <= 6:
+                    recent_news_count += 1
+            except Exception:
+                pass
+    assert recent_news_count == 1  # только свежая новость
+

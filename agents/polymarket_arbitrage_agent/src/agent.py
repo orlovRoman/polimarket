@@ -193,7 +193,7 @@ class ArbitrageAgent:
                         "описание одного из рынков недоступно, проверка оракулов невозможна.\n"
                     ) + data.get("reasoning", "")
 
-            spread_val = mf.spread_pct
+            spread_val = float(data.get("spread_percent") or mf.spread_pct)
                 
             return CrossArbitrageSignal(
                 market_a_id=market_a.id,
@@ -376,7 +376,7 @@ class ArbitrageAgent:
                         "описание одного из рынков недоступно, проверка оракулов невозможна.\n"
                     ) + data.get("reasoning", "")
 
-            spread_val = mf.spread_pct
+            spread_val = float(data.get("spread_percent") or mf.spread_pct)
 
             return CrossArbitrageSignal(
                 market_a_id=market_a.id,

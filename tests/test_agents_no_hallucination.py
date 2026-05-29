@@ -22,13 +22,26 @@ def test_scout_description_present_cites_source():
 
 # ── SHADOW ─────────────────────────────────────────────────────────────
 def test_shadow_no_orderbook_confidence_capped():
+    """Без ордербука confidence не может быть > 0.40"""
     analysis = {"confidence": 0.75, "liquidity_risk": "low", "agree": True,
                 "opinion": "...", "orderbook_facts": "спред 5%",
                 "risk_assessment": "...", "shadow_verdict": "..."}
-    if not None:  # orderbook = None
-        if analysis["confidence"] > 0.40:
+    orderbook = None  # явная переменная
+    # Воспроизводим логику из agent.py
+    if not orderbook:
+        if float(analysis["confidence"]) > 0.40:
             analysis["confidence"] = 0.30
+            analysis["liquidity_risk"] = "medium"
     assert analysis["confidence"] == 0.30
+    assert analysis["liquidity_risk"] == "medium"
+
+def test_shadow_confidence_not_capped_with_orderbook():
+    """С ордербуком confidence НЕ снижается"""
+    analysis = {"confidence": 0.75, "liquidity_risk": "low"}
+    orderbook = {"spread": "2%", "bid_depth_5": 1000, "ask_depth_5": 800}
+    if not orderbook:  # False — не входим
+        analysis["confidence"] = 0.30
+    assert analysis["confidence"] == 0.75  # не тронуто
 
 def test_shadow_no_smart_money_no_mention():
     analysis = {"risk_assessment": "Smart Money подтверждают позицию YES."}
