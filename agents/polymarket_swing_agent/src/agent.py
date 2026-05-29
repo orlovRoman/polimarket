@@ -208,7 +208,7 @@ class SwingAgent:
         TEXT_FIELDS = ["reasoning", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict", "risk", "verdict"]
         
         analysis = None
-        for attempt in range(2):
+        for attempt in range(1):
             result, active_model = generate_content_with_fallback(
                 api_key=self.api_key,
                 payload=payload,

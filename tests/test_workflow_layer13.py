@@ -127,6 +127,7 @@ def test_run_agent_evaluation_wiki_timeout_uses_empty_string():
          patch("core.workflow.get_market_correlations", return_value=[]), \
          patch("config.llm_health_gate") as mock_gate, \
          patch("core.workflow.build_search_query", return_value="test query"), \
+         patch("core.workflow._fetch_grounded_context", return_value="mocked grounding"), \
          patch("core.checkpoint.save_checkpoint"), \
          patch("core.workflow.MarketContext") as MockCtx:
         mock_gate.check_availability.return_value = True

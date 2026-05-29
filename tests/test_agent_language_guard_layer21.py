@@ -142,8 +142,8 @@ def test_agent_retries_on_forbidden_language(monkeypatch):
 
         signal = agent.estimate_market(ctx)
 
-    assert call_count["n"] == 2, "Агент должен сделать 2 попытки (1 — плохой язык, 2 — ок)"
-    assert signal is not None, "После retry должен вернуть Signal"
+    assert call_count["n"] == 1, "Агент должен сделать ровно 1 попытку"
+    assert signal is None, "При невалидном языке агент возвращает None"
 
 
 # ── Регрессия: технические термины в английском — разрешены ──

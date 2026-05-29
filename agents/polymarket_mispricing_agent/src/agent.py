@@ -212,7 +212,7 @@ class ScoutAgent:
         TEXT_FIELDS = ["reasoning", "signal", "cause", "risk", "oracle_risk", "verdict"]
         
         analysis = None
-        for attempt in range(2):
+        for attempt in range(1):
             result, active_model = generate_content_with_fallback(
                 api_key=self.api_key,
                 payload=payload,
