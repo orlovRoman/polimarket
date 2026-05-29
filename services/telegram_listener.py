@@ -312,7 +312,7 @@ def parse_radar_signal(text: str, entities=None) -> dict:
         result["win_rate"] = int(wr_match.group(1))
 
     # 7. Alias из строки "Trader: Name"
-    alias_match = re.search(r'(?:🧑💼\s*)?Trader:\s*([A-Za-z0-9_]+)', text)
+    alias_match = re.search(r'(?:🧑\u200d💼\s*)?Trader:\s*([A-Za-z0-9_]+)', text)
     if alias_match and not result["alias"]:
         result["alias"] = alias_match.group(1)
         if not result["wallet"]:
@@ -424,7 +424,7 @@ async def main():
     # Инициализация NewsProcessor для новостных каналов
     news_processor = NewsProcessor(api_key=GOOGLE_API_KEY)
     
-    chats_to_listen = ['polymarketalerthub', 'radarpolybot']
+    chats_to_listen = list(_WHALE_CHANNELS)
     target_sources = []
     if TELEGRAM_GROUP2_SOURCE and TELEGRAM_GROUP2_SOURCE != "group2_source":
         target_sources = [s.strip().lower() for s in TELEGRAM_GROUP2_SOURCE.split(",")]

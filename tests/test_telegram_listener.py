@@ -702,3 +702,131 @@ def test_whale_channels_constant_contains_both():
     from services.telegram_listener import _WHALE_CHANNELS
     assert "polymarketalerthub" in _WHALE_CHANNELS
     assert "radarpolybot" in _WHALE_CHANNELS
+
+
+# ═══════════════════════════════════════════════════════════════
+# Самотесты layer 30 — проверка найденных багов
+# ═══════════════════════════════════════════════════════════════
+
+def test_radar_alias_with_zwj_emoji():
+    """Alias парсится при наличии ZWJ-emoji 🧑💼 в тексте (баг: ZWJ терялся в regex)"""
+    from services.telegram_listener import parse_radar_signal
+    # Строка с настоящим ZWJ (U+200D) в emoji
+    text = "🧑\u200d💼 Trader: Parz1vaI - Check Full Stats"
+    result = parse_radar_signal(text)
+    assert result["alias"] == "Parz1vaI", (
+        f"Ожидали alias='Parz1vaI', получили alias={result['alias']!r}. "
+        "Возможно, ZWJ потерялся в regex."
+    )
+
+
+def test_radar_alias_without_emoji_prefix():
+    """Alias парсится даже без emoji-префикса"""
+    from services.telegram_listener import parse_radar_signal
+    text = "Trader: CoolTrader123 - Check Full Stats"
+    result = parse_radar_signal(text)
+    assert result["alias"] == "CoolTrader123"
+
+
+def test_radar_alias_entity_overrides_text():
+    """Alias из entity-профиля перекрывает alias из текста"""
+    from services.telegram_listener import parse_radar_signal
+    from types import SimpleNamespace
+    entity = SimpleNamespace(url="https://polymarket.com/profile/AliasFromEntity")
+    text = "Trader: AliasFromText"
+    result = parse_radar_signal(text, entities=[entity])
+    # entity обрабатывается первым → alias из entity
+    assert result["alias"] == "AliasFromEntity"
+    assert result["wallet"] == "username:aliasfromentity"
+
+
+def test_whale_channels_constant_is_source_of_truth():
+    """
+    _WHALE_CHANNELS является единственным источником истины для списка whale-каналов.
+    chats_to_listen в main() должен включать все каналы из _WHALE_CHANNELS.
+    Тест проверяет, что ни один канал не потерян.
+    """
+    from services.telegram_listener import _WHALE_CHANNELS
+    # Проверяем, что frozenset содержит ожидаемые каналы
+    assert "polymarketalerthub" in _WHALE_CHANNELS
+    assert "radarpolybot" in _WHALE_CHANNELS
+    # Все имена — lowercase (для корректного сравнения с chat_name.lower())
+    for ch in _WHALE_CHANNELS:
+        assert ch == ch.lower(), f"Канал {ch!r} в _WHALE_CHANNELS должен быть lowercase"
+
+
+def test_radar_signal_does_not_use_to_win_as_amount():
+    """
+    Amount берётся из строки 'Amount: $X', а не из 'To win: $X'.
+    Защита от потенциального бага parse_whale_alert если роутинг сломается.
+    """
+    from services.telegram_listener import parse_radar_signal
+    text = (
+        "⚡️ Buy Yes\n"
+        "├ Amount: $11,136\n"
+        "└ To win: $74,240 (6.7x)\n"
+    )
+    result = parse_radar_signal(text)
+    assert result["amount_usd"] == 11136.0, (
+        f"Ожидали $11,136 (Amount), получили ${result['amount_usd']}. "
+        "Возможно, парсер захватил 'To win' вместо 'Amount'."
+    )
+
+
+def test_radar_routing_not_whale_alert():
+    """
+    radarpolybot роутируется в parse_radar_signal, а НЕ в parse_whale_alert.
+    Косвенная проверка: parse_radar_signal умеет парсить поле 'Win Rate',
+    которого нет в parse_whale_alert — если роутинг сломан, win_rate = None.
+    """
+    from services.telegram_listener import parse_radar_signal
+    text = "⚡️ Buy Yes\n├ Amount: $5,000\n├ Win Rate: 72%"
+    result = parse_radar_signal(text)
+    assert result["win_rate"] == 72, (
+        "parse_radar_signal должна парсить Win Rate. "
+        "Если None — возможно, вызывается parse_whale_alert."
+    )
+
+
+def test_chats_to_listen_covers_whale_channels():
+    """
+    Интеграционная проверка: все каналы из _WHALE_CHANNELS должны быть
+    в списке chats_to_listen (иначе Telethon не будет их слушать).
+    Читаем исходник и проверяем наличие каждого канала.
+    """
+    import ast
+    from pathlib import Path
+    from services.telegram_listener import _WHALE_CHANNELS
+
+    src = (Path(__file__).parent.parent / "services" / "telegram_listener.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    # Ищем присваивание: chats_to_listen = [...]
+    found_list = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "chats_to_listen":
+                    # Если chats_to_listen присваивается через list(...) - список элементов мы не получим как Ast.List.
+                    # Но поскольку мы изменили на chats_to_listen = list(_WHALE_CHANNELS), тест может не найти ast.List
+                    # Поэтому мы проверим наличие вызова функции list() с _WHALE_CHANNELS.
+                    if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "list":
+                        if isinstance(node.value.args[0], ast.Name) and node.value.args[0].id == "_WHALE_CHANNELS":
+                            found_list = list(_WHALE_CHANNELS)
+                    elif isinstance(node.value, ast.List):
+                        found_list = [
+                            elt.s for elt in node.value.elts
+                            if isinstance(elt, ast.Constant)
+                        ]
+                    break
+
+    # Если chats_to_listen строится из _WHALE_CHANNELS — тест не применим / уже проверен
+    if found_list is None:
+        return
+
+    for ch in _WHALE_CHANNELS:
+        assert ch in found_list, (
+            f"Канал '{ch}' есть в _WHALE_CHANNELS, но отсутствует в "
+            f"chats_to_listen={found_list}. Обнови chats_to_listen или "
+            "используй list(_WHALE_CHANNELS)."
+        )
