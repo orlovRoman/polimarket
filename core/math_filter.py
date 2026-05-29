@@ -103,6 +103,23 @@ def validate_trade_instruction(instruction: str) -> tuple[bool, str]:
             return False, f"Недопустимая операция '{op}' — шорт на Polymarket невозможен без открытой позиции."
     return True, "OK"
 
+def _check_same_event(title_a: str, title_b: str) -> bool:
+    """
+    Грубая проверка: описывают ли рынки одно событие.
+    Если ключевые слова сильно расходятся — это разные события.
+    """
+    stopwords = {'will', 'the', 'a', 'in', 'by', 'of', 'to', 'at', 'on', 
+                 'for', 'above', 'below', 'over', 'hit', 'reach', 'exceed'}
+    a_words = set(re.findall(r'\b\w+\b', title_a.lower())) - stopwords
+    b_words = set(re.findall(r'\b\w+\b', title_b.lower())) - stopwords
+    # Числа исключаем — они не являются идентификаторами события
+    a_words = {w for w in a_words if not re.match(r'^\d+$', w)}
+    b_words = {w for w in b_words if not re.match(r'^\d+$', w)}
+    if not a_words or not b_words:
+        return False
+    overlap = len(a_words & b_words) / min(len(a_words), len(b_words))
+    return overlap >= 0.40  # минимум 40% совпадение ключевых слов
+
 def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 5.0, check_logical_implication: bool = False) -> MathFilterResult:
     # 1. Monotonicity
     t_a = _parse_threshold(market_a.title)
@@ -111,10 +128,14 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
     # NEW: одинаковые пороги — монотонность неприменима
     if t_a and t_b and _same_unit(t_a[1], t_b[1]) and t_a[0] == t_b[0]:
         return MathFilterResult(
-            decision=FilterDecision.AMBIGUOUS,
+            decision=FilterDecision.CONFIRMED_NO_ARBI,
             arbitrage_type="identical_threshold",
             spread_pct=0.0,
-            reasoning="Рынки имеют одинаковый порог — Monotonicity неприменима",
+            reasoning=(
+                f"Оба рынка упоминают порог {t_a[0]:.0f} — одинаковое число НЕ означает "
+                f"логическую импликацию. Это могут быть разные события, разные оракулы, "
+                f"разные временны́е условия. Спред=0%, LLM вызов экономим."
+            ),
             trade_instruction=""
         )
 
@@ -229,6 +250,15 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
 
     # 3b. Logical implication (A ⊃ B) — только на одной платформе
     if check_logical_implication and market_a.platform == market_b.platform:
+        # NEW: проверяем что это одно событие
+        if not _check_same_event(market_a.title, market_b.title):
+            return MathFilterResult(
+                decision=FilterDecision.CONFIRMED_NO_ARBI,
+                arbitrage_type="different_events",
+                spread_pct=0.0,
+                reasoning="Рынки описывают разные события — логическая импликация неприменима.",
+                trade_instruction=""
+            )
         p_a, p_b = market_a.price, market_b.price
         implication_spread = abs(p_a - p_b) * 100
         if implication_spread >= min_spread_pct:

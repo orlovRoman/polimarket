@@ -131,6 +131,14 @@ class ArbitrageAgent:
             )
         # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
 
+        # === NEW GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
+        if mf.arbitrage_type == "identical_threshold" and mf.spread_pct < 1.0:
+            print(
+                f"[ARBITRAGE] identical_threshold со spread={mf.spread_pct:.1f}% — "
+                f"разные события с одним числом, арбитраж невозможен без проверки оракулов."
+            )
+            return None
+
         from agents.shared.utils.prompt_guards import guard_description
         desc_a = guard_description(market_a.description) if (hasattr(market_a, "description") and market_a.description) else (
             "⚠️ description_a ОТСУТСТВУЕТ — logical_contradiction невозможно."
@@ -185,11 +193,11 @@ class ArbitrageAgent:
                 if desc_a_missing or desc_b_missing:
                     print(
                         "[ARBITRAGE] logical_contradiction при отсутствующем description. "
-                        "Автопонижение до statistical_pair_trade."
+                        "Автопонижение до pair_trade."
                     )
-                    data["arbitrage_type"] = "statistical_pair_trade"
+                    data["arbitrage_type"] = "pair_trade"
                     data["reasoning"] = (
-                        "[AUTO-DOWNGRADE] Тип изменён с logical_contradiction на statistical_pair_trade: "
+                        "[AUTO-DOWNGRADE] Тип изменён с logical_contradiction на pair_trade: "
                         "описание одного из рынков недоступно, проверка оракулов невозможна.\n"
                     ) + data.get("reasoning", "")
 
@@ -283,6 +291,14 @@ class ArbitrageAgent:
             )
         # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
 
+        # === NEW GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
+        if mf.arbitrage_type == "identical_threshold" and mf.spread_pct < 1.0:
+            print(
+                f"[ARBITRAGE] identical_threshold со spread={mf.spread_pct:.1f}% — "
+                f"разные события с одним числом, арбитраж невозможен без проверки оракулов."
+            )
+            return None
+
         direct_spread = abs(market_a.price - market_b.price)
         spread_percent = round(direct_spread * 100, 2)
         
@@ -368,11 +384,11 @@ class ArbitrageAgent:
                 if desc_a_missing or desc_b_missing:
                     print(
                         "[ARBITRAGE] logical_contradiction при отсутствующем description. "
-                        "Автопонижение до statistical_pair_trade."
+                        "Автопонижение до pair_trade."
                     )
-                    data["arbitrage_type"] = "statistical_pair_trade"
+                    data["arbitrage_type"] = "pair_trade"
                     data["reasoning"] = (
-                        "[AUTO-DOWNGRADE] Тип изменён с logical_contradiction на statistical_pair_trade: "
+                        "[AUTO-DOWNGRADE] Тип изменён с logical_contradiction на pair_trade: "
                         "описание одного из рынков недоступно, проверка оракулов невозможна.\n"
                     ) + data.get("reasoning", "")
 

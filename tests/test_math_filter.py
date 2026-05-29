@@ -103,7 +103,7 @@ def test_logical_implication_returns_ambiguous_not_arbitrage():
     m_a = Market(id="a", platform="polymarket", title="Russia Ukraine ceasefire by Oct 2026",
                  description="", url="https://polymarket.com/a", outcome="YES",
                  price=0.32, close_time=datetime.now(timezone.utc) + timedelta(days=90))
-    m_b = Market(id="b", platform="polymarket", title="Ukraine limits armed forces before 2027",
+    m_b = Market(id="b", platform="polymarket", title="Russia Ukraine ceasefire before 2027",
                  description="", url="https://polymarket.com/b", outcome="YES",
                  price=0.18, close_time=datetime.now(timezone.utc) + timedelta(days=180))
     
@@ -121,7 +121,7 @@ def test_logical_implication_not_triggered_by_default():
     m_a = Market(id="a", platform="polymarket", title="Russia Ukraine ceasefire by Oct 2026",
                  description="", url="https://polymarket.com/a", outcome="YES",
                  price=0.32, close_time=datetime.now(timezone.utc) + timedelta(days=90))
-    m_b = Market(id="b", platform="polymarket", title="Ukraine limits armed forces before 2027",
+    m_b = Market(id="b", platform="polymarket", title="Russia Ukraine ceasefire before 2027",
                  description="", url="https://polymarket.com/b", outcome="YES",
                  price=0.18, close_time=datetime.now(timezone.utc) + timedelta(days=180))
                  
@@ -135,7 +135,7 @@ def test_logical_implication_triggered_with_flag():
     m_a = Market(id="a", platform="polymarket", title="Russia Ukraine ceasefire by Oct 2026",
                  description="", url="https://polymarket.com/a", outcome="YES",
                  price=0.32, close_time=datetime.now(timezone.utc) + timedelta(days=90))
-    m_b = Market(id="b", platform="polymarket", title="Ukraine limits armed forces before 2027",
+    m_b = Market(id="b", platform="polymarket", title="Russia Ukraine ceasefire before 2027",
                  description="", url="https://polymarket.com/b", outcome="YES",
                  price=0.18, close_time=datetime.now(timezone.utc) + timedelta(days=180))
                  
@@ -146,11 +146,11 @@ def test_logical_implication_triggered_with_flag():
 
 # ── Баг #1: identical threshold → AMBIGUOUS, не ложный арбитраж ─
 
-def test_identical_threshold_returns_ambiguous():
+def test_identical_threshold_returns_no_arbi():
     a = make_market("Will GDP exceed $50B?", 0.6)
     b = make_market("Will revenue exceed $50B?", 0.4)
     result = math_pre_filter(a, b)
-    assert result.decision == FilterDecision.AMBIGUOUS
+    assert result.decision == FilterDecision.CONFIRMED_NO_ARBI
     assert result.arbitrage_type == "identical_threshold"
     assert result.has_arbitrage is False
 
