@@ -420,11 +420,34 @@ class PolymarketAdapter(BaseMarketAdapter):
     def get_event_by_slug(self, slug: str) -> List[Market]:
         """
         Получает рынки по slug события или рынка.
-        Сначала пытается найти событие (event) по slug, так как на Polymarket URL обычно ведут на события.
-        Если не найдено, пытается найти конкретный рынок по slug.
+        Использует /public-search эндпоинт для гибкого текстового поиска по slug (поддерживает неточные/устаревшие slug).
+        Если не найдено, делает fallback на точные эндпоинты /events и /markets.
         """
         markets = []
-        # 1. Попытка получить событие
+        
+        # 1. Попытка через гибкий /public-search
+        try:
+            resp = self.session.get(f"{self.api_url}/public-search", params={"q": slug}, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            # Сначала проверяем события (events)
+            events = data.get("events", [])
+            if events and isinstance(events, list):
+                markets = self.parse_events_to_markets(events, limit=50)
+                if markets:
+                    return markets
+                    
+            # Затем проверяем рынки (markets)
+            raw_markets = data.get("markets", [])
+            if raw_markets and isinstance(raw_markets, list):
+                markets = self._parse_markets(raw_markets, limit=50)
+                if markets:
+                    return markets
+        except Exception as e:
+            print(f"[PolymarketAdapter] get_event_by_slug (public-search step) error: {e}")
+
+        # 2. Fallback: точное совпадение по /events?slug=
         try:
             resp = self.session.get(f"{self.api_url}/events", params={"slug": slug}, timeout=15)
             resp.raise_for_status()
@@ -434,9 +457,9 @@ class PolymarketAdapter(BaseMarketAdapter):
                 if markets:
                     return markets
         except Exception as e:
-            print(f"[PolymarketAdapter] get_event_by_slug (events step) error: {e}")
+            print(f"[PolymarketAdapter] get_event_by_slug (fallback events step) error: {e}")
 
-        # 2. Попытка получить конкретный рынок, если событие не найдено
+        # 3. Fallback: точное совпадение по /markets?slug=
         try:
             resp = self.session.get(f"{self.api_url}/markets", params={"slug": slug}, timeout=15)
             resp.raise_for_status()
@@ -444,18 +467,53 @@ class PolymarketAdapter(BaseMarketAdapter):
             if raw_markets and isinstance(raw_markets, list):
                 markets = self._parse_markets(raw_markets, limit=50)
         except Exception as e:
-            print(f"[PolymarketAdapter] get_event_by_slug (markets step) error: {e}")
+            print(f"[PolymarketAdapter] get_event_by_slug (fallback markets step) error: {e}")
 
         return markets
 
     def search_markets(self, query: str, limit: int = 10) -> List[Market]:
-        """Ищет активные рынки на Polymarket по ключевому слову/запросу."""
-        params = {
-            "active": "true",
-            "closed": "false",
-            "limit": limit,
-            "query": query
-        }
-        response = self.session.get(f"{self.api_url}/markets", params=params, timeout=15)
-        response.raise_for_status()
-        return self._parse_markets(response.json(), limit)
+        """Ищет активные рынки на Polymarket по ключевому слову/запросу с помощью /public-search."""
+        # 1. Попытка через гибкий /public-search
+        try:
+            resp = self.session.get(f"{self.api_url}/public-search", params={"q": query}, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            markets = []
+            # Собираем рынки из найденных событий
+            events = data.get("events", [])
+            if events and isinstance(events, list):
+                markets.extend(self.parse_events_to_markets(events, limit=limit))
+                
+            # Добавляем из секции markets
+            raw_markets = data.get("markets", [])
+            if raw_markets and isinstance(raw_markets, list):
+                markets.extend(self._parse_markets(raw_markets, limit=limit))
+                
+            # Удаляем дубликаты по id
+            unique_markets = []
+            seen_ids = set()
+            for m in markets:
+                if m.id not in seen_ids:
+                    seen_ids.add(m.id)
+                    unique_markets.append(m)
+                    
+            if unique_markets:
+                return unique_markets[:limit]
+        except Exception as e:
+            print(f"[PolymarketAdapter] search_markets (public-search) error: {e}")
+
+        # Fallback на оригинальный /markets?query=
+        try:
+            params = {
+                "active": "true",
+                "closed": "false",
+                "limit": limit,
+                "query": query
+            }
+            response = self.session.get(f"{self.api_url}/markets", params=params, timeout=15)
+            response.raise_for_status()
+            return self._parse_markets(response.json(), limit)
+        except Exception as e:
+            print(f"[PolymarketAdapter] search_markets (fallback) error: {e}")
+            return []

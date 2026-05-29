@@ -124,6 +124,8 @@ class NewsProcessor:
         Работает для постов формата 'Top Holder Activity' и других,
         где ссылка polymarket.com/event/SLUG уже содержится в сообщении.
         0 токенов LLM — просто regex + один API-запрос.
+        Интеллектуально сортирует найденные рынки, отдавая приоритет тем,
+        которые наиболее точно соответствуют тексту новости.
         """
         pattern = r'https?://(?:www\.)?polymarket\.com/(?:event|market)/([A-Za-z0-9_-]+)'
         slugs = list(dict.fromkeys(re.findall(pattern, text)))  # уникальные, порядок сохранён
@@ -134,11 +136,39 @@ class NewsProcessor:
         for slug in slugs:
             try:
                 found = self.adapter.get_event_by_slug(slug)
-                for m in found:
+                if not found:
+                    continue
+                    
+                # Интеллектуальный скоринг рынков для приоритизации нужных рынков в группе
+                def score_market(m):
+                    score = 0
+                    # Очищаем название рынка от YES/NO цен в скобках на конце
+                    clean_title = re.sub(r'\s*\([^)]*\)\s*$', '', m.title).strip().lower()
+                    clean_text = text.lower()
+                    if clean_title in clean_text:
+                        score += 1000
+                    # Дополнительно: считаем пересечение длинных слов (>= 3 символов)
+                    words_title = set(w for w in re.findall(r'[a-z0-9]+', clean_title) if len(w) >= 3)
+                    words_text = set(w for w in re.findall(r'[a-z0-9]+', clean_text) if len(w) >= 3)
+                    score += len(words_title.intersection(words_text)) * 10
+                    # Если URL-slug содержится в url самого рынка
+                    if slug.lower() in m.url.lower():
+                        score += 50
+                    # Дополнительный приоритет активным рынкам в неопределенной зоне
+                    if 0.01 < m.price < 0.99:
+                        score += 5
+                    return score
+                    
+                sorted_found = sorted(found, key=score_market, reverse=True)
+                
+                for m in sorted_found:
                     if m.id not in seen_ids:
                         seen_ids.add(m.id)
                         markets.append(m)
-                        logger.info(f"[NewsProcessor] Этап 0: найден рынок '{m.title}' по slug '{slug}'")
+                        logger.info(
+                            f"[NewsProcessor] Этап 0: найден рынок '{m.title}' по slug '{slug}' "
+                            f"(score: {score_market(m)}, price: {m.price})"
+                        )
             except Exception as e:
                 logger.debug(f"[NewsProcessor] Этап 0: ошибка для slug '{slug}': {e}")
         return markets
