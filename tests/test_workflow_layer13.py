@@ -272,7 +272,7 @@ def test_full_consensus_pipeline_no_signal():
 
 
 def test_full_consensus_pipeline_no_consensus():
-    """SHADOW против — статус 'no_consensus', summary_callback НЕ вызывается"""
+    """SHADOW против — статус 'no_consensus', summary_callback вызывается с сообщением об отсутствии консенсуса"""
     from core.workflow import process_consensus
 
     ctx = _make_context()
@@ -291,4 +291,6 @@ def test_full_consensus_pipeline_no_consensus():
         mock_make.return_value = MagicMock(status='no_consensus')
         process_consensus(ctx, signal, None, shadow, state, update_state, summary_callback)
 
-    summary_callback.assert_not_called()
+    summary_callback.assert_called_once()
+    text = summary_callback.call_args[0][0]
+    assert "Консенсус не достигнут" in text

@@ -45,7 +45,7 @@ def _make_context(market, trigger_type="scheduled", source_url="", source_text="
     return ctx
 
 
-# ── 1. Сообщение отправляется ТОЛЬКО при консенсусе ────────
+# ── 1. Сообщение отправляется при консенсусе или при его отсутствии (дебаты) ────────
 
 @patch("core.workflow.make_consensus")
 def test_no_callback_when_no_consensus(mock_make):
@@ -57,7 +57,9 @@ def test_no_callback_when_no_consensus(mock_make):
     # SHADOW против → no_consensus
     process_consensus(ctx, _make_signal(), None, _make_shadow(agree=False),
                       state={}, update_state=MagicMock(), summary_callback=callback)
-    callback.assert_not_called()
+    callback.assert_called_once()
+    text = callback.call_args[0][0]
+    assert "Консенсус не достигнут" in text
 
 
 @patch("core.workflow.make_consensus")
