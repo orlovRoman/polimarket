@@ -102,6 +102,41 @@ def is_bot_message(text: str) -> bool:
     """
     return any(sig in text for sig in _BOT_SIGNATURES)
 
+def restore_markdown_links(text: str, entities) -> str:
+    """
+    Восстанавливает скрытые markdown-ссылки из entities сообщения Telethon,
+    превращая их в явный текстовый формат: 'Текст (URL)'.
+    Идет с конца текста к началу, чтобы смещения (offsets) не плыли при вставке.
+    """
+    if not entities:
+        return text
+        
+    try:
+        # Сортируем entities по offset в обратном порядке
+        sorted_entities = sorted(entities, key=lambda e: e.offset, reverse=True)
+        
+        for ent in sorted_entities:
+            # Проверяем, что это MessageEntityTextUrl и у него есть URL
+            if hasattr(ent, 'url') and ent.url:
+                url = ent.url
+                offset = ent.offset
+                length = ent.length
+                
+                # Извлекаем текст, под которым скрыта ссылка
+                anchor_text = text[offset:offset+length]
+                
+                # Если URL уже написан в явном виде рядом (чтобы не дублировать), пропускаем
+                if url in text[offset:offset+length+100] or url in text[max(0, offset-100):offset]:
+                    continue
+                    
+                # Формируем замену: "Текст (URL)"
+                replacement = f"{anchor_text} ({url})"
+                text = text[:offset] + replacement + text[offset+length:]
+    except Exception as e:
+        print(f"[Listener] Ошибка восстановления ссылок из entities: {e}")
+        
+    return text
+
 def resolve_market_ids_from_url(url: str) -> list:
     """
     Вычленяет slug события или маркета из URL Polymarket и находит соответствующие market_id.
@@ -450,6 +485,10 @@ async def main():
         text = event.message.message
         if not text:
             return
+
+        # Восстанавливаем скрытые markdown-ссылки из entities
+        if event.message.entities:
+            text = restore_markdown_links(text, event.message.entities)
 
         # Защита от бесконечного цикла:
         # Приоритет 1 — проверяем sender ID (надёжно, не зависит от текста)
