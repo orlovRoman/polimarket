@@ -303,6 +303,16 @@ class PolymarketAdapter(BaseMarketAdapter):
         """Flatten events to markets and parse them."""
         items = []
         for event in events:
+            event_id = event.get('id')
+            # Если в событии нет списка markets, догружаем его полную версию по ID
+            if event_id and not event.get('markets'):
+                try:
+                    resp = self.session.get(f"{self.api_url}/events/{event_id}", timeout=10)
+                    if resp.status_code == 200:
+                        event = resp.json()
+                except Exception as e:
+                    logger.error(f"[PolymarketAdapter] Failed to load full event by ID {event_id}: {e}")
+                    
             event_slug = event.get('slug')
             event_desc = event.get('description', '')
             for m in event.get('markets', []):

@@ -211,14 +211,20 @@ async def resolve_market_ids_from_url(url: str, text: str = "") -> list:
                 if resp.status_code == 200:
                     event_data = resp.json()
                     if isinstance(event_data, list) and event_data:
-                        for m in event_data[0].get("markets", []):
-                            if "id" in m:
-                                if m.get("closed") is True or m.get("closed") == "true":
-                                    continue
-                                close_time = _parse_end_date(m)
-                                if close_time <= datetime.now(timezone.utc):
-                                    continue
-                                market_ids.append(m["id"])
+                        event_id = event_data[0].get("id")
+                        if event_id:
+                            # Догружаем полную версию события по ID
+                            resp_full = await client.get(f"https://gamma-api.polymarket.com/events/{event_id}")
+                            if resp_full.status_code == 200:
+                                full_event = resp_full.json()
+                                for m in full_event.get("markets", []):
+                                    if "id" in m:
+                                        if m.get("closed") is True or m.get("closed") == "true":
+                                            continue
+                                        close_time = _parse_end_date(m)
+                                        if close_time <= datetime.now(timezone.utc):
+                                            continue
+                                        market_ids.append(m["id"])
         except Exception as e:
             logger.error(f"[Resolver] Ошибка при fallback-запросе event-слага {slug}: {e}")
             
