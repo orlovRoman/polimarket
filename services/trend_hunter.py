@@ -224,7 +224,8 @@ def run_trend_hunter(dry_run: bool = False):
                 reply_markup = {
                     "inline_keyboard": [[
                         {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
-                        {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"}
+                        {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"},
+                        {"text": "📥 В идеи", "callback_data": f"add_idea_{mid}"}
                     ]]
                 }
                 send_telegram(alert_text, reply_markup=reply_markup)

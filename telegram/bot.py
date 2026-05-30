@@ -274,7 +274,7 @@ def build_paginated_keyboard(page: int, total_pages: int, prefix: str) -> Inline
 
 def build_market_action_keyboard(market_id: str, market_title: str) -> InlineKeyboardMarkup:
     """
-    Клавиатура с кнопками 'Игнорировать' и 'Следить'.
+    Клавиатура с кнопками 'Игнорировать', 'Следить' и 'В идеи'.
     market_id обрезается до 40 символов для соблюдения лимита callback_data = 64 байта aiogram.
     """
     mid = market_id[:40]  # UUID = 36 символов, вписывается с префиксами 11 симв (ignore_mkt_ / watch_mkt_)
@@ -282,6 +282,7 @@ def build_market_action_keyboard(market_id: str, market_title: str) -> InlineKey
         [
             InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
             InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{mid}"),
+            InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{mid}"),
         ]
     ])
 
@@ -1824,6 +1825,7 @@ async def callback_unlist_market(callback: CallbackQuery) -> None:
         [
             InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{market_id[:40]}"),
             InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{market_id[:40]}"),
+            InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{market_id[:40]}"),
         ]
     ])
     try:
@@ -1835,6 +1837,107 @@ async def callback_unlist_market(callback: CallbackQuery) -> None:
         await callback.answer("✅ Рынок удалён из списков. Будет анализироваться при следующем скане.", show_alert=True)
     else:
         await callback.answer("ℹ️ Рынок не найден в списках.")
+
+
+@dp.callback_query(F.data.startswith("add_idea_"))
+async def callback_add_idea(callback: CallbackQuery) -> None:
+    """'В идеи' — вручную добавляет рынок в список торговых идей (/ideas)."""
+    market_id = callback.data[len("add_idea_"):]
+    
+    from agents.shared.python.db import get_connection, save_signal
+    from core.models import Signal
+    import time
+    
+    db_market = None
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, title, price, url FROM markets WHERE id = ? OR id LIKE ?",
+            (market_id, f"{market_id}%")
+        )
+        row = cursor.fetchone()
+        if row:
+            db_market = dict(row)
+            
+    if not db_market:
+        await callback.answer("⚠️ Ошибка: Рынок не найден в базе данных. Не удалось добавить.", show_alert=True)
+        return
+        
+    full_market_id = db_market["id"]
+    market_title = db_market["title"]
+    market_price = db_market["price"]
+    
+    # Проверяем, нет ли уже PENDING сигнала для этого рынка
+    is_already = False
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM signals WHERE market_id = ? AND status = 'PENDING'",
+            (full_market_id,)
+        )
+        if cursor.fetchone():
+            is_already = True
+            
+    if is_already:
+        await callback.answer("ℹ️ Этот рынок уже находится в списке торговых идей /ideas!", show_alert=True)
+        return
+        
+    # Ищем аудит для получения edge
+    scout_edge = 0.15
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT scout_edge FROM idea_audit WHERE market_id = ? ORDER BY audited_at DESC LIMIT 1",
+            (full_market_id,)
+        )
+        row = cursor.fetchone()
+        if row and row["scout_edge"] is not None:
+            scout_edge = float(row["scout_edge"])
+            
+    # Создаем ручной сигнал
+    from datetime import datetime, timezone
+    signal = Signal(
+        id=f"manual_{full_market_id[:20]}_{int(time.time())}",
+        type="MANUAL",
+        market_id=full_market_id,
+        platform="polymarket",
+        target_outcome="YES",
+        trade_action="buy",
+        entry_price=market_price,
+        position_size_usd=0.0,
+        edge=scout_edge,
+        confidence=0.8,
+        priority="medium",
+        summary="Ручное добавление пользователем",
+        details="Пользователь вручную добавил этот рынок в список торговых идей.",
+        status="PENDING",
+        created_at=datetime.now(timezone.utc)
+    )
+    
+    await asyncio.to_thread(save_signal, signal)
+    
+    # Обновляем клавиатуру, показываем что добавлено
+    new_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{full_market_id[:40]}"),
+            InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{full_market_id[:40]}"),
+        ],
+        [
+            InlineKeyboardButton(text="✅ Добавлено в /ideas", callback_data="noop")
+        ]
+    ])
+    
+    try:
+        await callback.message.edit_reply_markup(reply_markup=new_kb)
+    except Exception:
+        pass
+        
+    await callback.answer("✅ Рынок успешно добавлен в список торговых идей /ideas!", show_alert=True)
+
+
+@dp.callback_query(F.data == "noop")
+async def callback_noop(callback: CallbackQuery) -> None:
+    await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("lists_remove_"))

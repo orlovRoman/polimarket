@@ -527,7 +527,8 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         market_action_markup = {
             "inline_keyboard": [[
                 {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
-                {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"}
+                {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"},
+                {"text": "📥 В идеи", "callback_data": f"add_idea_{mid}"}
             ]]
         }
 
