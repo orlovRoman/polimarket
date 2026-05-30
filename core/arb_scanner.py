@@ -16,13 +16,21 @@ logger = logging.getLogger("arb_scanner")
 _STOPWORDS = frozenset({
     'will', 'the', 'a', 'an', 'in', 'by', 'to', 'at', 'on',
     'for', 'be', 'is', 'are', 'was', 'or', 'and', 'if',
+    'yes', 'no',
 })
+
+_PRICE_TAG_RE = re.compile(r'\([A-Z]+:\s*\d+¢[^)]*\)')
+
+def _strip_price_tag(title: str) -> str:
+    return _PRICE_TAG_RE.sub("", title).strip()
 
 def _quick_pair_check(title_a: str, title_b: str, min_common: int = 2) -> bool:
     """
     Быстрый pre-check: есть ли минимальное пересечение слов.
     ~0.01ms — запускается до math_pre_filter, чтобы сэкономить O(n²) вызовов.
     """
+    title_a = _strip_price_tag(title_a)
+    title_b = _strip_price_tag(title_b)
     words_a = set(re.findall(r'\b[a-z]{3,}\b', title_a.lower())) - _STOPWORDS
     words_b = set(re.findall(r'\b[a-z]{3,}\b', title_b.lower())) - _STOPWORDS
     if not words_a or not words_b:

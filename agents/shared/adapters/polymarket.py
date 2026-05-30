@@ -211,14 +211,14 @@ class PolymarketAdapter(BaseMarketAdapter):
                     url=f"https://polymarket.com/event/{url_slug}",
                     outcome=outcomes[0],
                     price=float(prices[0]),
-                    close_time=self._get_end_date(item),
+                    close_time=close_time,
                     tokens=tokens,
                     volume=volume,
                     condition_id=item.get("conditionId")
                 )
                 markets.append(m)
             except (KeyError, ValueError, TypeError, json.JSONDecodeError) as e:
-                print(f"Ошибка парсинга рынка {item.get('id')}: {e}")
+                logger.error(f"[PolymarketAdapter] list_markets parse error for {item.get('id')}: {e}")
                 continue
                 
         return markets
@@ -289,7 +289,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                     url=f"https://polymarket.com/event/{url_slug}",
                     outcome=outcomes[0],
                     price=float(prices[0]),
-                    close_time=self._get_end_date(item),
+                    close_time=close_time,
                     tokens=tokens,
                     volume=volume,
                     condition_id=item.get("conditionId"),
@@ -357,9 +357,10 @@ class PolymarketAdapter(BaseMarketAdapter):
             url=f"https://polymarket.com/event/{item.get('slug')}",
             outcome=outcomes[0],
             price=float(prices[0]),
-            close_time=self._get_end_date(item),
+            close_time=close_time,
             tokens=tokens,
             volume=volume,
+            condition_id=item.get("conditionId"),
         )
 
     def get_orderbook(self, token_id: str) -> Optional[dict]:
@@ -386,7 +387,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 "total_asks": len(asks),
             }
         except Exception as e:
-            print(f"Ошибка при получении ордербука для {token_id}: {e}")
+            logger.error(f"[PolymarketAdapter] Error getting orderbook for {token_id}: {e}")
             return None
 
     def list_all_markets_compact(self) -> list:
@@ -417,6 +418,20 @@ class PolymarketAdapter(BaseMarketAdapter):
                 
                 for item in items:
                     try:
+                        # Фильтр закрытых
+                        if item.get("closed") is True or item.get("closed") == "true":
+                            continue
+                        
+                        # Фильтр истёкших
+                        end_raw = item.get("endDate") or item.get("end_date_iso") or item.get("endDateIso") or item.get("end") or ""
+                        if end_raw:
+                            try:
+                                end_dt = datetime.fromisoformat(str(end_raw).replace("Z", "+00:00"))
+                                if end_dt <= datetime.now(timezone.utc):
+                                    continue
+                            except (ValueError, AttributeError):
+                                pass  # без даты — пропускаем фильтр
+
                         prices = json.loads(item.get("outcomePrices", "[]"))
                         price = float(prices[0]) if prices else 0.5
                         
@@ -424,7 +439,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                             "id": item.get("id", ""),
                             "q": item.get("question", ""),
                             "p": round(price, 4),
-                            "end": item.get("endDate") or item.get("end_date_iso") or item.get("endDateIso") or "",
+                            "end": end_raw,
                             "vol": float(item.get("volumeNum", 0) or item.get("volume", 0) or 0),
                             "tags": item.get("tags", []),
                         })
@@ -448,8 +463,17 @@ class PolymarketAdapter(BaseMarketAdapter):
         Использует /public-search эндпоинт для гибкого текстового поиска по очищенному от стоп-слов slug.
         Если не найдено, делает fallback на точные эндпоинты /events и /markets.
         """
-        markets = []
+        markets: List[Market] = []
+        seen_ids: set[str] = set()
         
+        def _dedup(mkts: List[Market]) -> List[Market]:
+            result = []
+            for m in mkts:
+                if m.id not in seen_ids:
+                    seen_ids.add(m.id)
+                    result.append(m)
+            return result
+
         # 1. Попытка через гибкий /public-search с очищенным запросом
         try:
             cleaned_q = _clean_slug_for_search(slug)
@@ -460,14 +484,14 @@ class PolymarketAdapter(BaseMarketAdapter):
             # Сначала проверяем события (events)
             events = data.get("events", [])
             if events and isinstance(events, list):
-                markets = self.parse_events_to_markets(events, limit=50)
+                markets = _dedup(self.parse_events_to_markets(events, limit=50))
                 if markets:
                     return markets
                     
             # Затем проверяем рынки (markets)
             raw_markets = data.get("markets", [])
             if raw_markets and isinstance(raw_markets, list):
-                markets = self._parse_markets(raw_markets, limit=50)
+                markets = _dedup(self._parse_markets(raw_markets, limit=50))
                 if markets:
                     return markets
         except Exception as e:
@@ -479,7 +503,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             resp.raise_for_status()
             events = resp.json()
             if events and isinstance(events, list):
-                markets = self.parse_events_to_markets(events, limit=50)
+                markets = _dedup(self.parse_events_to_markets(events, limit=50))
                 if markets:
                     return markets
         except Exception as e:
@@ -491,7 +515,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             resp.raise_for_status()
             raw_markets = resp.json()
             if raw_markets and isinstance(raw_markets, list):
-                markets = self._parse_markets(raw_markets, limit=50)
+                markets = _dedup(self._parse_markets(raw_markets, limit=50))
         except Exception as e:
             logger.error(f"[PolymarketAdapter] get_event_by_slug (fallback markets step) error: {e}")
 
