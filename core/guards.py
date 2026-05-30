@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import threading
 
 class LLMUnavailableError(Exception):
@@ -14,7 +14,7 @@ class LLMHealthGate:
     def __init__(self):
         self.state = "HEALTHY"  # HEALTHY, DEGRADED, DEAD
         self.error_timestamps = []
-        self.retry_after = datetime.min
+        self.retry_after = datetime(1970, 1, 1, tzinfo=timezone.utc)
         self.lock = threading.Lock()
         
         self.degraded_threshold = 3
@@ -22,13 +22,13 @@ class LLMHealthGate:
         self.window_sec = 60
         self.degraded_pause_sec = 60
         self.dead_pause_sec = 300  # 5 мин
-
+ 
     def record_error(self, status_code: int):
         if status_code not in _RATE_LIMIT_CODES:
             return
             
         with self.lock:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             # Убираем старые ошибки (вне окна 60 сек)
             self.error_timestamps = [t for t in self.error_timestamps if (now - t).total_seconds() <= self.window_sec]
             
@@ -43,14 +43,14 @@ class LLMHealthGate:
                 if self.state != "DEAD":
                     self.state = "DEGRADED"
                     self.retry_after = now + timedelta(seconds=self.degraded_pause_sec)
-
+ 
     def record_success(self):
         with self.lock:
             if self.state != "HEALTHY":
                 self.state = "HEALTHY"
                 self.error_timestamps.clear()
-                self.retry_after = datetime.min
-
+                self.retry_after = datetime(1970, 1, 1, tzinfo=timezone.utc)
+ 
     def check_availability(self) -> bool:
         """
         Returns True если LLM доступна.
@@ -58,7 +58,7 @@ class LLMHealthGate:
         Raises LLMUnavailableError только если DEAD И retry_after ещё не истёк.
         """
         with self.lock:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             if self.state == "DEAD":
                 if self.retry_after > now:
                     # DEAD и пауза не истекла — бросаем исключение (прерываем скан)
@@ -79,24 +79,24 @@ class LLMHealthGate:
                     self.error_timestamps.clear()
                     return True
             return True  # HEALTHY
-
+ 
     @property
     def retry_after_safe(self):
         with self.lock:
             return self.retry_after
-
+ 
     def _force_dead(self):
         """Для тестов."""
         with self.lock:
             self.state = "DEAD"
-            self.retry_after = datetime.now() + timedelta(seconds=self.dead_pause_sec)
-
+            self.retry_after = datetime.now(timezone.utc) + timedelta(seconds=self.dead_pause_sec)
+ 
     def _force_degraded(self):
         """Для тестов."""
         with self.lock:
             self.state = "DEGRADED"
-            self.retry_after = datetime.now() + timedelta(seconds=self.degraded_pause_sec)
-
+            self.retry_after = datetime.now(timezone.utc) + timedelta(seconds=self.degraded_pause_sec)
+ 
     @property
     def backoff_sec(self):
         return self.dead_pause_sec

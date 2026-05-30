@@ -40,15 +40,18 @@ except ImportError:
 
 _ENTITY_CACHE_TTL = 3600
 _entity_username_cache: dict[int, tuple[str, float]] = {}
+_cache_lock = threading.Lock()
 
 def _get_cached_username(chat_id: int) -> str | None:
-    entry = _entity_username_cache.get(chat_id)
-    if entry and (time.time() - entry[1]) < _ENTITY_CACHE_TTL:
-        return entry[0]
-    return None
+    with _cache_lock:
+        entry = _entity_username_cache.get(chat_id)
+        if entry and (time.time() - entry[1]) < _ENTITY_CACHE_TTL:
+            return entry[0]
+        return None
 
 def _set_cached_username(chat_id: int, username: str) -> None:
-    _entity_username_cache[chat_id] = (username, time.time())
+    with _cache_lock:
+        _entity_username_cache[chat_id] = (username, time.time())
 
 def _is_target_source_match(chat_name: str, chat_id: int, target_sources: list[str]) -> bool:
     """Точное совпадение по username или chat_id, без подстрочного поиска."""

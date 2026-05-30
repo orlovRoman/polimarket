@@ -1,8 +1,10 @@
+from __future__ import annotations
 import asyncio
 import logging
 logger = logging.getLogger("NexusPolyBot")
 import os
 import sqlite3
+import threading
 import subprocess
 import requests
 import json
@@ -46,6 +48,7 @@ init_db()
 # внутри импорта и при конкурентных запросах нет нескольких экземпляров агента.
 _nexus_agent: NexusAgent | None = None
 _core_engine = None
+_core_engine_lock = threading.Lock()
 
 from collections import deque
 _processed_message_ids: deque[tuple[int, int]] = deque(maxlen=500)
@@ -56,7 +59,9 @@ def get_core_engine():
     global _core_engine
     from core.engine import CoreEngine
     if _core_engine is None or type(_core_engine) is not CoreEngine:
-        _core_engine = CoreEngine()
+        with _core_engine_lock:
+            if _core_engine is None or type(_core_engine) is not CoreEngine:
+                _core_engine = CoreEngine()
     return _core_engine
 
 
@@ -289,10 +294,15 @@ def build_market_action_keyboard(market_id: str, market_title: str) -> InlineKey
 
 async def send_or_edit(message_or_callback, text: str, keyboard: InlineKeyboardMarkup = None) -> None:
     """Вспомогательная функция для отправки нового или редактирования существующего сообщения."""
+    from aiogram.exceptions import TelegramBadRequest
     if isinstance(message_or_callback, types.Message):
         await message_or_callback.answer(text, reply_markup=keyboard, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
-        await message_or_callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        try:
+            await message_or_callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                raise
         await message_or_callback.answer()
 
 @dp.message(CommandStart())
@@ -491,7 +501,6 @@ async def command_synthetic_handler(message: types.Message) -> None:
     try:
         from services.synthetic_corridor_scanner import run_synthetic_corridor_scan
         from services.notifications import send_synthetic_corridor_alerts
-        import asyncio
         
         found = await asyncio.to_thread(
             run_synthetic_corridor_scan,
@@ -511,13 +520,13 @@ async def command_synthetic_handler(message: types.Message) -> None:
 async def command_health_handler(message: types.Message) -> None:
     from config import llm_health_gate
     from core.checkpoint import _checkpoints_cache
-    from datetime import datetime
+    from datetime import datetime, timezone
     
     # Сбор данных LLMHealthGate
     state = llm_health_gate.state
     state_emoji = "🟢" if state == "HEALTHY" else "🟡" if state == "DEGRADED" else "🔴"
     
-    now = datetime.now()  # LLMHealthGate.error_timestamps тоже naive (datetime.now()), согласовано
+    now = datetime.now(timezone.utc)
     error_cnt = len([t for t in llm_health_gate.error_timestamps if (now - t).total_seconds() <= 60])
 
     backoff_active = "ДА" if llm_health_gate.retry_after > now else "НЕТ"
@@ -1136,11 +1145,16 @@ async def command_logs_handler(message: types.Message) -> None:
         return
     
     try:
-        # Читаем последние 10 строк нативно (без `tail`, которого нет на Windows)
-        with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
-            all_lines = f.readlines()
-            last_lines = all_lines[-10:]
-            logs = "".join(last_lines)
+        # Читаем только конец файла с помощью seek
+        with open(LOG_PATH, "rb") as f:
+            try:
+                f.seek(-10000, 2)  # прыгаем на 10 КБ от конца
+            except OSError:
+                f.seek(0)
+            content_bytes = f.read()
+            content = content_bytes.decode("utf-8", errors="replace")
+            last_lines = content.splitlines()[-10:]
+            logs = "\n".join(last_lines)
         # Экранируем спецсимволы для HTML
         safe_logs = logs.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         await message.answer(f"📜 <b>Последние логи:</b>\n<pre>{safe_logs}</pre>")
