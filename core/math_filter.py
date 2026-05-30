@@ -1,6 +1,7 @@
 from enum import Enum
 from dataclasses import dataclass
 import re
+from datetime import datetime as _dt
 from typing import Optional
 import logging
 from core.models import Market
@@ -39,7 +40,6 @@ def _parse_threshold(title: str) -> Optional[tuple[float, str]]:
         
     # БАГ 4 ФИКС: двухпроходная стратегия для индексов/абсолютных чисел.
     # Проблема: "S&P 500 above 5500" — regex находил 500 (из тикера) раньше, чем 5500 (порог).
-    from datetime import datetime as _dt
     _cur_year = _dt.now().year
 
     def _is_year(v: float) -> bool:
@@ -144,14 +144,35 @@ def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = 
         if quarters_a and quarters_b and quarters_a != quarters_b:
             return False
 
+    # Проверка несовпадающих типов выборов (выборы в Сенат, Палату, промежуточные и т.д. — разные события)
+    election_types = {'midterm', 'midterms', 'senate', 'house', 'governor', 'presidential', 'president', 'mayor'}
+    type_a = {w for w in re.findall(r'\b\w+\b', title_a.lower()) if w in election_types}
+    type_b = {w for w in re.findall(r'\b\w+\b', title_b.lower()) if w in election_types}
+    def norm_type(types):
+        res = set()
+        for t in types:
+            if t == 'midterms':
+                res.add('midterm')
+            elif t in ('presidential', 'president'):
+                res.add('president')
+            else:
+                res.add(t)
+        return res
+    norm_a = norm_type(type_a)
+    norm_b = norm_type(type_b)
+    if norm_a and norm_b and not (norm_a & norm_b):
+        return False
+
     stopwords = {
         'will', 'the', 'a', 'an', 'in', 'by', 'of', 'to', 'at', 'on', 'for',
         'above', 'below', 'over', 'under', 'hit', 'hits', 'reach', 'exceed',
-        'its', 'be', 'is', 'are', 'was', 'close', 'closing', 'end', 'finish',
-        'market', 'cap', 'price', 'value', 'valuation', 'worth', 'stock', 'stocks', # финансовые нейтральные
-        'win', 'wins', 'election', 'elections', 'presidential', 'us', 'usa',
+        'its', 'be', 'is', 'are', 'was',
+        'close', 'closes', 'closed', 'closing',
+        'end', 'finish',
+        'market', 'cap', 'price', 'value', 'valuation', 'worth', 'stock', 'stocks',
+        'win', 'wins',
+        'presidential', 'us', 'usa',
         'who', 'whom', 'whose', 'which', 'what', 'where', 'when', 'how', 'why',
-        'close', 'closes', 'closed'
     }
     time_markers = {
         'q1', 'q2', 'q3', 'q4', 'jan', 'feb', 'mar', 'apr',
@@ -165,7 +186,10 @@ def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = 
     aliases = {
         'btc': 'bitcoin', 'eth': 'ethereum', 'fed': 'federal',
         'sp500': 'sp', 's&p': 'sp', 'spx': 'sp',
-        'presidency': 'election', 'president': 'election',
+        'democrats': 'democrat', 'democratic': 'democrat',
+        'republicans': 'republican', 'gop': 'republican',
+        'midterms': 'midterm',
+        'elections': 'election',
     }
     def normalize(title: str) -> set:
         # Предобработка: нормализуем тикеры ДО токенизации

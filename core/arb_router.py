@@ -16,12 +16,12 @@ logger = logging.getLogger("arb_router")
 
 _MIN_SPREAD_FOR_LLM = 8.0   # ниже — не тратим токены
 _SCHEMA = {
-    "type": "OBJECT",
+    "type": "object",
     "properties": {
-        "same_event":  {"type": "BOOLEAN"},
-        "confidence":  {"type": "NUMBER"},
-        "reason":      {"type": "STRING"},
-        "confirmed_arb": {"type": "BOOLEAN"},
+        "same_event":    {"type": "boolean"},
+        "confidence":    {"type": "number"},
+        "reason":        {"type": "string"},
+        "confirmed_arb": {"type": "boolean"},
     },
     "required": ["same_event", "confidence", "reason", "confirmed_arb"]
 }
@@ -79,7 +79,14 @@ def route_ambiguous(
         if not result:
             return None
         text = extract_response_text(result)
-        return json.loads(text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as jde:
+            logger.warning(
+                f"[arb_router] JSONDecodeError: {jde}. "
+                f"Raw text ({len(text)} chars): {text[:300]!r}"
+            )
+            return None
     except Exception as e:
         logger.warning(f"[arb_router] Ошибка LLM: {e}")
         return None

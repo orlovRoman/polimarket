@@ -19,7 +19,7 @@ _STOPWORDS = frozenset({
     'yes', 'no',
 })
 
-_PRICE_TAG_RE = re.compile(r'\([A-Z]+:\s*\d+¢[^)]*\)')
+_PRICE_TAG_RE = re.compile(r'\([A-Z]+:\s*\d+¢[^)]*\)', re.IGNORECASE)
 
 def _strip_price_tag(title: str) -> str:
     return _PRICE_TAG_RE.sub("", title).strip()
