@@ -9,9 +9,20 @@ def get_core_engine():
     """Возвращает единственный экземпляр CoreEngine (синглтон) для всего процесса."""
     global _core_engine
     CoreEngineClass = core.engine.CoreEngine
-    if _core_engine is None or not isinstance(_core_engine, CoreEngineClass):
+    
+    try:
+        is_valid = isinstance(_core_engine, CoreEngineClass)
+    except TypeError:
+        is_valid = False
+        
+    if _core_engine is None or not is_valid:
         with _core_engine_lock:
-            if _core_engine is None or not isinstance(_core_engine, CoreEngineClass):
+            try:
+                is_valid_locked = isinstance(_core_engine, CoreEngineClass)
+            except TypeError:
+                is_valid_locked = False
+                
+            if _core_engine is None or not is_valid_locked:
                 # Гарантируем, что БД инициализирована до инстанцирования синглтона
                 init_db()
                 _core_engine = CoreEngineClass()
