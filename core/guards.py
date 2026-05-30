@@ -8,6 +8,8 @@ class LLMUnavailableError(Exception):
         super().__init__(message)
         self.agent_name = agent_name
 
+_RATE_LIMIT_CODES = frozenset({429, 403, 503})
+
 class LLMHealthGate:
     def __init__(self):
         self.state = "HEALTHY"  # HEALTHY, DEGRADED, DEAD
@@ -22,7 +24,7 @@ class LLMHealthGate:
         self.dead_pause_sec = 300  # 5 мин
 
     def record_error(self, status_code: int):
-        if status_code not in (429, 503):
+        if status_code not in _RATE_LIMIT_CODES:
             return
             
         with self.lock:

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from config import GOOGLE_API_KEY, SCAN_LIMIT_DEFAULT
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import (
-    init_db, cleanup_stale_signals, save_market, get_last_analyzed_price,
+    init_db, save_market, get_last_analyzed_price,
     save_price_point, add_discussion_message, mark_market_analyzed
 )
 from core.models import Market
@@ -37,20 +37,20 @@ def _callback_accepts_reply_markup(func) -> bool:
             if func in _markup_cache:
                 return _markup_cache[func]
     except TypeError:
-        # func нехэшируем (например, functools.partial). Обходим кэш.
-        pass
+        pass  # нехэшируемая функция — идём дальше без кэша
 
     try:
         sig = inspect.signature(func)
         res = "reply_markup" in sig.parameters
-        with _markup_cache_lock:
-            try:
-                _markup_cache[func] = res
-            except TypeError:
-                pass
-        return res
     except (ValueError, TypeError):
         return False
+
+    try:
+        with _markup_cache_lock:
+            _markup_cache.setdefault(func, res)  # атомарная запись только если нет
+    except TypeError:
+        pass
+    return res
 
 class NoMarketsFoundError(Exception):
     """Исключение, выбрасываемое когда активные рынки по фильтрам не найдены."""
@@ -366,8 +366,8 @@ class CoreEngine:
                 if summary_callback:
                     try:
                         summary_callback(error_msg)
-                    except Exception as e:
-                        logger.error(f"summary_callback error: {e}")
+                    except Exception as cb_err:
+                        logger.error(f"summary_callback error: {cb_err}")
             finally:
                 with self._markets_lock:
                     if m.id in self.active_markets:
