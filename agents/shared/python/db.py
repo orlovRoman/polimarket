@@ -387,6 +387,20 @@ def init_db():
             # Индексы для ускорения частых запросов
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at)")
+            
+            # Разрешаем конфликт дубликатов PENDING сигналов перед созданием уникального индекса
+            cursor.execute("""
+                UPDATE signals 
+                SET status = 'ARCHIVED' 
+                WHERE status = 'PENDING' 
+                  AND rowid NOT IN (
+                      SELECT MAX(rowid) 
+                      FROM signals 
+                      WHERE status = 'PENDING' 
+                      GROUP BY market_id
+                  )
+            """)
+            
             cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_signals_market_pending ON signals(market_id) WHERE status = 'PENDING'")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_opinions_market ON agent_opinions(market_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_chat ON chat_history(chat_id, timestamp)")

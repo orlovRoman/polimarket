@@ -21,7 +21,7 @@ def test_route_ambiguous_low_spread_skips_llm():
         arbitrage_type="price_divergence",
         spread_pct=5.0, reasoning="", trade_instruction=""
     )
-    with patch("agents.shared.utils.gemini_client.generate_content_with_fallback") as mock_gen:
+    with patch("core.arb_router.generate_content_with_fallback") as mock_gen:
         res = route_ambiguous(mf, _mkt("a", "Title A", 0.5), _mkt("b", "Title B", 0.45), api_key="test")
         assert res is None
         mock_gen.assert_not_called()
@@ -33,7 +33,7 @@ def test_route_ambiguous_non_ambiguous_skips_llm():
         arbitrage_type="price_divergence",
         spread_pct=15.0, reasoning="", trade_instruction=""
     )
-    with patch("agents.shared.utils.gemini_client.generate_content_with_fallback") as mock_gen:
+    with patch("core.arb_router.generate_content_with_fallback") as mock_gen:
         res = route_ambiguous(mf, _mkt("a", "Title A", 0.5), _mkt("b", "Title B", 0.45), api_key="test")
         assert res is None
         mock_gen.assert_not_called()
@@ -46,8 +46,8 @@ def test_route_ambiguous_high_spread_calls_llm_and_parses_json():
         spread_pct=10.0, reasoning="", trade_instruction=""
     )
     mock_payload = (MagicMock(), None)
-    with patch("agents.shared.utils.gemini_client.generate_content_with_fallback", return_value=mock_payload) as mock_gen, \
-         patch("agents.shared.utils.gemini_client.extract_response_text", return_value='{"same_event": true, "confidence": 0.9, "reason": "ok", "confirmed_arb": true}'):
+    with patch("core.arb_router.generate_content_with_fallback", return_value=mock_payload) as mock_gen, \
+         patch("core.arb_router.extract_response_text", return_value='{"same_event": true, "confidence": 0.9, "reason": "ok", "confirmed_arb": true}'):
         res = route_ambiguous(mf, _mkt("a", "Title A", 0.5), _mkt("b", "Title B", 0.40), api_key="test")
         assert res == {
             "same_event": True,

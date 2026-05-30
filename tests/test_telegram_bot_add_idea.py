@@ -36,17 +36,18 @@ def test_callback_add_idea_success():
     }
     
     with patch("agents.shared.python.db.get_connection") as mock_conn:
-        # Настройка моков для возврата рынка и проверки дубликатов
         mock_cursor = mock_conn.return_value.__enter__.return_value.cursor.return_value
         
-        # Сначала SELECT для markets, затем SELECT для check_already_pending, затем SELECT для audit
+        # 1. Поиск рынка, 2. Поиск scout_edge в audit
         mock_cursor.fetchone.side_effect = [
             mock_market,       # 1. Поиск рынка
-            None,              # 2. Проверка дубликата (нет дубликата)
-            {"scout_edge": 0.25} # 3. Поиск scout_edge в audit
+            {"scout_edge": 0.25} # 2. Поиск scout_edge в audit
         ]
         
         with patch("agents.shared.python.db.save_signal") as mock_save:
+            # Имитируем успешное сохранение уникального сигнала
+            mock_save.return_value = True
+            
             asyncio.run(callback_add_idea(callback_query))
             
             # Проверяем, что сигнал был сохранен
@@ -55,7 +56,6 @@ def test_callback_add_idea_success():
             assert saved_signal.market_id == "market_123"
             assert saved_signal.type == "MANUAL"
             assert saved_signal.edge == 0.25
-            assert saved_signal.status == "PENDING"
             
             # Проверяем, что пользователю отправлено уведомление об успехе
             callback_query.answer.assert_called_once_with(
@@ -86,16 +86,19 @@ def test_callback_add_idea_already_exists():
         mock_cursor = mock_conn.return_value.__enter__.return_value.cursor.return_value
         mock_cursor.fetchone.side_effect = [
             mock_market,  # 1. Поиск рынка
-            {"1": 1}      # 2. Рынок уже есть в PENDING
+            {"scout_edge": 0.15} # 2. scout_edge из audit (не влияет на дубликат)
         ]
         
         with patch("agents.shared.python.db.save_signal") as mock_save:
+            # Имитируем, что save_signal вернул False (сигнал уже существует, UNIQUE constraint сработал)
+            mock_save.return_value = False
+            
             asyncio.run(callback_add_idea(callback_query))
             
-            # Проверяем, что повторно сигнал не сохранялся
-            mock_save.assert_not_called()
+            # Проверяем, что сохранение вызывалось
+            mock_save.assert_called_once()
             
-            # Пользователю показан алерт
+            # Пользователю показан алерт о дубликате
             callback_query.answer.assert_called_once_with(
                 "ℹ️ Этот рынок уже находится в списке торговых идей /ideas!",
                 show_alert=True

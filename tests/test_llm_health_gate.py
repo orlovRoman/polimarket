@@ -1,6 +1,6 @@
 import pytest
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from core.guards import LLMHealthGate, LLMUnavailableError
 
 class TestLLMHealthGate:
@@ -32,7 +32,7 @@ class TestLLMHealthGate:
         gate._force_dead()
         # Симулируем истечение паузы
         with gate.lock:
-            gate.retry_after = datetime.now() - timedelta(seconds=1)
+            gate.retry_after = datetime.now(timezone.utc) - timedelta(seconds=1)
         result = gate.check_availability()
         assert result is True
         assert gate.state == "HEALTHY"
@@ -42,7 +42,7 @@ class TestLLMHealthGate:
         gate = self._gate()
         gate._force_degraded()
         with gate.lock:
-            gate.retry_after = datetime.now() - timedelta(seconds=1)
+            gate.retry_after = datetime.now(timezone.utc) - timedelta(seconds=1)
         result = gate.check_availability()
         assert result is True
         assert gate.state == "HEALTHY"

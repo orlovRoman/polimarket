@@ -65,7 +65,7 @@ class CoreEngine:
         if not cls._instance:
             with cls._lock:
                 if not cls._instance:
-                    cls._instance = super(CoreEngine, cls).__new__(cls)
+                    cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self):

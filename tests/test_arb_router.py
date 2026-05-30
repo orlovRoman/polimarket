@@ -41,7 +41,7 @@ def test_returns_none_if_not_ambiguous():
 def test_returns_none_if_spread_too_low():
     """Маленький спред → LLM не вызывается."""
     mf = _ambiguous_mf(spread=_MIN_SPREAD_FOR_LLM - 1.0)
-    with patch("agents.shared.utils.gemini_client.generate_content_with_fallback") as mock_llm:
+    with patch("core.arb_router.generate_content_with_fallback") as mock_llm:
         result = route_ambiguous(mf, _mkt("a","X",0.5), _mkt("b","Y",0.47), api_key="key")
     mock_llm.assert_not_called()
     assert result is None
@@ -55,9 +55,9 @@ def test_llm_called_for_large_spread():
         {"text": json.dumps({"same_event": True, "confidence": 0.85,
                              "reason": "Одно событие", "confirmed_arb": True})}
     ]}}]}
-    with patch("agents.shared.utils.gemini_client.generate_content_with_fallback",
+    with patch("core.arb_router.generate_content_with_fallback",
                return_value=(fake_response, "gemini-flash")) as mock_llm, \
-         patch("agents.shared.utils.gemini_client.extract_response_text",
+         patch("core.arb_router.extract_response_text",
                return_value=json.dumps({"same_event": True, "confidence": 0.85,
                                         "reason": "Одно событие", "confirmed_arb": True})):
         result = route_ambiguous(mf, _mkt("a","Bitcoin above 100K Dec",0.60),
@@ -74,9 +74,9 @@ def test_llm_response_parsed_correctly():
         "same_event": False, "confidence": 0.3,
         "reason": "Разные события", "confirmed_arb": False
     })
-    with patch("agents.shared.utils.gemini_client.generate_content_with_fallback",
+    with patch("core.arb_router.generate_content_with_fallback",
                return_value=({"candidates":[{"content":{"parts":[{"text": payload_str}]}}]}, "m")), \
-         patch("agents.shared.utils.gemini_client.extract_response_text",
+         patch("core.arb_router.extract_response_text",
                return_value=payload_str):
         result = route_ambiguous(mf, _mkt("a","X",0.5), _mkt("b","Y",0.35), api_key="key")
     assert result["same_event"] is False
@@ -85,7 +85,7 @@ def test_llm_response_parsed_correctly():
 def test_returns_none_on_llm_error():
     """LLM-ошибка → None без краша."""
     mf = _ambiguous_mf(spread=20.0)
-    with patch("agents.shared.utils.gemini_client.generate_content_with_fallback",
+    with patch("core.arb_router.generate_content_with_fallback",
                side_effect=Exception("network error")):
         result = route_ambiguous(mf, _mkt("a","X",0.5), _mkt("b","Y",0.30), api_key="key")
     assert result is None
@@ -96,7 +96,7 @@ def test_prompt_is_compact(monkeypatch):
     def fake_generate(api_key, payload, **kwargs):
         captured["prompt"] = payload["contents"][0]["parts"][0]["text"]
         return None, None
-    monkeypatch.setattr("agents.shared.utils.gemini_client.generate_content_with_fallback", fake_generate)
+    monkeypatch.setattr("core.arb_router.generate_content_with_fallback", fake_generate)
     mf = _ambiguous_mf(spread=15.0)
     route_ambiguous(mf, _mkt("a", "Bitcoin above 100K December 2026", 0.6),
                         _mkt("b", "Bitcoin above 80K December 2026", 0.45), api_key="key")
