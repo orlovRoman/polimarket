@@ -698,7 +698,7 @@ async def main():
                                 post_text=f"[{chat_name}] news signal"
                             )
                         else:
-                            logger.info(f"[Listener] 🔗 Найден URL рынка {pm_url} в сигнале из {chat_name}, но он не разрешился. Пропускаем.")
+                            logger.info(f"[Listener] ⚪️ Пост был в группе {chat_name}, но рынок с URL {pm_url} не определен (пропускаем).")
                         return  # не переходим к LLM-поиску других рынков, если был указан конкретный URL
             
                     # Приоритет 3: LLM — только если URL не нашли
@@ -714,7 +714,7 @@ async def main():
                             post_text=f"[{chat_name}] news signal"
                         )
                     else:
-                        logger.info(f"[Listener] ⚪️ Для новости из {chat_name} рынки на Polymarket не найдены.")
+                        logger.info(f"[Listener] ⚪️ Пост был в группе {chat_name}, но соответствующий рынок не определен (пропускаем).")
                     
         except Exception as e:
             logger.error(f"[Listener] ❌ Ошибка при обработке сообщения: {e}\n{traceback.format_exc()}")
