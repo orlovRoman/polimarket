@@ -697,7 +697,9 @@ async def main():
                                 post_url=tg_post_url,
                                 post_text=f"[{chat_name}] news signal"
                             )
-                            return  # не тратим LLM-запрос
+                        else:
+                            logger.info(f"[Listener] 🔗 Найден URL рынка {pm_url} в сигнале из {chat_name}, но он не разрешился. Пропускаем.")
+                        return  # не переходим к LLM-поиску других рынков, если был указан конкретный URL
             
                     # Приоритет 3: LLM — только если URL не нашли
                     markets = news_processor.find_relevant_markets(text)
