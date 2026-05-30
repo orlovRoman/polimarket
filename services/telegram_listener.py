@@ -115,22 +115,30 @@ def restore_markdown_links(text: str, entities) -> str:
     if not entities:
         return text
     try:
-        # Конвертируем Python str в surrogate-encoded str для корректных смещений
         from telethon.helpers import add_surrogate, del_surrogate
+        original_text_s = add_surrogate(text)
         text_s = add_surrogate(text)
+        seen_urls: set[str] = set()
 
         sorted_entities = sorted(entities, key=lambda e: e.offset, reverse=True)
         for ent in sorted_entities:
-            if hasattr(ent, 'url') and ent.url:
-                url = ent.url
-                offset = ent.offset
-                length = ent.length
-                anchor_text = del_surrogate(text_s[offset:offset+length])
-                # Если URL уже написан в явном виде рядом (чтобы не дублировать), пропускаем
-                if url in text[max(0, offset-100):offset+length+100]:
-                    continue
-                replacement = add_surrogate(f"{anchor_text} ({url})")
-                text_s = text_s[:offset] + replacement + text_s[offset+length:]
+            if not (hasattr(ent, 'url') and ent.url):
+                continue
+            url = ent.url
+            if url in seen_urls:
+                continue
+            offset = ent.offset
+            length = ent.length
+            
+            # Проверяем в оригинальной surrogate-строке по точным смещениям
+            url_s = add_surrogate(url)
+            if url_s in original_text_s[max(0, offset-100):offset+length+100]:
+                continue
+                
+            anchor_text = del_surrogate(text_s[offset:offset+length])
+            replacement = add_surrogate(f"{anchor_text} ({url})")
+            text_s = text_s[:offset] + replacement + text_s[offset+length:]
+            seen_urls.add(url)
 
         return del_surrogate(text_s)
     except Exception as e:
@@ -145,9 +153,9 @@ def _score_market(m, text: str) -> int:
     if clean_title in clean_text:
         score += 1000
         
-    # Считаем пересечение слов
-    words_title = set(w for w in re.findall(r'[a-z0-9]+', clean_title) if len(w) >= 3)
-    words_text = set(w for w in re.findall(r'[a-z0-9]+', clean_text) if len(w) >= 3)
+    # Считаем пересечение слов ( len >= 2 для аббревиатур вроде ai, eu, us, fed )
+    words_title = set(w for w in re.findall(r'[a-z0-9]+', clean_title) if len(w) >= 2)
+    words_text = set(w for w in re.findall(r'[a-z0-9]+', clean_text) if len(w) >= 2)
     score += len(words_title.intersection(words_text)) * 10
     
     # Приоритет активным рынкам
@@ -294,7 +302,7 @@ def parse_whale_alert(text: str, entities=None) -> dict:
         result["alias"] = alias_match.group(1)
     
     # 4. Ищем сумму сделки в USD (например, $15,000 или $1,250.50)
-    amount_match = re.search(r'\$([0-9,]+(?:\.[0-9]+)?)', text)
+    amount_match = re.search(r'\$([0-9][0-9,]*(?:\.[0-9]+)?)', text)
     if amount_match:
         result["amount_usd"] = float(amount_match.group(1).replace(",", ""))
         
