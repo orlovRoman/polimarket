@@ -1528,6 +1528,14 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
             pass
 
 
+def _get_emoji_number(num: int) -> str:
+    digits = {
+        '0': '0️⃣', '1': '1️⃣', '2': '2️⃣', '3': '3️⃣', '4': '4️⃣',
+        '5': '5️⃣', '6': '6️⃣', '7': '7️⃣', '8': '8️⃣', '9': '9️⃣'
+    }
+    return "".join(digits[d] for d in str(num))
+
+
 async def send_ideas_page(message_or_callback, page: int = 0) -> None:
     signals = await asyncio.to_thread(get_signals, 50)
     if not signals:
@@ -1550,9 +1558,8 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
     
     response = f"🚀 <b>Торговые сигналы ({start_idx + 1}-{min(start_idx + chunk_size, len(signals))} из {len(signals)}):</b>\n\n"
     
-    keycaps = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣"}
-    
     for idx, s in enumerate(chunk, 1):
+        global_idx = start_idx + idx
         edge_pct = (s['edge'] or 0) * 100
         target = s.get('target_outcome', 'YES')
         price = s['market_price']
@@ -1564,7 +1571,7 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
         if len(summary_safe) > 500:
             summary_safe = summary_safe[:500] + "..."
             
-        emoji = keycaps.get(idx, "📍")
+        emoji = _get_emoji_number(global_idx)
         response += (
             f"{emoji} <b>{title_safe}</b>\n"
             f"🎯 <b>Рекомендация: Покупать {target}</b> (по цене ~{price:.3f})\n"
@@ -1579,11 +1586,12 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
     delete_buttons = []
     for idx, s in enumerate(chunk, 1):
         truncated_id = s['id'][:30]
+        global_idx = start_idx + idx
         # Делаем короткий заголовок, чтобы кнопка помещалась и выглядела эстетично
         short_title = s['title'][:20] + "..." if len(s['title']) > 20 else s['title']
         delete_buttons.append([
             InlineKeyboardButton(
-                text=f"🗑️ Удалить {idx}: {short_title}",
+                text=f"🗑️ Удалить {global_idx}: {short_title}",
                 callback_data=f"del_sig_{page}_{truncated_id}"
             )
         ])

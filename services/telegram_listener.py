@@ -140,8 +140,9 @@ def restore_markdown_links(text: str, entities) -> str:
 
             # 2. Если URL уже написан в тексте непосредственно рядом с анкором
             url_s = add_surrogate(url)
-            after_slice = original_text_s[offset+length:offset+length+len(url)+10]
-            before_slice = original_text_s[max(0, offset-len(url)-10):offset]
+            window = len(url_s) + 10
+            after_slice = original_text_s[offset+length:offset+length+window]
+            before_slice = original_text_s[max(0, offset-window):offset]
             
             if url_s in after_slice or url_s in before_slice:
                 continue
@@ -249,15 +250,13 @@ async def resolve_market_ids_from_url(url: str, text: str = "") -> list:
         """Проверяет объект рынка (не dict) на активность."""
         # closed флаг
         closed_val = getattr(m, 'closed', False)
-        if type(closed_val).__name__ == 'MagicMock':
-            closed_val = False
         if closed_val is True or closed_val == "true":
             return False
 
         # end date через атрибуты объекта
         for attr in ('end_date_iso', 'endDate', 'end'):
             raw = getattr(m, attr, None)
-            if raw and type(raw).__name__ != 'MagicMock':
+            if raw is not None:
                 try:
                     dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                     if dt.tzinfo is None:
@@ -278,8 +277,18 @@ async def resolve_market_ids_from_url(url: str, text: str = "") -> list:
     if text:
         markets = sorted(markets, key=lambda m: _score_market(m, text), reverse=True)
 
-    # Фильтруем истекшие
+    original_count = len(markets)
     markets = [m for m in markets if _is_market_active(m)]
+    filtered_count = original_count - len(markets)
+
+    if filtered_count > 0:
+        logger.warning(
+            f"[Resolver] ⏰ Отфильтровано {filtered_count} истёкших/закрытых рынков "
+            f"для slug '{slug}'. Осталось активных: {len(markets)}"
+        )
+    if not markets:
+        logger.warning(f"[Resolver] ⚠️ Все рынки для slug '{slug}' истекли или закрыты — пропускаем.")
+
     return [m.id for m in markets]
 
 def parse_whale_alert(text: str, entities=None) -> dict:
@@ -347,10 +356,19 @@ def parse_whale_alert(text: str, entities=None) -> dict:
     if alias_match and not result["alias"]:
         result["alias"] = alias_match.group(1)
     
-    # 4. Ищем сумму сделки в USD (например, $15,000 или $1,250.50)
-    amount_match = re.search(r'\$([0-9][0-9,]*(?:\.[0-9]+)?)', text)
-    if amount_match:
-        result["amount_usd"] = float(amount_match.group(1).replace(",", ""))
+    # 4. Ищем сумму сделки в USD (приоритет buy-контексту, затем fallback без P&L)
+    bought_amount = re.search(
+        r'\b(?:bought?|buy|buys?)\s+(?:YES|NO)\s+\$([0-9][0-9,]*(?:\.[0-9]+)?)',
+        text, re.IGNORECASE
+    )
+    if bought_amount:
+        result["amount_usd"] = float(bought_amount.group(1).replace(",", ""))
+    else:
+        # Убираем P&L контекст из поиска
+        text_no_pnl = re.sub(r'P&L[^$]*\$[0-9,]+', '', text, flags=re.IGNORECASE)
+        amount_match = re.search(r'\$([0-9][0-9,]*(?:\.[0-9]+)?)', text_no_pnl)
+        if amount_match:
+            result["amount_usd"] = float(amount_match.group(1).replace(",", ""))
         
     # 5. Ищем направление исхода (YES/NO) без слепого re.IGNORECASE для "no"
     if re.search(r'\b(?:bought?|buy|buy[s]?)\s+YES\b|\bYES\b(?=\s*\$|\s*@|\s*at\b)', text, re.IGNORECASE):

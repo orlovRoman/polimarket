@@ -13,6 +13,11 @@ def test_resolve_market_ids_adapter_success():
     mock_market.id = "market_123"
     mock_market.title = "Will Bitcoin hit 100k?"
     mock_market.price = 0.5
+    mock_market.closed = False
+    mock_market.end_date_iso = "2099-12-31T00:00:00Z"
+    mock_market.endDate = None
+    mock_market.end = None
+    mock_market.close_time = None
 
     with patch("services.telegram_listener.PolymarketAdapter") as MockAdapter:
         adapter_instance = MockAdapter.return_value
