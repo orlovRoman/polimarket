@@ -47,8 +47,7 @@ init_db()
 # Это исключает тяжёлую синхронную работу (загрузка промпта, инициализация Gemini)
 # внутри импорта и при конкурентных запросах нет нескольких экземпляров агента.
 _nexus_agent: NexusAgent | None = None
-_core_engine = None
-_core_engine_lock = threading.Lock()
+_add_idea_lock = asyncio.Lock()
 
 from collections import deque
 _processed_message_ids: deque[tuple[int, int]] = deque(maxlen=500)
@@ -56,13 +55,8 @@ _processed_callback_ids: deque[str] = deque(maxlen=200)
 
 def get_core_engine():
     """Возвращает единственный экземпляр CoreEngine (синглтон)."""
-    global _core_engine
-    from core.engine import CoreEngine
-    if _core_engine is None or type(_core_engine) is not CoreEngine:
-        with _core_engine_lock:
-            if _core_engine is None or type(_core_engine) is not CoreEngine:
-                _core_engine = CoreEngine()
-    return _core_engine
+    from core.singleton import get_core_engine as _get_shared_engine
+    return _get_shared_engine()
 
 
 def get_nexus_agent() -> NexusAgent:
@@ -812,7 +806,7 @@ async def callback_trigger_trend_hunter(callback: CallbackQuery) -> None:
         try:
             await asyncio.to_thread(run_trend_hunter)
         except Exception as e:
-            logging.error(f"[TrendHunter] Необработанное исключение: {e}", exc_info=True)
+            logger.error(f"[TrendHunter] Необработанное исключение: {e}", exc_info=True)
             from agents.shared.python.db import get_memory
             chat_id = os.getenv("TELEGRAM_CHAT_ID")
             if chat_id:
@@ -1073,11 +1067,27 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
 
 @dp.callback_query(F.data.startswith("sm_"))
 async def callback_save_model(callback: CallbackQuery) -> None:
-    parts = callback.data.split("_")
-    agent = parts[1]
-    model_key = "_".join(parts[2:])
-    
     models_mapping = get_dynamic_models_mapping()
+    
+    # Отрезаем префикс "sm_"
+    data = callback.data[3:]
+    
+    # Ищем точный ключ в маппинге с конца
+    for key in models_mapping:
+        if data.endswith(f"_{key}"):
+            model_key = key
+            agent = data[:-len(key) - 1]
+            break
+            
+    # Fallback на случай, если ключ не нашелся в маппинге
+    if not model_key:
+        parts = data.rsplit("_", 1)
+        if len(parts) == 2:
+            agent, model_key = parts
+        else:
+            agent = data
+            model_key = ""
+        
     provider, model_name, _ = models_mapping.get(model_key, ("openrouter", "meta-llama/llama-3.3-70b-instruct:free", "🦙 Llama 3.3"))
     
     from agents.shared.python.db import save_memory
@@ -1218,7 +1228,7 @@ async def command_arbitrage_handler(message: types.Message) -> None:
         
     except Exception as e:
         error_text = tb.format_exc()[-800:]  # последние 800 символов трассировки
-        logging.error(f"[ARBITRAGE] Ошибка: {error_text}")
+        logger.error(f"[ARBITRAGE] Ошибка: {error_text}")
         await status_msg.edit_text(f"❌ <b>Ошибка арбитражного сканирования:</b>\n<pre>{str(e)[:400]}</pre>", parse_mode="HTML")
 
 @dp.message(Command("corridor"))
@@ -1534,13 +1544,15 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
             )
         except Exception as e:
             await callback.message.answer(f"❌ Ошибка во время сканирования: {e}")
-        # Wait a bit to ensure the queue is empty before cancelling
-        await asyncio.sleep(2.5)
-        updater_task.cancel()
+        # Ждем завершения фоновой задачи обновления (она сама завершится, когда очередь summaries_queue опустеет и _scan_lock освободится)
         try:
-            await updater_task
-        except asyncio.CancelledError:
-            pass
+            await asyncio.wait_for(updater_task, timeout=10.0)
+        except asyncio.TimeoutError:
+            updater_task.cancel()
+            try:
+                await updater_task
+            except asyncio.CancelledError:
+                pass
 
 
 def _get_emoji_number(num: int) -> str:
@@ -1611,14 +1623,13 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
             )
         ])
         
-    keyboard.inline_keyboard = delete_buttons + keyboard.inline_keyboard
+    keyboard = InlineKeyboardMarkup(inline_keyboard=delete_buttons + keyboard.inline_keyboard)
     
     await send_or_edit(message_or_callback, response, keyboard)
 
 async def send_penny_page(message_or_callback, page: int = 0) -> None:
     signals = await asyncio.to_thread(get_signals, 100)
-    # Фильтруем только дешевые
-    penny_signals = [s for s in signals if s.get('market_price') and (0.01 <= s['market_price'] <= 0.05 or 0.95 <= s['market_price'] <= 0.99)]
+    penny_signals = [s for s in signals if s.get('market_price') is not None and min(s['market_price'], 1.0 - s['market_price']) <= 0.05]
     
     if not penny_signals:
         text = "🪙 Пока нет дешевых опционов в базе. Запустите сканирование."
@@ -1881,54 +1892,43 @@ async def callback_add_idea(callback: CallbackQuery) -> None:
     market_title = db_market["title"]
     market_price = db_market["price"]
     
-    # Проверяем, нет ли уже PENDING сигнала для этого рынка
-    is_already = False
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT 1 FROM signals WHERE market_id = ? AND status = 'PENDING'",
-            (full_market_id,)
+    async with _add_idea_lock:
+        # Ищем аудит для получения edge
+        scout_edge = 0.15
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT scout_edge FROM idea_audit WHERE market_id = ? ORDER BY created_at DESC LIMIT 1",
+                (full_market_id,)
+            )
+            row = cursor.fetchone()
+            if row and row["scout_edge"] is not None:
+                scout_edge = float(row["scout_edge"])
+                
+        # Создаем ручной сигнал
+        from datetime import datetime, timezone
+        signal = Signal(
+            id=f"manual_{full_market_id[:20]}_{int(time.time())}",
+            type="MANUAL",
+            market_id=full_market_id,
+            platform="polymarket",
+            target_outcome="YES",
+            trade_action="buy",
+            entry_price=market_price,
+            position_size_usd=0.0,
+            edge=scout_edge,
+            confidence=0.8,
+            priority="medium",
+            summary="Ручное добавление пользователем",
+            details="Пользователь вручную добавил этот рынок в список торговых идей.",
+            status="PENDING",
+            created_at=datetime.now(timezone.utc)
         )
-        if cursor.fetchone():
-            is_already = True
-            
-    if is_already:
-        await callback.answer("ℹ️ Этот рынок уже находится в списке торговых идей /ideas!", show_alert=True)
-        return
         
-    # Ищем аудит для получения edge
-    scout_edge = 0.15
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT scout_edge FROM idea_audit WHERE market_id = ? ORDER BY audited_at DESC LIMIT 1",
-            (full_market_id,)
-        )
-        row = cursor.fetchone()
-        if row and row["scout_edge"] is not None:
-            scout_edge = float(row["scout_edge"])
-            
-    # Создаем ручной сигнал
-    from datetime import datetime, timezone
-    signal = Signal(
-        id=f"manual_{full_market_id[:20]}_{int(time.time())}",
-        type="MANUAL",
-        market_id=full_market_id,
-        platform="polymarket",
-        target_outcome="YES",
-        trade_action="buy",
-        entry_price=market_price,
-        position_size_usd=0.0,
-        edge=scout_edge,
-        confidence=0.8,
-        priority="medium",
-        summary="Ручное добавление пользователем",
-        details="Пользователь вручную добавил этот рынок в список торговых идей.",
-        status="PENDING",
-        created_at=datetime.now(timezone.utc)
-    )
-    
-    await asyncio.to_thread(save_signal, signal)
+        inserted = await asyncio.to_thread(save_signal, signal, None, True)
+        if not inserted:
+            await callback.answer("ℹ️ Этот рынок уже находится в списке торговых идей /ideas!", show_alert=True)
+            return
     
     # Обновляем клавиатуру, показываем что добавлено
     new_kb = InlineKeyboardMarkup(inline_keyboard=[

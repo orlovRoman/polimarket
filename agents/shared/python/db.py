@@ -387,6 +387,7 @@ def init_db():
             # Индексы для ускорения частых запросов
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at)")
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_signals_market_pending ON signals(market_id) WHERE status = 'PENDING'")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_opinions_market ON agent_opinions(market_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_chat ON chat_history(chat_id, timestamp)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_markets_close ON markets(close_time)")
@@ -934,7 +935,7 @@ def save_market(market: Market):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (market.id, market.platform, market.title, market.description, market.url, market.outcome, market.price, market.close_time.isoformat(), tokens_json, market.volume, market.condition_id))
 
-def save_signal(signal: Signal, details_obj=None):
+def save_signal(signal: Signal, details_obj=None, or_ignore: bool = False) -> bool:
     with get_connection() as conn:
         cursor = conn.cursor()
         details_str = details_obj.model_dump_json() if details_obj else signal.details
@@ -942,10 +943,12 @@ def save_signal(signal: Signal, details_obj=None):
         target_outcome = details_obj.target_outcome if details_obj else 'YES'
         estimated_prob = details_obj.estimated_probability if details_obj else signal.confidence
         
-        cursor.execute("""
-            INSERT OR REPLACE INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability)
+        verb = "INSERT OR IGNORE" if or_ignore else "INSERT OR REPLACE"
+        cursor.execute(f"""
+            {verb} INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob))
+        return cursor.rowcount > 0
 
 def mark_market_analyzed(market_id: str, price: float):
     with get_connection() as conn:

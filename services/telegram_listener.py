@@ -69,17 +69,11 @@ def _is_target_source_match(chat_name: str, chat_id: int, target_sources: list[s
     return False
 
 _API_ANALYZE_TIMEOUT = 10.0
-
-_core_engine_instance: CoreEngine | None = None
-_core_engine_lock = threading.Lock()
-_scan_semaphore = threading.Semaphore(1)
+_scan_in_progress = False
 
 def _get_core_engine() -> CoreEngine:
-    global _core_engine_instance
-    with _core_engine_lock:
-        if _core_engine_instance is None:
-            _core_engine_instance = CoreEngine()
-        return _core_engine_instance
+    from core.singleton import get_core_engine as _get_shared_engine
+    return _get_shared_engine()
 
 # Папка для файла сессии Telethon
 SESSION_DIR = PROJECT_ROOT / "vault"
@@ -508,7 +502,7 @@ def build_tg_post_url(chat, msg_id: int) -> str:
     clean_id = str(chat.id).replace('-100', '')
     return f"https://t.me/c/{clean_id}/{msg_id}"
 
-async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: str = "whale", market_url: str = "", post_url: str = "", post_text: str = ""):
+async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: str = "whale", market_url: str = "", post_url: str = "", post_text: str = "", timeout_sec: float = 300.0):
     """
     Триггерит Orchestrator NEXUS для мгновенного точечного анализа рынка
     при обнаружении крупной сделки или новости.
@@ -521,10 +515,15 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
             logger.info(f"[Listener] 🗞 ТРИГГЕР: Важная новость ({source})! Запуск сканирования для {market_id}...")
             msg_text = f"🗞 <b>ТРИГГЕР (News):</b> Запущен внеочередной скан для рынка <code>{market_id}</code>"
             
-        def _trigger_scan():
-            if not _scan_semaphore.acquire(blocking=False):
-                logger.warning("[Listener] ⚠️ Скан уже выполняется, пропускаем новый триггер")
-                return
+        global _scan_in_progress
+        if _scan_in_progress:
+            logger.warning("[Listener] ⚠️ Скан уже выполняется, пропускаем новый триггер")
+            return
+            
+        _scan_in_progress = True
+        
+        async def _run_scan():
+            global _scan_in_progress
             try:
                 eng = _get_core_engine()
                 source_url = post_url or market_url or ""
@@ -532,14 +531,26 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
                     f"Whale transaction detected: ${amount_usd:,.0f}" if source == "whale"
                     else f"Triggered by: {source}"
                 )
-                eng.run_team_discussion(market_id=market_id, trigger_type="event_driven", source_url=source_url, source_text=source_text)
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        eng.run_team_discussion,
+                        market_id=market_id,
+                        trigger_type="event_driven",
+                        source_url=source_url,
+                        source_text=source_text
+                    ),
+                    timeout=timeout_sec
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"[Listener] ❌ trigger_nexus_scan: превышен таймаут {timeout_sec}с для {market_id}")
             except RuntimeError as e:
                 logger.warning(f"[Listener] ⚠️ trigger_nexus_scan: сканирование занято: {e}")
             except Exception as e:
                 logger.error(f"[Listener] ❌ trigger_nexus_scan: неожиданная ошибка: {e}\n{traceback.format_exc()}")
             finally:
-                _scan_semaphore.release()
-        threading.Thread(target=_trigger_scan, daemon=True).start()
+                _scan_in_progress = False
+                
+        asyncio.create_task(_run_scan())
             
         # Отправляем подтверждение в Telegram
         send_telegram_notify(msg_text)
@@ -564,9 +575,10 @@ async def main():
         logger.info("Их можно получить за 2 минуты на сайте: https://my.telegram.org")
         logger.info("="*60)
         
-        api_id_input = input("Введите ваш Telegram API ID: ").strip()
-        api_hash_input = input("Введите ваш Telegram API Hash: ").strip()
-        phone_input = input("Введите ваш номер телефона Telegram (в формате +79991234567): ").strip()
+        loop = asyncio.get_running_loop()
+        api_id_input = (await loop.run_in_executor(None, input, "Введите ваш Telegram API ID: ")).strip()
+        api_hash_input = (await loop.run_in_executor(None, input, "Введите ваш Telegram API Hash: ")).strip()
+        phone_input = (await loop.run_in_executor(None, input, "Введите ваш номер телефона Telegram (в формате +79991234567): ")).strip()
         
         if not api_id_input or not api_hash_input:
             logger.error("Ошибка: Настройки не введены. Работа завершена.")
