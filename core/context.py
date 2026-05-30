@@ -25,6 +25,7 @@ class MarketContext(BaseModel):
     search_query: str = ""
     
     # --- Event metadata ---
+    onchain_annotation: str = ""
     trigger_type: Literal["scheduled", "event_driven", "manual"] = "scheduled"
     source_url: Optional[str] = None
     source_text: Optional[str] = None

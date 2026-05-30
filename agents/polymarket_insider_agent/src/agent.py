@@ -47,8 +47,12 @@ class ShadowAgent:
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
                 
-        target_outcome = "NO" if "NO" in scout_opinion else "YES"
-        sm_block = guard_smart_money(smart_money, target_outcome)
+        onchain_line = getattr(context, 'onchain_annotation', '')
+        if onchain_line:
+            sm_block = f"=== ОНЧЕЙН АКТИВНОСТЬ (Smart Money) ===\n📊 {onchain_line}\n"
+        else:
+            target_outcome = "NO" if "NO" in scout_opinion else "YES"
+            sm_block = guard_smart_money(smart_money, target_outcome)
         
         # Загружаем RAG-память из Obsidian
         try:

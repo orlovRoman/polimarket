@@ -150,6 +150,34 @@ async def scheduled_temporal_corridors():
     except Exception as e:
         logger.error(f"Ошибка сканирования временных коридоров: {e}", exc_info=True)
 
+async def scheduled_wallet_recalculation():
+    """Периодический пересчет win_rate кошельков."""
+    logger.info(">>> Запуск периодического пересчета win_rate крупных кошельков...")
+    try:
+        from services.wallet_tracker import recalculate_win_rates
+        await asyncio.to_thread(recalculate_win_rates)
+        logger.info("<<< Пересчет win_rate кошельков завершен успешно.")
+    except Exception as e:
+        logger.error(f"Ошибка при пересчете win_rate кошельков: {e}", exc_info=True)
+
+async def job_onchain_alerts():
+    """Фоновый скан и отправка ончейн-всплесков объёма."""
+    logger.info(">>> Запуск сканирования ончейн-всплесков объёма...")
+    try:
+        from services.onchain_trend_alert import scan_volume_spikes, build_spike_message
+        from agents.shared.python.db import mark_alert_sent
+        
+        spikes = await asyncio.to_thread(scan_volume_spikes)
+        for spike in spikes:
+            msg = build_spike_message(spike)
+            # Отправляем сообщение в авторизованный чат
+            await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+            mark_alert_sent(f"onchain_spike_{spike['market_id']}", "onchain_spike")
+            logger.info(f"Отправлен ончейн-алерт по рынку: {spike['title']}")
+        logger.info("<<< Сканирование ончейн-всплесков завершено.")
+    except Exception as e:
+        logger.error(f"Ошибка при сканировании ончейн-всплесков: {e}", exc_info=True)
+
 async def start_fastapi():
     """Запуск FastAPI сервера в фоне (через asyncio)"""
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
@@ -232,12 +260,13 @@ async def start_system():
 
     scheduler.add_job(scheduled_resolution, 'interval', hours=6)
     
-    # scheduler.add_job(scheduled_job)  # немедленный запуск при старте (отключено, чтобы не блокировать ручной /scan при перезапуске)
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
     scheduler.add_job(scheduled_cross_arbitrage_scan, 'interval', hours=4)  # кросс-арбитраж каждые 4 ч
     scheduler.add_job(scheduled_synthetic_corridors, 'interval', minutes=15) # синтетические коридоры каждые 15 м
     scheduler.add_job(scheduled_temporal_corridors, 'interval', minutes=30) # временные коридоры каждые 30 м
+    scheduler.add_job(scheduled_wallet_recalculation, 'cron', hour=3) # пересчет win_rate кошельков раз в сутки в 3:00 ночи
+    scheduler.add_job(job_onchain_alerts, 'interval', minutes=30) # ончейн-алерты всплесков объема каждые 30 минут
 
     logger.info("🤖 Бот NEXUS запускается...")
     try:

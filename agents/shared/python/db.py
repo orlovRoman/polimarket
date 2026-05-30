@@ -81,6 +81,7 @@ def init_db():
                     outcome TEXT NOT NULL,
                     price REAL NOT NULL,
                     close_time TIMESTAMP NOT NULL,
+                    condition_id TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -410,12 +411,14 @@ def init_db():
             # Индекс по категории (создается после миграции, так как колонка category может отсутствовать при чистом создании)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_category ON memory (category)")
 
-            # Миграция: добавляем новые колонки в markets (tokens, volume)
+            # Миграция: добавляем новые колонки в markets (tokens, volume, condition_id)
             market_cols = {row[1] for row in cursor.execute("PRAGMA table_info(markets)").fetchall()}
             if 'tokens' not in market_cols:
                 cursor.execute("ALTER TABLE markets ADD COLUMN tokens TEXT DEFAULT NULL")
             if 'volume' not in market_cols:
                 cursor.execute("ALTER TABLE markets ADD COLUMN volume REAL DEFAULT NULL")
+            if 'condition_id' not in market_cols:
+                cursor.execute("ALTER TABLE markets ADD COLUMN condition_id TEXT DEFAULT NULL")
             
             # Таблица логов LLM
             cursor.execute("""
@@ -927,9 +930,9 @@ def save_market(market: Market):
         cursor = conn.cursor()
         tokens_json = json.dumps(market.tokens) if market.tokens else None
         cursor.execute("""
-            INSERT OR REPLACE INTO markets (id, platform, title, description, url, outcome, price, close_time, tokens, volume)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (market.id, market.platform, market.title, market.description, market.url, market.outcome, market.price, market.close_time.isoformat(), tokens_json, market.volume))
+            INSERT OR REPLACE INTO markets (id, platform, title, description, url, outcome, price, close_time, tokens, volume, condition_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (market.id, market.platform, market.title, market.description, market.url, market.outcome, market.price, market.close_time.isoformat(), tokens_json, market.volume, market.condition_id))
 
 def save_signal(signal: Signal, details_obj=None):
     with get_connection() as conn:
@@ -1484,16 +1487,16 @@ def get_known_whales() -> dict:
     with get_connection() as conn:
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT address, alias, win_rate, total_won, total_vol FROM known_whales")
+            cursor.execute("SELECT address, alias, win_rate, total_profit FROM wallets")
             for row in cursor.fetchall():
                 whales[row["address"]] = {
                     "alias": row["alias"],
                     "win_rate": row["win_rate"],
-                    "total_won": row["total_won"],
-                    "total_vol": row["total_vol"]
+                    "total_won": row["total_profit"],
+                    "total_vol": row["total_profit"]
                 }
         except Exception as e:
-            logger.error(f"[DB] Ошибка при чтении known_whales: {e}")
+            logger.error(f"[DB] Ошибка при чтении wallets для known_whales: {e}")
     return whales
 
 

@@ -296,6 +296,23 @@ class CoreEngine:
                     # Добавляем smart_money в контекст
                     context.smart_money = smart_money
                     
+                    from services.wallet_tracker import ingest_trades
+                    ingest_trades(m.id, onchain_trades, onchain_positions)
+                    
+                    from core.onchain_scorer import compute_onchain_score
+                    target = getattr(active_signal, 'target_outcome', 'YES')
+                    oc_score = compute_onchain_score(smart_money, target_outcome=target)
+                    
+                    # Корректируем edge детерминированно (без LLM)
+                    if active_signal and signal and oc_score.confidence > 0.3:
+                        if oc_score.direction == "CONFIRM":
+                            signal.edge = min(signal.edge * (1 + oc_score.score * 0.2), 0.95)
+                        elif oc_score.direction == "CONTRA":
+                            signal.edge = signal.edge * (1 - abs(oc_score.score) * 0.3)
+                    
+                    # В контекст уходит только аннотация — 1 строка, ~10 токенов
+                    context.onchain_annotation = oc_score.annotation
+                    
                     try:
                         scout_opinion = getattr(signal, 'details', '') or getattr(signal, 'signal_cause', '') if signal else ""
                         swing_opinion = getattr(swing_signal, 'details', '') or getattr(swing_signal, 'catalyst', '') if swing_signal else ""
@@ -320,7 +337,24 @@ class CoreEngine:
                             )
                             logger.info(f"  [SHADOW fast-path] Авто-отклонение: {liq.reason}")
                         else:
-                            opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, orderbook=orderbook, price_history=price_hist)
+                            from core.whale_gate import check_whale_gate
+                            gate = check_whale_gate(oc_score)
+                            if not gate.allow:
+                                from core.models import AgentOpinion
+                                opinion_shadow = AgentOpinion(
+                                    agent_name="SHADOW",
+                                    market_id=m.id,
+                                    opinion=gate.reason,
+                                    confidence=0.9,
+                                    agree=False,
+                                    orderbook_facts="Whale Gate active",
+                                    risk_assessment="Крупные кошельки торгуют против идеи",
+                                    shadow_verdict=gate.reason,
+                                    liquidity_risk="HIGH"
+                                )
+                                logger.info(f"  [WHALE GATE] {gate.reason}")
+                            else:
+                                opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, orderbook=orderbook, price_history=price_hist)
                         save_checkpoint(f"shadow_{m.id}", status="ok")
                     except LLMUnavailableError:
                         save_checkpoint(f"shadow_{m.id}", status="llm_unavailable")

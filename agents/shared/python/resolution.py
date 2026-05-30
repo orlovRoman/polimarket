@@ -80,12 +80,12 @@ def resolve_closed_markets():
                     is_win = True
                     
                 new_status = 'WIN' if is_win else 'LOSS'
+                resolved_outcome = 'YES' if winner_index == 0 else 'NO'
                 
                 cursor.execute("UPDATE signals SET status = ? WHERE id = ?", (new_status, sig_id))
+                cursor.execute("UPDATE markets SET outcome = ? WHERE id = ?", (resolved_outcome, m_id))
                 count_resolved += 1
                 logger.info(f"Signal {sig_id} resolved as {new_status} (Market: {row['title']})")
-                
-                resolved_outcome = 'YES' if winner_index == 0 else 'NO'
                 outcome_label = 'correct' if is_win else 'incorrect'
                 save_agent_episode(
                     agent_name=agent_name,
