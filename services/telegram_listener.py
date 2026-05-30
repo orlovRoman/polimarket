@@ -8,8 +8,6 @@ import httpx
 import logging
 import traceback
 from pathlib import Path
-from datetime import datetime
-import requests
 
 # Подключаем корень проекта для правильных импортов
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -111,35 +109,31 @@ def restore_markdown_links(text: str, entities) -> str:
     """
     Восстанавливает скрытые markdown-ссылки из entities сообщения Telethon,
     превращая их в явный текстовый формат: 'Текст (URL)'.
-    Идет с конца текста к началу, чтобы смещения (offsets) не плыли при вставке.
+    Идет с конца текста к началу, используя surrogate encoding для Telethon.
     """
     if not entities:
         return text
-        
     try:
-        # Сортируем entities по offset в обратном порядке
+        # Конвертируем Python str в surrogate-encoded str для корректных смещений
+        from telethon.helpers import add_surrogate, del_surrogate
+        text_s = add_surrogate(text)
+
         sorted_entities = sorted(entities, key=lambda e: e.offset, reverse=True)
-        
         for ent in sorted_entities:
-            # Проверяем, что это MessageEntityTextUrl и у него есть URL
             if hasattr(ent, 'url') and ent.url:
                 url = ent.url
                 offset = ent.offset
                 length = ent.length
-                
-                # Извлекаем текст, под которым скрыта ссылка
-                anchor_text = text[offset:offset+length]
-                
+                anchor_text = del_surrogate(text_s[offset:offset+length])
                 # Если URL уже написан в явном виде рядом (чтобы не дублировать), пропускаем
-                if url in text[offset:offset+length+100] or url in text[max(0, offset-100):offset]:
+                if url in text[max(0, offset-100):offset+length+100]:
                     continue
-                    
-                # Формируем замену: "Текст (URL)"
-                replacement = f"{anchor_text} ({url})"
-                text = text[:offset] + replacement + text[offset+length:]
+                replacement = add_surrogate(f"{anchor_text} ({url})")
+                text_s = text_s[:offset] + replacement + text_s[offset+length:]
+
+        return del_surrogate(text_s)
     except Exception as e:
         logger.error(f"[Listener] Ошибка восстановления ссылок из entities: {e}")
-        
     return text
 
 def _score_market(m, text: str) -> int:
@@ -288,9 +282,9 @@ def parse_whale_alert(text: str, entities=None) -> dict:
         result["outcome"] = "YES"
     elif re.search(r'\b(?:bought?|buy|buy[s]?)\s+NO\b|\bNO\b(?=\s*\$|\s*@|\s*at\b)', text, re.IGNORECASE):
         result["outcome"] = "NO"
-    elif 'YES' in text:
+    elif re.search(r'\bYES\b', text):
         result["outcome"] = "YES"
-    elif 'NO' in text:
+    elif re.search(r'\bNO\b', text):
         result["outcome"] = "NO"
         
     # 6. Ищем цену контракта (например, at 61.2¢ или @ 45¢ или price: 0.52)
@@ -369,9 +363,9 @@ def parse_radar_signal(text: str, entities=None) -> dict:
         result["outcome"] = "YES"
     elif re.search(r'\bBuy\s+No\b', text, re.IGNORECASE):
         result["outcome"] = "NO"
-    elif 'YES' in text:
+    elif re.search(r'\bYES\b', text):
         result["outcome"] = "YES"
-    elif 'NO' in text:
+    elif re.search(r'\bNO\b', text):
         result["outcome"] = "NO"
 
     # 4. Amount: $11,136
@@ -589,7 +583,7 @@ async def main():
                     logger.warning("[Listener] ⚠️ ВНИМАНИЕ: polymarketalerthub добавлен в target_sources! Это приведет к двойному анализу (глубокий API + быстрый Nexus).")
                     
                 # 1. Запускаем глубокий Event-Driven анализ
-                post_id = save_telegram_post(str(chat.id), msg_id, text)
+                post_id = await asyncio.to_thread(save_telegram_post, str(chat.id), msg_id, text)
                 if post_id and TELEGRAM_GROUP2_TARGET_ID:
                     logger.info(f"[Listener] 🧠 Триггерим глубокий анализ поста из {chat_name} (ID: {post_id})...")
                     
@@ -632,7 +626,8 @@ async def main():
                     market_ids = await resolve_market_ids_from_url(bet_info["market_url"], text)
                     if market_ids:
                         for m_id in market_ids:
-                            save_trader_transaction(
+                            await asyncio.to_thread(
+                                save_trader_transaction,
                                 wallet_address=bet_info["wallet"],
                                 market_id=m_id,
                                 outcome=bet_info["outcome"] or "YES",

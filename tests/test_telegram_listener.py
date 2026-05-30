@@ -421,8 +421,8 @@ def test_handler_parses_radarpolybot_as_whale():
             # Запускаем сам handler с замоканным ивентом
             asyncio.run(handler_func(mock_event))
             
-            # Должен быть вызван resolve_market_ids_from_url
-            mock_resolve.assert_called_once_with("https://polymarket.com/event/trump-leads")
+            # Должен быть вызван resolve_market_ids_from_url с текстом сообщения
+            mock_resolve.assert_called_once_with("https://polymarket.com/event/trump-leads", mock_event.message.message)
             
             # Должен быть вызван save_trader_transaction
             mock_save.assert_called_once()
@@ -431,7 +431,7 @@ def test_handler_parses_radarpolybot_as_whale():
             mock_trigger.assert_called_once()
             args, kwargs = mock_trigger.call_args
             assert args[0] == "market123"
-            assert args[1] == 15000.0
+            assert kwargs["amount_usd"] == 15000.0
             assert kwargs["source"] == "whale"
             assert kwargs["market_url"] == "https://polymarket.com/event/trump-leads"
     
@@ -514,13 +514,15 @@ def test_parse_whale_alert_username_profile():
 def test_resolve_market_ids_invalid_url():
     """Не-Polymarket URL → пустой список"""
     from services.telegram_listener import resolve_market_ids_from_url
-    assert resolve_market_ids_from_url("https://google.com/search") == []
+    import asyncio
+    assert asyncio.run(resolve_market_ids_from_url("https://google.com/search")) == []
 
 
 def test_resolve_market_ids_no_slug():
     """URL без slug → пустой список"""
     from services.telegram_listener import resolve_market_ids_from_url
-    assert resolve_market_ids_from_url("https://polymarket.com/") == []
+    import asyncio
+    assert asyncio.run(resolve_market_ids_from_url("https://polymarket.com/")) == []
 
 
 def test_resolve_market_ids_extracts_slug():
