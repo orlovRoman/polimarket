@@ -30,7 +30,7 @@ class SwingAgent:
         news_titles = context.news_titles
         reddit_posts = context.reddit_posts
         wiki_context = context.wiki_context
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         price_hist = price_history or []
         
         try:
@@ -137,6 +137,7 @@ class SwingAgent:
         )
 
         prompt = f"""
+Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
 Текущая цена: {market.price}
 Дата закрытия: {market.close_time} ({hours_to_close:.0f}ч осталось)

@@ -7,6 +7,7 @@ import threading
 import httpx
 import logging
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Подключаем корень проекта для правильных импортов
@@ -154,6 +155,16 @@ def _score_market(m, text: str) -> int:
         score += 5
     return score
 
+def _parse_end_date(item: dict) -> datetime:
+    for field in ("endDate", "end_date_iso", "endDateIso", "end"):
+        raw = item.get(field)
+        if raw:
+            try:
+                return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                continue
+    return datetime(2099, 12, 31, tzinfo=timezone.utc)
+
 async def resolve_market_ids_from_url(url: str, text: str = "") -> list:
     """
     Вычленяет slug события или маркета из URL Polymarket, находит соответствующие рынки
@@ -183,6 +194,11 @@ async def resolve_market_ids_from_url(url: str, text: str = "") -> list:
                     if isinstance(event_data, list) and event_data:
                         for m in event_data[0].get("markets", []):
                             if "id" in m:
+                                if m.get("closed") is True or m.get("closed") == "true":
+                                    continue
+                                close_time = _parse_end_date(m)
+                                if close_time <= datetime.now(timezone.utc):
+                                    continue
                                 market_ids.append(m["id"])
         except Exception as e:
             logger.error(f"[Resolver] Ошибка при fallback-запросе event-слага {slug}: {e}")
@@ -196,6 +212,11 @@ async def resolve_market_ids_from_url(url: str, text: str = "") -> list:
                         if isinstance(markets_raw, list) and markets_raw:
                             for m in markets_raw:
                                 if "id" in m:
+                                    if m.get("closed") is True or m.get("closed") == "true":
+                                        continue
+                                    close_time = _parse_end_date(m)
+                                    if close_time <= datetime.now(timezone.utc):
+                                        continue
                                     market_ids.append(m["id"])
             except Exception as e:
                 logger.error(f"[Resolver] Ошибка при fallback-запросе маркет-слага {slug}: {e}")

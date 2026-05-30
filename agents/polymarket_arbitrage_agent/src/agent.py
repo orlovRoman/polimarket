@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime, timezone
 from core.models import Market, CrossArbitrageSignal
 from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
 from core.math_filter import math_pre_filter, FilterDecision
@@ -145,6 +146,8 @@ class ArbitrageAgent:
             )
             return None
 
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
         from agents.shared.utils.prompt_guards import guard_description
         desc_a = guard_description(market_a.description) if (hasattr(market_a, "description") and market_a.description) else (
             "⚠️ description_a ОТСУТСТВУЕТ — logical_contradiction невозможно."
@@ -153,15 +156,18 @@ class ArbitrageAgent:
             "⚠️ description_b ОТСУТСТВУЕТ — logical_contradiction невозможно."
         )
 
-        prompt = f"""Оцени следующую пару рынков на предмет кросс-рыночного арбитража.
+        prompt = f"""Сегодняшняя дата и время: {now_str}
+Оцени следующую пару рынков на предмет кросс-рыночного арбитража.
 Тип корреляции, обнаруженный системой: {correlation_type} (score: {score})
 
 === РЫНОК A: {market_a.title} ===
 Цена YES: {market_a.price}
+Закрытие: {market_a.close_time.strftime('%Y-%m-%d')}
 {desc_a}
 
 === РЫНОК B: {market_b.title} ===
 Цена YES: {market_b.price}
+Закрытие: {market_b.close_time.strftime('%Y-%m-%d')}
 {desc_b}
 
 Есть ли здесь логическое или математическое противоречие (расхождение) в ценах?"""
@@ -317,6 +323,8 @@ class ArbitrageAgent:
                          f"Best Ask: {orderbook_b.get('top_ask', 'N/A')})\n")
 
         # BUG-03: Убрано дублирующее "Отвечай строго JSON." 
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
         from agents.shared.utils.prompt_guards import guard_description
         desc_a = guard_description(market_a.description) if (hasattr(market_a, "description") and market_a.description) else (
             "⚠️ description_a ОТСУТСТВУЕТ — logical_contradiction невозможно."
@@ -325,7 +333,8 @@ class ArbitrageAgent:
             "⚠️ description_b ОТСУТСТВУЕТ — logical_contradiction невозможно."
         )
 
-        prompt = f"""Ты — аналитик кросс-платформенного арбитража рынков предсказаний.
+        prompt = f"""Сегодняшняя дата и время: {now_str}
+Ты — аналитик кросс-платформенного арбитража рынков предсказаний.
 
 Два рынка с РАЗНЫХ платформ, которые, по всей видимости, описывают ОДНО событие:
 

@@ -141,9 +141,16 @@ class NexusAgent:
             selected_model = self.db_manager.get_memory("selected_model")
             current_model = selected_model if selected_model else self.model_name
         
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        current_system_instruction = (
+            f"ТЕКУЩЕЕ ВРЕМЯ СИСТЕМЫ: {now}\n"
+            f"ВНИМАНИЕ: Все рынки на {datetime.now(timezone.utc).year - 1} год и ранее считаются ИСТЕКШИМИ. Не анализируй их.\n\n"
+            f"{self.base_instructions}"
+        )
+
         payload = {
             "contents": [{"role": "user", "parts": [{"text": screening_prompt}]}],
-            "systemInstruction": {"parts": [{"text": self.base_instructions}]},
+            "systemInstruction": {"parts": [{"text": current_system_instruction}]},
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": {
