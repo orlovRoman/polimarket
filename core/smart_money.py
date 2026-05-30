@@ -58,6 +58,8 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
     total_yes = sum(v["yes_usd"] for v in wallet_stats.values())
     total_no = sum(v["no_usd"] for v in wallet_stats.values())
 
+    wallets_list = []
+    from core.context import WalletInfo
     for addr, stats in top_wallets:
         whale_info = known_whales.get(addr, {})
         alias = whale_info.get("alias", addr[:8] + "...")
@@ -66,6 +68,14 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
         side = "YES" if stats["yes_usd"] > stats["no_usd"] else "NO"
         vol = stats["yes_usd"] + stats["no_usd"]
         lines.append(f"  {alias}{wr_str} → {side} ${vol:,.0f}")
+        
+        wallets_list.append(WalletInfo(
+            address=addr,
+            alias=whale_info.get("alias"),
+            win_rate=win_rate,
+            side=side,
+            volume_usd=vol
+        ))
 
     return SmartMoneySummary(
         available=True,
@@ -73,5 +83,6 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
         total_no_usd=round(total_no),
         yes_dominance=round(total_yes / (total_yes + total_no), 2) if (total_yes + total_no) > 0 else 0.5,
         top_wallets=lines,
-        summary="\n".join(lines) if lines else "Крупных сделок не найдено."
+        summary="\n".join(lines) if lines else "Крупных сделок не найдено.",
+        wallets_list=wallets_list
     )

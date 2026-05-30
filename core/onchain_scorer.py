@@ -39,38 +39,44 @@ def compute_onchain_score(
     known = get_known_whales()
     whale_boost = 0.0
     whale_count = 0
-    for line in sm.top_wallets:
-        # Парсим адрес из строки вида "  0xABC123... | WR: 75% → YES $5000" или "  alias | WR: 75% → YES $5000"
-        # Будем искать соответствие по адресу или по алиасу.
-        # Топ-кошельки формируются в smart_money.py:
-        #   alias = whale_info.get("alias", addr[:8] + "...")
-        #   wr_str = f" | WR: {win_rate*100:.0f}%" if win_rate is not None else ""
-        #   lines.append(f"  {alias}{wr_str} → {side} ${vol:,.0f}")
-        # Извлечем сначала имя/адрес из строки
-        parts = line.strip().split(" | ")
-        if not parts:
-            continue
-        # Первое поле - это alias или сокращенный адрес.
-        # Например: "0xABC123..." или "MyWhaleAlias"
-        alias_part = parts[0].split(" → ")[0].strip() # На случай если нет " | WR: "
-        
-        # Попробуем сопоставить с базой данных known (которая возвращает address и alias)
-        match = None
-        for addr, whale_info in known.items():
-            db_alias = whale_info.get("alias")
-            # Если alias совпадает или адрес начинается с alias_part (если это сокращенный адрес)
-            if (db_alias and db_alias == alias_part) or addr.startswith(alias_part.replace("...", "")):
-                match = whale_info
-                break
-                
-        if match:
-            wr = match.get("win_rate") or 0.0
-            # Whale с WR>0.6 на нашей стороне → +0.1
-            if wr > 0.6:
-                whale_boost += 0.1
-            elif wr < 0.4:
-                whale_boost -= 0.1
-            whale_count += 1
+
+    if getattr(sm, "wallets_list", None):
+        for w in sm.wallets_list:
+            match = known.get(w.address)
+            if not match and w.alias:
+                for addr, whale_info in known.items():
+                    if whale_info.get("alias") == w.alias:
+                        match = whale_info
+                        break
+            if match:
+                wr = match.get("win_rate") or 0.0
+                if wr > 0.6:
+                    whale_boost += 0.1
+                elif wr < 0.4:
+                    whale_boost -= 0.1
+                whale_count += 1
+    else:
+        # Fallback на парсинг top_wallets для обратной совместимости со старыми тестами
+        for line in sm.top_wallets:
+            parts = line.strip().split(" | ")
+            if not parts:
+                continue
+            alias_part = parts[0].split(" → ")[0].strip()
+            
+            match = None
+            for addr, whale_info in known.items():
+                db_alias = whale_info.get("alias")
+                if (db_alias and db_alias == alias_part) or addr.startswith(alias_part.replace("...", "")):
+                    match = whale_info
+                    break
+                    
+            if match:
+                wr = match.get("win_rate") or 0.0
+                if wr > 0.6:
+                    whale_boost += 0.1
+                elif wr < 0.4:
+                    whale_boost -= 0.1
+                whale_count += 1
 
     final_score = max(-1.0, min(1.0, raw_score + whale_boost))
 

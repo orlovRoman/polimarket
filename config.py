@@ -50,6 +50,10 @@ SCAN_LIMIT_DEFAULT = int(os.getenv("SCAN_LIMIT", "30"))
 MIN_EDGE_DEFAULT = float(os.getenv("MIN_EDGE", "0.05"))
 WHALE_ALERT_MIN_USD = float(os.getenv("WHALE_ALERT_MIN_USD", "10000"))  # Мин. сумма для whale-алерта
 
+# Настройки Whale Gate
+WHALE_GATE_MIN_CONFIDENCE = float(os.getenv("WHALE_GATE_MIN_CONFIDENCE", "0.5"))
+WHALE_GATE_MIN_COUNT = int(os.getenv("WHALE_GATE_MIN_COUNT", "2"))
+
 # Настройки кросс-платформенного арбитража
 ARB_POLY_LIMIT = int(os.getenv("ARB_POLY_LIMIT", "100"))
 ARB_KALSHI_LIMIT = int(os.getenv("ARB_KALSHI_LIMIT", "100"))

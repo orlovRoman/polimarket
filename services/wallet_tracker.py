@@ -13,6 +13,11 @@ def ingest_trades(market_id: str, trades: list, positions: list) -> int:
     Сохраняет крупные сделки из onchain_trades в trader_transactions.
     Вызывается из engine.py ПОСЛЕ analyze_smart_money().
     Возвращает кол-во сохранённых записей.
+
+    IMPORTANT: Данная функция является СИНХРОННОЙ и выполняет блокирующие
+    дисковые SQL-запросы к базе данных SQLite. Если вызов происходит
+    внутри асинхронного контекста (asyncio), её необходимо оборачивать
+    в `asyncio.to_thread` во избежание блокирования event loop.
     """
     saved = 0
     for trade in trades:

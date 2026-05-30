@@ -44,6 +44,7 @@ def scan_volume_spikes(min_spike_ratio: float = 3.0) -> list[dict]:
         if is_alert_already_sent(alert_key, ttl_hours=6):
             continue
         spikes.append(dict(row))
+        mark_alert_sent(alert_key)
     return spikes
 
 
@@ -51,7 +52,8 @@ def build_spike_message(spike: dict) -> str:
     """Форматирует алерт. Никакого LLM."""
     vol_recent = spike["vol_recent"]
     vol_prev = spike["vol_prev"]
-    ratio = vol_recent / max(vol_prev, 1.0)
+    vol_prev_safe = max(vol_prev, 100.0)
+    ratio = vol_recent / vol_prev_safe
     side = "YES" if spike["yes_vol"] > spike["no_vol"] else "NO"
     price_yes = int(round(spike["price"] * 100))
     return (

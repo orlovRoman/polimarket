@@ -2,6 +2,14 @@ from typing import List, Optional, Literal, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 from core.models import Market
+
+class WalletInfo(BaseModel):
+    address: str
+    alias: Optional[str] = None
+    win_rate: Optional[float] = None
+    side: str  # "YES" | "NO"
+    volume_usd: float
+
 class SmartMoneySummary(BaseModel):
     available: bool
     total_yes_usd: float = 0.0
@@ -9,6 +17,7 @@ class SmartMoneySummary(BaseModel):
     yes_dominance: float = 0.5
     top_wallets: List[str] = Field(default_factory=list)
     summary: str = "Крупных сделок не найдено."
+    wallets_list: List[WalletInfo] = Field(default_factory=list)
 
 class MarketContext(BaseModel):
     """
