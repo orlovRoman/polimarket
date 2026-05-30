@@ -44,7 +44,7 @@ def scan_volume_spikes(min_spike_ratio: float = 3.0) -> list[dict]:
         if is_alert_already_sent(alert_key, ttl_hours=6):
             continue
         spikes.append(dict(row))
-        mark_alert_sent(alert_key)
+        mark_alert_sent(alert_key, "onchain_spike")
     return spikes
 
 
