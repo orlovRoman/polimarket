@@ -51,7 +51,7 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
             wallet_stats[addr]["no_usd"] += usd
 
     # Топ кошельки по объёму
-    known_whales = get_known_whales()  # {address: {alias, win_rate}}
+    known_whales = {k.lower(): v for k, v in get_known_whales().items()}  # {address: {alias, win_rate}}
     top_wallets = sorted(wallet_stats.items(), key=lambda x: x[1]["yes_usd"] + x[1]["no_usd"], reverse=True)[:5]
 
     lines = []
@@ -61,7 +61,7 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
     wallets_list = []
     from core.context import WalletInfo
     for addr, stats in top_wallets:
-        whale_info = known_whales.get(addr, {})
+        whale_info = known_whales.get(addr.lower(), {})
         alias = whale_info.get("alias", addr[:8] + "...")
         win_rate = whale_info.get("win_rate")
         wr_str = f" | WR: {win_rate*100:.0f}%" if win_rate is not None else ""  # FIX #3

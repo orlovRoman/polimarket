@@ -218,7 +218,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 )
                 markets.append(m)
             except (KeyError, ValueError, TypeError, json.JSONDecodeError) as e:
-                logger.error(f"[PolymarketAdapter] list_markets parse error for {item.get('id')}: {e}")
+                logger.error(f"[PolymarketAdapter] list_markets parse error for {item.get('id')}: {e}", exc_info=True)
                 continue
                 
         return markets
@@ -302,16 +302,21 @@ class PolymarketAdapter(BaseMarketAdapter):
     def parse_events_to_markets(self, events: list, limit: int) -> List[Market]:
         """Flatten events to markets and parse them."""
         items = []
+        http_requests_count = 0
         for event in events:
             event_id = event.get('id')
             # Если в событии нет списка markets, догружаем его полную версию по ID
             if event_id and not event.get('markets'):
-                try:
-                    resp = self.session.get(f"{self.api_url}/events/{event_id}", timeout=10)
-                    if resp.status_code == 200:
-                        event = resp.json()
-                except Exception as e:
-                    logger.error(f"[PolymarketAdapter] Failed to load full event by ID {event_id}: {e}")
+                if http_requests_count < 5:
+                    try:
+                        resp = self.session.get(f"{self.api_url}/events/{event_id}", timeout=10)
+                        http_requests_count += 1
+                        if resp.status_code == 200:
+                            event = resp.json()
+                    except Exception as e:
+                        logger.error(f"[PolymarketAdapter] Failed to load full event by ID {event_id}: {e}")
+                else:
+                    logger.warning(f"[PolymarketAdapter] Skipping event load for {event_id} due to API request limit (5)")
                     
             event_slug = event.get('slug')
             event_desc = event.get('description', '')

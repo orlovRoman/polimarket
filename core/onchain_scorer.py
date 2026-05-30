@@ -7,7 +7,7 @@ from agents.shared.python.db import get_known_whales
 class OnchainScore:
     score: float          # -1.0 ... +1.0, знак = направление рынка
     confidence: float     # 0.0 ... 1.0
-    direction: str        # "YES" | "NO" | "NEUTRAL"
+    direction: str        # "CONFIRM" | "CONTRA" | "NEUTRAL"
     annotation: str       # Короткий текст для промпта (≤ 80 символов)
     whale_count: int      # Кол-во known_whales в топ-5
     yes_dominance: float
@@ -36,13 +36,13 @@ def compute_onchain_score(
     raw_score = max(-1.0, min(1.0, raw_score))
 
     # 2. Бонус за known whales (умные деньги значимее анонимов)
-    known = get_known_whales()
+    known = {k.lower(): v for k, v in get_known_whales().items()}
     whale_boost = 0.0
     whale_count = 0
 
     if getattr(sm, "wallets_list", None):
         for w in sm.wallets_list:
-            match = known.get(w.address)
+            match = known.get(w.address.lower())
             if not match and w.alias:
                 for addr, whale_info in known.items():
                     if whale_info.get("alias") == w.alias:

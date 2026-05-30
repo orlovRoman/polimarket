@@ -399,10 +399,17 @@ def init_db():
                 SET status = 'ARCHIVED' 
                 WHERE status = 'PENDING' 
                   AND id NOT IN (
-                      SELECT MAX(id) 
-                      FROM signals 
-                      WHERE status = 'PENDING' 
-                      GROUP BY market_id
+                      SELECT id 
+                      FROM signals s1
+                      WHERE status = 'PENDING'
+                        AND id = (
+                            SELECT id 
+                            FROM signals 
+                            WHERE market_id = s1.market_id 
+                              AND status = 'PENDING' 
+                            ORDER BY created_at DESC, id DESC 
+                            LIMIT 1
+                        )
                   )
             """)
             
@@ -879,7 +886,7 @@ def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summari
             if old_msgs:
                 summary_to_save = (
                     f"[Архив диалога от {datetime.now(timezone.utc).strftime('%Y-%m-%d')}]: "
-                    + " | ".join(old_msgs[:10])
+                    + " | ".join(old_msgs[:100])
                 )
 
         cursor.execute("""
@@ -962,11 +969,28 @@ def save_signal(signal: Signal, details_obj=None, or_ignore: bool = False) -> bo
         target_outcome = details_obj.target_outcome if details_obj else 'YES'
         estimated_prob = details_obj.estimated_probability if details_obj else signal.confidence
         
-        verb = "INSERT OR IGNORE" if or_ignore else "INSERT OR REPLACE"
-        cursor.execute(f"""
-            {verb} INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob))
+        if or_ignore:
+            cursor.execute("""
+                INSERT OR IGNORE INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob))
+        else:
+            cursor.execute("""
+                INSERT INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    type=excluded.type,
+                    market_id=excluded.market_id,
+                    platform=excluded.platform,
+                    edge=excluded.edge,
+                    confidence=excluded.confidence,
+                    priority=excluded.priority,
+                    summary=excluded.summary,
+                    details=excluded.details,
+                    status=excluded.status,
+                    target_outcome=excluded.target_outcome,
+                    estimated_probability=excluded.estimated_probability
+            """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob))
         return cursor.rowcount > 0
 
 def mark_market_analyzed(market_id: str, price: float):
@@ -1116,7 +1140,7 @@ def get_relevant_facts(context_keywords: list = None, limit: int = 20) -> list:
         contextual = []
         if context_keywords:
             for kw in context_keywords[:3]:
-                cursor.execute("""
+                cursor.execute(r"""
                     SELECT key, value FROM memory
                     WHERE (expires_at IS NULL OR expires_at > datetime('now'))
                       AND category = 'fact'
@@ -1200,7 +1224,7 @@ def cleanup_stale_signals():
         
         # 3. Перенос прошлогодних (fallback)
         stale_year = str(datetime.now(timezone.utc).year - 1)
-        cursor.execute("""
+        cursor.execute(r"""
             UPDATE signals SET status = 'ARCHIVED'
             WHERE status = 'PENDING' AND market_id IN (
                 SELECT id FROM markets WHERE title LIKE ? ESCAPE '\'
@@ -1245,7 +1269,7 @@ def search_vault_index(query: str, limit: int = 10) -> list:
     """
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(r"""
             SELECT path, category, title, tags FROM vault_index
             WHERE title LIKE ? ESCAPE '\' OR tags LIKE ? ESCAPE '\' OR path LIKE ? ESCAPE '\'
             ORDER BY updated_at DESC
@@ -1509,13 +1533,26 @@ def get_known_whales() -> dict:
     with get_connection() as conn:
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT address, alias, win_rate, total_profit FROM wallets")
+            cursor.execute("""
+                SELECT w.address, w.alias, w.win_rate, w.total_profit, 
+                       COALESCE(t.total_vol, 0.0) as total_vol
+                FROM wallets w
+                LEFT JOIN (
+                    SELECT wallet_address, SUM(amount_usd) as total_vol
+                    FROM trader_transactions
+                    GROUP BY wallet_address
+                ) t ON w.address = t.wallet_address
+            """)
             for row in cursor.fetchall():
+                total_won = row["total_profit"] or 0.0
+                total_vol = row["total_vol"] or 0.0
+                if total_vol < total_won:
+                    total_vol = total_won
                 whales[row["address"]] = {
                     "alias": row["alias"],
                     "win_rate": row["win_rate"],
-                    "total_won": row["total_profit"],
-                    "total_vol": row["total_profit"]
+                    "total_won": total_won,
+                    "total_vol": total_vol
                 }
         except Exception as e:
             logger.error(f"[DB] Ошибка при чтении wallets для known_whales: {e}")
