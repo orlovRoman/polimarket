@@ -5,6 +5,8 @@ import time
 import asyncio
 import threading
 import httpx
+import logging
+import traceback
 from pathlib import Path
 from datetime import datetime
 import requests
@@ -25,6 +27,9 @@ from services.notifications import send_telegram as send_telegram_notify
 from types import SimpleNamespace
 from core.engine import CoreEngine
 from agents.orchestrator.src.news_processor import NewsProcessor
+from core.arb_scanner import _PRICE_TAG_RE
+
+logger = logging.getLogger("telegram_listener")
 
 try:
     from telethon import TelegramClient, events
@@ -133,76 +138,78 @@ def restore_markdown_links(text: str, entities) -> str:
                 replacement = f"{anchor_text} ({url})"
                 text = text[:offset] + replacement + text[offset+length:]
     except Exception as e:
-        print(f"[Listener] Ошибка восстановления ссылок из entities: {e}")
+        logger.error(f"[Listener] Ошибка восстановления ссылок из entities: {e}")
         
     return text
 
-def resolve_market_ids_from_url(url: str, text: str = "") -> list:
+def _score_market(m, text: str) -> int:
+    score = 0
+    # Очищаем название рынка от ценового тега
+    clean_title = _PRICE_TAG_RE.sub('', m.title).strip().lower()
+    clean_text = text.lower()
+    if clean_title in clean_text:
+        score += 1000
+        
+    # Считаем пересечение слов
+    words_title = set(w for w in re.findall(r'[a-z0-9]+', clean_title) if len(w) >= 3)
+    words_text = set(w for w in re.findall(r'[a-z0-9]+', clean_text) if len(w) >= 3)
+    score += len(words_title.intersection(words_text)) * 10
+    
+    # Приоритет активным рынкам
+    if 0.01 < m.price < 0.99:
+        score += 5
+    return score
+
+async def resolve_market_ids_from_url(url: str, text: str = "") -> list:
     """
     Вычленяет slug события или маркета из URL Polymarket, находит соответствующие рынки
-    и сортирует их по релевантности к тексту сообщения text.
+    и сортирует их по релевантности к тексту сообщения text (асинхронно).
     """
     match = re.search(r'polymarket\.com/(?:event|market)/([a-zA-Z0-9_-]+)', url)
     if not match:
         return []
     slug = match.group(1)
     
-    # Используем PolymarketAdapter для надежного получения рынков по slug
+    # Используем PolymarketAdapter для надежного получения рынков по slug (в отдельном потоке)
     adapter = PolymarketAdapter()
     try:
-        markets = adapter.get_event_by_slug(slug)
+        markets = await asyncio.to_thread(adapter.get_event_by_slug, slug)
     except Exception as e:
-        print(f"[Resolver] Ошибка при запросе слага {slug} через адаптер: {e}")
+        logger.error(f"[Resolver] Ошибка при запросе слага {slug} через адаптер: {e}")
         markets = []
         
-    # Если адаптер не вернул рынки, делаем fallback на сырые запросы как было раньше
+    # Если адаптер не вернул рынки, делаем fallback на сырые асинхронные запросы
     if not markets:
         market_ids = []
         try:
-            resp = requests.get("https://gamma-api.polymarket.com/events", params={"slug": slug}, timeout=10)
-            if resp.status_code == 200:
-                event_data = resp.json()
-                if isinstance(event_data, list) and event_data:
-                    for m in event_data[0].get("markets", []):
-                        if "id" in m:
-                            market_ids.append(m["id"])
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get("https://gamma-api.polymarket.com/events", params={"slug": slug})
+                if resp.status_code == 200:
+                    event_data = resp.json()
+                    if isinstance(event_data, list) and event_data:
+                        for m in event_data[0].get("markets", []):
+                            if "id" in m:
+                                market_ids.append(m["id"])
         except Exception as e:
-            print(f"[Resolver] Ошибка при fallback-запросе event-слага {slug}: {e}")
+            logger.error(f"[Resolver] Ошибка при fallback-запросе event-слага {slug}: {e}")
             
         if not market_ids:
             try:
-                resp = requests.get("https://gamma-api.polymarket.com/markets", params={"slug": slug}, timeout=10)
-                if resp.status_code == 200:
-                    markets_raw = resp.json()
-                    if isinstance(markets_raw, list) and markets_raw:
-                        for m in markets_raw:
-                            if "id" in m:
-                                market_ids.append(m["id"])
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get("https://gamma-api.polymarket.com/markets", params={"slug": slug})
+                    if resp.status_code == 200:
+                        markets_raw = resp.json()
+                        if isinstance(markets_raw, list) and markets_raw:
+                            for m in markets_raw:
+                                if "id" in m:
+                                    market_ids.append(m["id"])
             except Exception as e:
-                print(f"[Resolver] Ошибка при fallback-запросе маркет-слага {slug}: {e}")
+                logger.error(f"[Resolver] Ошибка при fallback-запросе маркет-слага {slug}: {e}")
         return market_ids
 
     # Если рынки найдены, скорим их по релевантности к тексту сообщения
     if text:
-        def score_market(m):
-            score = 0
-            # Очищаем название рынка от YES/NO цен на конце
-            clean_title = re.sub(r'\s*\([^)]*\)\s*$', '', m.title).strip().lower()
-            clean_text = text.lower()
-            if clean_title in clean_text:
-                score += 1000
-                
-            # Считаем пересечение слов
-            words_title = set(w for w in re.findall(r'[a-z0-9]+', clean_title) if len(w) >= 3)
-            words_text = set(w for w in re.findall(r'[a-z0-9]+', clean_text) if len(w) >= 3)
-            score += len(words_title.intersection(words_text)) * 10
-            
-            # Приоритет активным рынкам
-            if 0.01 < m.price < 0.99:
-                score += 5
-            return score
-            
-        markets = sorted(markets, key=score_market, reverse=True)
+        markets = sorted(markets, key=lambda m: _score_market(m, text), reverse=True)
         
     return [m.id for m in markets]
 
@@ -276,10 +283,14 @@ def parse_whale_alert(text: str, entities=None) -> dict:
     if amount_match:
         result["amount_usd"] = float(amount_match.group(1).replace(",", ""))
         
-    # 5. Ищем направление исхода (YES/NO)
-    if re.search(r'\bYES\b', text, re.IGNORECASE):
+    # 5. Ищем направление исхода (YES/NO) без слепого re.IGNORECASE для "no"
+    if re.search(r'\b(?:bought?|buy|buy[s]?)\s+YES\b|\bYES\b(?=\s*\$|\s*@|\s*at\b)', text, re.IGNORECASE):
         result["outcome"] = "YES"
-    elif re.search(r'\bNO\b', text, re.IGNORECASE):
+    elif re.search(r'\b(?:bought?|buy|buy[s]?)\s+NO\b|\bNO\b(?=\s*\$|\s*@|\s*at\b)', text, re.IGNORECASE):
+        result["outcome"] = "NO"
+    elif 'YES' in text:
+        result["outcome"] = "YES"
+    elif 'NO' in text:
         result["outcome"] = "NO"
         
     # 6. Ищем цену контракта (например, at 61.2¢ или @ 45¢ или price: 0.52)
@@ -358,6 +369,10 @@ def parse_radar_signal(text: str, entities=None) -> dict:
         result["outcome"] = "YES"
     elif re.search(r'\bBuy\s+No\b', text, re.IGNORECASE):
         result["outcome"] = "NO"
+    elif 'YES' in text:
+        result["outcome"] = "YES"
+    elif 'NO' in text:
+        result["outcome"] = "NO"
 
     # 4. Amount: $11,136
     amount_match = re.search(r'Amount:\s*\$([0-9,]+(?:\.[0-9]+)?)', text)
@@ -408,15 +423,15 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
     """
     try:
         if source == "whale":
-            print(f"[Listener] 🚀 ТРИГГЕР: Крупная сделка (${amount_usd:,.0f})! Запуск внеочередного сканирования для {market_id}...")
+            logger.info(f"[Listener] 🚀 ТРИГГЕР: Крупная сделка (${amount_usd:,.0f})! Запуск внеочередного сканирования для {market_id}...")
             msg_text = f"🚀 <b>ТРИГГЕР (Whale):</b> Запущен внеочередной скан для рынка <code>{market_id}</code>"
         else:
-            print(f"[Listener] 🗞 ТРИГГЕР: Важная новость ({source})! Запуск сканирования для {market_id}...")
+            logger.info(f"[Listener] 🗞 ТРИГГЕР: Важная новость ({source})! Запуск сканирования для {market_id}...")
             msg_text = f"🗞 <b>ТРИГГЕР (News):</b> Запущен внеочередной скан для рынка <code>{market_id}</code>"
             
         def _trigger_scan():
             if not _scan_semaphore.acquire(blocking=False):
-                print("[Listener] ⚠️ Скан уже выполняется, пропускаем новый триггер")
+                logger.warning("[Listener] ⚠️ Скан уже выполняется, пропускаем новый триггер")
                 return
             try:
                 eng = _get_core_engine()
@@ -427,9 +442,9 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
                 )
                 eng.run_team_discussion(market_id=market_id, trigger_type="event_driven", source_url=source_url, source_text=source_text)
             except RuntimeError as e:
-                print(f"[Listener] ⚠️ trigger_nexus_scan: сканирование занято: {e}")
+                logger.warning(f"[Listener] ⚠️ trigger_nexus_scan: сканирование занято: {e}")
             except Exception as e:
-                print(f"[Listener] ❌ trigger_nexus_scan: неожиданная ошибка: {e}")
+                logger.error(f"[Listener] ❌ trigger_nexus_scan: неожиданная ошибка: {e}\n{traceback.format_exc()}")
             finally:
                 _scan_semaphore.release()
         threading.Thread(target=_trigger_scan, daemon=True).start()
@@ -438,11 +453,11 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
         send_telegram_notify(msg_text)
         
     except Exception as e:
-        print(f"[Listener] Ошибка запуска мгновенного сканирования: {e}")
+        logger.error(f"[Listener] Ошибка запуска мгновенного сканирования: {e}\n{traceback.format_exc()}")
 
 async def main():
     if TelegramClient is None:
-        print("[Listener] ❌ Telethon не установлен. Запустите: pip install telethon")
+        logger.error("[Listener] ❌ Telethon не установлен. Запустите: pip install telethon")
         return
         
     # Проверяем наличие учетных данных в .env
@@ -451,18 +466,18 @@ async def main():
     phone = TG_PHONE
     
     if not api_id or not api_hash:
-        print("="*60)
-        print("ТАБЛИЦА НАСТРОЕК TELEGRAM USERBOT")
-        print("Для работы real-time слушателя вам нужны API ID и API Hash.")
-        print("Их можно получить за 2 минуты на сайте: https://my.telegram.org")
-        print("="*60)
+        logger.info("="*60)
+        logger.info("ТАБЛИЦА НАСТНОЕК TELEGRAM USERBOT")
+        logger.info("Для работы real-time слушателя вам нужны API ID и API Hash.")
+        logger.info("Их можно получить за 2 минуты на сайте: https://my.telegram.org")
+        logger.info("="*60)
         
         api_id_input = input("Введите ваш Telegram API ID: ").strip()
         api_hash_input = input("Введите ваш Telegram API Hash: ").strip()
         phone_input = input("Введите ваш номер телефона Telegram (в формате +79991234567): ").strip()
         
         if not api_id_input or not api_hash_input:
-            print("Ошибка: Настройки не введены. Работа завершена.")
+            logger.error("Ошибка: Настройки не введены. Работа завершена.")
             return
             
         # Записываем в .env файл
@@ -482,12 +497,12 @@ async def main():
         with open(env_path, "w", encoding="utf-8") as f:
             f.writelines(lines)
             
-        print("[Listener] Настройки успешно сохранены в .env!")
+        logger.info("[Listener] Настройки успешно сохранены в .env!")
         api_id = api_id_input
         api_hash = api_hash_input
         phone = phone_input
         
-    print(f"[Listener] Инициализация Telegram клиента (сессия: {SESSION_PATH})...")
+    logger.info(f"[Listener] Инициализация Telegram клиента (сессия: {SESSION_PATH})...")
     client = TelegramClient(SESSION_PATH, int(api_id), api_hash)
     
     # Инициализация NewsProcessor для новостных каналов
@@ -536,9 +551,6 @@ async def main():
         if is_bot_message(text):
             return
             
-        # Получаем имя канала
-        chat = await event.get_chat()
-        
         # Если username не получен — пробуем получить полный entity
         if not getattr(chat, 'username', None):
             cached_username = _get_cached_username(chat.id)
@@ -556,17 +568,17 @@ async def main():
                         _set_cached_username(chat.id, uname)   # кэшируем только строку
                         chat = full_entity
                 except FloodWaitError as e:
-                    print(f"[Listener] ⏳ FloodWait: get_entity заблокирован на {e.seconds}с "
-                          f"для chat {chat.id}. Используем числовой ID.")
+                    logger.warning(f"[Listener] ⏳ FloodWait: get_entity заблокирован на {e.seconds}с "
+                                   f"для chat {chat.id}. Используем числовой ID.")
                 except Exception as e:
-                    print(f"[Listener] ⚠️ Не удалось получить полный entity для {chat.id}: {e}")
+                    logger.warning(f"[Listener] ⚠️ Не удалось получить полный entity для {chat.id}: {e}")
 
         chat_name = chat.username or chat.title or str(chat.id)
         msg_id = event.message.id
         
-        print(f"\n[Listener] 🔔 Получено новое сообщение из {chat_name}:\n{text[:120]}...")
+        logger.info(f"\n[Listener] 🔔 Получено новое сообщение из {chat_name}:\n{text[:120]}...")
         tg_post_url = build_tg_post_url(chat, msg_id)
-        print(f"[Listener] 🔗 source_url = {tg_post_url}")
+        logger.info(f"[Listener] 🔗 source_url = {tg_post_url}")
         
         try:
             is_target_source = False
@@ -574,12 +586,12 @@ async def main():
                 is_target_source = True
                 
                 if "polymarketalerthub" in chat_name.lower():
-                    print(f"[Listener] ⚠️ ВНИМАНИЕ: polymarketalerthub добавлен в target_sources! Это приведет к двойному анализу (глубокий API + быстрый Nexus).")
+                    logger.warning("[Listener] ⚠️ ВНИМАНИЕ: polymarketalerthub добавлен в target_sources! Это приведет к двойному анализу (глубокий API + быстрый Nexus).")
                     
                 # 1. Запускаем глубокий Event-Driven анализ
                 post_id = save_telegram_post(str(chat.id), msg_id, text)
                 if post_id and TELEGRAM_GROUP2_TARGET_ID:
-                    print(f"[Listener] 🧠 Триггерим глубокий анализ поста из {chat_name} (ID: {post_id})...")
+                    logger.info(f"[Listener] 🧠 Триггерим глубокий анализ поста из {chat_name} (ID: {post_id})...")
                     
                     source_label = chat_name
                     if text:
@@ -601,23 +613,23 @@ async def main():
                                 }
                             )
                         except httpx.TimeoutException:
-                            print(f"[Listener] ⏱️ Таймаут при вызове /api/analyze/{post_id} (>{_API_ANALYZE_TIMEOUT}с) — анализ не запущен")
+                            logger.warning(f"[Listener] ⏱️ Таймаут при вызове /api/analyze/{post_id} (>{_API_ANALYZE_TIMEOUT}с) — анализ не запущен")
                         except Exception as e:
-                            print(f"[Listener] Ошибка вызова API: {e}")
+                            logger.error(f"[Listener] Ошибка вызова API: {e}\n{traceback.format_exc()}")
 
             if chat_name.lower() in _WHALE_CHANNELS:
                 # ── Ветка для whale/trader каналов ──────────────────────────────
                 # Каждый канал имеет свой формат — выбираем нужный парсер
                 if chat_name.lower() == "radarpolybot":
                     bet_info = parse_radar_signal(text, event.message.entities)
-                    print(f"[Listener] 🎯 radarpolybot сигнал: outcome={bet_info['outcome']} | "
-                          f"amount=${bet_info['amount_usd']:,.0f} | entry={bet_info['entry_price']} | "
-                          f"now={bet_info['current_price']} | market_url={bet_info['market_url']}")
+                    logger.info(f"[Listener] 🎯 radarpolybot сигнал: outcome={bet_info['outcome']} | "
+                                f"amount=${bet_info['amount_usd']:,.0f} | entry={bet_info['entry_price']} | "
+                                f"now={bet_info['current_price']} | market_url={bet_info['market_url']}")
                 else:
                     bet_info = parse_whale_alert(text, event.message.entities)
             
                 if bet_info["wallet"] and bet_info["market_url"]:
-                    market_ids = resolve_market_ids_from_url(bet_info["market_url"], text)
+                    market_ids = await resolve_market_ids_from_url(bet_info["market_url"], text)
                     if market_ids:
                         for m_id in market_ids:
                             save_trader_transaction(
@@ -628,17 +640,17 @@ async def main():
                                 price=bet_info["price"],
                                 alias=bet_info["alias"]
                             )
-                            print(f"[Listener] ✅ Сделка сохранена: "
-                                  f"Кошелек {bet_info['wallet']} | "
-                                  f"Сумма ${bet_info['amount_usd']:,.0f} | "
-                                  f"Исход {bet_info['outcome']} | "
-                                  f"Рынок {m_id}")
+                            logger.info(f"[Listener] ✅ Сделка сохранена: "
+                                        f"Кошелек {bet_info['wallet']} | "
+                                        f"Сумма ${bet_info['amount_usd']:,.0f} | "
+                                        f"Исход {bet_info['outcome']} | "
+                                        f"Рынок {m_id}")
             
                         # Запускаем точечный скан если сумма достаточна и это не целевой глубокий анализ
                         if bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and not is_target_source:
                             await trigger_nexus_scan(
                                 market_ids[0],
-                                bet_info["amount_usd"],
+                                amount_usd=bet_info["amount_usd"],
                                 source="whale",
                                 market_url=bet_info["market_url"] or "",
                                 post_url=tg_post_url,
@@ -646,12 +658,12 @@ async def main():
                             )
                 elif bet_info["market_url"] and not bet_info["wallet"]:
                     # Есть URL рынка но нет кошелька — минимальный триггер без сохранения транзакции
-                    market_ids = resolve_market_ids_from_url(bet_info["market_url"], text)
+                    market_ids = await resolve_market_ids_from_url(bet_info["market_url"], text)
                     if market_ids and bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and not is_target_source:
-                        print(f"[Listener] ⚠️ Нет кошелька, но есть market_url. Только скан.")
+                        logger.warning("[Listener] ⚠️ Нет кошелька, но есть market_url. Только скан.")
                         await trigger_nexus_scan(
                             market_ids[0],
-                            bet_info["amount_usd"],
+                            amount_usd=bet_info["amount_usd"],
                             source="whale",
                             market_url=bet_info["market_url"],
                             post_url=tg_post_url,
@@ -679,11 +691,12 @@ async def main():
                             pm_url = pm_url_match.group(0)
             
                     if pm_url:
-                        market_ids = resolve_market_ids_from_url(pm_url, text)
+                        market_ids = await resolve_market_ids_from_url(pm_url, text)
                         if market_ids:
-                            print(f"[Listener] 🔗 Найден прямой URL рынка в сигнале из {chat_name}. Триггерим.")
+                            logger.info(f"[Listener] 🔗 Найден прямой URL рынка в сигнале из {chat_name}. Триггерим.")
                             await trigger_nexus_scan(
                                 market_ids[0],
+                                amount_usd=0.0,
                                 source=chat_name,
                                 market_url=pm_url,
                                 post_url=tg_post_url,
@@ -694,24 +707,25 @@ async def main():
                     # Приоритет 3: LLM — только если URL не нашли
                     markets = news_processor.find_relevant_markets(text)
                     if markets:
-                        print(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
+                        logger.info(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
                         await trigger_nexus_scan(
                             markets[0].id,
+                            amount_usd=0.0,
                             source=chat_name,
                             market_url=getattr(markets[0], 'url', ''),
                             post_url=tg_post_url,
                             post_text=f"[{chat_name}] news signal"
                         )
                     else:
-                        print(f"[Listener] ⚪️ Для новости из {chat_name} рынки на Polymarket не найдены.")
+                        logger.info(f"[Listener] ⚪️ Для новости из {chat_name} рынки на Polymarket не найдены.")
                     
         except Exception as e:
-            print(f"[Listener] ❌ Ошибка при обработке сообщения: {e}")
+            logger.error(f"[Listener] ❌ Ошибка при обработке сообщения: {e}\n{traceback.format_exc()}")
 
     # Запуск клиента Telegram
-    print(f"[Listener] Подключение к Telegram (авторизация по телефону: {phone})...")
+    logger.info(f"[Listener] Подключение к Telegram (авторизация по телефону: {phone})...")
     await client.start(phone=lambda: phone)
-    print("[Listener] 🎉 Успешно подключено! Слушатель канала @polymarketalerthub активен.")
+    logger.info("[Listener] 🎉 Успешно подключено! Слушатель канала @polymarketalerthub активен.")
     
     # Будем работать бесконечно
     await client.run_until_disconnected()
@@ -721,4 +735,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n[Listener] Работа слушателя остановлена.")
+        logger.info("[Listener] Работа слушателя остановлена.")

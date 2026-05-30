@@ -1,8 +1,8 @@
 import inspect, re, pytest
 
 def _extract_stopwords_set(source: str) -> list[str]:
-    """Извлекает строковые литералы из блока stopwords = {...}"""
-    m = re.search(r"stopwords\s*=\s*\{([^}]+)\}", source, re.DOTALL)
+    """Извлекает строковые литералы из фигурных скобок после слова stopwords"""
+    m = re.search(r"stopwords\s*=\s*.*?\{([^}]+)\}", source, re.DOTALL)
     if not m:
         return []
     block = m.group(1)
