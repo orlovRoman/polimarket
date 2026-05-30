@@ -137,42 +137,74 @@ def restore_markdown_links(text: str, entities) -> str:
         
     return text
 
-def resolve_market_ids_from_url(url: str) -> list:
+def resolve_market_ids_from_url(url: str, text: str = "") -> list:
     """
-    Вычленяет slug события или маркета из URL Polymarket и находит соответствующие market_id.
+    Вычленяет slug события или маркета из URL Polymarket, находит соответствующие рынки
+    и сортирует их по релевантности к тексту сообщения text.
     """
     match = re.search(r'polymarket\.com/(?:event|market)/([a-zA-Z0-9_-]+)', url)
     if not match:
         return []
     slug = match.group(1)
     
-    market_ids = []
-    # 1. Пробуем получить event с этим слагом
+    # Используем PolymarketAdapter для надежного получения рынков по slug
+    adapter = PolymarketAdapter()
     try:
-        resp = requests.get("https://gamma-api.polymarket.com/events", params={"slug": slug}, timeout=10)
-        if resp.status_code == 200:
-            event_data = resp.json()
-            if isinstance(event_data, list) and event_data:
-                for m in event_data[0].get("markets", []):
-                    if "id" in m:
-                        market_ids.append(m["id"])
+        markets = adapter.get_event_by_slug(slug)
     except Exception as e:
-        print(f"[Resolver] Ошибка при запросе event-слага {slug}: {e}")
+        print(f"[Resolver] Ошибка при запросе слага {slug} через адаптер: {e}")
+        markets = []
         
-    # 2. Если ничего не нашли, пробуем получить маркет с этим слагом
-    if not market_ids:
+    # Если адаптер не вернул рынки, делаем fallback на сырые запросы как было раньше
+    if not markets:
+        market_ids = []
         try:
-            resp = requests.get("https://gamma-api.polymarket.com/markets", params={"slug": slug}, timeout=10)
+            resp = requests.get("https://gamma-api.polymarket.com/events", params={"slug": slug}, timeout=10)
             if resp.status_code == 200:
-                markets = resp.json()
-                if isinstance(markets, list) and markets:
-                    for m in markets:
+                event_data = resp.json()
+                if isinstance(event_data, list) and event_data:
+                    for m in event_data[0].get("markets", []):
                         if "id" in m:
                             market_ids.append(m["id"])
         except Exception as e:
-            print(f"[Resolver] Ошибка при запросе маркет-слага {slug}: {e}")
+            print(f"[Resolver] Ошибка при fallback-запросе event-слага {slug}: {e}")
             
-    return market_ids
+        if not market_ids:
+            try:
+                resp = requests.get("https://gamma-api.polymarket.com/markets", params={"slug": slug}, timeout=10)
+                if resp.status_code == 200:
+                    markets_raw = resp.json()
+                    if isinstance(markets_raw, list) and markets_raw:
+                        for m in markets_raw:
+                            if "id" in m:
+                                market_ids.append(m["id"])
+            except Exception as e:
+                print(f"[Resolver] Ошибка при fallback-запросе маркет-слага {slug}: {e}")
+        return market_ids
+
+    # Если рынки найдены, скорим их по релевантности к тексту сообщения
+    if text:
+        def score_market(m):
+            score = 0
+            # Очищаем название рынка от YES/NO цен на конце
+            clean_title = re.sub(r'\s*\([^)]*\)\s*$', '', m.title).strip().lower()
+            clean_text = text.lower()
+            if clean_title in clean_text:
+                score += 1000
+                
+            # Считаем пересечение слов
+            words_title = set(w for w in re.findall(r'[a-z0-9]+', clean_title) if len(w) >= 3)
+            words_text = set(w for w in re.findall(r'[a-z0-9]+', clean_text) if len(w) >= 3)
+            score += len(words_title.intersection(words_text)) * 10
+            
+            # Приоритет активным рынкам
+            if 0.01 < m.price < 0.99:
+                score += 5
+            return score
+            
+        markets = sorted(markets, key=score_market, reverse=True)
+        
+    return [m.id for m in markets]
 
 def parse_whale_alert(text: str, entities=None) -> dict:
     """
@@ -585,7 +617,7 @@ async def main():
                     bet_info = parse_whale_alert(text, event.message.entities)
             
                 if bet_info["wallet"] and bet_info["market_url"]:
-                    market_ids = resolve_market_ids_from_url(bet_info["market_url"])
+                    market_ids = resolve_market_ids_from_url(bet_info["market_url"], text)
                     if market_ids:
                         for m_id in market_ids:
                             save_trader_transaction(
@@ -614,7 +646,7 @@ async def main():
                             )
                 elif bet_info["market_url"] and not bet_info["wallet"]:
                     # Есть URL рынка но нет кошелька — минимальный триггер без сохранения транзакции
-                    market_ids = resolve_market_ids_from_url(bet_info["market_url"])
+                    market_ids = resolve_market_ids_from_url(bet_info["market_url"], text)
                     if market_ids and bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and not is_target_source:
                         print(f"[Listener] ⚠️ Нет кошелька, но есть market_url. Только скан.")
                         await trigger_nexus_scan(
@@ -647,7 +679,7 @@ async def main():
                             pm_url = pm_url_match.group(0)
             
                     if pm_url:
-                        market_ids = resolve_market_ids_from_url(pm_url)
+                        market_ids = resolve_market_ids_from_url(pm_url, text)
                         if market_ids:
                             print(f"[Listener] 🔗 Найден прямой URL рынка в сигнале из {chat_name}. Триггерим.")
                             await trigger_nexus_scan(
