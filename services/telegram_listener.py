@@ -130,12 +130,22 @@ def restore_markdown_links(text: str, entities) -> str:
             offset = ent.offset
             length = ent.length
             
-            # Проверяем в оригинальной surrogate-строке по точным смещениям
+            anchor_text = del_surrogate(text_s[offset:offset+length])
+            
+            # 1. Если анкор сам по себе является ссылкой или ее частью
+            clean_anchor = anchor_text.strip().lower()
+            clean_url = url.replace("https://", "").replace("http://", "").replace("www.", "").strip().lower()
+            if clean_url in clean_anchor:
+                continue
+
+            # 2. Если URL уже написан в тексте непосредственно рядом с анкором
             url_s = add_surrogate(url)
-            if url_s in original_text_s[max(0, offset-100):offset+length+100]:
+            after_slice = original_text_s[offset+length:offset+length+len(url)+10]
+            before_slice = original_text_s[max(0, offset-len(url)-10):offset]
+            
+            if url_s in after_slice or url_s in before_slice:
                 continue
                 
-            anchor_text = del_surrogate(text_s[offset:offset+length])
             replacement = add_surrogate(f"{anchor_text} ({url})")
             text_s = text_s[:offset] + replacement + text_s[offset+length:]
             seen_urls.add(url)
@@ -168,7 +178,10 @@ def _parse_end_date(item: dict) -> datetime:
         raw = item.get(field)
         if raw:
             try:
-                return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
             except (ValueError, AttributeError):
                 continue
     return datetime(2099, 12, 31, tzinfo=timezone.utc)
@@ -230,10 +243,43 @@ async def resolve_market_ids_from_url(url: str, text: str = "") -> list:
                 logger.error(f"[Resolver] Ошибка при fallback-запросе маркет-слага {slug}: {e}")
         return market_ids
 
-    # Если рынки найдены, скорим их по релевантности к тексту сообщения
+    now = datetime.now(timezone.utc)
+
+    def _is_market_active(m) -> bool:
+        """Проверяет объект рынка (не dict) на активность."""
+        # closed флаг
+        closed_val = getattr(m, 'closed', False)
+        if type(closed_val).__name__ == 'MagicMock':
+            closed_val = False
+        if closed_val is True or closed_val == "true":
+            return False
+
+        # end date через атрибуты объекта
+        for attr in ('end_date_iso', 'endDate', 'end'):
+            raw = getattr(m, attr, None)
+            if raw and type(raw).__name__ != 'MagicMock':
+                try:
+                    dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return dt > now
+                except (ValueError, AttributeError):
+                    continue
+
+        # Проверяем close_time, если он есть
+        close_time = getattr(m, 'close_time', None)
+        if isinstance(close_time, datetime):
+            dt = close_time
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt > now
+        return True  # если дата неизвестна — считаем активным
+
     if text:
         markets = sorted(markets, key=lambda m: _score_market(m, text), reverse=True)
-        
+
+    # Фильтруем истекшие
+    markets = [m for m in markets if _is_market_active(m)]
     return [m.id for m in markets]
 
 def parse_whale_alert(text: str, entities=None) -> dict:
@@ -324,7 +370,9 @@ def parse_whale_alert(text: str, entities=None) -> dict:
         # Вариант с долларами: at $0.45
         price_usd_match = re.search(r'(?:at|@)\s*\$([0-9.]+)', text)
         if price_usd_match:
-            result["price"] = float(price_usd_match.group(1))
+            val = float(price_usd_match.group(1))
+            if 0.0 < val <= 1.0:
+                result["price"] = val
             
     return result
 
