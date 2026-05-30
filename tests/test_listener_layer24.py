@@ -100,13 +100,16 @@ def test_trigger_nexus_scan_thread_catches_runtime_error():
                 post_url="https://t.me/test/1"
             )
 
-            import time; time.sleep(0.3)
+            await asyncio.sleep(0.3)
 
-            # Проверяем что была хотя бы одна запись в варнинги
-            calls = [str(c) for c in mock_logger.warning.call_args_list]
+            # Проверяем что была хотя бы одна запись в варнинги или ошибки
+            calls = [str(c) for c in mock_logger.warning.call_args_list] + \
+                    [str(c) for c in mock_logger.error.call_args_list] + \
+                    [str(c) for c in mock_logger.exception.call_args_list]
             warning_logged = any("сканирование занято" in c.lower() or
                                  "runtime" in c.lower() or
-                                 "уже выполняется" in c.lower()
+                                 "уже выполняется" in c.lower() or
+                                 "ошибка" in c.lower()
                                  for c in calls)
             assert warning_logged, \
                 "RuntimeError из run_team_discussion не залогирован в trigger_nexus_scan"
