@@ -8,6 +8,11 @@ from core.models import Market
 
 logger = logging.getLogger("math_filter")
 
+_COMMON_STOPWORDS = frozenset({
+    'will', 'the', 'a', 'an', 'in', 'by', 'of', 'to', 'at', 'on', 'for',
+    'be', 'is', 'are', 'was', 'its',
+})
+
 class FilterDecision(Enum):
     CONFIRMED_ARBITRAGE = "CONFIRMED_ARBITRAGE"
     CONFIRMED_NO_ARBI = "CONFIRMED_NO_ARBI"
@@ -25,13 +30,22 @@ class MathFilterResult:
 def _parse_threshold(title: str) -> Optional[tuple[float, str]]:
     title = title.lower()
     
-    # Absolute currency: $1.8T, $500B, $50M, $500K
-    m = re.search(r'\$?([\d\.]+)\s*([tbmk])\b', title)
+    # 1. Сокращения валют без пробела: $1.8T, $500B, $50M, $500K
+    m = re.search(r'\$?([\d\.]+)([tbmk])\b', title)
     if m:
         val = float(m.group(1))
         unit = m.group(2)
         multiplier = {'t': 1e12, 'b': 1e9, 'm': 1e6, 'k': 1e3}
         return (val * multiplier[unit], 'usd')
+        
+    # 2. Полные названия денежных единиц: $2 billion, $10 million
+    _WORD_MULT = {
+        'trillion': 1e12, 'billion': 1e9, 'million': 1e6, 'thousand': 1e3
+    }
+    m2 = re.search(r'\$?([\d\.]+)\s+(trillion|billion|million|thousand)\b', title)
+    if m2:
+        val = float(m2.group(1))
+        return (val * _WORD_MULT[m2.group(2)], 'usd')
         
     # Percentages: 5%, 4.5%
     m = re.search(r'([\d\.]+)\s*%', title)
@@ -103,7 +117,7 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
     ]
     words_a = set(re.findall(r'\b\w+\b', a))
     words_b = set(re.findall(r'\b\w+\b', b))
-    common = (words_a & words_b) - {'will', 'the', 'a', 'in', 'by', 'of', 'to', 'at', 'on', 'for'}
+    common = (words_a & words_b) - _COMMON_STOPWORDS
     
     for w1, w2 in directional_pairs:
         if ((w1 in a and w2 in b) or (w2 in a and w1 in b)) and len(common) >= 2:
@@ -160,18 +174,18 @@ def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = 
         return res
     norm_a = norm_type(type_a)
     norm_b = norm_type(type_b)
-    if norm_a and norm_b and not (norm_a & norm_b):
-        return False
+    if (norm_a and not norm_b) or (not norm_a and norm_b):
+        pass  # не блокируем, overlap-проверка решит позже
+    elif norm_a and norm_b and not (norm_a & norm_b):
+        return False  # разные типы -> точно разные события
 
-    stopwords = {
-        'will', 'the', 'a', 'an', 'in', 'by', 'of', 'to', 'at', 'on', 'for',
+    stopwords = _COMMON_STOPWORDS | {
         'above', 'below', 'over', 'under', 'hit', 'hits', 'reach', 'exceed',
-        'its', 'be', 'is', 'are', 'was',
         'close', 'closes', 'closed', 'closing',
         'end', 'finish',
         'market', 'cap', 'price', 'value', 'valuation', 'worth', 'stock', 'stocks',
         'win', 'wins',
-        'presidential', 'us', 'usa',
+        'us', 'usa',
         'who', 'whom', 'whose', 'which', 'what', 'where', 'when', 'how', 'why',
     }
     time_markers = {

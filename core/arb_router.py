@@ -14,6 +14,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("arb_router")
 
+try:
+    from agents.shared.utils.gemini_client import (
+        generate_content_with_fallback,
+        extract_response_text,
+    )
+    _GEMINI_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"[arb_router] gemini_client недоступен: {e}")
+    _GEMINI_AVAILABLE = False
+
 _MIN_SPREAD_FOR_LLM = 8.0   # ниже — не тратим токены
 _SCHEMA = {
     "type": "object",
@@ -70,7 +80,9 @@ def route_ambiguous(
     }
 
     try:
-        from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
+        if not _GEMINI_AVAILABLE:
+            logger.warning("[arb_router] gemini_client не импортирован — route_ambiguous отключён")
+            return None
         result, _ = generate_content_with_fallback(
             api_key=api_key, payload=payload,
             default_model=model, agent_name="ARB_ROUTER",
