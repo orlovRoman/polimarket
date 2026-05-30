@@ -185,15 +185,18 @@ class AuthMiddleware(BaseMiddleware):
 
         # Stale check for CallbackQuery — игнорируем кнопки из сообщений старше 10 минут
         if isinstance(event, types.CallbackQuery) and event.message:
-            msg_date = event.message.date
-            if msg_date:
-                try:
-                    now = datetime.now(msg_date.tzinfo)
-                    if (now - msg_date) > timedelta(minutes=10):
-                        await event.answer("⚠️ Сессия устарела. Повторите команду заново.", show_alert=True)
-                        return
-                except Exception:
-                    pass
+            # Разрешаем кнопку "Игнорировать" (ignore_mkt_) без проверки времени сообщения
+            is_ignore_click = event.data and event.data.startswith("ignore_mkt_")
+            if not is_ignore_click:
+                msg_date = event.message.date
+                if msg_date:
+                    try:
+                        now = datetime.now(msg_date.tzinfo)
+                        if (now - msg_date) > timedelta(minutes=10):
+                            await event.answer("⚠️ Сессия устарела. Повторите команду заново.", show_alert=True)
+                            return
+                    except Exception:
+                        pass
 
         # Auth check
         user_id = str(event.from_user.id) if hasattr(event, "from_user") and event.from_user else None
