@@ -391,10 +391,15 @@ def init_db():
             # Разрешаем конфликт дубликатов PENDING сигналов перед созданием уникального индекса
             cursor.execute("""
                 UPDATE signals 
+                SET status = 'PENDING' 
+                WHERE UPPER(TRIM(status)) = 'PENDING'
+            """)
+            cursor.execute("""
+                UPDATE signals 
                 SET status = 'ARCHIVED' 
                 WHERE status = 'PENDING' 
-                  AND rowid NOT IN (
-                      SELECT MAX(rowid) 
+                  AND id NOT IN (
+                      SELECT MAX(id) 
                       FROM signals 
                       WHERE status = 'PENDING' 
                       GROUP BY market_id
