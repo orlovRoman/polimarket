@@ -145,6 +145,28 @@ class SwingAgent:
             now=now
         )
 
+        from agents.shared.utils.horizon_strategy import get_horizon_strategy
+        horizon = get_horizon_strategy(hours_to_close)
+
+        horizon_block = f"""
+[СТРАТЕГИЯ ПО ГОРИЗОНТУ — {horizon.label}]
+{horizon.instruction}
+"""
+
+        contrarian_block = f"""
+[КОНТРАРИАНСКИЙ АНАЛИЗ]
+Текущая цена YES: {market.price:.3f} | Цена NO: {1.0 - market.price:.3f}
+
+Оцени ОБЕ стороны:
+1. Бычий кейс (YES памп): почему цена YES вырастет?
+2. Медвежий кейс (NO памп): почему рынок переоценён и цена YES упадёт?
+
+Выбери направление с НАИБОЛЬШЕЙ асимметрией ожидаемой прибыли.
+Запиши аргумент против выбранного направления в contrarian_case.
+Выставь asymmetry_score: насколько твой кейс сильнее противоположного.
+Правило: если asymmetry_score < 0.55 — рынок сбалансирован, рекомендуй IGNORE.
+"""
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -185,8 +207,17 @@ class SwingAgent:
 КРИТИЧЕСКОЕ ПРАВИЛО 2: ВСЕ текстовые поля в JSON (reasoning, catalyst, catalyst_absence_reason, swing_risk, swing_verdict) ДОЛЖНЫ БЫТЬ НАПИСАНЫ СТРОГО НА РУССКОМ ЯЗЫКЕ! Запрещено использовать китайский, французский, арабский и любые другие языки. Если в тексте появятся иероглифы или символы не-кириллических алфавитов — ответ будет отброшен системой. Технические термины (pump, hype, YES, NO) можно оставлять на английском.
 Ограничения на английские слова: если существует синоним на русском языке, запрещено использовать английские слова и фразы (например, не пиши 'Estimate probability', 'current price', пиши по-русски 'оценочная вероятность', 'текущая цена').
 
+{horizon_block}
+
+{contrarian_block}
+
 Твоя задача — оценить вероятность резкого скачка цены (hype potential).
 Ответ верни строго в формате JSON.
+
+Выставь llm_confidence (0.0–1.0): твоя независимая оценка вероятности резкого движения цены.
+Не копируй hype_potential — обоснуй своё число через catalyst и контекст.
+Выставь llm_direction: YES если ждёшь роста цены YES, NO если рынок переоценён и цена упадёт.
+Правило: если llm_confidence < 0.45 — используй catalyst_absence_reason.
 """
         
         schema = {
@@ -198,9 +229,26 @@ class SwingAgent:
                 "catalyst": {"type": "STRING"},
                 "catalyst_absence_reason": {"type": "STRING"},
                 "swing_risk": {"type": "STRING"},
-                "swing_verdict": {"type": "STRING"}
+                "swing_verdict": {"type": "STRING"},
+                "llm_confidence": {
+                    "type": "NUMBER",
+                    "description": "Твоя оценка вероятности пампа (0.0–1.0). 0.5 = неопределённость, >0.7 = сильный сигнал."
+                },
+                "llm_direction": {
+                    "type": "STRING",
+                    "enum": ["YES", "NO"],
+                    "description": "Направление пампа: YES (цена вырастет) или NO (цена упадёт/рынок переоценён)"
+                },
+                "contrarian_case": {
+                    "type": "STRING",
+                    "description": "Аргумент ПРОТИВ выбранного направления. Почему рынок может двигаться в обратную сторону?"
+                },
+                "asymmetry_score": {
+                    "type": "NUMBER",
+                    "description": "0.0–1.0. Насколько выбранное направление асимметрично выгоднее противоположного. 0.5 = оба направления равнозначны. >0.7 = сильная асимметрия."
+                }
             },
-            "required": ["target_outcome", "target_exit_price", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict"]
+            "required": ["target_outcome", "target_exit_price", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict", "llm_confidence", "llm_direction", "contrarian_case", "asymmetry_score"]
         }
         
         payload = {
@@ -245,11 +293,76 @@ class SwingAgent:
                     analysis = None
                     continue
                 
+                llm_confidence = float(analysis.get("llm_confidence", 0.5))
+                llm_direction = analysis.get("llm_direction", "YES")
+                asymmetry = float(analysis.get("asymmetry_score", 0.5))
+                target_price = float(analysis.get("target_exit_price", 0.15))
+
                 from core.swing_rules import swing_decision
-                recommendation, confidence = swing_decision(hype_score, market.price)
+                recommendation, final_confidence = swing_decision(
+                    hype_score=hype_score,
+                    price=market.price,
+                    llm_confidence=llm_confidence,
+                    llm_direction=llm_direction
+                )
                 analysis["recommendation"] = recommendation
-                analysis["confidence"] = confidence
+                analysis["confidence"] = final_confidence
+                analysis["llm_direction"] = llm_direction
                 analysis["hype_potential"] = hype_score
+
+                # Итерация 5: Catalyst verifier
+                from agents.shared.utils.catalyst_verifier import verify_catalyst
+                catalyst_check = verify_catalyst(
+                    catalyst=analysis.get("catalyst", ""),
+                    news_block=news_block,
+                    grounded_context=grounded_context,
+                )
+                if not catalyst_check.confirmed:
+                    old_conf = analysis["confidence"]
+                    analysis["confidence"] = round(max(0.1, old_conf - catalyst_check.confidence_penalty), 3)
+                    verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
+                    analysis["swing_verdict"] = f"{verdict_prefix} [{catalyst_check.warning}]"
+
+                    if analysis["confidence"] < horizon.min_confidence and analysis["recommendation"] == "buy":
+                        analysis["recommendation"] = "ignore"
+                        analysis["swing_verdict"] += " → сигнал отозван из-за неподтверждённого катализатора"
+
+                # Итерация 2: Horizon strategy min_confidence filter
+                if analysis["recommendation"] == "buy":
+                    if analysis["confidence"] < horizon.min_confidence:
+                        analysis["recommendation"] = "ignore"
+                        verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
+                        analysis["swing_verdict"] = (
+                            f"{verdict_prefix} [Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} "
+                            f"< минимум {horizon.min_confidence}]"
+                        )
+                    if horizon.require_immediate_catalyst:
+                        catalyst = analysis.get("catalyst", "").lower()
+                        no_catalyst_phrases = ["нет катализатора", "отсутствует", "не найден", "не обнаружен"]
+                        if any(ph in catalyst for ph in no_catalyst_phrases):
+                            analysis["recommendation"] = "ignore"
+                            verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
+                            analysis["swing_verdict"] = (
+                                f"{verdict_prefix} [Горизонт {horizon.label}: нет немедленного катализатора]"
+                            )
+
+                # Итерация 3: ROI-фильтр
+                from agents.shared.utils.roi_filter import apply_roi_filter
+                roi_result = apply_roi_filter(
+                    current_price=market.price,
+                    target_price=target_price,
+                    direction=llm_direction
+                )
+                if not roi_result.passes and analysis["recommendation"] == "buy":
+                    analysis["recommendation"] = "ignore"
+                    verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
+                    analysis["swing_verdict"] = f"{verdict_prefix} [ROI-фильтр: {roi_result.rejection_reason}]"
+
+                # Итерация 4: Контрарианский анализ
+                if asymmetry < 0.55 and analysis["recommendation"] == "buy":
+                    analysis["recommendation"] = "ignore"
+                    verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
+                    analysis["swing_verdict"] = f"{verdict_prefix} [Асимметрия {asymmetry:.2f} < 0.55 — рынок сбалансирован, нет edge]"
 
                 # Гард: проверяем обоснование target_exit_price в swing_verdict
                 exit_price = analysis.get("target_exit_price")
@@ -265,13 +378,15 @@ class SwingAgent:
 
                 recommendation = analysis.get("recommendation", "ignore").lower()
                 hype_potential = float(analysis.get("hype_potential", 0))
-                target_outcome = analysis.get("target_outcome", "YES")
+                target_outcome = analysis.get("llm_direction", analysis.get("target_outcome", "YES"))
                 target_price = float(analysis.get("target_exit_price", 0.15))
                 
-                # Расчет ROI (Return on Investment)
+                # Расчет ROI для деталей
                 current_price = market.price if target_outcome == "YES" else (1.0 - market.price)
                 if current_price <= 0: current_price = 0.01
-                roi = ((target_price - current_price) / current_price) * 100
+
+                roi_line = f"ROI: {roi_result.roi_percent:.1f}% | Edge: {roi_result.absolute_edge:.4f}"
+                asymmetry_line = f"Асимметрия: {asymmetry:.2f} | {analysis.get('contrarian_case', '')[:80]}"
                 
                 from core.models import SwingSignal
                 
@@ -291,7 +406,12 @@ class SwingAgent:
                     swing_risk=analysis.get("swing_risk", "") or analysis.get("risk", "Не указан риск"),
                     swing_verdict=analysis.get("swing_verdict", "") or analysis.get("verdict", "Не указан вердикт"),
                     summary=f"🚀 Памп {target_outcome} (Хайп {hype_potential*100:.0f}%, Цель {target_price:.2f})" if recommendation == "buy" else f"💤 Игнор (Хайп {hype_potential*100:.0f}%)",
-                    details=f"Рекомендация: {recommendation.upper()} {target_outcome} по ~{current_price:.2f}, выход по {target_price:.2f} (ROI ~{roi:.0f}%).\nОбоснование: {analysis.get('reasoning', '')}"
+                    details=(
+                        f"Рекомендация: {recommendation.upper()} {target_outcome} по ~{current_price:.2f}, выход по {target_price:.2f} (ROI ~{roi_result.roi_percent:.0f}%).\n"
+                        f"{roi_line}\n"
+                        f"{asymmetry_line}\n"
+                        f"Обоснование: {analysis.get('reasoning', '')}"
+                    )
                 )
                 return signal
                 

@@ -20,5 +20,6 @@ def test_llm_schema_has_no_hype_potential():
     # Ищем блок объявления schema и проверяем отсутствие hype_potential в ней
     schema_part = src.split('schema =')[1].split('payload =')[0]
     assert 'hype_potential' not in schema_part
-    assert 'recommendation' not in schema_part
-    assert 'confidence' not in schema_part
+    assert '"recommendation":' not in schema_part
+    assert '"confidence":' not in schema_part
+
