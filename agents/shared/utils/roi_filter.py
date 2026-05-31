@@ -15,15 +15,18 @@ MAX_ENTRY_PRICE = 0.22     # не покупать если уже не дёше
 
 
 def apply_roi_filter(
-    current_price: float,
-    target_price: float,
-    direction: str = "YES"  # "YES" или "NO"
+    current_price: float,   # текущая цена YES (всегда)
+    target_price: float,    # целевая цена в единицах direction:
+                            #   YES → целевая цена YES
+                            #   NO  → целевая цена NO (= 1 - будущая цена YES)
+    direction: str = "YES"
 ) -> ROIFilterResult:
     """
     Проверяет математическую привлекательность сделки.
     direction="NO" означает шорт: покупаем NO по (1 - current_price).
     """
     entry = current_price if direction == "YES" else (1.0 - current_price)
+
     entry = max(entry, 0.001)  # защита от деления на ноль
 
     if entry > MAX_ENTRY_PRICE:

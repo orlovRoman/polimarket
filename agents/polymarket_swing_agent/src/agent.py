@@ -294,7 +294,7 @@ class SwingAgent:
                     continue
                 
                 llm_confidence = float(analysis.get("llm_confidence", 0.5))
-                llm_direction = analysis.get("llm_direction", "YES")
+                direction = analysis.get("llm_direction", "YES")
                 asymmetry = float(analysis.get("asymmetry_score", 0.5))
                 target_price = float(analysis.get("target_exit_price", 0.15))
 
@@ -303,31 +303,15 @@ class SwingAgent:
                     hype_score=hype_score,
                     price=market.price,
                     llm_confidence=llm_confidence,
-                    llm_direction=llm_direction
+                    llm_direction=direction,
+                    use_llm_blend=True
                 )
                 analysis["recommendation"] = recommendation
                 analysis["confidence"] = final_confidence
-                analysis["llm_direction"] = llm_direction
+                analysis["llm_direction"] = direction
                 analysis["hype_potential"] = hype_score
 
-                # Итерация 5: Catalyst verifier
-                from agents.shared.utils.catalyst_verifier import verify_catalyst
-                catalyst_check = verify_catalyst(
-                    catalyst=analysis.get("catalyst", ""),
-                    news_block=news_block,
-                    grounded_context=grounded_context,
-                )
-                if not catalyst_check.confirmed:
-                    old_conf = analysis["confidence"]
-                    analysis["confidence"] = round(max(0.1, old_conf - catalyst_check.confidence_penalty), 3)
-                    verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
-                    analysis["swing_verdict"] = f"{verdict_prefix} [{catalyst_check.warning}]"
-
-                    if analysis["confidence"] < horizon.min_confidence and analysis["recommendation"] == "buy":
-                        analysis["recommendation"] = "ignore"
-                        analysis["swing_verdict"] += " → сигнал отозван из-за неподтверждённого катализатора"
-
-                # Итерация 2: Horizon strategy min_confidence filter
+                # 1. Horizon strategy min_confidence filter
                 if analysis["recommendation"] == "buy":
                     if analysis["confidence"] < horizon.min_confidence:
                         analysis["recommendation"] = "ignore"
@@ -346,23 +330,41 @@ class SwingAgent:
                                 f"{verdict_prefix} [Горизонт {horizon.label}: нет немедленного катализатора]"
                             )
 
-                # Итерация 3: ROI-фильтр
+                # 2. ROI-фильтр
                 from agents.shared.utils.roi_filter import apply_roi_filter
                 roi_result = apply_roi_filter(
                     current_price=market.price,
                     target_price=target_price,
-                    direction=llm_direction
+                    direction=direction
                 )
                 if not roi_result.passes and analysis["recommendation"] == "buy":
                     analysis["recommendation"] = "ignore"
                     verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
                     analysis["swing_verdict"] = f"{verdict_prefix} [ROI-фильтр: {roi_result.rejection_reason}]"
 
-                # Итерация 4: Контрарианский анализ
+                # 3. Контрарианский анализ
                 if asymmetry < 0.55 and analysis["recommendation"] == "buy":
                     analysis["recommendation"] = "ignore"
                     verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
                     analysis["swing_verdict"] = f"{verdict_prefix} [Асимметрия {asymmetry:.2f} < 0.55 — рынок сбалансирован, нет edge]"
+
+                # 4. Catalyst verifier (ПОСЛЕДНИМ)
+                from agents.shared.utils.catalyst_verifier import verify_catalyst
+                catalyst_check = verify_catalyst(
+                    catalyst=analysis.get("catalyst", ""),
+                    news_block=news_block,
+                    grounded_context=grounded_context,
+                )
+                if not catalyst_check.confirmed:
+                    old_conf = analysis["confidence"]
+                    analysis["confidence"] = round(max(0.1, old_conf - catalyst_check.confidence_penalty), 3)
+                    verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
+                    analysis["swing_verdict"] = f"{verdict_prefix} [{catalyst_check.warning}]"
+
+                    # Повторный horizon check после штрафования уверенности
+                    if analysis["confidence"] < horizon.min_confidence and analysis["recommendation"] == "buy":
+                        analysis["recommendation"] = "ignore"
+                        analysis["swing_verdict"] += " → сигнал отозван из-за неподтверждённого катализатора"
 
                 # Гард: проверяем обоснование target_exit_price в swing_verdict
                 exit_price = analysis.get("target_exit_price")
@@ -378,7 +380,7 @@ class SwingAgent:
 
                 recommendation = analysis.get("recommendation", "ignore").lower()
                 hype_potential = float(analysis.get("hype_potential", 0))
-                target_outcome = analysis.get("llm_direction", analysis.get("target_outcome", "YES"))
+                target_outcome = direction
                 target_price = float(analysis.get("target_exit_price", 0.15))
                 
                 # Расчет ROI для деталей

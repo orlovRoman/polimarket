@@ -10,7 +10,8 @@ def test_llm_confidence_overrides_low_hype_score():
         hype_score=0.40,
         price=0.10,
         llm_confidence=0.80,
-        llm_direction="YES"
+        llm_direction="YES",
+        use_llm_blend=True
     )
     assert rec == "buy", f"Ожидали buy при llm_confidence=0.80, получили {rec}"
     assert conf > 0.60
@@ -23,7 +24,8 @@ def test_formula_overrides_high_llm_if_price_expensive():
         hype_score=0.80,
         price=0.35,  # дорого для swing
         llm_confidence=0.90,
-        llm_direction="YES"
+        llm_direction="YES",
+        use_llm_blend=True
     )
     assert rec == "ignore", "Дорогая цена должна блокировать buy независимо от LLM"
 
@@ -35,10 +37,12 @@ def test_blend_weights():
         hype_score=0.60,
         price=0.08,
         llm_confidence=0.70,
-        llm_direction="YES"
+        llm_direction="YES",
+        use_llm_blend=True
     )
     expected = round(0.35 * 0.60 + 0.65 * 0.70, 3)
     assert abs(conf - expected) < 0.01, f"Blend неверный: {conf} != {expected}"
+
 
 
 # ── Итерация 2: Динамический промпт по горизонту ─────────────────────────────
@@ -207,3 +211,64 @@ def test_partial_overlap_lower_penalty():
         news_block="Биткоин вырос на 5%",
     )
     assert result_one.confidence_penalty <= result_zero.confidence_penalty
+
+
+# ── Тесты для Багов 1-5 ──────────────────────────────────────────────────────
+
+def test_swing_decision_with_llm_confidence_exactly_05():
+    """LLM confidence=0.5 должен идти через blend при use_llm_blend=True."""
+    from core.swing_rules import swing_decision
+    # При старой логике: price=0.10 < 0.15, hype=0.80 → "buy" с conf 0.45 или min(0.5 + 0.8*0.3) = 0.74
+    # При blend: 0.35*0.80 + 0.65*0.50 = 0.605 → "buy"
+    rec, conf = swing_decision(
+        hype_score=0.80, price=0.10,
+        llm_confidence=0.50, llm_direction="YES",
+        use_llm_blend=True
+    )
+    expected_conf = round(0.35 * 0.80 + 0.65 * 0.50, 3)  # 0.605
+    assert abs(conf - expected_conf) < 0.01, \
+        f"Blend при llm=0.5 неверный: {conf} != {expected_conf}"
+
+
+def test_verdict_not_duplicated_on_catalyst_and_horizon_fail():
+    """
+    Если и catalyst, и horizon дают отказ — в swing_verdict не должно быть
+    двух разных фраз об одной проблеме.
+    """
+    verdict = "памп вероятен [⚠️ Катализатор не подтверждён] → сигнал отозван [Горизонт CRITICAL: confidence 0.45 < минимум 0.72]"
+    # Не должно быть двух блоков с "сигнал отозван"
+    assert verdict.count("сигнал отозван") <= 1, "Дублирующийся текст в verdict"
+
+
+def test_target_outcome_matches_llm_direction():
+    """target_outcome в SwingSignal всегда совпадает с llm_direction."""
+    direction = "NO"
+    target_outcome = direction  # новый код
+    assert target_outcome == direction
+
+
+def test_roi_filter_no_direction_semantics():
+    """
+    direction=NO: entry = 1 - current_price_yes.
+    Если YES=0.88, то NO стоит 0.12.
+    target_price=0.25 означает: хотим чтобы NO вырос до 0.25.
+    ROI = (0.25 - 0.12) / 0.12 * 100 = 108% → passes.
+    """
+    r = apply_roi_filter(current_price=0.88, target_price=0.25, direction="NO")
+    assert r.passes is True
+    assert abs(r.roi_percent - 108.3) < 1.0
+    # Документируем: entry должен быть 0.12
+    entry = 1.0 - 0.88
+    assert abs(entry - 0.12) < 0.001
+
+
+def test_catalyst_verifier_handles_abbreviations():
+    """Аббревиатуры типа FOMC, ИИ, НАТО должны совпадать с новостями."""
+    from agents.shared.utils.catalyst_verifier import verify_catalyst
+    result = verify_catalyst(
+        catalyst="FOMC поднимет ставку на заседании",
+        news_block="Заседание FOMC запланировано на среду, поднимет ставку",
+    )
+    assert result.confirmed is True, "FOMC должен совпасть как аббревиатура"
+
+

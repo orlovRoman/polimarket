@@ -24,9 +24,14 @@ _NO_CATALYST_PHRASES = [
 ]
 
 
-def _extract_keywords(text: str, min_len: int = 4) -> set[str]:
+def _extract_keywords(text: str, min_len: int = 3) -> set[str]:
     words = re.findall(r'[а-яёa-z]+', text.lower())
-    return {w for w in words if len(w) >= min_len and w not in _STOPWORDS}
+    abbrevs = re.findall(r'\b[A-ZА-Я]{2,5}\b', text)  # ИИ, США, НАТО, FOMC
+    abbrevs_lower = [a.lower() for a in abbrevs]
+    result = {w for w in words if len(w) >= min_len and w not in _STOPWORDS}
+    result |= {a for a in abbrevs_lower if a not in _STOPWORDS}
+    return result
+
 
 
 def verify_catalyst(
