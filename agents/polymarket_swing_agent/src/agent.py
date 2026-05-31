@@ -46,7 +46,13 @@ class SwingAgent:
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
 
-        wiki_block = wiki_context or "Wikipedia-данных нет."
+        IS_NICHE_MARKET = len(market.title.split()) > 6 or any(
+            kw in market.title.lower()
+            for kw in ["championship", "election", "league", "cup", "award"]
+        )
+        wiki_block = ""
+        if IS_NICHE_MARKET and wiki_context:
+            wiki_block = f"\nДанные из Wikipedia (состав турниров, участники, статистика):\n{wiki_context}\n"
 
         # Загружаем эпизодическую память (последние оценки)
         episodes = get_agent_episodes("SWING", event_type="signal_evaluated", limit=3)
@@ -144,6 +150,16 @@ class SwingAgent:
             news_items_to_guard,
             now=now
         )
+        
+        hn_block = ""
+        if context.hn_posts:
+            hn_block = f"\n[HackerNews — технические обсуждения]:\n" + "\n".join(context.hn_posts) + "\n"
+
+        velocity_block = f"\n[Velocity Signal]\n{context.velocity_annotation}\n" \
+            if getattr(context, 'velocity_annotation', '') else ""
+
+        ob_shape_block = f"\n[Orderbook Shape]\n{context.orderbook_shape_annotation}\n" \
+            if getattr(context, 'orderbook_shape_annotation', '') else ""
 
         from agents.shared.utils.horizon_strategy import get_horizon_strategy
         horizon = get_horizon_strategy(hours_to_close)
@@ -173,6 +189,10 @@ class SwingAgent:
 Текущая цена: {market.price}
 Дата закрытия: {market.close_time} ({hours_to_close:.0f}ч осталось)
 
+{velocity_block}
+
+{ob_shape_block}
+
 {hype_breakdown}
 
 {news_block}
@@ -185,7 +205,6 @@ class SwingAgent:
 
 {rag_context}
 
-Данные из Wikipedia (состав турниров, участники, статистика):
 {wiki_block}
 
 {price_history_str}
@@ -196,8 +215,7 @@ class SwingAgent:
 [Результаты Google Search (grounding, последние 48ч)]:
 {grounded_context}
 
-[HackerNews — технические обсуждения]:
-{chr(10).join(context.hn_posts) if context.hn_posts else "HackerNews: нет релевантных постов."}
+{hn_block}
 
 [Недавний опыт (Эпизодическая память)]
 Ознакомься со своими недавними предсказаниями и их реальным исходом. Сделай поправку на свою результативность (если ошибался, будь более осторожен).

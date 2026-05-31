@@ -227,3 +227,20 @@ class SignalDetails(BaseModel):
     estimated_probability: float = 0.5
     prompt_version: str = "v1"
     reasoning: str = ""
+
+class ArbitrageSignal(BaseModel):
+    id: str                    # "sig-arb-{type}-{market_a}-{timestamp}"
+    type: str                  # "CROSS_PLATFORM" | "SYNTHETIC" | "TEMPORAL"
+    market_id_a: str
+    market_id_b: Optional[str] = None
+    platform_a: str
+    platform_b: Optional[str] = None
+    spread_pct: float          # процент спреда
+    target_outcome: str        # "YES_A" | "YES_B" (какую сторону покупать)
+    max_safe_size: float       # $USD максимальная безопасная ставка
+    edge: float                # clamped 0.0-1.0
+    confidence: float
+    summary: str
+    details: str
+    status: Literal['PENDING', 'EXECUTED', 'REJECTED', 'ARCHIVED'] = 'PENDING'
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

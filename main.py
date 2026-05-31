@@ -271,7 +271,7 @@ async def start_system():
         except Exception as e:
             logger.error(f"Ошибка при резолюции: {e}")
 
-    scheduler.add_job(scheduled_resolution, 'interval', hours=6)
+    scheduler.add_job(scheduled_resolution, 'interval', hours=2)
     
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)

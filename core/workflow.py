@@ -267,22 +267,25 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     
     from agents.shared.utils.web_search import fetch_wikipedia_context
     
+    IS_TECH_MARKET = any(kw in m.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
+    
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
     future_rss = executor.submit(fetch_rss_news, search_query)
     future_reddit = executor.submit(fetch_reddit_news, search_query)
     future_wiki = executor.submit(fetch_wikipedia_context, search_query)
-    future_hn = executor.submit(fetch_hackernews, search_query)
+    future_hn = executor.submit(fetch_hackernews, search_query) if IS_TECH_MARKET else None
     
     try:
         news_titles = _safe_result(future_rss, default=[], timeout=15)
         reddit_posts = _safe_result(future_reddit, default=[], timeout=15)
         wiki_context = _safe_result(future_wiki, default=[], timeout=20)
-        hn_posts = _safe_result(future_hn, default=[], timeout=15)
+        hn_posts = _safe_result(future_hn, default=[], timeout=15) if future_hn else []
     finally:
         future_rss.cancel()
         future_reddit.cancel()
         future_wiki.cancel()
-        future_hn.cancel()
+        if future_hn:
+            future_hn.cancel()
         import sys
         if sys.version_info >= (3, 9):
             executor.shutdown(wait=False, cancel_futures=True)
@@ -301,6 +304,9 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     else:
         grounded = "Grounding не выполнен (нет API-ключа)."
 
+    from core.dedup import deduplicate_headlines
+    news_titles = deduplicate_headlines(news_titles, grounded)
+
     context = MarketContext(
         market=m,
         orderbook=pre_orderbook,
@@ -316,6 +322,23 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
         search_query=search_query,
         grounded_context=grounded
     )
+
+    from core.price_velocity import detect_velocity_anomaly
+    velocity = detect_velocity_anomaly(price_history or [])
+    context.velocity_annotation = velocity.annotation
+
+    from core.orderbook_shape import analyze_orderbook_shape
+    ob_dict = {}
+    if pre_orderbook:
+        ob_dict = {
+            "top_bid": pre_orderbook.top_bid,
+            "top_ask": pre_orderbook.top_ask,
+            "spread_cents": pre_orderbook.spread_cents,
+            "bid_depth_5": pre_orderbook.bid_depth_5,
+            "ask_depth_5": pre_orderbook.ask_depth_5
+        }
+    ob_shape = analyze_orderbook_shape(ob_dict, m.price)
+    context.orderbook_shape_annotation = ob_shape.annotation
 
     # ── Вариант 2: обогащаем контекст корреляциями ──────────────────────────
     corr_list = get_market_correlations(m.id)
@@ -387,7 +410,11 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
         
     # SWING
     try:
-        swing_signal = swing.estimate_market(context, price_history=price_history)
+        if not velocity.has_anomaly and velocity.suspicion == "ORGANIC":
+            logger.info(f"  SWING: пропущен (flat price)")
+            swing_signal = None
+        else:
+            swing_signal = swing.estimate_market(context, price_history=price_history)
         save_checkpoint(f"swing_{m.id}", status="ok")
     except LLMUnavailableError:
         save_checkpoint(f"swing_{m.id}", status="llm_unavailable")
@@ -603,3 +630,50 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             )
     except Exception as e:
         logger.error(f"[workflow] save_agent_episode failed for {m.id}: {e}")
+
+def process_arbitrage_signal(
+    arb_signal,
+    orderbook_a: dict,
+    orderbook_b: Optional[dict],
+    summary_callback
+) -> None:
+    """
+    Для арбитражных сигналов SHADOW запускается только как liquidity check.
+    Не нужен полный LLM-вызов — только check_liquidity_fast() на обоих стаканах.
+    """
+    from core.liquidity_checker import check_liquidity_fast
+    from agents.shared.python.db import save_signal
+    from core.models import Signal
+    
+    liq_a = check_liquidity_fast(orderbook_a)
+    liq_b = check_liquidity_fast(orderbook_b) if orderbook_b else liq_a
+    
+    if liq_a.ok and liq_b.ok:
+        signal_compat = Signal(
+            id=arb_signal.id,
+            type=arb_signal.type,  # CROSS_PLATFORM, SYNTHETIC, TEMPORAL
+            market_id=arb_signal.market_id_a,
+            platform=arb_signal.platform_a,
+            edge=arb_signal.edge,
+            confidence=arb_signal.confidence,
+            priority="high" if arb_signal.spread_pct > 10.0 else "medium",
+            summary=arb_signal.summary,
+            details=arb_signal.details,
+            target_outcome=arb_signal.target_outcome,
+            status="PENDING",
+            created_at=arb_signal.created_at
+        )
+        save_signal(signal_compat)  # сохранить в БД
+        
+        # Строим красивое сообщение для Telegram
+        msg = (
+            f"⚡️ <b>АРБИТРАЖНЫЙ СИГНАЛ ({arb_signal.type})</b> ⚡️\n\n"
+            f"📊 Спред: <b>{arb_signal.spread_pct:.1f}%</b>\n"
+            f"🎯 Исход: <b>{arb_signal.target_outcome}</b>\n"
+            f"💰 Макс. ставка: <b>${arb_signal.max_safe_size:.1f}</b>\n\n"
+            f"🧠 <b>Суть:</b> {arb_signal.summary}\n"
+            f"📝 <b>Детали:</b> {arb_signal.details}\n"
+        )
+        summary_callback(msg)
+    else:
+        logger.info(f"Арбитраж отклонён (ликвидность): {arb_signal.id}")
