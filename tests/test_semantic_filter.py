@@ -9,7 +9,7 @@ from core.semantic_filter import (
 )
 
 class MockModel:
-    def encode(self, texts, convert_to_numpy=True):
+    def encode(self, texts, convert_to_numpy=True, normalize_embeddings=True, **kwargs):
         res = []
         for t in texts:
             t_low = t.lower()
@@ -31,10 +31,16 @@ class MockModel:
                 if "raise" in t_low:
                     res.append([1.0, 0.0, 0.0])
                 else:
-                    res.append([0.4, 0.9, 0.0])
+                    res.append([0.7, 0.714, 0.0])
             else:
                 res.append([1.0, 0.0, 0.0])
-        return np.array(res, dtype=np.float32)
+        
+        res_np = np.array(res, dtype=np.float32)
+        if normalize_embeddings:
+            norms = np.linalg.norm(res_np, axis=1, keepdims=True)
+            res_np = res_np / norms
+        return res_np
+
 
 @pytest.fixture(autouse=True)
 def clean_globals():

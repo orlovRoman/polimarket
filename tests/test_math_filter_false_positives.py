@@ -117,3 +117,31 @@ def test_math_filter_same_event_slug_prefilter():
     # Одинаковые event_slug -> True без вызова семантики
     assert _check_same_event(a.title, b.title, market_a=a, market_b=b) is True
 
+
+def test_math_filter_complementary_different_candidates_no_false_positive():
+    """Разные округа в complementary-ветке не должны приводить к ложному арбитражу (Layer 2)"""
+    from unittest.mock import patch
+    
+    a = MagicMock()
+    a.title = "Will a Democrat win the NY-12 election?"
+    a.price = 0.60
+    a.platform = "polymarket"
+    a.close_time = datetime(2026, 12, 31)
+    a.url = "https://polymarket.com/a"
+    a.event_slug = None
+
+    b = MagicMock()
+    b.title = "Will a Republican win the OK-01 election?"
+    b.price = 0.55
+    b.platform = "polymarket"
+    b.close_time = datetime(2026, 12, 31)
+    b.url = "https://polymarket.com/b"
+    b.event_slug = None
+
+    # Мокаем семантический фильтр, чтобы он вернул False (разные события)
+    with patch("core.semantic_filter.semantic_same_event", return_value=False):
+        result = math_pre_filter(a, b)
+        assert result.decision == FilterDecision.CONFIRMED_NO_ARBI
+        assert result.arbitrage_type == "different_events"
+
+

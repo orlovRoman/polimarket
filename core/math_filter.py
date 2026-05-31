@@ -349,6 +349,18 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             
     # 2. Complementary
     if _looks_complementary(market_a.title, market_b.title):
+        if not _check_same_event(market_a.title, market_b.title, market_a=market_a, market_b=market_b):
+            return MathFilterResult(
+                decision=FilterDecision.CONFIRMED_NO_ARBI,
+                arbitrage_type="different_events",
+                spread_pct=0.0,
+                reasoning=(
+                    "Рынки выглядят комплементарными по ключевым словам, "
+                    "но описывают разные события (embedding cosine < 0.65 "
+                    "или разные event_slug). Арбитраж невозможен."
+                ),
+                trade_instruction=""
+            )
         price_sum = market_a.price + market_b.price
         if price_sum - 1.0 > 0.03 and (price_sum - 1.0) * 100 >= min_spread_pct:
             spread = (price_sum - 1.0) * 100

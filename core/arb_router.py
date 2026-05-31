@@ -58,7 +58,9 @@ def _get_llm_cache(market_id_a: str, market_id_b: str) -> Optional[dict]:
         from agents.shared.python.db import get_connection
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT same_event, reason FROM arb_llm_cache WHERE pair_key = ?",
+                """SELECT same_event, reason FROM arb_llm_cache 
+                   WHERE pair_key = ? 
+                   AND created_at > datetime('now', '-7 days')""",
                 (pair_key,)
             ).fetchone()
             if row:

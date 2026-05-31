@@ -120,3 +120,46 @@ def test_prompt_is_compact(monkeypatch):
     route_ambiguous(mf, _mkt("compact_a", "Bitcoin above 100K December 2026", 0.6),
                         _mkt("compact_b", "Bitcoin above 80K December 2026", 0.45), api_key="key")
     assert len(captured.get("prompt", "")) < 600, "Промпт слишком большой!"
+
+def test_llm_cache_ttl_expiry():
+    """Тестирует TTL кэша LLM-ответов: записи старше 7 дней должны игнорироваться."""
+    from agents.shared.python.db import get_connection
+    from core.arb_router import _set_llm_cache
+    
+    mf = _ambiguous_mf(spread=15.0)
+    market_a = _mkt("ttl_a", "Title X", 0.5)
+    market_b = _mkt("ttl_b", "Title Y", 0.4)
+    
+    # 1. Записываем в кэш
+    _set_llm_cache(market_a.id, market_b.id, {"same_event": True, "reason": "ok"})
+    
+    # 2. Имитируем старение записи (8 дней назад - больше TTL = 7 дней)
+    pair_key = "_".join(sorted([market_a.id, market_b.id]))
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE arb_llm_cache SET created_at = datetime('now', '-8 days') WHERE pair_key = ?",
+            (pair_key,)
+        )
+        
+    # 3. Вызываем route_ambiguous — должен быть промах кэша и вызов LLM
+    mock_payload = (MagicMock(), None)
+    with patch("core.arb_router.generate_content_with_fallback", return_value=mock_payload) as mock_llm, \
+         patch("core.arb_router.extract_response_text", return_value='{"same_event": true, "confidence": 0.9, "reason": "ok", "confirmed_arb": true}'):
+        res = route_ambiguous(mf, market_a, market_b, api_key="test")
+        assert res is not None
+        mock_llm.assert_called_once()
+        
+    # 4. Обновляем на 6 дней назад (в пределах TTL = 7 дней)
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE arb_llm_cache SET created_at = datetime('now', '-6 days') WHERE pair_key = ?",
+            (pair_key,)
+        )
+        
+    # 5. Вызываем route_ambiguous — должно быть попадание в кэш без вызова LLM
+    with patch("core.arb_router.generate_content_with_fallback") as mock_llm:
+        res = route_ambiguous(mf, market_a, market_b, api_key="test")
+        assert res is not None
+        assert res["same_event"] is True
+        mock_llm.assert_not_called()
+
