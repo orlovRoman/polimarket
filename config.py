@@ -72,7 +72,7 @@ POLY_EVENTS_CACHE_TTL_SECONDS = int(os.getenv("POLY_EVENTS_CACHE_TTL", "300"))
 
 # Интеграции
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GOOGLE_API_KEY_SECONDARY = os.getenv("GOOGLE_API_KEY_SECONDARY", "AIzaSyByIvR_9P2sj74EkN8mxWU5-VC4koRwIFM")
+GOOGLE_API_KEY_SECONDARY = os.getenv("GOOGLE_API_KEY_SECONDARY", "")
 
 # Настройки блокировки
 LOCK_FILE = str(PROJECT_ROOT / "vault" / "scan.lock")

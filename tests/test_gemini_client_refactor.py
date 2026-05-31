@@ -394,7 +394,7 @@ def test_sanitize_error_masks_all_key_patterns():
 
     cases = [
         "404 Not Found for url: https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent?key=AQ.Ab8RN6_FakeKeyMaskingTestStringOnlyForTests123",
-        "400 Bad Request ?key=AIzaSyByIvR_9P2sj74EkN8mxWU5-VC4koRwIFM extra text",
+        "400 Bad Request ?key=AQ.Ab8RN6_FakeKeySecondaryTestStringOnlyForTests123 extra text",
         "Error key=shortkey123",  # короткий ключ < 20 символов — НЕ должен маскироваться
     ]
 
@@ -403,10 +403,11 @@ def test_sanitize_error_masks_all_key_patterns():
     assert "***REDACTED***" in sanitized_0
 
     sanitized_1 = _sanitize_error(Exception(cases[1]))
-    assert "AIzaSyByIvR" not in sanitized_1
+    assert "AQ.Ab8RN6" not in sanitized_1
 
     sanitized_2 = _sanitize_error(Exception(cases[2]))
     assert "shortkey123" in sanitized_2, "Короткие строки не должны маскироваться"
+
 
 
 
