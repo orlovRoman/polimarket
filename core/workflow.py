@@ -435,7 +435,8 @@ def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signa
     # т.к. пользователь оперирует микро-банком ($10-100) и high liquidity_risk — норма.
     shadow_ok = opinion_shadow and opinion_shadow.agree
     
-    valid_scout = signal is not None
+    MIN_SCOUT_EDGE = 0.10  # минимальный edge для сохранения идеи
+    valid_scout = signal is not None and getattr(signal, 'edge', 0) >= MIN_SCOUT_EDGE
     swing_rec = getattr(swing_signal, 'recommendation', '').lower() if swing_signal else ''
     valid_swing_buy = swing_signal is not None and swing_rec == 'buy'
     swing_analyzed = swing_signal is not None
@@ -620,28 +621,43 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
     from agents.shared.python.db import save_agent_episode
     try:
         if signal:
+            verdict_scout = getattr(signal, 'signal_verdict', None)
+            if verdict_scout is None:
+                verdict_scout = getattr(signal, 'trade_action', None)
+            if verdict_scout is None:
+                verdict_scout = 'buy'
             save_agent_episode(
                 agent_name="SCOUT",
                 event_type="signal_evaluated",
-                summary=f"Opinion: {getattr(signal, 'signal_verdict', 'buy')[:80]} | Reason: {getattr(signal, 'signal_cause', getattr(signal, 'details', ''))}",
+                summary=f"Opinion: {str(verdict_scout)[:80]} | Reason: {getattr(signal, 'signal_cause', getattr(signal, 'details', ''))}",
                 market_id=m.id,
                 market_title=m.title
             )
             
         if swing_signal:
+            verdict_swing = getattr(swing_signal, 'swing_verdict', None)
+            if verdict_swing is None:
+                verdict_swing = getattr(swing_signal, 'recommendation', None)
+            if verdict_swing is None:
+                verdict_swing = 'buy'
             save_agent_episode(
                 agent_name="SWING",
                 event_type="signal_evaluated",
-                summary=f"Opinion: {getattr(swing_signal, 'swing_verdict', 'buy')[:80]} | Reason: {getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))}",
+                summary=f"Opinion: {str(verdict_swing)[:80]} | Reason: {getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))}",
                 market_id=m.id,
                 market_title=m.title
             )
             
         if opinion_shadow:
+            verdict_shadow = getattr(opinion_shadow, 'shadow_verdict', None)
+            if verdict_shadow is None:
+                verdict_shadow = getattr(opinion_shadow, 'opinion', None)
+            if verdict_shadow is None:
+                verdict_shadow = 'agree'
             save_agent_episode(
                 agent_name="SHADOW",
                 event_type="signal_evaluated",
-                summary=f"Opinion: {getattr(opinion_shadow, 'shadow_verdict', 'agree')[:80]} | Reason: {getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))}",
+                summary=f"Opinion: {str(verdict_shadow)[:80]} | Reason: {getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))}",
                 market_id=m.id,
                 market_title=m.title
             )
@@ -662,7 +678,11 @@ def process_arbitrage_signal(
     from agents.shared.python.db import save_arbitrage_signal_to_db
     
     liq_a = check_liquidity_fast(orderbook_a)
-    liq_b = check_liquidity_fast(orderbook_b) if orderbook_b else liq_a
+    if orderbook_b is None:
+        logger.warning(f"[arbitrage] Нет данных стакана для второй ноги — отклоняем {arb_signal.id}")
+        return
+        
+    liq_b = check_liquidity_fast(orderbook_b)
     
     if liq_a.ok and liq_b.ok:
         save_arbitrage_signal_to_db(arb_signal)  # сохранить в БД cross_arbitrage_signals
