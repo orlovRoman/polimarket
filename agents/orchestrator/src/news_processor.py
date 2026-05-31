@@ -22,6 +22,8 @@ class NewsProcessor:
         self.api_key = api_key
         self.model = model
         self.adapter = PolymarketAdapter()
+        self.failure_reason = ""
+        self.closed_markets = []
 
     def _validate_relevance(self, text: str, markets: List[Market]) -> List[Market]:
         """
@@ -133,6 +135,7 @@ class NewsProcessor:
             return []
         markets = []
         seen_ids = set()
+        from datetime import datetime, timezone
         for slug in slugs:
             try:
                 found = self.adapter.get_event_by_slug(slug)
@@ -166,6 +169,13 @@ class NewsProcessor:
                 for m in sorted_found:
                     if m.id not in seen_ids:
                         seen_ids.add(m.id)
+                        
+                        # Проверяем close_time на закрытие
+                        if m.close_time and m.close_time < datetime.now(timezone.utc):
+                            logger.info(f"[NewsProcessor] Этап 0: рынок '{m.title}' УЖЕ ЗАКРЫТ ({m.close_time}), пропущен")
+                            self.closed_markets.append(m)
+                            continue
+                            
                         markets.append(m)
                         logger.info(
                             f"[NewsProcessor] Этап 0: найден рынок '{m.title}' по slug '{slug}' "
@@ -174,6 +184,26 @@ class NewsProcessor:
             except Exception as e:
                 logger.debug(f"[NewsProcessor] Этап 0: ошибка для slug '{slug}': {e}")
         return markets
+
+    def _extract_whale_from_post(self, text: str) -> None:
+        """Парсит структурированные посты типа 'Insider Entry' и сохраняет трейдера в known_whales."""
+        import re
+        from agents.shared.python.db import upsert_known_whale
+        
+        # Паттерн для кошелька в polymarket.com/profile/0x...
+        wallet_match = re.search(r'polymarket\.com/profile/(0x[a-fA-F0-9]+)', text)
+        alias_match = re.search(r'\[([^\]]+)\]\(https://polymarket\.com/profile/', text)
+        wr_match = re.search(r'Win Rate:\s*([\d.]+)%', text)
+        
+        if wallet_match and wr_match:
+            wallet = wallet_match.group(1).lower()
+            alias = alias_match.group(1) if alias_match else wallet[:8]
+            win_rate = float(wr_match.group(1)) / 100
+            try:
+                upsert_known_whale(wallet, alias, win_rate)
+                logger.info(f"[NewsProcessor] Сохранён трейдер {alias} ({wallet[:10]}...) WR={win_rate:.0%}")
+            except Exception as e:
+                logger.error(f"[NewsProcessor] Ошибка сохранения трейдера {alias} в БД: {e}")
 
     def find_relevant_markets(self, text: str) -> List[Market]:
         """
@@ -186,6 +216,10 @@ class NewsProcessor:
         Этапы 1-2 запускаются только если Этап 0 не дал результатов.
         Возвращает список объектов Market.
         """
+        self._extract_whale_from_post(text)
+        self.failure_reason = ""
+        self.closed_markets = []
+
         # ── Этап 0: Прямые ссылки на Polymarket ──────────────────────────────
         direct_markets = self._extract_markets_from_urls(text)
         if direct_markets:
@@ -194,6 +228,12 @@ class NewsProcessor:
                 f"по прямым ссылкам. LLM-этапы пропущены."
             )
             return direct_markets
+
+        # Если прямые ссылки были, но все рынки отфильтровались как закрытые
+        if self.closed_markets and not direct_markets:
+            self.failure_reason = "MARKET_CLOSED"
+            logger.info("[NewsProcessor] Прямые ссылки вели только на закрытые рынки.")
+            return []
 
         # ── Этапы 1-2: LLM-пайплайн (fallback если нет прямых ссылок) ───────
         prompt = f"""
@@ -231,6 +271,7 @@ class NewsProcessor:
         
         if not result:
             logger.warning("[NewsProcessor] Ошибка LLM при извлечении ключевых слов.")
+            self.failure_reason = "NOT_FOUND"
             return []
             
         try:
@@ -240,6 +281,7 @@ class NewsProcessor:
             
             if not keywords:
                 logger.info("[NewsProcessor] Новость не содержит релевантных ключевых слов.")
+                self.failure_reason = "IRRELEVANT"
                 return []
                 
             logger.info(f"[NewsProcessor] Этап 1: Извлечены ключевые слова: {keywords}")
@@ -261,22 +303,42 @@ class NewsProcessor:
 
             if not all_found:
                 logger.info("[NewsProcessor] Polymarket API не вернул рынков по ключевым словам.")
+                self.failure_reason = "NOT_FOUND"
+                return []
+
+            # Проверяем close_time кандидатов перед валидацией
+            from datetime import datetime, timezone
+            active_found = []
+            for m in all_found:
+                if m.close_time and m.close_time < datetime.now(timezone.utc):
+                    logger.info(f"[NewsProcessor] Кандидат '{m.title}' УЖЕ ЗАКРЫТ, пропущен")
+                    self.closed_markets.append(m)
+                    continue
+                active_found.append(m)
+                
+            if not active_found:
+                if self.closed_markets:
+                    self.failure_reason = "MARKET_CLOSED"
+                else:
+                    self.failure_reason = "NOT_FOUND"
+                logger.info("[NewsProcessor] Все найденные по ключевым словам рынки уже закрыты.")
                 return []
 
             logger.info(
-                f"[NewsProcessor] Этап 1 завершён: {len(all_found)} уникальных кандидатов. "
+                f"[NewsProcessor] Этап 1 завершён: {len(active_found)} уникальных кандидатов. "
                 f"Запускаем валидацию релевантности..."
             )
 
             # Этап 2: LLM-валидация релевантности
-            validated = self._validate_relevance(text, all_found)
+            validated = self._validate_relevance(text, active_found)
 
             if not validated:
                 logger.warning(
-                    f"[NewsProcessor] Этап 2: ни один из {len(all_found)} кандидатов "
+                    f"[NewsProcessor] Этап 2: ни один из {len(active_found)} кандидатов "
                     f"не прошёл валидацию релевантности. Рынки отклонены: "
-                    f"{[m.title[:60] for m in all_found]}"
+                    f"{[m.title[:60] for m in active_found]}"
                 )
+                self.failure_reason = "IRRELEVANT"
             else:
                 logger.info(
                     f"[NewsProcessor] Этап 2 завершён: {len(validated)} рынков прошли валидацию."
@@ -286,4 +348,5 @@ class NewsProcessor:
             
         except Exception as e:
             logger.error(f"[NewsProcessor] Ошибка обработки ответа LLM: {e}")
+            self.failure_reason = "NOT_FOUND"
             return []

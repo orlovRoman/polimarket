@@ -247,3 +247,52 @@ class TestExtractMarketsFromUrls:
         mock_generate.assert_not_called()
         assert len(result) == 1
         assert result[0].id == "m1"
+
+
+class TestNewsProcessorDiagnosticsAndWhales:
+    """Тесты для новой диагностики закрытых рынков и автоматического извлечения китов."""
+
+    @patch("agents.shared.python.db.upsert_known_whale")
+    def test_extract_whale_from_post_success(self, mock_upsert):
+        """Проверяет успешное извлечение кита из структурированного текста."""
+        np = NewsProcessor(api_key="test-key")
+        text = (
+            "Insider Entry [VARsenal](https://polymarket.com/profile/0x5c3a1a602848565bb16165fcd460b00c3d43020b)\n"
+            "Win Rate: 87%\n"
+            "P&L: +$1,644,844\n"
+            "Insider Probability: 45%\n"
+            "Buy No · $10,600 · Entry: 53¢"
+        )
+        np._extract_whale_from_post(text)
+        mock_upsert.assert_called_once_with(
+            "0x5c3a1a602848565bb16165fcd460b00c3d43020b", "VARsenal", 0.87
+        )
+
+    @patch("agents.shared.python.db.upsert_known_whale")
+    def test_extract_whale_from_post_no_alias(self, mock_upsert):
+        """Проверяет извлечение кита, если alias отсутствует."""
+        np = NewsProcessor(api_key="test-key")
+        text = (
+            "https://polymarket.com/profile/0x5c3a1a602848565bb16165fcd460b00c3d43020b\n"
+            "Win Rate: 72%"
+        )
+        np._extract_whale_from_post(text)
+        mock_upsert.assert_called_once_with(
+            "0x5c3a1a602848565bb16165fcd460b00c3d43020b", "0x5c3a1a", 0.72
+        )
+
+    @patch("agents.shared.adapters.polymarket.PolymarketAdapter.get_event_by_slug")
+    def test_closed_market_diagnostics_direct_links(self, mock_get_event):
+        """Проверяет выставление MARKET_CLOSED для прямых ссылок."""
+        np = NewsProcessor(api_key="test-key")
+        closed_market = _make_market("m1", "Closed election")
+        closed_market.close_time = datetime.now(timezone.utc) - timedelta(days=1)
+        mock_get_event.return_value = [closed_market]
+
+        text = "https://polymarket.com/event/closed-election"
+        result = np.find_relevant_markets(text)
+
+        assert result == []
+        assert np.failure_reason == "MARKET_CLOSED"
+        assert len(np.closed_markets) == 1
+        assert np.closed_markets[0].id == "m1"

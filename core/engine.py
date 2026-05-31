@@ -498,17 +498,23 @@ class CoreEngine:
             markets = np.find_relevant_markets(text)
 
             if not markets:
-                logger.info(f"Post {post_id}: No relevant markets found.")
+                logger.info(f"Post {post_id}: No relevant markets found. Reason: {np.failure_reason}")
                 mark_telegram_post_status(post_id, 'NO_MARKETS')
-                # Уведомляем пользователя, чтобы не было «молчаливого» пропуска
                 try:
                     source_hint = ""
                     if source_url:
                         source_hint = f"\n📡 Пост: <a href='{source_url}'>{source_text or 'Источник'}</a>"
-                    send_telegram_to_chat(
-                        f"⚪️ Не найдено подходящих рынков на Polymarket для этой новости.{source_hint}",
-                        chat_id
-                    )
+                    
+                    if np.failure_reason == "MARKET_CLOSED" and np.closed_markets:
+                        m_closed = np.closed_markets[0]
+                        close_date = m_closed.close_time.strftime("%d %b") if m_closed.close_time else "недавно"
+                        msg = f"⚠️ Рынок <b><a href='{m_closed.url}'>{m_closed.title}</a></b> найден, но уже закрылся {close_date}. Анализ невозможен.{source_hint}"
+                    elif np.failure_reason == "IRRELEVANT":
+                        msg = f"⚪️ Тема новости оценена как нерелевантная для торговли рынками предсказаний.{source_hint}"
+                    else:
+                        msg = f"⚪️ Не найдено подходящих рынков на Polymarket для этой новости.{source_hint}"
+                        
+                    send_telegram_to_chat(msg, chat_id)
                 except Exception as e:
                     logger.error(f"Failed to send NO_MARKETS notification: {e}")
                 return

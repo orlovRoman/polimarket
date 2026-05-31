@@ -1171,6 +1171,18 @@ def cleanup_expired_memory():
         count = cursor.rowcount
     return count
 
+def upsert_known_whale(address: str, alias: str, win_rate: float, total_won: float = 0.0, total_vol: float = 0.0) -> None:
+    """Добавляет или обновляет известного кита (whale) в базе данных."""
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO known_whales (address, alias, win_rate, total_won, total_vol, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(address) DO UPDATE SET
+                alias=excluded.alias,
+                win_rate=excluded.win_rate,
+                updated_at=CURRENT_TIMESTAMP
+        """, (address.lower(), alias, win_rate, total_won, total_vol))
+
 def add_wallet(address: str, alias: str = None, is_insider: bool = False):
     """Добавляет новый кошелек для мониторинга агентом SHADOW."""
     with get_connection() as conn:
