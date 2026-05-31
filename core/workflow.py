@@ -30,14 +30,17 @@ from agents.orchestrator.src.agent import NexusAgent
 
 _MAX_CORR_PEERS: int = 5   # топ-N корреляций для math_pre_filter
 _SESSION_DEDUP_TTL_SEC: int = 1800
+import threading
 _analyzed_in_session: Dict[str, float] = {}
+_dedup_lock = threading.Lock()
 
 def _cleanup_session_dedup() -> None:
     """Удаляем устаревшие ключи из in-memory дедупликатора."""
     cutoff = time.monotonic() - _SESSION_DEDUP_TTL_SEC
-    expired = [k for k, ts in _analyzed_in_session.items() if ts < cutoff]
-    for k in expired:
-        del _analyzed_in_session[k]
+    with _dedup_lock:
+        expired = [k for k, ts in _analyzed_in_session.items() if ts < cutoff]
+        for k in expired:
+            del _analyzed_in_session[k]
 
 def _prefilter_markets(markets_compact: list) -> list:
     """
@@ -53,14 +56,18 @@ def _prefilter_markets(markets_compact: list) -> list:
 
     for m in markets_compact:
         price = m.get('price', m.get('p', 0.5))
-        volume = m.get('volume', m.get('vol', 0))
+        try:
+            volume = float(m.get('volume') or m.get('vol') or 0.0)
+        except (ValueError, TypeError):
+            volume = 0.0
+            
         close_str = m.get('close_time', m.get('end', ''))
 
         # Фильтр: цена в диапазоне интереса
         if not (PRICE_RANGE_MIN <= price <= PRICE_RANGE_MAX):
             continue
         # Фильтр: объём > $5000 (есть ликвидность)
-        if volume and volume < 5000:
+        if volume < 5000:
             continue
         # Фильтр: рынок закроется не раньше чем через 3 дня
         if close_str:
@@ -228,13 +235,14 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
 
     # In-session дедупликация (быстрая проверка без БД)
     dedup_key = f"{m.id}:{trigger_type}"
-    if dedup_key in _analyzed_in_session:
-        logger.info(
-            f"[workflow] Пропуск дубля (in-session): {m.id} "
-            f"({trigger_type}), добавлен {time.monotonic() - _analyzed_in_session[dedup_key]:.0f}с назад"
-        )
-        return None, None, None
-    _analyzed_in_session[dedup_key] = time.monotonic()
+    with _dedup_lock:
+        if dedup_key in _analyzed_in_session:
+            logger.info(
+                f"[workflow] Пропуск дубля (in-session): {m.id} "
+                f"({trigger_type}), добавлен {time.monotonic() - _analyzed_in_session[dedup_key]:.0f}с назад"
+            )
+            return None, None, None
+        _analyzed_in_session[dedup_key] = time.monotonic()
 
     # БД-уровень дедупликации (межсессионная защита)
     last_analysis_key = f"last_analysis:{m.id}"
@@ -438,7 +446,12 @@ def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signa
     MIN_SCOUT_EDGE = 0.10  # минимальный edge для сохранения идеи
     valid_scout = signal is not None and getattr(signal, 'edge', 0) >= MIN_SCOUT_EDGE
     swing_rec = getattr(swing_signal, 'recommendation', '').lower() if swing_signal else ''
-    valid_swing_buy = swing_signal is not None and swing_rec == 'buy'
+    MIN_SWING_CONFIDENCE = 0.40  # минимум 40% уверенности для BUY
+    valid_swing_buy = (
+        swing_signal is not None
+        and swing_rec == 'buy'
+        and getattr(swing_signal, 'confidence', 0) >= MIN_SWING_CONFIDENCE
+    )
     swing_analyzed = swing_signal is not None
     
     if (valid_scout or valid_swing_buy) and shadow_ok:
