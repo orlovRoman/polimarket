@@ -24,7 +24,6 @@ except ImportError as e:
     logger.warning(f"[arb_router] gemini_client недоступен: {e}")
     _GEMINI_AVAILABLE = False
 
-_MIN_SPREAD_FOR_LLM = 8.0   # ниже — не тратим токены
 _SCHEMA = {
     "type": "object",
     "properties": {
@@ -36,25 +35,106 @@ _SCHEMA = {
     "required": ["same_event", "confidence", "reason", "confirmed_arb"]
 }
 
+def _init_llm_cache_db():
+    from agents.shared.python.db import get_connection
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS arb_llm_cache (
+                    pair_key TEXT PRIMARY KEY,
+                    same_event INTEGER NOT NULL,
+                    reason TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_arb_llm_cache_created ON arb_llm_cache(created_at)")
+    except Exception as e:
+        logger.warning(f"[arb_router] Ошибка инициализации SQLite кэша: {e}")
+
+def _get_llm_cache(market_id_a: str, market_id_b: str) -> Optional[dict]:
+    pair_key = "_".join(sorted([market_id_a, market_id_b]))
+    try:
+        _init_llm_cache_db()
+        from agents.shared.python.db import get_connection
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT same_event, reason FROM arb_llm_cache WHERE pair_key = ?",
+                (pair_key,)
+            ).fetchone()
+            if row:
+                return {
+                    "same_event": bool(row[0]),
+                    "reason": row[1],
+                    "confidence": 1.0
+                }
+    except Exception as e:
+        logger.warning(f"[arb_router] Ошибка чтения LLM-кэша: {e}")
+    return None
+
+def _set_llm_cache(market_id_a: str, market_id_b: str, result: dict) -> None:
+    pair_key = "_".join(sorted([market_id_a, market_id_b]))
+    if "same_event" not in result:
+        return
+    try:
+        _init_llm_cache_db()
+        from agents.shared.python.db import get_connection
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO arb_llm_cache (pair_key, same_event, reason, created_at) VALUES (?, ?, ?, datetime('now'))",
+                (pair_key, int(result["same_event"]), result.get("reason", ""))
+            )
+    except Exception as e:
+        logger.warning(f"[arb_router] Ошибка записи в LLM-кэш: {e}")
+
+def _calculate_confirmed_arb(mf: MathFilterResult, market_a: Market, market_b: Market, same_event: bool, default_val: bool = False) -> bool:
+    """Динамический пересчет подтвержденного арбитража на основе текущих цен."""
+    if not same_event:
+        return False
+        
+    if mf.arbitrage_type == "price_divergence":
+        current_spread = abs(market_a.price - market_b.price) * 100
+        return current_spread >= 5.0
+        
+    if mf.arbitrage_type == "monotonicity_violation":
+        return True
+        
+    if mf.arbitrage_type == "complementary_underpriced":
+        price_sum = market_a.price + market_b.price
+        return (1.0 - price_sum) * 100 >= 5.0
+
+    if mf.arbitrage_type == "complementary_overpriced":
+        price_sum = market_a.price + market_b.price
+        return (price_sum - 1.0) * 100 >= 5.0
+        
+    if mf.arbitrage_type == "logical_implication":
+        return default_val
+        
+    return default_val
+
 def route_ambiguous(
     mf: MathFilterResult,
-    market_a: "Market",
-    market_b: "Market",
+    market_a: Market,
+    market_b: Market,
     api_key: str,
     model: str = "gemini-2.5-flash",
 ) -> Optional[dict]:
     """
-    Для AMBIGUOUS с spread >= _MIN_SPREAD_FOR_LLM:
-    задаём LLM один узкий вопрос — одно ли это событие.
+    Для всех AMBIGUOUS пар:
+    проверяем кэш, при промахе задаём LLM один узкий вопрос — одно ли это событие.
     
     Returns dict с ключами: same_event, confidence, reason, confirmed_arb
-    или None при ошибке / spread < порога.
+    или None при ошибке.
     """
     if mf.decision != FilterDecision.AMBIGUOUS:
         return None
-    if mf.spread_pct < _MIN_SPREAD_FOR_LLM:
-        logger.debug(f"[arb_router] Spread {mf.spread_pct:.1f}% < {_MIN_SPREAD_FOR_LLM}% — пропуск")
-        return None
+
+    # Пытаемся получить из SQLite кэша
+    cached = _get_llm_cache(market_a.id, market_b.id)
+    if cached is not None:
+        cached["confirmed_arb"] = _calculate_confirmed_arb(
+            mf, market_a, market_b, cached["same_event"], default_val=cached["same_event"]
+        )
+        return cached
 
     prompt = (
         f"Два рынка Polymarket:\n"
@@ -92,7 +172,16 @@ def route_ambiguous(
             return None
         text = extract_response_text(result)
         try:
-            return json.loads(text)
+            res_dict = json.loads(text)
+            same_event = res_dict.get("same_event", False)
+            confirmed_arb = _calculate_confirmed_arb(
+                mf, market_a, market_b, same_event, default_val=res_dict.get("confirmed_arb", False)
+            )
+            res_dict["confirmed_arb"] = confirmed_arb
+            
+            # Сохраняем в кэш
+            _set_llm_cache(market_a.id, market_b.id, res_dict)
+            return res_dict
         except json.JSONDecodeError as jde:
             logger.warning(
                 f"[arb_router] JSONDecodeError: {jde}. "

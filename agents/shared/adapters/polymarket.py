@@ -214,7 +214,8 @@ class PolymarketAdapter(BaseMarketAdapter):
                     close_time=close_time,
                     tokens=tokens,
                     volume=volume,
-                    condition_id=item.get("conditionId")
+                    condition_id=item.get("conditionId"),
+                    event_slug=item.get("event_slug") or item.get("slug")
                 )
                 markets.append(m)
             except (KeyError, ValueError, TypeError, json.JSONDecodeError) as e:
@@ -293,6 +294,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                     tokens=tokens,
                     volume=volume,
                     condition_id=item.get("conditionId"),
+                    event_slug=item.get("event_slug") or item.get("slug")
                 )
                 markets.append(m)
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
@@ -376,6 +378,7 @@ class PolymarketAdapter(BaseMarketAdapter):
             tokens=tokens,
             volume=volume,
             condition_id=item.get("conditionId"),
+            event_slug=item.get("event_slug") or item.get("slug")
         )
 
     def get_orderbook(self, token_id: str) -> Optional[dict]:

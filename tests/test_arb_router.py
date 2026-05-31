@@ -2,7 +2,7 @@ import pytest
 import json
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone, timedelta
-from core.arb_router import route_ambiguous, _MIN_SPREAD_FOR_LLM
+from core.arb_router import route_ambiguous
 from core.math_filter import MathFilterResult, FilterDecision
 from core.models import Market
 
@@ -10,6 +10,23 @@ def _mkt(id, title, price):
     return Market(id=id, platform="polymarket", title=title,
                   description="", url=f"http://x/{id}", outcome="YES",
                   price=price, close_time=datetime.now(timezone.utc) + timedelta(days=14))
+
+@pytest.fixture(autouse=True)
+def clean_llm_cache():
+    try:
+        from agents.shared.python.db import get_connection
+        with get_connection() as conn:
+            conn.execute("DELETE FROM arb_llm_cache")
+    except Exception:
+        pass
+    yield
+    try:
+        from agents.shared.python.db import get_connection
+        with get_connection() as conn:
+            conn.execute("DELETE FROM arb_llm_cache")
+    except Exception:
+        pass
+
 
 def _ambiguous_mf(spread: float) -> MathFilterResult:
     return MathFilterResult(
@@ -35,22 +52,24 @@ def _confirmed_arb_mf() -> MathFilterResult:
 def test_returns_none_if_not_ambiguous():
     """CONFIRMED_ARBITRAGE не проходит через router."""
     mf = _confirmed_arb_mf()
-    result = route_ambiguous(mf, _mkt("a","X",0.5), _mkt("b","Y",0.4), api_key="key")
+    result = route_ambiguous(mf, _mkt("not_amb_a","X",0.5), _mkt("not_amb_b","Y",0.4), api_key="key")
     assert result is None
 
-def test_returns_none_if_spread_too_low():
-    """Маленький спред → LLM не вызывается."""
-    mf = _ambiguous_mf(spread=_MIN_SPREAD_FOR_LLM - 1.0)
-    with patch("core.arb_router.generate_content_with_fallback") as mock_llm:
-        result = route_ambiguous(mf, _mkt("a","X",0.5), _mkt("b","Y",0.47), api_key="key")
-    mock_llm.assert_not_called()
-    assert result is None
+def test_does_not_skip_llm_if_spread_too_low():
+    """Маленький спред → LLM ВСЕ РАВНО вызывается, спред лимит отключен."""
+    mf = _ambiguous_mf(spread=3.0)
+    mock_payload = (MagicMock(), None)
+    with patch("core.arb_router.generate_content_with_fallback", return_value=mock_payload) as mock_llm, \
+         patch("core.arb_router.extract_response_text", return_value=json.dumps({"same_event": True, "confidence": 0.85, "reason": "Одно событие", "confirmed_arb": True})):
+        result = route_ambiguous(mf, _mkt("low_spread_a","X",0.5), _mkt("low_spread_b","Y",0.47), api_key="key")
+    mock_llm.assert_called_once()
+    assert result is not None
 
 # --- LLM вызывается для больших спредов ---
 
 def test_llm_called_for_large_spread():
     """Спред >= порога → LLM вызывается."""
-    mf = _ambiguous_mf(spread=_MIN_SPREAD_FOR_LLM + 5.0)
+    mf = _ambiguous_mf(spread=15.0)
     fake_response = {"candidates": [{"content": {"parts": [
         {"text": json.dumps({"same_event": True, "confidence": 0.85,
                              "reason": "Одно событие", "confirmed_arb": True})}
@@ -60,8 +79,8 @@ def test_llm_called_for_large_spread():
          patch("core.arb_router.extract_response_text",
                return_value=json.dumps({"same_event": True, "confidence": 0.85,
                                         "reason": "Одно событие", "confirmed_arb": True})):
-        result = route_ambiguous(mf, _mkt("a","Bitcoin above 100K Dec",0.60),
-                                     _mkt("b","Bitcoin above 80K Dec",0.47), api_key="key")
+        result = route_ambiguous(mf, _mkt("large_spread_a","Bitcoin above 100K Dec",0.60),
+                                     _mkt("large_spread_b","Bitcoin above 80K Dec",0.47), api_key="key")
     mock_llm.assert_called_once()
     assert result["same_event"] is True
     assert result["confirmed_arb"] is True
@@ -78,7 +97,7 @@ def test_llm_response_parsed_correctly():
                return_value=({"candidates":[{"content":{"parts":[{"text": payload_str}]}}]}, "m")), \
          patch("core.arb_router.extract_response_text",
                return_value=payload_str):
-        result = route_ambiguous(mf, _mkt("a","X",0.5), _mkt("b","Y",0.35), api_key="key")
+        result = route_ambiguous(mf, _mkt("parsed_a","X",0.5), _mkt("parsed_b","Y",0.35), api_key="key")
     assert result["same_event"] is False
     assert result["confirmed_arb"] is False
 
@@ -87,7 +106,7 @@ def test_returns_none_on_llm_error():
     mf = _ambiguous_mf(spread=20.0)
     with patch("core.arb_router.generate_content_with_fallback",
                side_effect=Exception("network error")):
-        result = route_ambiguous(mf, _mkt("a","X",0.5), _mkt("b","Y",0.30), api_key="key")
+        result = route_ambiguous(mf, _mkt("err_a","X",0.5), _mkt("err_b","Y",0.30), api_key="key")
     assert result is None
 
 def test_prompt_is_compact(monkeypatch):
@@ -98,6 +117,6 @@ def test_prompt_is_compact(monkeypatch):
         return None, None
     monkeypatch.setattr("core.arb_router.generate_content_with_fallback", fake_generate)
     mf = _ambiguous_mf(spread=15.0)
-    route_ambiguous(mf, _mkt("a", "Bitcoin above 100K December 2026", 0.6),
-                        _mkt("b", "Bitcoin above 80K December 2026", 0.45), api_key="key")
+    route_ambiguous(mf, _mkt("compact_a", "Bitcoin above 100K December 2026", 0.6),
+                        _mkt("compact_b", "Bitcoin above 80K December 2026", 0.45), api_key="key")
     assert len(captured.get("prompt", "")) < 600, "Промпт слишком большой!"

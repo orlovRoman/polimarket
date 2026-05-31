@@ -102,9 +102,6 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
     explicit_pairs = [
         ('democrat', 'republican'),
         ('dem', 'rep'),
-        # Примечание: пары конкретных кандидатов (напр. trump/harris) удалены умышленно:
-        # они устаревают после выборов и дают false-positive на исторических закрытых рынках.
-        # Добавляйте актуальные пары здесь по мере появления новых выборных рынков.
     ]
     for w1, w2 in explicit_pairs:
         if (w1 in a and w2 in b) or (w2 in a and w1 in b):
@@ -141,11 +138,33 @@ def validate_trade_instruction(instruction: str) -> tuple[bool, str]:
             return False, f"Недопустимая операция '{op}' — шорт на Polymarket невозможен без открытой позиции."
     return True, "OK"
 
-def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = False) -> bool:
+def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = False,
+                      market_a=None, market_b=None) -> bool:
     """
     Грубая проверка: описывают ли рынки одно событие.
-    Если ключевые слова сильно расходятся — это разные события.
+    Использует три слоя фильтрации:
+    1. Layer 1: event_slug (Polymarket-only)
+    2. Layer 2: Семантические эмбеддинги all-MiniLM-L6-v2
+    3. Layer 2b (fallback): Regex-оценка пересечения ключевых слов.
     """
+    # Layer 1: event_slug (0ms, 100% точность для Polymarket)
+    slug_a = getattr(market_a, 'event_slug', None)
+    slug_b = getattr(market_b, 'event_slug', None)
+    if slug_a and slug_b:
+        return slug_a == slug_b
+
+    # Layer 2: Embedding similarity (5ms, кросс-платформенный)
+    try:
+        from core.semantic_filter import semantic_same_event
+        semantic_result = semantic_same_event(title_a, title_b)
+        if semantic_result is True:
+            return True
+        if semantic_result is False:
+            return False
+    except Exception as e:
+        logger.warning(f"Error in semantic same-event check: {e}")
+
+    # Layer 2b (fallback): Regex-оценка пересечения ключевых слов
     if not allow_different_dates:
         # Мгновенно отсекаем разные годы или разные кварталы
         years_a = set(re.findall(r'\b(202\d|203\d)\b', title_a.lower()))
@@ -243,7 +262,7 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
     
     # NEW: одинаковые пороги — монотонность неприменима
     if t_a and t_b and _same_unit(t_a[1], t_b[1]) and t_a[0] == t_b[0]:
-        same_event = _check_same_event(market_a.title, market_b.title)
+        same_event = _check_same_event(market_a.title, market_b.title, market_a=market_a, market_b=market_b)
         if same_event and market_a.platform != market_b.platform:
             pass  # BTC $100K на Polymarket vs Kalshi — это price_divergence, не identical_threshold
         else:
@@ -272,7 +291,10 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
             if spread >= min_spread_pct:
                 # Если это одно событие — математически гарантированный арбитраж,
                 # LLM не нужен: P(X>high) > P(X>low) логически невозможно.
-                same_event = (higher_market.platform == lower_market.platform) and _check_same_event(higher_market.title, lower_market.title)
+                same_event = (higher_market.platform == lower_market.platform) and _check_same_event(
+                    higher_market.title, lower_market.title,
+                    market_a=higher_market, market_b=lower_market
+                )
                 if same_event:
                     instruction = (
                         f"BUY YES на [{lower_market.title}]({lower_market.url}) "
@@ -395,7 +417,7 @@ def math_pre_filter(market_a: Market, market_b: Market, min_spread_pct: float = 
     # 3b. Logical implication (A ⊃ B) — только на одной платформе
     if check_logical_implication and market_a.platform == market_b.platform:
         # NEW: проверяем что это одно событие
-        if not _check_same_event(market_a.title, market_b.title, allow_different_dates=True):
+        if not _check_same_event(market_a.title, market_b.title, allow_different_dates=True, market_a=market_a, market_b=market_b):
             return MathFilterResult(
                 decision=FilterDecision.CONFIRMED_NO_ARBI,
                 arbitrage_type="different_events",

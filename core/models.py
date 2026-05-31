@@ -23,6 +23,8 @@ class Market(BaseModel):
     tokens: Optional[List[str]] = None  # clobTokenIds для CLOB API (orderbook)
     volume: Optional[float] = None      # Объём торгов (для ранжирования)
     condition_id: Optional[str] = None  # Для Onchain аналитики
+    event_slug: Optional[str] = None    # Polymarket: уникальный slug события для группировки
+
 
 class Signal(BaseModel):
     id: str

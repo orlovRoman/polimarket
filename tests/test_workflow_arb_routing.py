@@ -10,21 +10,41 @@ def _mkt(id, title, price, platform="polymarket"):
                   description="", url=f"http://x/{id}", outcome="YES",
                   price=price, close_time=datetime.now(timezone.utc) + timedelta(days=14))
 
+@pytest.fixture(autouse=True)
+def clean_llm_cache():
+    try:
+        from agents.shared.python.db import get_connection
+        with get_connection() as conn:
+            conn.execute("DELETE FROM arb_llm_cache")
+    except Exception:
+        pass
+    yield
+    try:
+        from agents.shared.python.db import get_connection
+        with get_connection() as conn:
+            conn.execute("DELETE FROM arb_llm_cache")
+    except Exception:
+        pass
+
+
 # ────────────────────────────────────────────────────────────────────────
 # Модульные тесты для route_ambiguous
 # ────────────────────────────────────────────────────────────────────────
 
-def test_route_ambiguous_low_spread_skips_llm():
-    """Если спред ниже 8%, route_ambiguous возвращает None и не делает сетевых запросов."""
+def test_route_ambiguous_low_spread_calls_llm():
+    """Даже если спред ниже 8%, route_ambiguous вызывает LLM, так как лимита спреда больше нет."""
     mf = MathFilterResult(
         decision=FilterDecision.AMBIGUOUS,
         arbitrage_type="price_divergence",
         spread_pct=5.0, reasoning="", trade_instruction=""
     )
-    with patch("core.arb_router.generate_content_with_fallback") as mock_gen:
-        res = route_ambiguous(mf, _mkt("a", "Title A", 0.5), _mkt("b", "Title B", 0.45), api_key="test")
-        assert res is None
-        mock_gen.assert_not_called()
+    mock_payload = (MagicMock(), None)
+    with patch("core.arb_router.generate_content_with_fallback", return_value=mock_payload) as mock_gen, \
+         patch("core.arb_router.extract_response_text", return_value='{"same_event": true, "confidence": 0.9, "reason": "ok", "confirmed_arb": true}'):
+        res = route_ambiguous(mf, _mkt("low_a", "Title A", 0.5), _mkt("low_b", "Title B", 0.45), api_key="test")
+        assert res is not None
+        assert res["same_event"] is True
+        mock_gen.assert_called_once()
 
 def test_route_ambiguous_non_ambiguous_skips_llm():
     """Если решение не AMBIGUOUS, route_ambiguous возвращает None и не делает запросов."""
@@ -34,7 +54,7 @@ def test_route_ambiguous_non_ambiguous_skips_llm():
         spread_pct=15.0, reasoning="", trade_instruction=""
     )
     with patch("core.arb_router.generate_content_with_fallback") as mock_gen:
-        res = route_ambiguous(mf, _mkt("a", "Title A", 0.5), _mkt("b", "Title B", 0.45), api_key="test")
+        res = route_ambiguous(mf, _mkt("non_a", "Title A", 0.5), _mkt("non_b", "Title B", 0.45), api_key="test")
         assert res is None
         mock_gen.assert_not_called()
 
@@ -48,7 +68,7 @@ def test_route_ambiguous_high_spread_calls_llm_and_parses_json():
     mock_payload = (MagicMock(), None)
     with patch("core.arb_router.generate_content_with_fallback", return_value=mock_payload) as mock_gen, \
          patch("core.arb_router.extract_response_text", return_value='{"same_event": true, "confidence": 0.9, "reason": "ok", "confirmed_arb": true}'):
-        res = route_ambiguous(mf, _mkt("a", "Title A", 0.5), _mkt("b", "Title B", 0.40), api_key="test")
+        res = route_ambiguous(mf, _mkt("high_a", "Title A", 0.5), _mkt("high_b", "Title B", 0.40), api_key="test")
         assert res == {
             "same_event": True,
             "confidence": 0.9,
@@ -66,9 +86,8 @@ def test_run_agent_evaluation_checks_top_5_and_routes_ambiguous():
     1. Берет до 5 корреляций из get_market_correlations (по константе _MAX_CORR_PEERS).
     2. Вызывает get_market для получения peer рынков.
     3. Вызывает math_pre_filter для каждого peer.
-    4. Для AMBIGUOUS со спредом >= 8% вызывает route_ambiguous.
-    5. Для AMBIGUOUS со спредом < 8% НЕ вызывает route_ambiguous.
-    6. Для CONFIRMED_NO_ARBI НЕ вызывает route_ambiguous.
+    4. Для всех AMBIGUOUS (включая спред < 8%) вызывает route_ambiguous.
+    5. Для CONFIRMED_NO_ARBI НЕ вызывает route_ambiguous.
     """
     from core.workflow import run_agent_evaluation
     
@@ -101,8 +120,8 @@ def test_run_agent_evaluation_checks_top_5_and_routes_ambiguous():
     adapter = MagicMock()
     adapter.get_market.side_effect = lambda pid: peer_markets.get(pid)
     
-    # 1. peer1: AMBIGUOUS, спред 15% (>= 8%)
-    # 2. peer2: AMBIGUOUS, спред 4% (< 8%)
+    # 1. peer1: AMBIGUOUS, спред 15%
+    # 2. peer2: AMBIGUOUS, спред 4%
     # 3. peer3: CONFIRMED_NO_ARBI
     # peer4, peer5: CONFIRMED_NO_ARBI
     # peer6 не должен проверяться, так как мы берем только top-5
@@ -143,10 +162,5 @@ def test_run_agent_evaluation_checks_top_5_and_routes_ambiguous():
         with pytest.raises(AssertionError):
             adapter.get_market.assert_any_call("peer6")
             
-        # Проверяем, что route_ambiguous вызвался ровно 1 раз (для peer1, т.к. там спред 15% >= 8%)
-        mock_route.assert_called_once()
-        call_args = mock_route.call_args[0]
-        assert call_args[0].spread_pct == 15.0
-        assert call_args[1].id == "main"
-        assert call_args[2].id == "peer1"
-        assert mock_route.call_args[1]["api_key"] == "test_key"
+        # Проверяем, что route_ambiguous вызвался 2 раза (для peer1 и peer2, т.к. оба AMBIGUOUS)
+        assert mock_route.call_count == 2

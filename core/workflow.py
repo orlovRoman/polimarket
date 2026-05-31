@@ -347,8 +347,8 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
                     if not peer_market:
                         continue
                     mf = math_pre_filter(m, peer_market)
-                    # Роутим AMBIGUOUS с большим спредом через мини-LLM
-                    if mf.decision == FilterDecision.AMBIGUOUS and mf.spread_pct >= 8.0:
+                    # Роутим AMBIGUOUS через мини-LLM
+                    if mf.decision == FilterDecision.AMBIGUOUS:
                         if api_key:
                             arb_verdict = route_ambiguous(mf, m, peer_market, api_key=api_key)
                             if arb_verdict and arb_verdict.get("confirmed_arb"):
