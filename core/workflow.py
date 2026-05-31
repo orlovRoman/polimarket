@@ -283,7 +283,11 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
         future_reddit.cancel()
         future_wiki.cancel()
         future_hn.cancel()
-        executor.shutdown(wait=False, cancel_futures=True)
+        import sys
+        if sys.version_info >= (3, 9):
+            executor.shutdown(wait=False, cancel_futures=True)
+        else:
+            executor.shutdown(wait=False)
 
     # Google Trends — последовательно (не thread-safe)
     trends_data = fetch_google_trends(search_query)
@@ -571,7 +575,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             save_agent_episode(
                 agent_name="SCOUT",
                 event_type="signal_evaluated",
-                summary=f"Opinion: {getattr(signal, 'signal_verdict', 'buy')} | Reason: {getattr(signal, 'signal_cause', getattr(signal, 'details', ''))}",
+                summary=f"Opinion: {getattr(signal, 'signal_verdict', 'buy')[:80]} | Reason: {getattr(signal, 'signal_cause', getattr(signal, 'details', ''))}",
                 market_id=m.id,
                 market_title=m.title
             )
@@ -580,7 +584,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             save_agent_episode(
                 agent_name="SWING",
                 event_type="signal_evaluated",
-                summary=f"Opinion: {getattr(swing_signal, 'swing_verdict', 'buy')} | Reason: {getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))}",
+                summary=f"Opinion: {getattr(swing_signal, 'swing_verdict', 'buy')[:80]} | Reason: {getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))}",
                 market_id=m.id,
                 market_title=m.title
             )
@@ -589,7 +593,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             save_agent_episode(
                 agent_name="SHADOW",
                 event_type="signal_evaluated",
-                summary=f"Opinion: {getattr(opinion_shadow, 'shadow_verdict', 'agree')} | Reason: {getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))}",
+                summary=f"Opinion: {getattr(opinion_shadow, 'shadow_verdict', 'agree')[:80]} | Reason: {getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))}",
                 market_id=m.id,
                 market_title=m.title
             )

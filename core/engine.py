@@ -277,7 +277,11 @@ class CoreEngine:
                     price_history=price_hist,
                     pre_orderbook=pre_orderbook
                 )
-                
+
+                if context is None:
+                    logger.info(f"  Рынок {m.id} пропущен (дедупликация)")
+                    continue
+
                 active_signal = signal or swing_signal
                 opinion_shadow = None
                 if active_signal:

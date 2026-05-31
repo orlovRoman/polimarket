@@ -50,7 +50,6 @@ async def scheduled_job():
         logger.info("<<< Сканирование завершено успешно.")
     except asyncio.CancelledError:
         logger.info("<<< Сканирование прервано: получен сигнал завершения (CancelledError).")
-        raise
     except NoMarketsFoundError as e:
         logger.info(f"<<< Сканирование завершено: {e}")
     except RuntimeError as e:
@@ -70,6 +69,8 @@ async def scheduled_memory_archive():
         from agents.orchestrator.scripts.memory_archiver import main as run_archiver
         await asyncio.to_thread(run_archiver)
         logger.info("<<< Автоархивация памяти и GC завершены.")
+    except asyncio.CancelledError:
+        logger.info("<<< Процесс автоархивации памяти отменен.")
     except Exception as e:
         logger.error(f"Ошибка при архивации памяти: {e}", exc_info=True)
 
@@ -85,6 +86,8 @@ async def scheduled_trend_hunting():
         from services.trend_hunter import run_trend_hunter
         await asyncio.to_thread(run_trend_hunter)
         logger.info("<<< Работа Trend Hunter завершена успешно.")
+    except asyncio.CancelledError:
+        logger.info("<<< Работа Trend Hunter отменена.")
     except Exception as e:
         logger.error(f"Ошибка при работе Trend Hunter: {e}", exc_info=True)
 
@@ -107,6 +110,8 @@ async def scheduled_cross_arbitrage_scan():
         if found:
             await asyncio.to_thread(send_cross_arbitrage_alerts)
         logger.info(f"<<< Кросс-арбитраж: найдено {len(found)} алертов")
+    except asyncio.CancelledError:
+        logger.info("<<< Кросс-арбитражный скан отменен.")
     except Exception as e:
         logger.error(f"Ошибка кросс-арбитражного скана: {e}", exc_info=True)
 
@@ -127,6 +132,8 @@ async def scheduled_synthetic_corridors():
         if found:
             await asyncio.to_thread(send_synthetic_corridor_alerts)
         logger.info(f"<<< Синтетические коридоры: найдено {len(found)} алертов")
+    except asyncio.CancelledError:
+        logger.info("<<< Сканирование синтетических коридоров отменено.")
     except Exception as e:
         logger.error(f"Ошибка сканирования синтетических коридоров: {e}", exc_info=True)
 
@@ -147,6 +154,8 @@ async def scheduled_temporal_corridors():
         if found:
             await asyncio.to_thread(send_temporal_corridor_alerts)
         logger.info(f"<<< Временные коридоры: найдено {len(found)} алертов")
+    except asyncio.CancelledError:
+        logger.info("<<< Сканирование временных коридоров отменено.")
     except Exception as e:
         logger.error(f"Ошибка сканирования временных коридоров: {e}", exc_info=True)
 
@@ -157,6 +166,8 @@ async def scheduled_wallet_recalculation():
         from services.wallet_tracker import recalculate_win_rates
         await asyncio.to_thread(recalculate_win_rates)
         logger.info("<<< Пересчет win_rate кошельков завершен успешно.")
+    except asyncio.CancelledError:
+        logger.info("<<< Пересчет win_rate кошельков отменен.")
     except Exception as e:
         logger.error(f"Ошибка при пересчете win_rate кошельков: {e}", exc_info=True)
 
@@ -175,6 +186,8 @@ async def job_onchain_alerts():
             mark_alert_sent(f"onchain_spike_{spike['market_id']}", "onchain_spike")
             logger.info(f"Отправлен ончейн-алерт по рынку: {spike['title']}")
         logger.info("<<< Сканирование ончейн-всплесков завершено.")
+    except asyncio.CancelledError:
+        logger.info("<<< Сканирование ончейн-всплесков отменено.")
     except Exception as e:
         logger.error(f"Ошибка при сканировании ончейн-всплесков: {e}", exc_info=True)
 
