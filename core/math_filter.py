@@ -99,12 +99,14 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
     a = title_a.lower()
     b = title_b.lower()
     
-    explicit_pairs = [
-        ('democrat', 'republican'),
-        ('dem', 'rep'),
+    # Проверяем явные пары (democrat/republican) с границами слов \b
+    # Чтобы избежать ложных срабатываний на demand, democracy, demographic
+    explicit_patterns = [
+        (r'\bdemocrats?\b|\bdemocratic\b', r'\brepublicans?\b|\bgop\b'),
+        (r'\bdem\b', r'\brep\b')
     ]
-    for w1, w2 in explicit_pairs:
-        if (w1 in a and w2 in b) or (w2 in a and w1 in b):
+    for p1, p2 in explicit_patterns:
+        if (re.search(p1, a) and re.search(p2, b)) or (re.search(p2, a) and re.search(p1, b)):
             return True
             
     directional_pairs = [
@@ -114,7 +116,12 @@ def _looks_complementary(title_a: str, title_b: str) -> bool:
     ]
     words_a = set(re.findall(r'\b\w+\b', a))
     words_b = set(re.findall(r'\b\w+\b', b))
-    common = (words_a & words_b) - _COMMON_STOPWORDS
+    
+    _COMPLEMENTARY_STOPWORDS = _COMMON_STOPWORDS | {
+        'nominee', 'primary', 'win', 'wins', 'race', 'candidate',
+        'election', 'vote', 'poll', 'percent', 'seats', 'electoral',
+    }
+    common = (words_a & words_b) - _COMPLEMENTARY_STOPWORDS
     
     for w1, w2 in directional_pairs:
         if ((w1 in a and w2 in b) or (w2 in a and w1 in b)) and len(common) >= 2:
@@ -161,6 +168,11 @@ def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = 
             return True
         if semantic_result is False:
             return False
+        if semantic_result is None:
+            logger.debug(
+                f"[check_same_event] Серая зона (0.65-0.75) или модель недоступна, "
+                f"fallback на regex: '{title_a[:40]}' vs '{title_b[:40]}'"
+            )
     except Exception as e:
         logger.warning(f"Error in semantic same-event check: {e}")
 
