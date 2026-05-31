@@ -92,6 +92,8 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
     if last_screen_raw:
         try:
             last_screen = datetime.fromisoformat(last_screen_raw)
+            if last_screen.tzinfo is None:
+                last_screen = last_screen.replace(tzinfo=timezone.utc)
             elapsed = (now - last_screen).total_seconds()
             if elapsed < SCREENING_INTERVAL_SEC:
                 needs_screening = False
@@ -411,7 +413,7 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     try:
         has_strong_scout = signal and getattr(signal, 'edge', 0) >= 0.55
         is_flat_or_noise = not velocity.has_anomaly and velocity.suspicion in ("ORGANIC", "NOISE")
-        has_enough_history = len(price_history or []) > 5
+        has_enough_history = len(price_history or []) >= 3
         if is_flat_or_noise and has_enough_history and not has_strong_scout:
             logger.info(f"  SWING: пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)")
             swing_signal = None
@@ -462,7 +464,20 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
     if decision.status == 'saved':
         logger.info("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ.")
         if signal: save_signal(signal)
-        if swing_signal and getattr(swing_signal, 'recommendation', '').lower() == 'buy': save_signal(swing_signal)
+        if swing_signal and getattr(swing_signal, 'recommendation', '').lower() == 'buy':
+            swing_as_signal = Signal(
+                id=swing_signal.id,
+                type=swing_signal.type,
+                market_id=swing_signal.market_id,
+                platform=swing_signal.platform,
+                target_outcome=swing_signal.target_outcome,
+                edge=swing_signal.edge,
+                confidence=swing_signal.confidence,
+                priority=swing_signal.priority,
+                summary=swing_signal.summary,
+                details=swing_signal.details,
+            )
+            save_signal(swing_as_signal)
         update_state(ideas_found=state.get("ideas_found", 0) + 1)
     elif decision.status == 'no_consensus':
         logger.info("  --- Консенсус не достигнут (SHADOW забраковал).")
