@@ -59,7 +59,7 @@ class SwingAgent:
         # --- STEP 1: Grounding search из контекста ---
         grounded_context = getattr(context, 'grounded_context', 'Grounding не выполнен.')
 
-        from agents.shared.utils.hype_calculator import HypeMetrics, calculate_hype_potential
+        from agents.shared.utils.hype_calculator import HypeMetrics, calculate_hype_potential, format_hype_scorecard
         from agents.shared.utils.prompt_guards import guard_news_with_age
         import re
 
@@ -131,6 +131,15 @@ class SwingAgent:
             hours_to_close=hours_to_close,
         ))
 
+        scorecard = format_hype_scorecard(HypeMetrics(
+            trends_score=trends_score,
+            trends_delta=trends_delta,
+            reddit_top_score=reddit_top,
+            recent_news_count=recent_news_count,
+            price_delta_6h=price_delta_6h,
+            hours_to_close=hours_to_close,
+        ), hype_score)
+
         news_block = guard_news_with_age(
             news_items_to_guard,
             now=now
@@ -145,6 +154,9 @@ class SwingAgent:
 {hype_breakdown}
 
 {news_block}
+
+[Hype Scorecard — показатели внимания к теме]:
+{scorecard}
 
 [Твоя производительность и работа над ошибками]
 {perf_summary}
@@ -161,9 +173,6 @@ class SwingAgent:
 
 [Результаты Google Search (grounding, последние 48ч)]:
 {grounded_context}
-
-[Google Trends — уровень интереса к теме]:
-{context.trends_data}
 
 [HackerNews — технические обсуждения]:
 {chr(10).join(context.hn_posts) if context.hn_posts else "HackerNews: нет релевантных постов."}

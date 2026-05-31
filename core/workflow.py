@@ -221,7 +221,7 @@ def _fetch_grounded_context(market: Market, api_key: str, model: str) -> str:
 
 
 
-def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None):
+def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None):
     _cleanup_session_dedup()
 
     # In-session дедупликация (быстрая проверка без БД)
@@ -299,6 +299,7 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
 
     context = MarketContext(
         market=m,
+        orderbook=pre_orderbook,
         news_titles=news_titles,
         reddit_posts=reddit_posts,
         wiki_context=wiki_context,

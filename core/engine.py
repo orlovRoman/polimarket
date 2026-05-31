@@ -250,6 +250,23 @@ class CoreEngine:
                 from agents.shared.python.db import get_price_history
                 price_hist = get_price_history(m.id, hours=24)
                 
+                # Получаем базовый ордербук для YES (по умолчанию) ДО запуска агентов
+                pre_orderbook = None
+                if m.tokens:
+                    try:
+                        ob_raw = self.adapter.get_orderbook(m.tokens[0])
+                        if ob_raw:
+                            from core.context import OrderbookSnapshot
+                            pre_orderbook = OrderbookSnapshot(
+                                top_bid=ob_raw.get("top_bid"),
+                                top_ask=ob_raw.get("top_ask"),
+                                spread_cents=round(ob_raw["spread"] * 100, 4) if ob_raw.get("spread") is not None else None,
+                                bid_depth_5=ob_raw.get("bid_depth_5"),
+                                ask_depth_5=ob_raw.get("ask_depth_5"),
+                            )
+                    except Exception as e:
+                        logger.error(f"Failed to fetch pre-orderbook: {e}")
+
                 signal, swing_signal, context = run_agent_evaluation(
                     m, self.scout, self.swing, _update_state,
                     adapter=self.adapter,
@@ -257,7 +274,8 @@ class CoreEngine:
                     source_url=source_url,
                     source_text=source_text,
                     triggered_at=triggered_at,
-                    price_history=price_hist
+                    price_history=price_hist,
+                    pre_orderbook=pre_orderbook
                 )
                 
                 active_signal = signal or swing_signal
@@ -275,24 +293,35 @@ class CoreEngine:
                         
                     _update_state(shadow_status="🔄 Проверяет ордербук...")
                     
-                    orderbook = None
                     target_outcome = getattr(active_signal, 'target_outcome', 'YES')
-                    if m.tokens:
+                    # Если выбран исход NO и у нас есть соответствующий токен (tokens[1]),
+                    # дозагружаем ордербук для NO, чтобы скорректировать контекст для SHADOW.
+                    # В противном случае context.orderbook уже содержит YES-стакан (pre_orderbook).
+                    if target_outcome.upper() == 'NO' and len(m.tokens) > 1:
                         try:
-                            token_idx = 1 if target_outcome.upper() == 'NO' and len(m.tokens) > 1 else 0
-                            orderbook = self.adapter.get_orderbook(m.tokens[token_idx])
-                        except Exception as e: logger.error(f"Failed to fetch orderbook: {e}")
+                            ob_raw = self.adapter.get_orderbook(m.tokens[1])
+                            if ob_raw:
+                                from core.context import OrderbookSnapshot
+                                context.orderbook = OrderbookSnapshot(
+                                    top_bid=ob_raw.get("top_bid"),
+                                    top_ask=ob_raw.get("top_ask"),
+                                    spread_cents=round(ob_raw["spread"] * 100, 4) if ob_raw.get("spread") is not None else None,
+                                    bid_depth_5=ob_raw.get("bid_depth_5"),
+                                    ask_depth_5=ob_raw.get("ask_depth_5"),
+                                )
+                        except Exception as e:
+                            logger.error(f"Failed to fetch orderbook for NO: {e}")
 
-                    # Кладём ордербук в контекст (единый источник данных для агентов)
-                    if orderbook is not None:
-                        from core.context import OrderbookSnapshot
-                        context.orderbook = OrderbookSnapshot(
-                            top_bid=orderbook.get("top_bid"),
-                            top_ask=orderbook.get("top_ask"),
-                            spread_cents=round(orderbook["spread"] * 100, 4) if orderbook.get("spread") is not None else None,
-                            bid_depth_5=orderbook.get("bid_depth_5"),
-                            ask_depth_5=orderbook.get("ask_depth_5"),
-                        )
+                    # Для обратной совместимости с check_liquidity_fast формируем orderbook dict из context.orderbook
+                    orderbook = None
+                    if context.orderbook is not None:
+                        orderbook = {
+                            "top_bid": context.orderbook.top_bid,
+                            "top_ask": context.orderbook.top_ask,
+                            "spread": round(context.orderbook.spread_cents / 100, 4) if context.orderbook.spread_cents is not None else None,
+                            "bid_depth_5": context.orderbook.bid_depth_5,
+                            "ask_depth_5": context.orderbook.ask_depth_5,
+                        }
                     
                     
                     
