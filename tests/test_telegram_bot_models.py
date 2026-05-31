@@ -9,11 +9,9 @@ def test_get_nice_model_name_emoji_mapping():
     """get_nice_model_name должен корректно возвращать имена моделей с эмодзи."""
     from telegram.bot import get_nice_model_name
 
-    # Стандартные Gemini
     assert get_nice_model_name("gemini-2.5-flash") == "✨ Gemini 2.5 Flash"
     assert get_nice_model_name("gemini-2.5-pro") == "🧠 Gemini 2.5 Pro"
     assert get_nice_model_name("gemini-2.0-flash-lite") == "⚡ Gemini 2.0 Flash Lite"
-    assert get_nice_model_name("gemini-2.0-flash-exp") == "🧪 Gemini 2.0 Flash Exp"
     assert get_nice_model_name("gemini-2.0-flash-thinking-exp-01-21") == "🤔 Gemini Thinking"
 
     # OpenRouter

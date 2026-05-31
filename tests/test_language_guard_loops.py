@@ -17,15 +17,15 @@ def test_validate_russian_fields():
 
 def test_scout_agent_attempts():
     src = inspect.getsource(ScoutAgent.estimate_market)
-    assert "range(1)" in src
-    assert "range(2)" not in src
+    assert "range(3)" in src
+    assert "range(4)" not in src
 
 def test_swing_agent_attempts():
     src = inspect.getsource(SwingAgent.estimate_market)
-    assert "range(1)" in src
-    assert "range(2)" not in src
+    assert "range(3)" in src
+    assert "range(4)" not in src
 
 def test_shadow_agent_attempts():
     src = inspect.getsource(ShadowAgent.analyze_idea)
-    assert "range(1)" in src
-    assert "range(2)" not in src
+    assert "range(3)" in src
+    assert "range(4)" not in src

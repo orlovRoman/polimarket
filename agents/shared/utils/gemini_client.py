@@ -385,7 +385,9 @@ def generate_content_with_fallback(
     if _gemini_keys_override:
         _gemini_keys = list(_gemini_keys_override)
     else:
-        secondary = os.getenv("GOOGLE_API_KEY_SECONDARY", "AIzaSyByIvR_9P2sj74EkN8mxWU5-VC4koRwIFM")
+        secondary = os.getenv("GOOGLE_API_KEY_SECONDARY", "")
+        if not secondary:
+            logger.debug("[gemini_client] GOOGLE_API_KEY_SECONDARY не задан в .env")
         _gemini_keys = [k for k in [api_key, secondary] if k and k.strip()]
 
     # Разделяем дефолтную модель по провайдерам, чтобы не слать некорректные модели в Gemini API
@@ -535,7 +537,7 @@ def generate_content_with_fallback(
                     )
                     
                     # Проверяем тип ошибки
-                    if _is_rate_limit_error(e) and attempt < 2 and (key_idx == len(keys) - 1):
+                    if _is_rate_limit_error(e) and attempt < 2:
                         wait = 2 ** attempt  # 1s, 2s, 4s
                         logger.warning(
                             f"[{agent_name}] 429 Rate Limit на {provider} ({model}) ключ {key_idx+1}, "
@@ -548,6 +550,10 @@ def generate_content_with_fallback(
                     # Если это 404 (Model Not Found) — сразу выходим из попыток и переходим к следующей модели
                     if _is_model_not_found_error(e):
                         logger.error(f"[{agent_name}] 404: модель {model} на {provider} не существует или удалена. Пропускаем.")
+                        if provider == "cerebras":  # двигаем RR при 404 тоже
+                            _cer_idx_now = int(get_memory("cer_rr_index", 0))
+                            cer_models = providers["cerebras"]["models"]
+                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
                         skip_model = True
                         break
                     

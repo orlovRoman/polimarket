@@ -860,8 +860,6 @@ def get_nice_model_name(model_id: str) -> str:
         return "✨ Gemini 2.5 Flash"
     elif "gemini-2.0-flash-lite" in model_lower:
         return "⚡ Gemini 2.0 Flash Lite"
-    elif "gemini-2.0-flash-exp" in model_lower:
-        return "🧪 Gemini 2.0 Flash Exp"
     elif "gemini-2.0-flash-thinking" in model_lower:
         return "🤔 Gemini Thinking"
     elif "gemini-2.0-flash" in model_lower:

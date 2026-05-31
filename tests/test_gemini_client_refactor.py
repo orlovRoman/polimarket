@@ -272,3 +272,157 @@ def test_gemini_keys_fallback_on_first_key_error():
         f"Ожидали попытку обоих ключей ['key_primary', 'key_secondary'], "
         f"но получили: {keys_attempted}"
     )
+
+
+# ── Новые тесты для фиксов багов 1, 2, 3 и rate_limiter ──────────────────
+
+def test_no_hardcoded_api_key_in_source():
+    """
+    GOOGLE_API_KEY_SECONDARY не должен иметь дефолтного значения в коде.
+    Если os.getenv не находит ключ — должна вернуться пустая строка.
+    """
+    import inspect
+    import re
+    from agents.shared.utils import gemini_client as gemini_client_mod
+    source = inspect.getsource(gemini_client_mod)
+    # Проверяем что в исходнике нет паттерна реального API ключа
+    hardcoded = re.findall(r'AIzaSy[A-Za-z0-9_\-]{33}', source)
+    assert not hardcoded, (
+        f"КРИТИЧНО: В исходном коде найдены захардкоженные API ключи: {hardcoded}. "
+        f"Убери default из os.getenv('GOOGLE_API_KEY_SECONDARY', '')."
+    )
+
+
+def test_backoff_fires_on_first_key_429():
+    """
+    При 429 на первом из двух ключей должен быть backoff + retry,
+    а не немедленный переход ко второму ключу.
+    Проверяем что attempt > 0 случается для первого ключа.
+    """
+    import requests
+    from agents.shared.utils import gemini_client as gemini_client_mod
+    attempts_per_key = {}
+
+    successful_result = {
+        "candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}],
+        "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}
+    }
+
+    def mock_send(payload, model, key, timeout):
+        attempts_per_key[key] = attempts_per_key.get(key, 0) + 1
+        if key == "key1" and attempts_per_key[key] < 3:
+            err = requests.HTTPError(response=MagicMock(status_code=429))
+            raise err
+        return successful_result, 10, 5
+
+    patched_config = {
+        "gemini": {
+            "keys": ["key1", "key2"],
+            "models": ["gemini-2.5-flash"],
+            "send_func": mock_send
+        },
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "cerebras": {"keys": [], "models": [], "send_func": MagicMock()}
+    }
+
+    payload = {"contents": [{"parts": [{"text": "test"}]}]}
+
+    with patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
+         patch("time.sleep"):  # не ждём реально
+        result, _ = gemini_client_mod.generate_content_with_fallback(
+            api_key="key1",
+            payload=payload,
+            default_model="gemini-2.5-flash",
+            agent_name="TEST_BACKOFF"
+        )
+
+    # key1 должен был получить retry (attempt > 1), не сразу перейти на key2
+    assert attempts_per_key.get("key1", 0) > 1, (
+        f"Backoff не сработал для key1: было только {attempts_per_key.get('key1', 0)} попыток. "
+        f"БАГ 2: условие key_idx == len(keys)-1 отсекает backoff для не-последнего ключа."
+    )
+
+
+def test_cerebras_rr_advances_on_404():
+    """
+    При 404 от Cerebras cer_rr_index должен инкрементироваться,
+    иначе следующий вызов снова попадёт на ту же мёртвую модель.
+    """
+    import requests
+    from agents.shared.python.db import save_memory, get_memory
+    from agents.shared.utils import gemini_client as gemini_client_mod
+
+    save_memory("cer_rr_index", 0)
+
+    def mock_cerebras_404(payload, model, key, timeout):
+        err = requests.HTTPError(response=MagicMock(status_code=404))
+        raise err
+
+    patched_config = {
+        "gemini": {"keys": [], "models": ["gemini-2.5-flash"], "send_func": MagicMock(side_effect=Exception("no gemini"))},
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "cerebras": {
+            "keys": ["fake_key"],
+            "models": ["dead-model", "alive-model"],
+            "send_func": mock_cerebras_404
+        }
+    }
+
+    payload = {"contents": [{"parts": [{"text": "test"}]}]}
+
+    with patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config):
+        try:
+            gemini_client_mod.generate_content_with_fallback(
+                api_key="",
+                payload=payload,
+                default_model="gemini-2.5-flash",
+                agent_name="TEST_404_RR"
+            )
+        except Exception:
+            pass
+
+    final_idx = int(get_memory("cer_rr_index", 0))
+    assert final_idx > 0, (
+        f"cer_rr_index не сдвинулся при 404 от Cerebras. "
+        f"Значение: {final_idx}. Следующий вызов снова попадёт на мёртвую модель."
+    )
+
+
+def test_sanitize_error_masks_all_key_patterns():
+    """_sanitize_error должен маскировать все варианты ключей в URL и строках."""
+    from agents.shared.utils.gemini_client import _sanitize_error
+
+    cases = [
+        "404 Not Found for url: https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent?key=AIzaSyD-x1UC510HyfD8YmmZHKMqj8q0CsSA5XQ",
+        "400 Bad Request ?key=AIzaSyByIvR_9P2sj74EkN8mxWU5-VC4koRwIFM extra text",
+        "Error key=shortkey123",  # короткий ключ < 20 символов — НЕ должен маскироваться
+    ]
+
+    sanitized_0 = _sanitize_error(Exception(cases[0]))
+    assert "AIzaSyD" not in sanitized_0
+    assert "***REDACTED***" in sanitized_0
+
+    sanitized_1 = _sanitize_error(Exception(cases[1]))
+    assert "AIzaSyByIvR" not in sanitized_1
+
+    sanitized_2 = _sanitize_error(Exception(cases[2]))
+    assert "shortkey123" in sanitized_2, "Короткие строки не должны маскироваться"
+
+
+def test_rate_limiter_disabled_in_pytest():
+    """
+    В тестовой среде (PYTEST_CURRENT_TEST задан) _rate_limit_wait
+    должен возвращаться мгновенно без sleep.
+    """
+    import time
+    from agents.shared.utils.gemini_client import _rate_limit_wait
+
+    start = time.monotonic()
+    for _ in range(50):  # симулируем много запросов
+        _rate_limit_wait()
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 0.5, (
+        f"_rate_limit_wait заблокировал выполнение в тестах на {elapsed:.2f}с. "
+        f"Проверь условие 'PYTEST_CURRENT_TEST' in os.environ."
+    )

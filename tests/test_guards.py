@@ -73,7 +73,7 @@ def test_provider_keys_fallback():
     
     mock_send = MagicMock()
     mock_send.side_effect = [
-        ValueError("Key 1 Rate Limit / Error"),
+        ValueError("Key 1 Authentication / Auth Error"),
         ({"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}, 10, 20)
     ]
     
