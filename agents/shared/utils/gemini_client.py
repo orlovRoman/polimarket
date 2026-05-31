@@ -215,7 +215,7 @@ def extract_response_text(result: dict) -> str:
 
 def _send_gemini(payload: dict, model: str, api_key: str, timeout: int) -> Tuple[dict, int, int]:
     """Отправка запроса напрямую в Google Gemini API."""
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     gemini_payload = json.loads(json.dumps(payload))
     if "tools" in gemini_payload and "generationConfig" in gemini_payload:
         gen_cfg = gemini_payload["generationConfig"]
@@ -225,7 +225,11 @@ def _send_gemini(payload: dict, model: str, api_key: str, timeout: int) -> Tuple
             gen_cfg.pop("responseSchema", None)
             gen_cfg.pop("response_schema", None)
             
-    response = requests.post(api_url, json=gemini_payload, timeout=timeout)
+    headers = {
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json"
+    }
+    response = requests.post(api_url, json=gemini_payload, headers=headers, timeout=timeout)
     response.raise_for_status()
     result = response.json()
     if "candidates" not in result or not result["candidates"]:
@@ -349,7 +353,7 @@ def _is_model_not_found_error(e: Exception) -> bool:
         if e.response.status_code == 404:
             return True
     err_str = str(e).lower()
-    if "404" in err_str or "model not found" in err_str or "not found" in err_str:
+    if "model not found" in err_str or "model_not_found" in err_str:
         return True
     return False
 
@@ -489,8 +493,12 @@ def generate_content_with_fallback(
 
     prompt_text = extract_prompt_from_payload(payload)
 
-    # 4. Перебираем планы и ключи
+    # 4. Перебираем plans и ключи
+    last_provider = None
     for provider, model in plans:
+        if last_provider and last_provider != provider:
+            logger.info(f"[{agent_name}] Переключение провайдера: {last_provider} -> {provider} (модель {model})")
+        last_provider = provider
         cfg = providers[provider]
         send_func = cfg["send_func"]
         keys = cfg["keys"]
@@ -575,14 +583,14 @@ def generate_content_with_fallback(
     failures = int(get_memory(fail_key) or 0) + 1
     save_memory(fail_key, failures)
     
-    if failures >= 3:
+    # Уведомляем по экспоненциальной шкале (3, 10, 30, 90...), не сбрасывая failures в 0 сразу
+    if failures in (3, 10, 30, 90, 270):
         logger.warning(f"[{agent_name}] Достигнут лимит последовательных ошибок ({failures}). Отправка уведомления.")
         from services.notifications import send_telegram
         send_telegram(
             text=f"⚠️ <b>СБОЙ LLM-МОДЕЛЕЙ И КЛЮЧЕЙ</b>\n\nАгент <b>{agent_name}</b> не смог получить ответ ни от одной модели или ключа {failures} раза подряд.\nВыберите другую модель:",
             reply_markup={"inline_keyboard": [[{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]]}
         )
-        save_memory(fail_key, 0)
         
     from core.guards import LLMUnavailableError
     raise LLMUnavailableError(f"Все модели и ключи LLM вернули ошибку для агента {agent_name}.", agent_name=agent_name)

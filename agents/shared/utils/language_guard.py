@@ -8,9 +8,6 @@ _NON_ALLOWED_RANGES = [
     (0x0600, 0x06FF),   # Arabic
     (0x0900, 0x097F),   # Devanagari
     (0x0E00, 0x0E7F),   # Thai
-    (0x00C0, 0x00D6),   # Latin Extended (частично French/German)
-    (0x00D8, 0x00F6),
-    (0x00F8, 0x00FF),
 ]
 
 def has_forbidden_script(text: str) -> bool:

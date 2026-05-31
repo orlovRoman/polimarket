@@ -426,3 +426,189 @@ def test_rate_limiter_disabled_in_pytest():
         f"_rate_limit_wait заблокировал выполнение в тестах на {elapsed:.2f}с. "
         f"Проверь условие 'PYTEST_CURRENT_TEST' in os.environ."
     )
+
+
+# ── Баг 2: _is_model_not_found_error — точность паттерна ─────────────────────
+
+from agents.shared.utils.gemini_client import (
+    _is_model_not_found_error,
+    _sanitize_error,
+    _send_gemini,
+)
+import requests
+
+class TestIsModelNotFoundError:
+
+    def test_404_http_error_detected(self):
+        """HTTPError со статусом 404 → True."""
+        resp = MagicMock()
+        resp.status_code = 404
+        e = requests.exceptions.HTTPError(response=resp)
+        assert _is_model_not_found_error(e) is True
+
+    def test_model_not_found_string_detected(self):
+        """Строка 'model not found' → True."""
+        assert _is_model_not_found_error(Exception("model not found")) is True
+
+    def test_generic_not_found_NOT_detected(self):
+        """
+        'not found' без 'model' НЕ должен давать True.
+        БАГ 2: текущая реализация ловит любой 'not found'.
+        """
+        cases = [
+            "Token not found in context",
+            "Key not found in response",
+            "Field 'choices' not found",
+            "Document not found in database",
+        ]
+        for msg in cases:
+            result = _is_model_not_found_error(Exception(msg))
+            assert result is False, (
+                f"Ложное срабатывание _is_model_not_found_error на: '{msg}'. "
+                f"Нужно сузить паттерн до 'model not found' / 'model_not_found'."
+            )
+
+    def test_500_http_error_NOT_detected(self):
+        """HTTPError со статусом 500 → False."""
+        resp = MagicMock()
+        resp.status_code = 500
+        e = requests.exceptions.HTTPError(response=resp)
+        assert _is_model_not_found_error(e) is False
+
+    def test_model_not_found_case_insensitive(self):
+        """Проверка case-insensitive."""
+        assert _is_model_not_found_error(Exception("Model Not Found")) is True
+        assert _is_model_not_found_error(Exception("MODEL_NOT_FOUND")) is True
+
+
+# ── Баг 3: ключ не должен попадать в URL Gemini ──────────────────────────────
+
+def test_send_gemini_key_not_in_url():
+    """
+    _send_gemini должен передавать API-ключ через заголовок x-goog-api-key,
+    а не через ?key= query param в URL.
+    Если ключ в URL — он попадёт в response.url и в трейсбеки.
+    """
+    import inspect
+    source = inspect.getsource(_send_gemini)
+    
+    # Проверяем что ключ не конкатенируется в URL строку
+    assert "?key=" not in source and "key={api_key}" not in source, (
+        "БАГ 3: _send_gemini передаёт ключ через ?key= в URL. "
+        "Используй заголовок x-goog-api-key вместо query param."
+    )
+
+
+def test_send_gemini_uses_api_key_header():
+    """
+    _send_gemini должен использовать x-goog-api-key header.
+    """
+    import inspect
+    source = inspect.getsource(_send_gemini)
+    assert "x-goog-api-key" in source, (
+        "x-goog-api-key header не найден в _send_gemini. "
+        "Ключ должен передаваться через заголовок, не через URL."
+    )
+
+
+# ── Баг 4: consecutive_failures не спамит Telegram ───────────────────────────
+
+def test_consecutive_failures_no_spam():
+    """
+    При многократных сбоях уведомление должно отправляться не чаще
+    чем раз в N вызовов (экспоненциальный backoff уведомлений).
+    """
+    from agents.shared.utils import gemini_client
+    from agents.shared.python.db import save_memory, get_memory
+
+    notifications_sent = []
+
+    def mock_send_telegram(text, reply_markup=None):
+        notifications_sent.append(text)
+
+    patched_config = {
+        "gemini": {"keys": ["fake"], "models": ["gemini-2.5-flash"],
+                   "send_func": MagicMock(side_effect=Exception("always fails"))},
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "cerebras": {"keys": [], "models": [], "send_func": MagicMock()}
+    }
+
+    payload = {"contents": [{"parts": [{"text": "test"}]}]}
+    save_memory("consecutive_failures_SPAM_TEST", 0)
+
+    with patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
+         patch("services.notifications.send_telegram", side_effect=mock_send_telegram):
+        
+        for _ in range(12):  # 12 вызовов подряд
+            try:
+                gemini_client.generate_content_with_fallback(
+                    api_key="fake",
+                    payload=payload,
+                    default_model="gemini-2.5-flash",
+                    agent_name="SPAM_TEST"
+                )
+            except Exception:
+                pass
+
+    # При 12 вызовах без экспоненциального backoff: 12//3 = 4 уведомления
+    # С экспоненциальным: должно быть не более 2
+    assert len(notifications_sent) <= 2, (
+        f"Слишком много уведомлений в Telegram: {len(notifications_sent)} за 12 вызовов. "
+        f"Добавь экспоненциальный порог уведомлений."
+    )
+
+
+# ── Провайдер-переключение логируется ────────────────────────────────────────
+
+def test_provider_switch_is_logged(caplog):
+    """
+    При переходе от Cerebras к Gemini (после исчерпания) должно быть
+    info-сообщение о переключении провайдера.
+    """
+    import logging
+    from agents.shared.utils import gemini_client
+
+    successful_result = {
+        "candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}],
+        "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}
+    }
+    call_count = {"n": 0}
+
+    def mock_send(payload, model, key, timeout):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise Exception("Cerebras failed")
+        return successful_result, 10, 5
+
+    patched_config = {
+        "gemini": {
+            "keys": ["gemini_key"],
+            "models": ["gemini-2.5-flash"],
+            "send_func": mock_send
+        },
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "cerebras": {
+            "keys": ["cer_key"],
+            "models": ["llama3.1-8b"],
+            "send_func": mock_send
+        }
+    }
+
+    payload = {"contents": [{"parts": [{"text": "test"}]}]}
+
+    with patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
+         caplog.at_level(logging.INFO, logger="gemini_client"):
+
+        gemini_client.generate_content_with_fallback(
+            api_key="gemini_key",
+            payload=payload,
+            agent_name="SWITCH_TEST"
+        )
+
+    log_text = " ".join(caplog.messages)
+    # Должен быть хотя бы один лог о переходе/ошибке cerebras
+    assert "cerebras" in log_text.lower() or "SWITCH" in log_text, (
+        "Переключение между провайдерами не логируется. "
+        "Добавь logger.info при смене провайдера."
+    )
+

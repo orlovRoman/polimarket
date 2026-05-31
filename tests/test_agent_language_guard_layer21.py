@@ -151,3 +151,7 @@ def test_agent_retries_on_forbidden_language(monkeypatch):
 def test_english_technical_terms_allowed():
     """Edge, YES, NO, Smart Money — не запрещённые символы"""
     assert has_forbidden_script("YES — вход. NO — выход. Edge=0.15. Smart Money нет.") is False
+
+def test_latin_extended_allowed():
+    """Европейские диакритические знаки (умлауты) разрешены (например, Müller, Pelé, José)."""
+    assert has_forbidden_script("Матч Müller против Pelé в José-Arena") is False
