@@ -28,12 +28,12 @@ def test_process_arbitrage_signal_success(monkeypatch):
     
     saved_signals = []
     
-    # Мокаем save_signal из db.py
-    def mock_save_signal(signal, details_obj=None, or_ignore=False):
+    # Мокаем save_arbitrage_signal_to_db из db.py
+    def mock_save_arb_signal(signal):
         saved_signals.append(signal)
         return True
         
-    monkeypatch.setattr("agents.shared.python.db.save_signal", mock_save_signal)
+    monkeypatch.setattr("agents.shared.python.db.save_arbitrage_signal_to_db", mock_save_arb_signal)
     
     callback_messages = []
     def mock_callback(msg):
@@ -70,11 +70,11 @@ def test_process_arbitrage_signal_low_liquidity(monkeypatch):
     ob_a = {}
     
     saved_signals = []
-    def mock_save_signal(signal, details_obj=None, or_ignore=False):
+    def mock_save_arb_signal(signal):
         saved_signals.append(signal)
         return True
         
-    monkeypatch.setattr("agents.shared.python.db.save_signal", mock_save_signal)
+    monkeypatch.setattr("agents.shared.python.db.save_arbitrage_signal_to_db", mock_save_arb_signal)
     
     callback_messages = []
     def mock_callback(msg):

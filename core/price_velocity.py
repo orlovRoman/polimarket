@@ -39,6 +39,10 @@ def detect_velocity_anomaly(
         else:
             dt = ts
         
+        if dt.tzinfo is None:
+            from datetime import timezone
+            dt = dt.replace(tzinfo=timezone.utc)
+            
         parsed_hist.append({
             "price": float(p["price"]),
             "timestamp": dt

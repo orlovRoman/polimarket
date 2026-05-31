@@ -410,8 +410,10 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     # SWING
     try:
         has_strong_scout = signal and getattr(signal, 'edge', 0) >= 0.55
-        if not velocity.has_anomaly and velocity.suspicion in ("ORGANIC", "NOISE") and not has_strong_scout:
-            logger.info(f"  SWING: пропущен (flat price/noise, нет сильного SCOUT-сигнала)")
+        is_flat_or_noise = not velocity.has_anomaly and velocity.suspicion in ("ORGANIC", "NOISE")
+        has_enough_history = len(price_history or []) > 5
+        if is_flat_or_noise and has_enough_history and not has_strong_scout:
+            logger.info(f"  SWING: пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)")
             swing_signal = None
         else:
             swing_signal = swing.estimate_market(context, price_history=price_history)
@@ -642,28 +644,13 @@ def process_arbitrage_signal(
     Не нужен полный LLM-вызов — только check_liquidity_fast() на обоих стаканах.
     """
     from core.liquidity_checker import check_liquidity_fast
-    from agents.shared.python.db import save_signal
-    from core.models import Signal
+    from agents.shared.python.db import save_arbitrage_signal_to_db
     
     liq_a = check_liquidity_fast(orderbook_a)
     liq_b = check_liquidity_fast(orderbook_b) if orderbook_b else liq_a
     
     if liq_a.ok and liq_b.ok:
-        signal_compat = Signal(
-            id=arb_signal.id,
-            type=arb_signal.type,  # CROSS_PLATFORM, SYNTHETIC, TEMPORAL
-            market_id=arb_signal.market_id_a,
-            platform=arb_signal.platform_a,
-            edge=arb_signal.edge,
-            confidence=arb_signal.confidence,
-            priority="high" if arb_signal.spread_pct > 10.0 else "medium",
-            summary=arb_signal.summary,
-            details=arb_signal.details,
-            target_outcome=arb_signal.target_outcome,
-            status="PENDING",
-            created_at=arb_signal.created_at
-        )
-        save_signal(signal_compat)  # сохранить в БД
+        save_arbitrage_signal_to_db(arb_signal)  # сохранить в БД cross_arbitrage_signals
         
         # Строим красивое сообщение для Telegram
         msg = (

@@ -993,6 +993,26 @@ def save_signal(signal: Signal, details_obj=None, or_ignore: bool = False) -> bo
             """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob))
         return cursor.rowcount > 0
 
+def save_arbitrage_signal_to_db(arb_signal) -> bool:
+    """Сохраняет арбитраж в таблицу cross_arbitrage_signals, не в signals."""
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO cross_arbitrage_signals
+            (id, market_a_id, market_a_platform, market_a_title, market_a_price, market_a_url,
+             market_b_id, market_b_platform, market_b_title, market_b_price, market_b_url,
+             has_arbitrage, arbitrage_type, spread_percent, reasoning, trade_instruction,
+             match_score, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            arb_signal.id,
+            arb_signal.market_id_a, arb_signal.platform_a, arb_signal.summary, arb_signal.edge, f"https://polymarket.com/event/{arb_signal.market_id_a}",
+            arb_signal.market_id_b or "", arb_signal.platform_b or "", arb_signal.summary, arb_signal.edge, f"https://kalshi.com/event/{arb_signal.market_id_b}" if arb_signal.market_id_b else "",
+            1, arb_signal.type, arb_signal.spread_pct,
+            arb_signal.details, arb_signal.details,
+            arb_signal.confidence, arb_signal.status
+        ))
+    return True
+
 def mark_market_analyzed(market_id: str, price: float):
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -1175,13 +1195,15 @@ def upsert_known_whale(address: str, alias: str, win_rate: float, total_won: flo
     """Добавляет или обновляет известного кита (whale) в базе данных."""
     with get_connection() as conn:
         conn.execute("""
-            INSERT INTO known_whales (address, alias, win_rate, total_won, total_vol, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO wallets (address, alias, win_rate, total_profit, is_insider, last_seen)
+            VALUES (?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
             ON CONFLICT(address) DO UPDATE SET
                 alias=excluded.alias,
                 win_rate=excluded.win_rate,
-                updated_at=CURRENT_TIMESTAMP
-        """, (address.lower(), alias, win_rate, total_won, total_vol))
+                total_profit=excluded.total_profit,
+                is_insider=TRUE,
+                last_seen=CURRENT_TIMESTAMP
+        """, (address.lower(), alias, win_rate, total_won))
 
 def add_wallet(address: str, alias: str = None, is_insider: bool = False):
     """Добавляет новый кошелек для мониторинга агентом SHADOW."""
