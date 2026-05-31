@@ -197,13 +197,16 @@ class NewsProcessor:
         
         if wallet_match and wr_match:
             wallet = wallet_match.group(1).lower()
-            alias = alias_match.group(1) if alias_match else wallet[:8]
             win_rate = float(wr_match.group(1)) / 100
-            try:
-                upsert_known_whale(wallet, alias, win_rate)
-                logger.info(f"[NewsProcessor] Сохранён трейдер {alias} ({wallet[:10]}...) WR={win_rate:.0%}")
-            except Exception as e:
-                logger.error(f"[NewsProcessor] Ошибка сохранения трейдера {alias} в БД: {e}")
+            
+            # Только если win_rate >= 0.6 AND длина кошелька 42 символа (EVM)
+            if win_rate >= 0.6 and len(wallet) == 42:
+                alias = alias_match.group(1) if alias_match else wallet[:8]
+                try:
+                    upsert_known_whale(wallet, alias, win_rate)
+                    logger.info(f"[NewsProcessor] Сохранён трейдер {alias} ({wallet[:10]}...) WR={win_rate:.0%}")
+                except Exception as e:
+                    logger.error(f"[NewsProcessor] Ошибка сохранения трейдера {alias} в БД: {e}")
 
     def find_relevant_markets(self, text: str) -> List[Market]:
         """

@@ -286,7 +286,6 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
         future_wiki.cancel()
         if future_hn:
             future_hn.cancel()
-        import sys
         if sys.version_info >= (3, 9):
             executor.shutdown(wait=False, cancel_futures=True)
         else:
@@ -410,8 +409,9 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
         
     # SWING
     try:
-        if not velocity.has_anomaly and velocity.suspicion == "ORGANIC":
-            logger.info(f"  SWING: пропущен (flat price)")
+        has_strong_scout = signal and getattr(signal, 'edge', 0) >= 0.55
+        if not velocity.has_anomaly and velocity.suspicion in ("ORGANIC", "NOISE") and not has_strong_scout:
+            logger.info(f"  SWING: пропущен (flat price/noise, нет сильного SCOUT-сигнала)")
             swing_signal = None
         else:
             swing_signal = swing.estimate_market(context, price_history=price_history)

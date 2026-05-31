@@ -29,6 +29,9 @@ def analyze_orderbook_shape(orderbook: dict, current_price: float) -> OrderbookS
     if top_ask is None:
         top_ask = current_price + 0.05
         
+    if ask_depth == 0 and bid_depth == 0:
+        return OrderbookShape(False, False, 0.0, 0.0, 0.0, "Данные стакана отсутствуют")
+        
     thin_ask = ask_depth < 200
     thin_bid = bid_depth < 200
     

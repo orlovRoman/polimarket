@@ -43,6 +43,8 @@ vault/daily/
 vault/inbox/
 vault/memory/
 vault/team/
+vault/*.json
+vault/baseline_report.json
 logs/
 *.log
 

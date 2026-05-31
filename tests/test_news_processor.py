@@ -280,6 +280,27 @@ class TestNewsProcessorDiagnosticsAndWhales:
         mock_upsert.assert_called_once_with(
             "0x5c3a1a602848565bb16165fcd460b00c3d43020b", "0x5c3a1a", 0.72
         )
+    @patch("agents.shared.python.db.upsert_known_whale")
+    def test_extract_whale_from_post_low_win_rate(self, mock_upsert):
+        """Проверяет, что кит с низким win rate (< 60%) игнорируется."""
+        np = NewsProcessor(api_key="test-key")
+        text = (
+            "https://polymarket.com/profile/0x5c3a1a602848565bb16165fcd460b00c3d43020b\n"
+            "Win Rate: 45%"
+        )
+        np._extract_whale_from_post(text)
+        mock_upsert.assert_not_called()
+
+    @patch("agents.shared.python.db.upsert_known_whale")
+    def test_extract_whale_from_post_invalid_wallet_length(self, mock_upsert):
+        """Проверяет, что кит с невалидной длиной адреса кошелька игнорируется."""
+        np = NewsProcessor(api_key="test-key")
+        text = (
+            "https://polymarket.com/profile/0x5c3a1a\n"
+            "Win Rate: 75%"
+        )
+        np._extract_whale_from_post(text)
+        mock_upsert.assert_not_called()
 
     @patch("agents.shared.adapters.polymarket.PolymarketAdapter.get_event_by_slug")
     def test_closed_market_diagnostics_direct_links(self, mock_get_event):
