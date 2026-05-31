@@ -337,7 +337,8 @@ def _rate_limit_wait():
 
 def _sanitize_error(e: Exception) -> str:
     """Маскирует API ключи в тексте ошибок перед логированием."""
-    return re.sub(r'key=[A-Za-z0-9_\-]{20,}', 'key=***REDACTED***', str(e))
+    return re.sub(r'key=[A-Za-z0-9_\-\.]{20,}', 'key=***REDACTED***', str(e))
+
 
 def _is_rate_limit_error(e: Exception) -> bool:
     if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
