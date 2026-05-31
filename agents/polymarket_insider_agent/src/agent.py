@@ -26,14 +26,29 @@ class ShadowAgent:
             self.system_instruction = f.read()
 
     @with_retry(max_attempts=3, initial_backoff=2.0)
-    def analyze_idea(self, context: 'MarketContext', scout_opinion: str, orderbook: Optional[dict] = None, price_history: list = None) -> Optional[AgentOpinion]:
+    def analyze_idea(self, context: 'MarketContext', scout_opinion: str, price_history: list = None) -> Optional[AgentOpinion]:
         """
         Анализирует идею (от SCOUT) с точки зрения ликвидности и активности трейдеров.
+        Ордербук читается из context.orderbook (единый источник данных).
         """
         market = context.market
         smart_money = context.smart_money
         
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Читаем ордербук из контекста — агент не делает HTTP-запросов
+        ob_snap = context.orderbook  # Optional[OrderbookSnapshot]
+        # Конвертируем в dict для совместимости с guard_orderbook и пост-гардами
+        if ob_snap is not None:
+            orderbook = {
+                "top_bid": ob_snap.top_bid,
+                "top_ask": ob_snap.top_ask,
+                "spread": round(ob_snap.spread_cents / 100, 4) if ob_snap.spread_cents is not None else None,
+                "bid_depth_5": ob_snap.bid_depth_5,
+                "ask_depth_5": ob_snap.ask_depth_5,
+            }
+        else:
+            orderbook = None
         
         from agents.shared.utils.prompt_guards import guard_orderbook, guard_smart_money
         orderbook_str = guard_orderbook(orderbook)
@@ -73,7 +88,7 @@ class ShadowAgent:
         orderbook_unavailable_note = (
             "\n⛔ ОРДЕРБУК ПУСТОЙ: confidence ОБЯЗАН быть ≤ 0.30. "
             "agree=true ТОЛЬКО если пустой стакан не означает отсутствие $10 ликвидности.\n"
-        ) if not orderbook else ""
+        ) if ob_snap is None else ""
 
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
@@ -168,7 +183,7 @@ class ShadowAgent:
         logger = logging.getLogger("shadow_agent")
 
         # Гард 1: ордербук недоступен → confidence не может быть > 0.40
-        if not orderbook:
+        if ob_snap is None:
             declared = float(analysis.get("confidence", 0.5))
             if declared > 0.40:
                 logger.warning(

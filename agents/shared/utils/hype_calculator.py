@@ -81,3 +81,18 @@ def calculate_hype_potential(m: HypeMetrics) -> tuple[float, str]:
         f"Можешь скорректировать ±0.10 с объяснением в reasoning.\n"
     )
     return score, breakdown
+
+
+def format_hype_scorecard(m: HypeMetrics, score: float) -> str:
+    """Компактная таблица для промпта. LLM не пересказывает — только ссылается."""
+    def s(val, thr): return "✅" if val >= thr else "❌"
+    lines = [
+        f"=== HYPE SCORECARD: {score:.2f}/1.0 ===",
+        f"{s(m.trends_score, 20)} Trends:       {m.trends_score}/100  (вход ≥20)",
+        f"{s(m.reddit_top_score, 50)} Reddit top:   {m.reddit_top_score} upv (вход ≥50)",
+        f"{s(m.recent_news_count, 1)} Новости 6ч:  {m.recent_news_count} шт. (вход ≥1)",
+        f"{s(abs(m.price_delta_6h), 0.02)} Движение цены:{m.price_delta_6h:+.4f} (вход ≥0.02)",
+        f"{s(m.hours_to_close, 24)} До закрытия:  {m.hours_to_close:.0f}ч (вход ≥24ч)",
+    ]
+    return "\n".join(lines)
+

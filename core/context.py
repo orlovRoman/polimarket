@@ -19,11 +19,19 @@ class SmartMoneySummary(BaseModel):
     summary: str = "Крупных сделок не найдено."
     wallets_list: List[WalletInfo] = Field(default_factory=list)
 
+class OrderbookSnapshot(BaseModel):
+    top_bid: Optional[float] = None
+    top_ask: Optional[float] = None
+    spread_cents: Optional[float] = None   # уже в центах (0.005 → 0.5¢)
+    bid_depth_5: Optional[float] = None    # объём 5 лучших bid
+    ask_depth_5: Optional[float] = None
+
 class MarketContext(BaseModel):
     """
     Единый контекст для всех агентов, содержащий все собранные данные по рынку.
     """
     market: Market
+    orderbook: Optional[OrderbookSnapshot] = None  # Единый источник ордербука
     news_titles: List[str] = Field(default_factory=list)
     reddit_posts: List[str] = Field(default_factory=list)
     wiki_context: List[str] = Field(default_factory=list, description="Массив контекста из Wikipedia")

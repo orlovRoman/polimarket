@@ -179,6 +179,16 @@ def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = 
     elif norm_a and norm_b and not (norm_a & norm_b):
         return False  # разные типы -> точно разные события
 
+    # Проверка кандидатов: если один рынок о конкретном кандидате, а другой нет, или о другом — это разные события.
+    candidates = {
+        'trump', 'harris', 'biden', 'obama', 'kennedy', 'haley', 'desantis', 'pence', 'michelle',
+        'putin', 'zelensky', 'netanyahu', 'xi', 'macron', 'scholz', 'starmer', 'sunak'
+    }
+    cand_a = {w for w in re.findall(r'\b\w+\b', title_a.lower()) if w in candidates}
+    cand_b = {w for w in re.findall(r'\b\w+\b', title_b.lower()) if w in candidates}
+    if cand_a != cand_b:
+        return False
+
     stopwords = _COMMON_STOPWORDS | {
         'above', 'below', 'over', 'under', 'hit', 'hits', 'reach', 'exceed',
         'close', 'closes', 'closed', 'closing',

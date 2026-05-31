@@ -137,7 +137,7 @@ def test_trigger_nexus_scan_post_url_priority_over_market_url():
                 post_url="https://t.me/polymarketalerthub/555",
                 post_text="Whale alert!"
             )
-            time.sleep(0.3)
+            await asyncio.sleep(0.3)
             
     asyncio.run(run_test())
 

@@ -154,7 +154,8 @@ class TestCompressCleanup:
         history = db_module.get_chat_history(chat_id=20, limit=100)
         assert len(history) == 5
         # Архивная запись в memory не должна появиться
-        key = f"chat_archive_20_{__import__('datetime').datetime.now().strftime('%Y%m%d')}"
+        from datetime import datetime, timezone
+        key = f"chat_archive_20_{datetime.now(timezone.utc).strftime('%Y%m%d')}"
         assert db_module.get_memory(key) is None
 
     def test_compress_cleanup_above_threshold_saves_archive(self, db_module):
@@ -162,8 +163,8 @@ class TestCompressCleanup:
         self._populate_chat(db_module, chat_id=30, count=50)
         db_module.compress_and_cleanup_chat_history(chat_id=30, keep_last=10, summarize_threshold=40)
         # Проверяем что запись в memory создана
-        from datetime import datetime
-        key = f"chat_archive_30_{datetime.now().strftime('%Y%m%d')}"
+        from datetime import datetime, timezone
+        key = f"chat_archive_30_{datetime.now(timezone.utc).strftime('%Y%m%d')}"
         archived = db_module.get_memory(key)
         assert archived is not None
         assert "Архив диалога" in archived

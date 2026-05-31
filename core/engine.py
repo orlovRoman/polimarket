@@ -282,6 +282,17 @@ class CoreEngine:
                             token_idx = 1 if target_outcome.upper() == 'NO' and len(m.tokens) > 1 else 0
                             orderbook = self.adapter.get_orderbook(m.tokens[token_idx])
                         except Exception as e: logger.error(f"Failed to fetch orderbook: {e}")
+
+                    # Кладём ордербук в контекст (единый источник данных для агентов)
+                    if orderbook is not None:
+                        from core.context import OrderbookSnapshot
+                        context.orderbook = OrderbookSnapshot(
+                            top_bid=orderbook.get("top_bid"),
+                            top_ask=orderbook.get("top_ask"),
+                            spread_cents=round(orderbook["spread"] * 100, 4) if orderbook.get("spread") is not None else None,
+                            bid_depth_5=orderbook.get("bid_depth_5"),
+                            ask_depth_5=orderbook.get("ask_depth_5"),
+                        )
                     
                     
                     
@@ -354,7 +365,7 @@ class CoreEngine:
                                 )
                                 logger.info(f"  [WHALE GATE] {gate.reason}")
                             else:
-                                opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, orderbook=orderbook, price_history=price_hist)
+                                opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, price_history=price_hist)
                         save_checkpoint(f"shadow_{m.id}", status="ok")
                     except LLMUnavailableError:
                         save_checkpoint(f"shadow_{m.id}", status="llm_unavailable")
