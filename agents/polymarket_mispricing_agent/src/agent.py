@@ -107,7 +107,13 @@ class ScoutAgent:
                     f"{math_analysis}"
                 )
 
-        wiki_block = wiki_context or "Wikipedia-данных нет."
+        IS_NICHE_MARKET = len(market.title.split()) > 6 or any(
+            kw in market.title.lower()
+            for kw in ["championship", "election", "league", "cup", "award"]
+        )
+        wiki_block = ""
+        if IS_NICHE_MARKET and wiki_context:
+            wiki_block = f"\nДанные из Wikipedia (состав турниров, участники, статистика):\n{wiki_context}\n"
         
         # Загружаем эпизодическую память (последние оценки)
         episodes = get_agent_episodes("SCOUT", event_type="signal_evaluated", limit=3)
@@ -116,7 +122,9 @@ class ScoutAgent:
             episodes_text = "\n".join([f"- {ep['summary']}" for ep in episodes])
             
         perf_summary = get_performance_summary("SCOUT", 10) or "История оценок пуста — первые прогнозы."
-        price_history_str = "Цена: " + str(market.price)
+        hn_block = ""
+        if context.hn_posts:
+            hn_block = f"\n[HackerNews — технические обсуждения]:\n" + "\n".join(context.hn_posts) + "\n"
 
         corr_section = ""
         if getattr(context, "correlation_hint", ""):
@@ -146,7 +154,6 @@ class ScoutAgent:
 
 {rag_context}
 
-Данные из Wikipedia (состав турниров, участники, статистика):
 {wiki_block}
 
 {price_history_str}
@@ -160,8 +167,7 @@ class ScoutAgent:
 [Google Trends — уровень интереса к теме]:
 {context.trends_data}
 
-[HackerNews — технические обсуждения]:
-{chr(10).join(context.hn_posts) if context.hn_posts else "HackerNews: нет релевантных постов."}
+{hn_block}
 
 [Результаты Google Search (grounding)]:
 {grounded_context}
