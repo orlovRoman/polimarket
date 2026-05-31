@@ -479,6 +479,8 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             if verdict:
                 summary_text += f"📝 <b>Вердикт:</b> {verdict}\n"
             summary_text += "\n"
+        else:
+            summary_text += "🧠 <b>SCOUT (Фундаментал):</b>\n⚠️ Ошибка оценки рынка или превышение лимитов запросов к API.\n\n"
         
         if swing_signal:
             summary_text += "🏄 <b>SWING (Хайп):</b>\n"
@@ -496,6 +498,8 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             if verdict:
                 summary_text += f"📝 <b>Вердикт:</b> {verdict}\n"
             summary_text += "\n"
+        else:
+            summary_text += "🏄 <b>SWING (Хайп):</b>\n⚠️ Ошибка оценки рынка или превышение лимитов запросов к API.\n\n"
             
         if opinion_shadow:
             shadow_status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"

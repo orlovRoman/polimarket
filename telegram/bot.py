@@ -145,7 +145,7 @@ def _is_monitoring_active() -> bool:
 
 async def continuous_monitoring_loop() -> None:
     """Непрерывный цикл сканирования рынков (запускается через /monitor).
-    Интервал: 5 минут между итерациями. Останавливается по _monitoring_stop_event."""
+    Интервал: 15 минут между итерациями. Останавливается по _monitoring_stop_event."""
     global _monitoring_task, _monitoring_stop_event
     logger.info("▶️ continuous_monitoring_loop запущен")
     try:
@@ -159,8 +159,8 @@ async def continuous_monitoring_loop() -> None:
                 await scheduled_job()
             except Exception as e:
                 logger.error(f"[Monitor] Ошибка в итерации: {e}", exc_info=True)
-            # Ждём 5 минут, но проверяем stop_event каждые 5 сек
-            for _ in range(60):  # 60 * 5 сек = 5 минут
+            # Ждём 15 минут, но проверяем stop_event каждые 5 сек
+            for _ in range(180):  # 180 * 5 сек = 15 минут
                 if _monitoring_stop_event and _monitoring_stop_event.is_set():
                     break
                 await asyncio.sleep(5)
@@ -361,14 +361,14 @@ def build_monitor_text() -> str:
     """Формирует текст панели мониторинга."""
     monitoring_active = _is_monitoring_active()
     schedule_on = _auto_schedule_enabled
-    monitoring_status = "🟢 <b>Активен</b> (цикл каждые 5 мин)" if monitoring_active else "🔴 <b>Остановлен</b>"
-    schedule_status = "🟢 <b>Включено</b> (каждые 5 мин)" if schedule_on else "🔴 <b>Выключено</b>"
+    monitoring_status = "🟢 <b>Активен</b> (цикл каждые 15 мин)" if monitoring_active else "🔴 <b>Остановлен</b>"
+    schedule_status = "🟢 <b>Включено</b> (каждые 15 мин)" if schedule_on else "🔴 <b>Выключено</b>"
     return (
         "🚦 <b>Управление мониторингом NEXUS</b>\n\n"
         f"● Мониторинг: {monitoring_status}\n"
         f"● Авто-расписание: {schedule_status}\n\n"
         "<i>▶️ <b>Запустить</b> — включает непрерывный цикл сканирования.\n"
-        "⏰ <b>Авто-расписание</b> — apscheduler запускает сканирование каждые 5 мин независимо.\n"
+        "⏰ <b>Авто-расписание</b> — apscheduler запускает сканирование каждые 15 мин независимо.\n"
         "После рестарта бота оба режима всегда выключены (холодный старт).</i>"
     )
 
@@ -470,12 +470,12 @@ async def callback_monitor_schedule_toggle(callback: CallbackQuery) -> None:
         try:
             from main import scheduled_job
             _scheduler.add_job(
-                scheduled_job, 'interval', minutes=5,
+                scheduled_job, 'interval', minutes=15, jitter=60,
                 id=_SCHEDULE_JOB_ID, replace_existing=True
             )
-            logger.info("⏰ Авто-расписание включено пользователем (каждые 5 мин)")
+            logger.info("⏰ Авто-расписание включено пользователем (каждые 15 мин)")
             try:
-                await callback.answer("🟢 Авто-расписание включено (каждые 5 мин)")
+                await callback.answer("🟢 Авто-расписание включено (каждые 15 мин)")
             except Exception:
                 pass
             _auto_schedule_enabled = True
@@ -599,7 +599,7 @@ async def command_status_handler(message: types.Message) -> None:
     is_scanning_real = _scan_lock.locked() or engine._scan_lock.locked()
     is_monitoring = _is_monitoring_active()
     monitoring_status = "🟢 Активен" if is_monitoring else "🔴 Остановлен"
-    schedule_status = "🟢 Вкл (5 мин)" if _auto_schedule_enabled else "🔴 Выкл"
+    schedule_status = "🟢 Вкл (15 мин)" if _auto_schedule_enabled else "🔴 Выкл"
 
     status_text = (
         "📊 <b>Статус системы:</b>\n\n"

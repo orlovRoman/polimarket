@@ -146,7 +146,7 @@ class ShadowAgent:
         TEXT_FIELDS = ["opinion", "orderbook_facts", "risk_assessment", "shadow_verdict", "liquidity_risk"]
         
         analysis = None
-        for attempt in range(1):
+        for attempt in range(3):
             result, active_model = generate_content_with_fallback(
                 api_key=self.api_key,
                 payload=payload,

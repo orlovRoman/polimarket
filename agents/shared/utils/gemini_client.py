@@ -3,7 +3,9 @@ import requests
 import json
 import uuid
 import time
+import re
 import logging
+from threading import Lock
 from typing import Optional, Tuple
 from agents.shared.python.db import save_memory, get_memory
 
@@ -296,8 +298,6 @@ PROVIDERS_CONFIG: dict = {
             "gemini-2.5-flash",
             "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
-            "gemini-2.0-flash-exp",
-            "gemini-2.5-pro",
         ],
         "send_func": _send_gemini
     },
@@ -312,6 +312,46 @@ PROVIDERS_CONFIG: dict = {
         "send_func": _send_cerebras
     }
 }
+
+_rate_lock = Lock()
+_request_times: list[float] = []
+MAX_REQUESTS_PER_MINUTE = 12  # 2 ключа × ~6 rpm на ключ
+
+def _rate_limit_wait():
+    """Блокирует выполнение если превышен лимит запросов в минуту."""
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return
+    with _rate_lock:
+        now = time.monotonic()
+        # Убираем запросы старше 60 секунд
+        _request_times[:] = [t for t in _request_times if now - t < 60]
+        if len(_request_times) >= MAX_REQUESTS_PER_MINUTE:
+            wait = 60 - (now - _request_times[0]) + 1
+            logger.info(f"[rate_limiter] Квота близка, пауза {wait:.1f}с")
+            time.sleep(wait)
+        _request_times.append(time.monotonic())
+
+def _sanitize_error(e: Exception) -> str:
+    """Маскирует API ключи в тексте ошибок перед логированием."""
+    return re.sub(r'key=[A-Za-z0-9_\-]{20,}', 'key=***REDACTED***', str(e))
+
+def _is_rate_limit_error(e: Exception) -> bool:
+    if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
+        if e.response.status_code == 429:
+            return True
+    err_str = str(e).lower()
+    if "429" in err_str or "rate limit" in err_str or "rate_limit" in err_str or "too many requests" in err_str:
+        return True
+    return False
+
+def _is_model_not_found_error(e: Exception) -> bool:
+    if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
+        if e.response.status_code == 404:
+            return True
+    err_str = str(e).lower()
+    if "404" in err_str or "model not found" in err_str or "not found" in err_str:
+        return True
+    return False
 
 
 def generate_content_with_fallback(
@@ -453,49 +493,72 @@ def generate_content_with_fallback(
         send_func = cfg["send_func"]
         keys = cfg["keys"]
         
+        skip_model = False
         for key_idx, key in enumerate(keys):
-            start_time = time.time()
-            logger.info(f"[{agent_name}] Отправка запроса в {provider} (модель {model}, ключ {key_idx+1}/{len(keys)})...")
-            try:
-                result, in_tokens, out_tokens = send_func(payload, model, key, timeout)
-                
-                # Успешный запрос!
-                latency_ms = int((time.time() - start_time) * 1000)
-                total_tokens = in_tokens + out_tokens
-                response_text = extract_response_text(result)
-                
-                LLMLogger.log_call(
-                    agent_name, model, prompt_text, response=response_text,
-                    input_tokens=in_tokens, output_tokens=out_tokens, total_tokens=total_tokens,
-                    latency_ms=latency_ms, market_id=market_id
-                )
-                
-                # Обновляем round-robin для Cerebras при успехе
-                if provider == "cerebras":
-                    cer_idx = int(get_memory("cer_rr_index", 0))
-                    cer_models = providers["cerebras"]["models"]
-                    save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
+            if skip_model:
+                break
+            for attempt in range(3):
+                _rate_limit_wait()
+                start_time = time.time()
+                logger.info(f"[{agent_name}] Отправка запроса в {provider} (модель {model}, ключ {key_idx+1}/{len(keys)}, попытка {attempt+1}/3)...")
+                try:
+                    result, in_tokens, out_tokens = send_func(payload, model, key, timeout)
                     
-                save_memory(f"consecutive_failures_{agent_name}", 0)
-                return result, model
-                
-            except Exception as e:
-                latency_ms = int((time.time() - start_time) * 1000)
-                error_msg = str(e)
-                logger.warning(f"[{agent_name}] Ошибка вызова {provider} ({model}) с ключом {key_idx+1}: {error_msg}")
-                LLMLogger.log_call(
-                    agent_name, model, prompt_text, error=f"Key {key_idx+1} Error: {error_msg}",
-                    latency_ms=latency_ms, market_id=market_id
-                )
-                # BUG-1 & BUG-2: Двигаем round-robin индекс Cerebras только при реальной HTTP-ошибке (4xx/5xx)
-                # и нормализуем индекс, чтобы он не рос бесконечно
-                if provider == "cerebras":
-                    if isinstance(e, requests.exceptions.HTTPError):
-                        _cer_idx_now = int(get_memory("cer_rr_index", 0))
+                    # Успешный запрос!
+                    latency_ms = int((time.time() - start_time) * 1000)
+                    total_tokens = in_tokens + out_tokens
+                    response_text = extract_response_text(result)
+                    
+                    LLMLogger.log_call(
+                        agent_name, model, prompt_text, response=response_text,
+                        input_tokens=in_tokens, output_tokens=out_tokens, total_tokens=total_tokens,
+                        latency_ms=latency_ms, market_id=market_id
+                    )
+                    
+                    # Обновляем round-robin для Cerebras при успехе
+                    if provider == "cerebras":
+                        cer_idx = int(get_memory("cer_rr_index", 0))
                         cer_models = providers["cerebras"]["models"]
-                        save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
-                # Переходим к следующему ключу этого же провайдера
-                continue
+                        save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
+                        
+                    save_memory(f"consecutive_failures_{agent_name}", 0)
+                    return result, model
+                    
+                except Exception as e:
+                    latency_ms = int((time.time() - start_time) * 1000)
+                    error_msg = _sanitize_error(e)
+                    
+                    # Логируем вызов с ошибкой
+                    LLMLogger.log_call(
+                        agent_name, model, prompt_text, error=f"Key {key_idx+1} Error: {error_msg}",
+                        latency_ms=latency_ms, market_id=market_id
+                    )
+                    
+                    # Проверяем тип ошибки
+                    if _is_rate_limit_error(e) and attempt < 2 and (key_idx == len(keys) - 1):
+                        wait = 2 ** attempt  # 1s, 2s, 4s
+                        logger.warning(
+                            f"[{agent_name}] 429 Rate Limit на {provider} ({model}) ключ {key_idx+1}, "
+                            f"backoff {wait}s (попытка {attempt+1}/3)"
+                        )
+                        time.sleep(wait)
+                        # Продолжаем внутренний цикл attempt для повторной попытки
+                        continue
+                    
+                    # Если это 404 (Model Not Found) — сразу выходим из попыток и переходим к следующей модели
+                    if _is_model_not_found_error(e):
+                        logger.error(f"[{agent_name}] 404: модель {model} на {provider} не существует или удалена. Пропускаем.")
+                        skip_model = True
+                        break
+                    
+                    # Для других ошибок (или при исчерпании попыток 429) - не делаем retry, переходим к следующему ключу
+                    logger.warning(f"[{agent_name}] Ошибка вызова {provider} ({model}) с ключом {key_idx+1}: {error_msg}")
+                    if provider == "cerebras":
+                        if isinstance(e, requests.exceptions.HTTPError):
+                            _cer_idx_now = int(get_memory("cer_rr_index", 0))
+                            cer_models = providers["cerebras"]["models"]
+                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
+                    break  # прерываем цикл попыток attempt для текущего ключа
                 
             
             

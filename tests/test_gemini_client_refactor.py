@@ -64,10 +64,10 @@ def test_gemini_20_flash_lite_in_providers():
     assert "gemini-2.0-flash-lite" in PROVIDERS_CONFIG["gemini"]["models"]
 
 
-def test_gemini_20_flash_exp_in_providers():
-    """gemini-2.0-flash-exp должен присутствовать в списке моделей Gemini."""
+def test_gemini_20_flash_exp_not_in_providers():
+    """gemini-2.0-flash-exp не должен присутствовать в списке моделей Gemini (deprecated, 404)."""
     from agents.shared.utils.gemini_client import PROVIDERS_CONFIG
-    assert "gemini-2.0-flash-exp" in PROVIDERS_CONFIG["gemini"]["models"]
+    assert "gemini-2.0-flash-exp" not in PROVIDERS_CONFIG["gemini"]["models"]
 
 
 # ═══════════════════════════════════════════════════════════
