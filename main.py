@@ -376,6 +376,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.info("Система остановлена пользователем (Ctrl+C).")
     finally:
-        logger.info(f"🛑 Принудительный выход (os._exit({exit_code})), чтобы избежать зависания потоков...")
-        os._exit(exit_code)
+        logger.info(f"🛑 Завершение работы процесса бота с кодом {exit_code}...")
+        sys.exit(exit_code)
 

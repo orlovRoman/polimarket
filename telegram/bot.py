@@ -1192,9 +1192,9 @@ async def command_restart_handler(message: types.Message) -> None:
     except Exception:
         pass
 
-    # sys.exit(0) НЕ останавливает процесс с активными потоками (asyncio.to_thread).
-    # os._exit(0) завершает процесс немедленно — systemd сделает рестарт.
-    os._exit(0)
+    import signal
+    # Отправляем сигнал SIGTERM собственному процессу для запуска graceful shutdown в main.py
+    os.kill(os.getpid(), signal.SIGTERM)
 
 @dp.message(Command("arbitrage"))
 async def command_arbitrage_handler(message: types.Message) -> None:
