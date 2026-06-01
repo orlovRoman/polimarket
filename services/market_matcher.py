@@ -165,3 +165,9 @@ def verify_pair_with_llm(
     except Exception as e:
         print(f"[MarketMatcher] Ошибка парсинга LLM-ответа: {e}")
         return {"is_same_event": False, "confidence": 0.0, "reason": str(e)}
+
+def get_matched_pairs(markets_a: list[Market], markets_b: list[Market]) -> list[tuple[Market, Market]]:
+    """Возвращает пары сматчканных кросс-платформенных рынков (без LLM-верификации)."""
+    candidates = find_candidate_pairs(markets_a, markets_b, min_score=0.60)
+    return [(a, b) for a, b, _ in candidates]
+

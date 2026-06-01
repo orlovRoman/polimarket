@@ -48,6 +48,8 @@ init_db()
 # внутри импорта и при конкурентных запросах нет нескольких экземпляров агента.
 _nexus_agent: NexusAgent | None = None
 _add_idea_lock = asyncio.Lock()
+_manual_signal_lock = threading.Lock()
+_callback_dedup_lock = asyncio.Lock()
 
 from collections import deque
 _processed_message_ids: deque[tuple[int, int]] = deque(maxlen=500)
@@ -251,8 +253,8 @@ def estimate_llm_cost(model_name: str, input_tokens: int, output_tokens: int) ->
         
     # 2. Тарифы Gemini Flash (2.5 / 2.0)
     if "gemini-2.5-flash" in model or "gemini-2.0-flash" in model or "flash" in model:
-        # $0.075 / 1M input, $0.30 / 1M output
-        return (input_tokens * 0.075 / 1_000_000) + (output_tokens * 0.30 / 1_000_000)
+        # $0.15 / 1M input, $0.60 / 1M output
+        return (input_tokens * 0.15 / 1_000_000) + (output_tokens * 0.60 / 1_000_000)
         
     # 3. Тарифы Gemini Pro (2.5 / 1.5)
     if "gemini-2.5-pro" in model or "gemini-1.5-pro" in model or ("gemini" in model and "pro" in model):
@@ -473,12 +475,12 @@ async def callback_monitor_schedule_toggle(callback: CallbackQuery) -> None:
                 scheduled_job, 'interval', minutes=15, jitter=60,
                 id=_SCHEDULE_JOB_ID, replace_existing=True
             )
+            _auto_schedule_enabled = True
             logger.info("⏰ Авто-расписание включено пользователем (каждые 15 мин)")
             try:
                 await callback.answer("🟢 Авто-расписание включено (каждые 15 мин)")
             except Exception:
                 pass
-            _auto_schedule_enabled = True
         except Exception as e:
             logger.error(f"Ошибка включения авто-расписания: {e}", exc_info=True)
             try:
@@ -692,7 +694,17 @@ async def cmd_performance(message: types.Message):
 
 @dp.message(Command("stats"))
 async def command_stats_handler(message: types.Message) -> None:
-    await message.answer(await asyncio.to_thread(get_db_stats))
+    db_stats = await asyncio.to_thread(get_db_stats)
+    try:
+        from core.math_filter_metrics import get_stats as get_math_stats
+        math_stats = await asyncio.to_thread(get_math_stats)
+        if math_stats and "rows" in math_stats and math_stats["rows"]:
+            db_stats += "\n\n📐 <b>Math Gate (7д):</b>"
+            for row in math_stats["rows"]:
+                db_stats += f"\n- {row['decision']} ({row['arbitrage_type']}): <b>{row['cnt']}</b> (avg spread: {row['avg_spread']:.1f}%, confirmed: {row['confirmed']})"
+    except Exception as e:
+        logger.warning(f"Error adding math stats to telegram /stats command: {e}")
+    await message.answer(db_stats)
 
 @dp.message(Command("audit"))
 async def command_audit_handler(message: types.Message) -> None:
@@ -1073,12 +1085,23 @@ async def callback_save_model(callback: CallbackQuery) -> None:
     # Отрезаем префикс "sm_"
     data = callback.data[3:]
     
-    # Ищем точный ключ в маппинге с конца
-    for key in models_mapping:
-        if data.endswith(f"_{key}"):
-            model_key = key
-            agent = data[:-len(key) - 1]
+    model_key = None
+    agent = ""
+    
+    # Пробуем разобрать по известным префиксам агентов
+    for possible_agent in ["NEXUS", "SCOUT", "SWING", "SHADOW", "ARBITRAGE"]:
+        if data.startswith(f"{possible_agent}_"):
+            agent = possible_agent
+            model_key = data[len(possible_agent) + 1:]
             break
+            
+    if not model_key:
+        # Ищем точный ключ в маппинге с конца
+        for key in models_mapping:
+            if data.endswith(f"_{key}"):
+                model_key = key
+                agent = data[:-len(key) - 1]
+                break
             
     # Fallback на случай, если ключ не нашелся в маппинге
     if not model_key:
@@ -1175,12 +1198,6 @@ async def command_logs_handler(message: types.Message) -> None:
 @dp.message(Command("restart"))
 async def command_restart_handler(message: types.Message) -> None:
     """Останавливает процесс бота. Менеджер процессов (systemd/PM2) автоматически его перезапустит."""
-    
-    expected_chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if expected_chat_id and str(message.chat.id) != expected_chat_id:
-        await message.answer("❌ Нет доступа.")
-        return
-        
     await message.answer("🔄 <b>Перезапуск бота через 3 секунды...</b>\nСлужба завершает процессы.", parse_mode="HTML")
     logging.warning("Получена команда /restart. Закрываю сессию и завершаю процесс...")
     
@@ -1399,10 +1416,14 @@ async def command_scan_handler(message: types.Message) -> None:
 @dp.callback_query(F.data.startswith("scan_"))
 async def callback_scan_handler(callback: CallbackQuery) -> None:
     # Дедупликация: игнорируем повторно доставленные callback'и
-    if callback.id in _processed_callback_ids:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
         await callback.answer()
         return
-    _processed_callback_ids.append(callback.id)
 
     engine = get_core_engine()
     if _scan_lock.locked() or engine._scan_lock.locked():
@@ -1865,6 +1886,51 @@ async def callback_unlist_market(callback: CallbackQuery) -> None:
         await callback.answer("ℹ️ Рынок не найден в списках.")
 
 
+def _save_manual_signal_sync(full_market_id: str, market_price: float) -> bool:
+    """Синхронное сохранение ручного сигнала, защищённое threading.Lock."""
+    from agents.shared.python.db import get_connection, save_signal
+    from core.models import Signal
+    from datetime import datetime, timezone
+    import time
+    
+    with _manual_signal_lock:
+        scout_edge = 0.15
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT scout_edge FROM idea_audit WHERE market_id = ? ORDER BY created_at DESC LIMIT 1",
+                (full_market_id,)
+            )
+            row = cursor.fetchone()
+            if row and row["scout_edge"] is not None:
+                try:
+                    scout_edge = float(row["scout_edge"])
+                except (KeyError, TypeError, IndexError):
+                    try:
+                        scout_edge = float(row[0])
+                    except Exception:
+                        pass
+                        
+        signal = Signal(
+            id=f"manual_{full_market_id[:20]}_{int(time.time())}",
+            type="MANUAL",
+            market_id=full_market_id,
+            platform="polymarket",
+            target_outcome="YES",
+            trade_action="buy",
+            entry_price=market_price,
+            position_size_usd=0.0,
+            edge=scout_edge,
+            confidence=0.8,
+            priority="medium",
+            summary="Ручное добавление пользователем",
+            details="Пользователь вручную добавил этот рынок в список торговых идей.",
+            status="PENDING",
+            created_at=datetime.now(timezone.utc)
+        )
+        return save_signal(signal, None, True)
+
+
 @dp.callback_query(F.data.startswith("add_idea_"))
 async def callback_add_idea(callback: CallbackQuery) -> None:
     """'В идеи' — вручную добавляет рынок в список торговых идей (/ideas)."""
@@ -1893,43 +1959,10 @@ async def callback_add_idea(callback: CallbackQuery) -> None:
     market_title = db_market["title"]
     market_price = db_market["price"]
     
-    async with _add_idea_lock:
-        # Ищем аудит для получения edge
-        scout_edge = 0.15
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT scout_edge FROM idea_audit WHERE market_id = ? ORDER BY created_at DESC LIMIT 1",
-                (full_market_id,)
-            )
-            row = cursor.fetchone()
-            if row and row["scout_edge"] is not None:
-                scout_edge = float(row["scout_edge"])
-                
-        # Создаем ручной сигнал
-        from datetime import datetime, timezone
-        signal = Signal(
-            id=f"manual_{full_market_id[:20]}_{int(time.time())}",
-            type="MANUAL",
-            market_id=full_market_id,
-            platform="polymarket",
-            target_outcome="YES",
-            trade_action="buy",
-            entry_price=market_price,
-            position_size_usd=0.0,
-            edge=scout_edge,
-            confidence=0.8,
-            priority="medium",
-            summary="Ручное добавление пользователем",
-            details="Пользователь вручную добавил этот рынок в список торговых идей.",
-            status="PENDING",
-            created_at=datetime.now(timezone.utc)
-        )
-        
-        inserted = await asyncio.to_thread(save_signal, signal, None, True)
-        if not inserted:
-            await callback.answer("ℹ️ Этот рынок уже находится в списке торговых идей /ideas!", show_alert=True)
-            return
+    inserted = await asyncio.to_thread(_save_manual_signal_sync, full_market_id, market_price)
+    if not inserted:
+        await callback.answer("ℹ️ Этот рынок уже находится в списке торговых идей /ideas!", show_alert=True)
+        return
     
     # Обновляем клавиатуру, показываем что добавлено
     new_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -2155,15 +2188,11 @@ async def conversational_handler(message: types.Message) -> None:
         # Очищаем старую историю (согласно MEMORY_POLICY не храним длинные логи)
         await asyncio.to_thread(cleanup_chat_history, chat_id, 20)
     
-    # Отправляем ответ пользователю
+    # Отправляем ответ пользователю по умолчанию как обычный текст во избежание ошибок парсинга HTML
     try:
-        await message.answer(response_text, parse_mode="HTML")
+        await message.answer(response_text, parse_mode=None)
     except Exception as e:
-        logger.warning(f"Ошибка при отправке сообщения в HTML: {e}. Пробуем отправить как обычный текст...")
-        try:
-            await message.answer(response_text, parse_mode=None)
-        except Exception as e2:
-            logger.error(f"Критическая ошибка при отправке сообщения в Telegram: {e2}")
+        logger.error(f"Критическая ошибка при отправке сообщения в Telegram: {e}")
 
 async def main() -> None:
     from config import startup_check

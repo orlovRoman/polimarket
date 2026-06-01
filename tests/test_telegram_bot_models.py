@@ -166,8 +166,8 @@ def test_estimate_llm_cost_correct_tier(model, expected_tier):
     if expected_tier == "free":
         assert cost == 0.0, f"Модель '{model}' должна быть бесплатной, получено: ${cost}"
     elif expected_tier == "flash":
-        # Flash: $0.075 + $0.30 = $0.375 за 1M+1M токенов
-        assert abs(cost - 0.375) < 0.001, f"Неверный тариф flash для '{model}': ${cost}"
+        # Flash: $0.15 + $0.60 = $0.75 за 1M+1M токенов
+        assert abs(cost - 0.75) < 0.001, f"Неверный тариф flash для '{model}': ${cost}"
     elif expected_tier == "pro":
         # Pro: $1.25 + $5.00 = $6.25 за 1M+1M токенов
         assert abs(cost - 6.25) < 0.001, f"Неверный тариф pro для '{model}': ${cost}"

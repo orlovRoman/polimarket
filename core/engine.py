@@ -56,6 +56,120 @@ class NoMarketsFoundError(Exception):
     """Исключение, выбрасываемое когда активные рынки по фильтрам не найдены."""
     pass
 
+async def _run_math_gate(
+    markets: list[Market],
+    api_key: str,
+    notify_fn,          # функция отправки сигнала в Telegram
+    min_spread_pct: float = 5.0,
+) -> list[str]:
+    """
+    Детерминированный gate. Запускается ДО всех агентов.
+    Возвращает список market_id, которые уже обработаны — агентам пропускать.
+    """
+    from core.event_cluster import cluster_by_event_slug, iter_cluster_pairs
+    from core.arb_router import route_ambiguous
+    from core.math_filter import FilterDecision, math_pre_filter
+    from services.market_matcher import get_matched_pairs
+    from core.math_filter_metrics import log_filter_result
+    import inspect
+
+    processed_ids: list[str] = []
+
+    async def _notify_helper(fn, signal_type: str, market: Market, details):
+        sig = inspect.signature(fn)
+        if "signal_type" in sig.parameters:
+            if inspect.iscoroutinefunction(fn):
+                await fn(signal_type=signal_type, market=market, details=details)
+            else:
+                fn(signal_type=signal_type, market=market, details=details)
+        else:
+            emoji = "🚨" if signal_type == "MATH_ARB" else "⚡️"
+            desc = "МАТЕМАТИЧЕСКИЙ АРБИТРАЖ" if signal_type == "MATH_ARB" else "ПОДТВЕРЖДЕННЫЙ МАТЕМАТИЧЕСКИЙ АРБИТРАЖ"
+            text = (
+                f"{emoji} <b>{desc}</b> {emoji}\n\n"
+                f"📍 <b>Рынок A:</b> <a href='{market.url}'>{market.title}</a> (Цена: {market.price})\n"
+                f"💡 <b>Тип:</b> {details.arbitrage_type}\n"
+                f"📈 <b>Разрыв (Spread):</b> {details.spread_pct:.1f}%\n"
+                f"🧠 <b>Логика:</b> {details.reasoning}\n"
+                f"⚡ <b>Трейд:</b> {details.trade_instruction}\n"
+            )
+            if inspect.iscoroutinefunction(fn):
+                await fn(text)
+            else:
+                fn(text)
+
+    # 1. Кластеризация внутриплатформенных пар
+    clusters = cluster_by_event_slug(markets)
+    logger.info(f"[math_gate] Кластеров: {len(clusters)}, рынков в парах: "
+                f"{sum(len(v) for v in clusters.values())}")
+
+    for market_a, market_b, mf in iter_cluster_pairs(
+        clusters, min_spread_pct=min_spread_pct
+    ):
+        log_filter_result(market_a.id, market_b.id, mf)
+
+        if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
+            await _notify_helper(
+                notify_fn,
+                signal_type="MATH_ARB",
+                market=market_a,
+                details=mf,
+            )
+            processed_ids.extend([market_a.id, market_b.id])
+
+        elif mf.decision == FilterDecision.AMBIGUOUS:
+            result = await asyncio.to_thread(
+                route_ambiguous, mf, market_a, market_b, api_key
+            )
+            if result and result.get("confirmed_arb"):
+                await _notify_helper(
+                    notify_fn,
+                    signal_type="MATH_ARB_CONFIRMED",
+                    market=market_a,
+                    details=mf,
+                )
+                processed_ids.extend([market_a.id, market_b.id])
+
+    # 2. Кросс-платформенные пары
+    markets_poly = [m for m in markets if m.platform == "polymarket"]
+    markets_kalshi = [m for m in markets if m.platform == "kalshi"]
+    
+    if markets_poly and markets_kalshi:
+        cross_platform_pairs = get_matched_pairs(markets_poly, markets_kalshi)
+        logger.info(f"[math_gate] Найдено кросс-платформенных кандидатов: {len(cross_platform_pairs)}")
+        for market_a, market_b in cross_platform_pairs:
+            if market_a.id in processed_ids or market_b.id in processed_ids:
+                continue
+
+            # Минуя _quick_pair_check (пары уже матчнуты), передаем с порогом 3.0
+            mf = math_pre_filter(market_a, market_b, min_spread_pct=3.0)
+            log_filter_result(market_a.id, market_b.id, mf)
+
+            if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
+                await _notify_helper(
+                    notify_fn,
+                    signal_type="MATH_ARB",
+                    market=market_a,
+                    details=mf,
+                )
+                processed_ids.extend([market_a.id, market_b.id])
+
+            elif mf.decision == FilterDecision.AMBIGUOUS:
+                result = await asyncio.to_thread(
+                    route_ambiguous, mf, market_a, market_b, api_key
+                )
+                if result and result.get("confirmed_arb"):
+                    await _notify_helper(
+                        notify_fn,
+                        signal_type="MATH_ARB_CONFIRMED",
+                        market=market_a,
+                        details=mf,
+                    )
+                    processed_ids.extend([market_a.id, market_b.id])
+
+    return processed_ids
+
+
 class CoreEngine:
     _instance = None
     _lock = threading.Lock()
@@ -221,9 +335,26 @@ class CoreEngine:
 
         # 3. Обсуждение
         log(f"\n--- 2. Обсуждение идей (SCOUT + SWING + SHADOW) ---")
-        _update_state(total_markets=len(markets), stage="Обсуждение (SCOUT + SWING + SHADOW)")
         
-        for i, m in enumerate(markets, 1):
+        # Run Math Gate
+        processed_ids = []
+        try:
+            loop = asyncio.new_event_loop()
+            processed_ids = loop.run_until_complete(_run_math_gate(
+                markets=markets,
+                api_key=self.api_key,
+                notify_fn=summary_callback,
+                min_spread_pct=5.0
+            ))
+            loop.close()
+        except Exception as e:
+            logger.error(f"Error running math gate: {e}", exc_info=True)
+
+        remaining_markets = [m for m in markets if m.id not in processed_ids]
+        _update_state(total_markets=len(remaining_markets), stage="Обсуждение (SCOUT + SWING + SHADOW)")
+        
+        for i, m in enumerate(remaining_markets, 1):
+
             try:
                 _update_state(
                     current_market_index=i, current_market_title=m.title, current_market_url=m.url,
