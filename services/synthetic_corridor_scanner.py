@@ -16,10 +16,10 @@ logger = logging.getLogger("NexusPolyBot.SyntheticCorridor")
 
 def run_synthetic_corridor_scan(
     poly_limit: int = 100,
-    min_theoretical_spread_pct: float = 0.5,
-    min_real_spread_pct: float = 1.5,
-    min_volume: float = 10_000,
-    min_executable_contracts: float = 50,
+    min_theoretical_spread_pct: float = 0.3,
+    min_real_spread_pct: float = 0.8,
+    min_volume: float = 5_000,
+    min_executable_contracts: float = 20,
     budget_per_trade: float = 200.0,
 ) -> list[SyntheticCorridorSignal]:
     
@@ -47,17 +47,24 @@ def run_synthetic_corridor_scan(
     session = requests.Session()
     found: list[SyntheticCorridorSignal] = []
     
+    stats = {"no_orderbook": 0, "low_spread": 0, "low_size": 0, "passed": 0}
+    
     for v in violations:
         orderbook = fetch_real_entry_prices(v.lower, v.upper, session)
         
         if not orderbook:
+            stats["no_orderbook"] += 1
             continue
         
         if orderbook["real_spread_pct"] < min_real_spread_pct:
+            stats["low_spread"] += 1
             continue
         
         if orderbook["executable_size_contracts"] < min_executable_contracts:
+            stats["low_size"] += 1
             continue
+            
+        stats["passed"] += 1
         
         sizing = compute_sizing(
             ask_yes_lower=orderbook["ask_yes_lower"],
@@ -114,5 +121,10 @@ def run_synthetic_corridor_scan(
             f"min_PnL=${sizing['min_guaranteed_usd']:.2f}"
         )
     
+    logger.info(
+        f"[SCA] Воронка: no_orderbook={stats['no_orderbook']} "
+        f"low_spread={stats['low_spread']} low_size={stats['low_size']} "
+        f"passed={stats['passed']}"
+    )
     logger.info(f"[SCA] Итого сигналов после фильтрации ордербуком: {len(found)}")
     return found

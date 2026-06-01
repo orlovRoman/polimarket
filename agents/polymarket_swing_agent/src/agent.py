@@ -8,6 +8,15 @@ from agents.shared.python.db import get_memory, get_agent_episodes, get_performa
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 from agents.shared.python.llm_wrapper import with_retry
 
+def _safe_float(val, default: float) -> float:
+    """float() с защитой от пустых строк и None."""
+    try:
+        if val is None or val == "":
+            return default
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
 class SwingAgent:
     """
     Агент SWING_TRADER — спекулянт, ищущий хайп-потенциал на сильно перекошенных рынках.
@@ -71,7 +80,8 @@ class SwingAgent:
 
         # Считаем метрики для hype_potential
         price_now = market.price
-        price_6h_ago = price_hist[-7]["price"] if len(price_hist) >= 7 else price_now
+        price_raw = price_hist[-7].get("price", "") if len(price_hist) >= 7 else ""
+        price_6h_ago = _safe_float(price_raw, price_now)
         price_delta_6h = price_now - price_6h_ago
 
         close_dt = market.close_time
@@ -311,10 +321,10 @@ class SwingAgent:
                     analysis = None
                     continue
                 
-                llm_confidence = float(analysis.get("llm_confidence", 0.5))
+                llm_confidence = _safe_float(analysis.get("llm_confidence"), 0.5)
                 direction = analysis.get("llm_direction", "YES")
-                asymmetry = float(analysis.get("asymmetry_score", 0.5))
-                target_price = float(analysis.get("target_exit_price", 0.15))
+                asymmetry = _safe_float(analysis.get("asymmetry_score"), 0.5)
+                target_price = _safe_float(analysis.get("target_exit_price"), 0.15)
 
                 from core.swing_rules import swing_decision
                 recommendation, final_confidence = swing_decision(
@@ -397,9 +407,9 @@ class SwingAgent:
                     )
 
                 recommendation = analysis.get("recommendation", "ignore").lower()
-                hype_potential = float(analysis.get("hype_potential", 0))
+                hype_potential = _safe_float(analysis.get("hype_potential"), 0.0)
                 target_outcome = direction
-                target_price = float(analysis.get("target_exit_price", 0.15))
+                target_price = _safe_float(analysis.get("target_exit_price"), 0.15)
                 
                 # Расчет ROI для деталей
                 current_price = market.price if target_outcome == "YES" else (1.0 - market.price)
@@ -416,7 +426,7 @@ class SwingAgent:
                     type="SWING",
                     platform=market.platform,
                     recommendation=recommendation,
-                    confidence=float(analysis.get("confidence", 0.5)),
+                    confidence=_safe_float(analysis.get("confidence"), 0.5),
                     hype_potential=hype_potential,
                     target_outcome=target_outcome,
                     target_exit_price=target_price,
