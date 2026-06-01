@@ -34,6 +34,7 @@ def with_retry(max_attempts: int = 3, initial_backoff: float = 2.0):
                 if getattr(e, "agent_name", "UNKNOWN") == "UNKNOWN":
                     raise LLMUnavailableError(str(e), agent_name=agent_name) from e
                 raise
+            NON_RETRYABLE = (NameError, AttributeError, TypeError, ValueError, KeyError)
             backoff = initial_backoff
             last_error = None
             
@@ -47,6 +48,9 @@ def with_retry(max_attempts: int = 3, initial_backoff: float = 2.0):
                         
                     llm_health_gate.record_success()
                     return result
+                except NON_RETRYABLE as e:
+                    logger.error(f"[{agent_name}] Non-retryable error: {e}", exc_info=True)
+                    raise
                 except Exception as e:
                     last_error = e
                     error_str = str(e).lower()

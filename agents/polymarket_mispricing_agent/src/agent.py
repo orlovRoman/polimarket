@@ -48,6 +48,7 @@ class ScoutAgent:
         wiki_context = context.wiki_context
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        price_history = price_history or []
         price_history_str = "История цен недоступна."
         if price_history:
             lines = []

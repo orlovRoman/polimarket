@@ -59,7 +59,7 @@ def test_with_retry_injects_agent_name():
             
         @with_retry(max_attempts=1)
         def failing_call(self):
-            raise ValueError("Direct failure")
+            raise RuntimeError("Direct failure")
 
     agent = DummyAgent()
     with pytest.raises(LLMUnavailableError) as exc_info:
