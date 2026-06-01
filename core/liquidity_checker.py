@@ -5,11 +5,13 @@ from typing import Optional
 class LiquidityCheck:
     ok: bool
     reason: str = ""
+    confidence: float = 1.0
+    liquidity_risk: str = "high"
 
 def check_liquidity_fast(orderbook: dict) -> LiquidityCheck:
     """Быстрая проверка ликвидности по стакану без LLM."""
     if not orderbook:
-        return LiquidityCheck(ok=False, reason="Стакан пуст")
+        return LiquidityCheck(ok=False, reason="Стакан пуст", confidence=0.1, liquidity_risk="high")
     
     # Извлекаем и безопасно конвертируем в float
     try:
@@ -42,8 +44,9 @@ def check_liquidity_fast(orderbook: dict) -> LiquidityCheck:
             spread = 100.0
 
     if bid + ask < 50:   # меньше $50 ликвидности
-        return LiquidityCheck(ok=False, reason=f"Низкая ликвидность: bid+ask={bid+ask:.0f}")
-    if spread > 20:       # спред > 20 центов — слишком дорого
-        return LiquidityCheck(ok=False, reason=f"Широкий спред: {spread:.1f}¢")
+        return LiquidityCheck(ok=False, reason=f"Низкая ликвидность: bid+ask={bid+ask:.0f}", confidence=0.2, liquidity_risk="high")
+    if spread > 10.0:       # спред > 10 центов — слишком дорого
+        return LiquidityCheck(ok=False, reason=f"Широкий спред: {spread:.1f}¢", confidence=0.3, liquidity_risk="high")
     
-    return LiquidityCheck(ok=True)
+    return LiquidityCheck(ok=True, confidence=0.8, liquidity_risk="low")
+

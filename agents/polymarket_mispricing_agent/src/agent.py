@@ -34,11 +34,12 @@ class ScoutAgent:
         self._adapter = None
 
     @with_retry(max_attempts=3, initial_backoff=2.0)
-    def estimate_market(self, context: 'MarketContext') -> Optional[Signal]:
+    def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
         """
         Оценивает рынок на предмет математического расхождения (edge).
         
         :param context: Единый контекст для рынка
+        :param price_history: История изменения цены
         :return: Объект Signal, если Edge > 0.10, иначе None
         """
         market = context.market
@@ -46,6 +47,17 @@ class ScoutAgent:
         reddit_posts = context.reddit_posts
         wiki_context = context.wiki_context
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        price_history_str = "История цен недоступна."
+        if price_history:
+            lines = []
+            for p in price_history:
+                ts = p.get("recorded_at") or p.get("timestamp") or "N/A"
+                price = p.get("price")
+                if price is not None:
+                    lines.append(f"  [{ts}] {price:.2f}")
+            if lines:
+                price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
         
         # Загружаем RAG-память из Obsidian
         try:

@@ -408,7 +408,7 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     
     # SCOUT
     try:
-        signal = scout.estimate_market(context)
+        signal = scout.estimate_market(context, price_history=price_history)
         save_checkpoint(f"scout_{m.id}", status="ok", edge=signal.edge if signal else None)
     except LLMUnavailableError:
         save_checkpoint(f"scout_{m.id}", status="llm_unavailable")
