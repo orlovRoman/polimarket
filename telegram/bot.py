@@ -868,7 +868,9 @@ def get_nice_model_name(model_id: str) -> str:
     # Извлекаем базовое имя
     display_name = model_id.split("/")[-1] if "/" in model_id else model_id
     
-    if "gemini-2.5-flash" in model_lower:
+    if "gemini_round_robin" in model_lower:
+        return "🔄 Gemini Auto RR"
+    elif "gemini-2.5-flash" in model_lower:
         return "✨ Gemini 2.5 Flash"
     elif "gemini-2.0-flash-lite" in model_lower:
         return "⚡ Gemini 2.0 Flash Lite"
@@ -914,6 +916,7 @@ def get_dynamic_models_mapping() -> dict:
     mapping = {}
     
     # 1. Gemini
+    mapping[_shorten_key("gemini_round_robin")] = ("gemini", "gemini_round_robin", "🔄 Gemini Auto RR")
     for m in PROVIDERS_CONFIG["gemini"]["models"]:
         key = m.replace("-", "_").replace(".", "_")
         mapping[_shorten_key(key)] = ("gemini", m, get_nice_model_name(m))

@@ -391,9 +391,14 @@ def generate_content_with_fallback(
         _gemini_keys = list(_gemini_keys_override)
     else:
         secondary = os.getenv("GOOGLE_API_KEY_SECONDARY", "")
+        third = os.getenv("GOOGLE_API_KEY_THIRD", "")
         if not secondary:
             logger.debug("[gemini_client] GOOGLE_API_KEY_SECONDARY не задан в .env")
-        _gemini_keys = [k for k in [api_key, secondary] if k and k.strip()]
+        all_keys = [k for k in [api_key, secondary, third] if k and k.strip()]
+        
+        # RR по ключам: начинаем с текущего
+        key_rr_idx = int(get_memory("gem_key_rr_index") or 0)
+        _gemini_keys = all_keys[key_rr_idx:] + all_keys[:key_rr_idx]
 
     # Разделяем дефолтную модель по провайдерам, чтобы не слать некорректные модели в Gemini API
     is_gemini_model = default_model.startswith("gemini-") or default_model in PROVIDERS_CONFIG["gemini"]["models"]
@@ -452,8 +457,16 @@ def generate_content_with_fallback(
 
     # Gemini
     if "gemini" in active_providers:
+        gem_models = providers["gemini"]["models"]
+        
+        # Читаем текущий RR-индекс из памяти
+        gem_rr_idx = int(get_memory("gem_rr_index") or 0)
+        
+        # Строим список: начинаем с текущего индекса, идём по кругу
+        rotated = gem_models[gem_rr_idx:] + gem_models[:gem_rr_idx]
+        
         seen = set()
-        for m in providers["gemini"]["models"]:
+        for m in rotated:
             if m not in seen:
                 seen.add(m)
                 plans.append(("gemini", m))
@@ -467,11 +480,20 @@ def generate_content_with_fallback(
             if prov_override in active_providers:
                 if prov_override == "gemini":
                     plans = [p for p in plans if p[0] != "gemini"]
-                    seen = set()
-                    for m in [db_model] + providers["gemini"]["models"]:
-                        if m not in seen:
-                            seen.add(m)
-                            plans.insert(0, ("gemini", m))
+                    if not db_model:
+                        db_model = "gemini_round_robin"
+                    
+                    if db_model == "gemini_round_robin":
+                        gem_idx = int(get_memory("gem_rr_index") or 0)
+                        gem_models_cfg = providers["gemini"]["models"]
+                        resolved_model = gem_models_cfg[gem_idx % len(gem_models_cfg)]
+                        plans.insert(0, ("gemini", resolved_model))
+                    else:
+                        seen = set()
+                        for m in [db_model] + providers["gemini"]["models"]:
+                            if m not in seen:
+                                seen.add(m)
+                                plans.insert(0, ("gemini", m))
                 elif prov_override == "openrouter":
                     if db_model and db_model.lower().startswith("gemini-"):
                         logger.warning(f"[{agent_name}] Модель {db_model} несовместима с OpenRouter, сброс на дефолт")
@@ -531,6 +553,15 @@ def generate_content_with_fallback(
                         cer_idx = int(get_memory("cer_rr_index", 0))
                         cer_models = providers["cerebras"]["models"]
                         save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
+                        
+                    if provider == "gemini":
+                        gem_idx = int(get_memory("gem_rr_index") or 0)
+                        gem_models_list = providers["gemini"]["models"]
+                        save_memory("gem_rr_index", (gem_idx + 1) % len(gem_models_list))
+                        
+                        all_gem_keys = [k for k in [api_key, os.getenv("GOOGLE_API_KEY_SECONDARY", ""), os.getenv("GOOGLE_API_KEY_THIRD", "")] if k and k.strip()]
+                        k_idx = int(get_memory("gem_key_rr_index") or 0)
+                        save_memory("gem_key_rr_index", (k_idx + 1) % max(len(all_gem_keys), 1))
                         
                     save_memory(f"consecutive_failures_{agent_name}", 0)
                     return result, model
