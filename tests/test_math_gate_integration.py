@@ -12,17 +12,17 @@ async def test_math_gate_confirmed_arb_skips_llm():
         Market(
             id="1", 
             platform="polymarket", 
-            title="US GDP > $1T 2025", 
+            title="Will US GDP exceed $28T in 2025?", 
             url="http://x", 
             outcome="YES", 
-            price=0.80, 
+            price=0.85, 
             close_time=dt, 
             event_slug="us-gdp"
         ),
         Market(
             id="2", 
             platform="polymarket", 
-            title="US GDP > $500B 2025", 
+            title="Will US GDP exceed $25T in 2025?", 
             url="http://x", 
             outcome="YES", 
             price=0.55, 

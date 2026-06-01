@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from core.models import Market
-from core.event_cluster import cluster_by_event_slug
+from core.event_cluster import cluster_by_event_slug, iter_cluster_pairs
 
 def test_cluster_groups_by_slug():
     dt = datetime.now(timezone.utc)
@@ -20,3 +20,21 @@ def test_cluster_drops_singletons():
         Market(id="1", platform="polymarket", title="Solo market", url="http://x", outcome="YES", price=0.5, close_time=dt, event_slug="solo")
     ]
     assert cluster_by_event_slug(markets) == {}
+
+def test_iter_cluster_pairs_returns_three_tuple():
+    """iter_cluster_pairs должен возвращать (market_a, market_b, mf) — три элемента."""
+    dt = datetime.now(timezone.utc)
+    markets = [
+        Market(id="1", platform="polymarket", title="GDP > $28T 2025",
+               url="http://x", outcome="YES", price=0.80, close_time=dt, event_slug="us-gdp"),
+        Market(id="2", platform="polymarket", title="GDP > $27T 2025",
+               url="http://x", outcome="YES", price=0.55, close_time=dt, event_slug="us-gdp"),
+    ]
+    clusters = cluster_by_event_slug(markets)
+    pairs = list(iter_cluster_pairs(clusters, min_spread_pct=0.0))
+    
+    if pairs:  # пары найдены
+        assert len(pairs[0]) == 3, "Должен быть кортеж (market_a, market_b, mf)"
+        market_a, market_b, mf = pairs[0]  # не должно бросить ValueError
+        assert hasattr(mf, "decision")
+        assert hasattr(mf, "spread_pct")

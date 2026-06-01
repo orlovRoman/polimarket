@@ -340,15 +340,18 @@ class CoreEngine:
         processed_ids = []
         try:
             loop = asyncio.new_event_loop()
-            processed_ids = loop.run_until_complete(_run_math_gate(
-                markets=markets,
-                api_key=self.api_key,
-                notify_fn=summary_callback,
-                min_spread_pct=5.0
-            ))
-            loop.close()
+            try:
+                processed_ids = loop.run_until_complete(_run_math_gate(
+                    markets=markets,
+                    api_key=self.api_key,
+                    notify_fn=summary_callback,
+                    min_spread_pct=5.0
+                ))
+            finally:
+                loop.close()
         except Exception as e:
             logger.error(f"Error running math gate: {e}", exc_info=True)
+            processed_ids = []
 
         remaining_markets = [m for m in markets if m.id not in processed_ids]
         _update_state(total_markets=len(remaining_markets), stage="Обсуждение (SCOUT + SWING + SHADOW)")

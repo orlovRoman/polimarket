@@ -62,7 +62,8 @@ def test_build_paginated_keyboard_last_page():
 
 
 # ─── Тест 4: AuthMiddleware — чужой user не проходит ─────────────────────────
-def test_auth_middleware_blocks_unauthorized():
+@pytest.mark.anyio
+async def test_auth_middleware_blocks_unauthorized():
     from telegram.bot import AuthMiddleware
     import os
     os.environ["TELEGRAM_CHAT_ID"] = "123456"
@@ -78,11 +79,9 @@ def test_auth_middleware_blocks_unauthorized():
     type(event).__name__ = "Message"
 
     from aiogram import types
-    async def run_test():
-        with patch.object(types, 'Message', MagicMock):
-            return await middleware(handler, event, {})
+    with patch.object(types, 'Message', MagicMock):
+        await middleware(handler, event, {})
 
-    asyncio.run(run_test())
     handler.assert_not_called()
 
 
