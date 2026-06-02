@@ -109,7 +109,7 @@ def test_agent_retries_on_forbidden_language(monkeypatch):
                side_effect=mock_generate), \
          patch("agents.shared.utils.gemini_client.extract_response_text",
                side_effect=mock_extract), \
-         patch("agents.shared.utils.language_guard.sanitize_reasoning",
+         patch("agents.shared.utils.language_guard.sanitize_forbidden_scripts",
                side_effect=lambda x: x), \
          patch("agents.polymarket_mispricing_agent.src.agent.get_memory", return_value=None), \
          patch("agents.polymarket_mispricing_agent.src.agent.get_agent_episodes", return_value=[]), \
@@ -218,5 +218,5 @@ def test_agent_sanitizes_forbidden_language_without_retry():
 
     assert call_count["n"] == 1, "Агент должен сделать ровно 1 попытку благодаря санитизации"
     assert signal is not None
-    assert "Команда ?? выиграла" in signal.details
+    assert "Команда  выиграла" in signal.details
 

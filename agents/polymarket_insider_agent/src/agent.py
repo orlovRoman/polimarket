@@ -166,17 +166,27 @@ class ShadowAgent:
                 # FIX #1: проверяем язык — если нарушение, пробуем очистить и перепроверить
                 bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
                 if bad_field:
-                    from agents.shared.utils.language_guard import sanitize_reasoning
-                    for f in TEXT_FIELDS:
-                        if f in analysis and isinstance(analysis[f], str):
-                            analysis[f] = sanitize_reasoning(analysis[f])
-                    # Проверяем повторно
-                    bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
-
-                if bad_field:
-                    print(f"[SHADOW] Попытка {attempt+1}: поле '{bad_field}' содержит запрещённые символы после санитизации, повторяем запрос...")
-                    analysis = None
-                    continue
+                    from agents.shared.utils.language_guard import sanitize_forbidden_scripts
+                    if attempt < 2:
+                        # Первые 2 попытки — пробуем sanitize на месте
+                        for f in TEXT_FIELDS:
+                            if f in analysis and isinstance(analysis[f], str):
+                                analysis[f] = sanitize_forbidden_scripts(analysis[f])
+                        # Проверяем снова после sanitize
+                        bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
+                        if not bad_field:
+                            print("[SHADOW] Текстовые поля успешно санитизированы без retry")
+                        else:
+                            print(f"[SHADOW] Попытка {attempt+1}: санитизация не помогла, повторяем запрос...")
+                            analysis = None
+                            continue
+                    else:
+                        # Последняя попытка — просто sanitize и используем
+                        for f in TEXT_FIELDS:
+                            if f in analysis and isinstance(analysis[f], str):
+                                analysis[f] = sanitize_forbidden_scripts(analysis[f])
+                        print(f"[SHADOW] Попытка {attempt+1}: финальная санитизация, используем результат")
+                        bad_field = None
                 
                 break
             except json.JSONDecodeError as e:

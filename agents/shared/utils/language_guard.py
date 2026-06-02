@@ -19,17 +19,18 @@ def has_forbidden_script(text: str) -> bool:
                 return True
     return False
 
-def sanitize_reasoning(text: str) -> str:
-    """Заменяет запрещённые символы на ?, сохраняя структуру текста."""
+def sanitize_forbidden_scripts(text: str) -> str:
+    """
+    Заменяет символы из запрещённых скриптов на пустую строку.
+    Используется как fallback вместо повторного LLM-запроса.
+    """
     if not isinstance(text, str):
         return text
     result = []
     for char in text:
         cp = ord(char)
         blocked = any(lo <= cp <= hi for lo, hi in _NON_ALLOWED_RANGES)
-        if blocked:
-            result.append('?')
-        else:
+        if not blocked:
             result.append(char)
     return ''.join(result)
 
