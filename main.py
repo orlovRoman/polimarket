@@ -243,13 +243,29 @@ async def start_system():
     async def _shutdown():
         """Корректно завершает polling и закрывает соединения."""
         logger.info("🔧 Graceful shutdown: останавливаем все фоновые задачи...")
-        scheduler.shutdown(wait=False)
-        if polling_task:
-            polling_task.cancel()
-        if api_task:
-            api_task.cancel()
-        if watchlist_task:
-            watchlist_task.cancel()
+        
+        # Ждём текущие jobs планировщика max 15 сек
+        try:
+            await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(
+                    None, lambda: scheduler.shutdown(wait=True)
+                ),
+                timeout=15.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning("⏱ Scheduler jobs не завершились за 15с, принудительно")
+            scheduler.shutdown(wait=False)
+        except Exception as e:
+            logger.error(f"Ошибка при остановке планировщика: {e}")
+            try:
+                scheduler.shutdown(wait=False)
+            except Exception:
+                pass
+        
+        for task in [polling_task, api_task, watchlist_task]:
+            if task and not task.done():
+                task.cancel()
+        
         logger.info("✅ Задачи отменены, ждём завершения...")
 
     def _request_shutdown(*args):

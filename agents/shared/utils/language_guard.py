@@ -19,6 +19,20 @@ def has_forbidden_script(text: str) -> bool:
                 return True
     return False
 
+def sanitize_reasoning(text: str) -> str:
+    """Заменяет запрещённые символы на ?, сохраняя структуру текста."""
+    if not isinstance(text, str):
+        return text
+    result = []
+    for char in text:
+        cp = ord(char)
+        blocked = any(lo <= cp <= hi for lo, hi in _NON_ALLOWED_RANGES)
+        if blocked:
+            result.append('?')
+        else:
+            result.append(char)
+    return ''.join(result)
+
 # Разрешённые паттерны внутри русского текста:
 _ALLOWED_NON_CYRILLIC = re.compile(
     r'\b(YES|NO|BUY|ROI|pump|hype|ATH|ETH|BTC|USD|GDP|'

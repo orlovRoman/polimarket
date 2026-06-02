@@ -109,6 +109,8 @@ def test_agent_retries_on_forbidden_language(monkeypatch):
                side_effect=mock_generate), \
          patch("agents.shared.utils.gemini_client.extract_response_text",
                side_effect=mock_extract), \
+         patch("agents.shared.utils.language_guard.sanitize_reasoning",
+               side_effect=lambda x: x), \
          patch("agents.polymarket_mispricing_agent.src.agent.get_memory", return_value=None), \
          patch("agents.polymarket_mispricing_agent.src.agent.get_agent_episodes", return_value=[]), \
          patch("agents.polymarket_mispricing_agent.src.agent.get_performance_summary", return_value=""), \
@@ -155,3 +157,66 @@ def test_english_technical_terms_allowed():
 def test_latin_extended_allowed():
     """Европейские диакритические знаки (умлауты) разрешены (например, Müller, Pelé, José)."""
     assert has_forbidden_script("Матч Müller против Pelé в José-Arena") is False
+
+def test_agent_sanitizes_forbidden_language_without_retry():
+    """
+    Если первый ответ содержит иероглифы в reasoning, но его можно санитизировать,
+    агент успешно санитизирует его и принимает с 1 попытки.
+    """
+    import json
+    from unittest.mock import MagicMock, patch
+
+    bad_response = json.dumps({
+        "estimate_probability": 0.7,
+        "confidence": 0.8,
+        "priority": "high",
+        "reasoning": "Команда 微博 выиграла",
+        "signal": "YES",
+        "cause": "test",
+        "risk": "test",
+        "oracle_risk": "test",
+        "verdict": "test"
+    })
+
+    call_count = {"n": 0}
+
+    def mock_generate(*args, **kwargs):
+        call_count["n"] += 1
+        return MagicMock(), "gemini-2.5-flash"
+
+    with patch("agents.shared.utils.gemini_client.generate_content_with_fallback", side_effect=mock_generate), \
+         patch("agents.shared.utils.gemini_client.extract_response_text", return_value=bad_response), \
+         patch("agents.polymarket_mispricing_agent.src.agent.get_memory", return_value=None), \
+         patch("agents.polymarket_mispricing_agent.src.agent.get_agent_episodes", return_value=[]), \
+         patch("agents.polymarket_mispricing_agent.src.agent.get_performance_summary", return_value=""), \
+         patch("agents.polymarket_mispricing_agent.src.agent.get_market_correlations", return_value=[]):
+
+        from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
+        agent = ScoutAgent.__new__(ScoutAgent)
+        agent.api_key = "test"
+        agent.model = "gemini-2.5-flash"
+        agent.name = "SCOUT"
+        agent.system_instruction = ""
+        agent._adapter = None
+
+        ctx = MagicMock()
+        ctx.market.id = "mkt-1"
+        ctx.market.title = "Test"
+        ctx.market.description = ""
+        ctx.market.outcome = "YES"
+        ctx.market.price = 0.5
+        ctx.market.close_time.strftime.return_value = "2026-12-01"
+        ctx.market.platform = "polymarket"
+        ctx.news_titles = []
+        ctx.reddit_posts = []
+        ctx.wiki_context = "Some wiki text"
+        ctx.trends_data = {}
+        ctx.hn_posts = []
+        ctx.correlation_hint = ""
+
+        signal = agent.estimate_market(ctx)
+
+    assert call_count["n"] == 1, "Агент должен сделать ровно 1 попытку благодаря санитизации"
+    assert signal is not None
+    assert "Команда ?? выиграла" in signal.details
+

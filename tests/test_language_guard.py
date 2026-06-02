@@ -19,3 +19,20 @@ def test_validate_russian_fields(text, should_fail):
         assert result == "reasoning"
     else:
         assert result is None
+
+def test_sanitize_reasoning():
+    from agents.shared.utils.language_guard import sanitize_reasoning
+    
+    # Смешанный текст
+    text = "Команда 微博 WE выиграла 团队!"
+    sanitized = sanitize_reasoning(text)
+    
+    # Иероглифы должны быть заменены на ?
+    assert "微博" not in sanitized
+    assert "团队" not in sanitized
+    assert "Команда ?? WE выиграла ??!" in sanitized
+    
+    # После санитизации проверка на запрещённые скрипты должна проходить успешно
+    data = {"reasoning": sanitized}
+    assert validate_russian_fields(data, ["reasoning"]) is None
+

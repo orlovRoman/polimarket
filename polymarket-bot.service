@@ -1,23 +1,19 @@
 [Unit]
 Description=Polymarket Agent Team Bot
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=exec
+Type=simple
 User=orlovrp
 WorkingDirectory=/home/orlovrp/polymarket-bot
-ExecStart=/home/orlovrp/polymarket-bot/venv/bin/python3 main.py
-
-# Systemd посылает SIGTERM при остановке; наш код обработает его через loop.add_signal_handler.
-KillSignal=SIGTERM
-# Если процесс не успеет завершиться за 30 секунд — systemd пошлёт SIGKILL.
-TimeoutStopSec=30
-
-# Перезапускать только при ненулевом коде выхода (сбой); при /restart или systemctl stop — нет.
+ExecStart=/home/orlovrp/polymarket-bot/.venv/bin/python main.py
 Restart=on-failure
-RestartSec=5
-
-# Логи пишутся через Python-логгер, stdout/stderr пишем в journald
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+KillMode=mixed
+TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=polymarket-bot

@@ -1201,10 +1201,10 @@ async def command_logs_handler(message: types.Message) -> None:
 @dp.message(Command("restart"))
 async def command_restart_handler(message: types.Message) -> None:
     """Останавливает процесс бота. Менеджер процессов (systemd/PM2) автоматически его перезапустит."""
-    await message.answer("🔄 <b>Перезапуск бота через 3 секунды...</b>\nСлужба завершает процессы.", parse_mode="HTML")
+    await message.answer("🔄 <b>Перезапуск через 5 секунд...</b>", parse_mode="HTML")
     logging.warning("Получена команда /restart. Закрываю сессию и завершаю процесс...")
     
-    await asyncio.sleep(3)
+    await asyncio.sleep(5)  # было 3, дать scheduler паузу
 
     # Изящное завершение сессии Telegram
     try:
