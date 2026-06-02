@@ -220,3 +220,69 @@ def test_agent_sanitizes_forbidden_language_without_retry():
     assert signal is not None
     assert "Команда  выиграла" in signal.details
 
+def test_swing_sanitizes_forbidden_language_without_retry():
+    """
+    Если ответ содержит иероглифы в reasoning, но его можно санитизировать,
+    SwingAgent успешно санитизирует его и принимает с 1 попытки.
+    """
+    import json
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock, patch
+    from agents.polymarket_swing_agent.src.agent import SwingAgent
+
+    bad_response = json.dumps({
+        "hype_potential": 0.5,
+        "recommendation": "buy",
+        "target_outcome": "YES",
+        "target_exit_price": 0.6,
+        "confidence": 0.7,
+        "reasoning": "Команда 微博 выиграла",
+        "catalyst": "test",
+        "catalyst_absence_reason": "test",
+        "swing_risk": "test",
+        "swing_verdict": "test"
+    })
+
+    call_count = {"n": 0}
+
+    def mock_generate(*args, **kwargs):
+        call_count["n"] += 1
+        ok_result = {
+            "candidates": [{"content": {"parts": [{"text": bad_response}], "role": "model"}}],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}
+        }
+        return ok_result, "gemini-2.5-flash"
+
+    with patch("agents.shared.utils.gemini_client.generate_content_with_fallback", side_effect=mock_generate), \
+         patch("agents.polymarket_swing_agent.src.agent.get_agent_episodes", return_value=[]), \
+         patch("agents.polymarket_swing_agent.src.agent.get_performance_summary", return_value=""), \
+         patch("agents.shared.utils.rag.get_rag_context", return_value=""), \
+         patch("agents.shared.utils.prompt_guards.guard_news_with_age", return_value=""):
+
+        agent = SwingAgent(api_key="test")
+
+        ctx = MagicMock()
+        ctx.market.id = "mkt-1"
+        ctx.market.title = "Test"
+        ctx.market.description = ""
+        ctx.market.outcome = "YES"
+        ctx.market.price = 0.5
+        ctx.market.close_time = datetime.now(tz=timezone.utc) + timedelta(days=10)
+        ctx.market.platform = "polymarket"
+        ctx.news_titles = []
+        ctx.reddit_posts = []
+        ctx.wiki_context = "Some wiki text"
+        ctx.trends_data = {}
+        ctx.hn_posts = []
+        ctx.correlation_hint = ""
+        ctx.grounded_context = ""
+        ctx.velocity_annotation = ""
+        ctx.orderbook_shape_annotation = ""
+
+        signal = agent.estimate_market(ctx, price_history=[])
+
+    assert call_count["n"] == 1, "Агент должен сделать ровно 1 попытку благодаря санитизации"
+    assert signal is not None
+    assert "Команда  выиграла" in signal.reasoning
+
+

@@ -121,8 +121,6 @@ async def scheduled_synthetic_corridors():
     try:
         from services.synthetic_corridor_scanner import run_synthetic_corridor_scan
         from services.notifications import send_synthetic_corridor_alerts
-        import asyncio
-        
         from config import CORRIDOR_BUDGET_PER_TRADE
         found = await asyncio.to_thread(
             run_synthetic_corridor_scan,
@@ -143,8 +141,6 @@ async def scheduled_temporal_corridors():
     try:
         from services.temporal_corridor_scanner import run_temporal_corridor_scan
         from services.notifications import send_temporal_corridor_alerts
-        import asyncio
-        
         from config import CORRIDOR_BUDGET_PER_TRADE
         found = await asyncio.to_thread(
             run_temporal_corridor_scan,
@@ -240,38 +236,18 @@ async def start_system():
 
     scheduler = AsyncIOScheduler()
 
-    async def _shutdown():
-        """Корректно завершает polling и закрывает соединения."""
-        logger.info("🔧 Graceful shutdown: останавливаем все фоновые задачи...")
-        
-        # Ждём текущие jobs планировщика max 15 сек
-        try:
-            await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(
-                    None, lambda: scheduler.shutdown(wait=True)
-                ),
-                timeout=15.0
-            )
-        except asyncio.TimeoutError:
-            logger.warning("⏱ Scheduler jobs не завершились за 15с, принудительно")
-            scheduler.shutdown(wait=False)
-        except Exception as e:
-            logger.error(f"Ошибка при остановке планировщика: {e}")
-            try:
-                scheduler.shutdown(wait=False)
-            except Exception:
-                pass
-        
+    _shutdown_done = False
+
+    def _request_shutdown(*args):
+        """Синхронный обработчик сигнала завершения. Отменяет фоновые задачи."""
+        nonlocal _shutdown_done
+        if _shutdown_done:
+            return
+        _shutdown_done = True
+        logger.info("🚨 Получен сигнал завершения, запускаем отмену фоновых задач...")
         for task in [polling_task, api_task, watchlist_task]:
             if task and not task.done():
                 task.cancel()
-        
-        logger.info("✅ Задачи отменены, ждём завершения...")
-
-    def _request_shutdown(*args):
-        """Планирует асинхронный shutdown из синхронного обработчика сигнала."""
-        logger.info("🚨 Получен сигнал завершения, запускаем shutdown...")
-        loop.create_task(_shutdown())
     
     # Авто-запуск сканирования ОТКЛЮЧЁН — управление через /monitor в Telegram
     # scheduler.add_job(scheduled_job, 'interval', minutes=5)
@@ -352,23 +328,50 @@ async def start_system():
         logger.error(f"Критическая ошибка в главном цикле: {e}", exc_info=True)
     finally:
         logger.info("🔧 Graceful shutdown (finally): завершаем все фоновые задачи...")
+        
+        # 1. Останавливаем polling бота
         try:
             await dp.stop_polling()
         except Exception:
             pass
-        
-        if polling_task:
-            polling_task.cancel()
-        if api_task:
-            api_task.cancel()
             
+        # 2. Ждём текущие jobs планировщика max 15 сек
+        try:
+            await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(
+                    None, lambda: scheduler.shutdown(wait=True)
+                ),
+                timeout=15.0
+            )
+            logger.info("✅ Scheduler остановлен корректно")
+        except asyncio.TimeoutError:
+            logger.warning("⏱ Scheduler jobs не завершились за 15с — принудительная остановка")
+            try:
+                scheduler.shutdown(wait=False)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"Ошибка при остановке планировщика: {e}")
+            try:
+                scheduler.shutdown(wait=False)
+            except Exception:
+                pass
+
+        # 3. Отменяем фоновые задачи
+        for task in [polling_task, api_task, watchlist_task]:
+            if task and not task.done():
+                task.cancel()
+                
+        # 4. Ожидаем завершения отменённых задач
         await asyncio.gather(polling_task, api_task, watchlist_task, return_exceptions=True)
+        
+        # 5. Закрываем сессию
         try:
             await bot.session.close()
         except Exception:
             pass
-        
-        # Освобождаем порт от блокировки
+            
+        # 6. Освобождаем сокет-лок
         global _lock_socket
         if _lock_socket:
             try:
