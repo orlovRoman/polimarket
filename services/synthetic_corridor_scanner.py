@@ -1,6 +1,6 @@
 import logging
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 
 from agents.polymarket_arbitrage_agent.src.synthetic.event_loader import load_events_with_levels_from_raw
 from agents.polymarket_arbitrage_agent.src.synthetic.detector import find_violations
@@ -10,6 +10,7 @@ from agents.polymarket_arbitrage_agent.src.synthetic.models import SyntheticCorr
 from agents.shared.python.db import save_synthetic_corridor, mark_synthetic_corridor_alerted
 from services.polymarket_cache import get_raw_events
 from agents.shared.adapters.polymarket import PolymarketAdapter
+from services.http_utils import make_session_with_timeout, fetch_with_retry
 import config
 
 logger = logging.getLogger("NexusPolyBot.SyntheticCorridor")
@@ -44,13 +45,13 @@ def run_synthetic_corridor_scan(
     if not violations:
         return []
     
-    session = requests.Session()
+    session = make_session_with_timeout()
     found: list[SyntheticCorridorSignal] = []
     
     stats = {"no_orderbook": 0, "low_spread": 0, "low_size": 0, "passed": 0}
     
     for v in violations:
-        orderbook = fetch_real_entry_prices(v.lower, v.upper, session)
+        orderbook = fetch_with_retry(fetch_real_entry_prices, v.lower, v.upper, session)
         
         if not orderbook:
             stats["no_orderbook"] += 1
@@ -107,7 +108,7 @@ def run_synthetic_corridor_scan(
             pnl_s2_corridor=sizing["pnl_in_corridor_usd"],
             pnl_s3_below=sizing["pnl_below_lower_usd"],
             
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
         )
         
         save_synthetic_corridor(signal)

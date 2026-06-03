@@ -4,6 +4,7 @@ import requests
 import json
 sys.path.append(os.getcwd())
 
+from config import logger
 from agents.shared.python.db import get_connection, update_episode_accuracy
 
 def resolve_markets():
@@ -30,7 +31,8 @@ def resolve_markets():
                 if isinstance(prices, str):
                     try:
                         prices = json.loads(prices)
-                    except:
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse outcomePrices JSON for market {m_id}: {e!r}")
                         prices = []
                 
                 if prices:

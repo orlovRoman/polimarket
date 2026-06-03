@@ -9,6 +9,7 @@ from agents.polymarket_arbitrage_agent.src.temporal.models import TemporalCorrid
 from agents.shared.python.db import save_temporal_corridor
 from services.polymarket_cache import get_raw_events
 from agents.shared.adapters.polymarket import PolymarketAdapter
+from services.http_utils import make_session_with_timeout, fetch_with_retry
 import config
 
 logger = logging.getLogger("NexusPolyBot.TemporalCorridor")
@@ -49,21 +50,26 @@ def run_temporal_corridor_scan(
     if not candidates:
         return []
 
-    session = requests.Session()
+    session = make_session_with_timeout()
     found: list[TemporalCorridorSignal] = []
+
+    stats = {"no_orderbook": 0, "low_spread": 0, "low_size": 0, "low_quality": 0, "passed": 0}
 
     # 3. Реальные цены + sizing
     for c in candidates:
-        ob = fetch_real_entry_prices(c.early, c.late, session)
+        ob = fetch_with_retry(fetch_real_entry_prices, c.early, c.late, session)
 
         if not ob:
+            stats["no_orderbook"] += 1
             logger.debug(f"[TC] Ордербук недоступен: {c.early.market_id}")
             continue
 
         if ob["real_spread_pct"] < min_real_spread_pct:
+            stats["low_spread"] += 1
             continue
 
         if ob["executable_contracts"] < min_executable_contracts:
+            stats["low_size"] += 1
             continue
 
         sizing = compute_sizing(
@@ -83,7 +89,10 @@ def run_temporal_corridor_scan(
         )
 
         if quality < min_quality_score:
+            stats["low_quality"] += 1
             continue
+
+        stats["passed"] += 1
 
         exit_rule = compute_exit_rule(
             early_expiry=c.early.close_time,
@@ -160,5 +169,6 @@ def run_temporal_corridor_scan(
             f"EV=${sizing['ev_usd']:.2f} | Q={quality:.2f}"
         )
 
+    logger.info(f"[TC] Воронка: {stats}")
     logger.info(f"[TC] Итого сигналов: {len(found)}")
     return found

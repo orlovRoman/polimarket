@@ -287,7 +287,8 @@ def format_temporal_corridor_alert(signal) -> str:
         if isinstance(dt, str):
             try:
                 dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-            except:
+            except ValueError as e:
+                logger.warning(f"[Notifier] Не удалось распарсить дату {dt!r}: {e}")
                 return dt
         return dt.strftime('%d %b') if hasattr(dt, 'strftime') else str(dt)
         

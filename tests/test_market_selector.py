@@ -69,7 +69,7 @@ def test_gemini_model_not_sent_to_openrouter():
             }
         }[k]
         
-        mock_memory.return_value = {"provider": "openrouter", "model": "gemini-2.5-flash"}
+        mock_memory.side_effect = lambda k, default=None: {"provider": "openrouter", "model": "gemini-2.5-flash"} if "agent_config" in k else (default or "0")
         
         with patch.dict("os.environ", {"OPENROUTER_API_KEY": "or_key", "OPENROUTER_MODEL": "meta-llama/llama-3.3-70b-instruct:free"}):
             _, _ = generate_content_with_fallback(

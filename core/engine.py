@@ -239,7 +239,6 @@ class CoreEngine:
 
     def _run_team_discussion_inner(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
         from core.guards import LLMUnavailableError
-        from core.checkpoint import save_checkpoint
         
         if summary_callback is None:
             summary_callback = send_telegram_alert
@@ -250,18 +249,7 @@ class CoreEngine:
                 try: log_callback(msg)
                 except Exception as e: logger.error(f"log_callback error: {e}")
 
-        # cleanup_stale_signals() удалено, перенесено в еженедельный cron и /cleanup
-
-        from agents.shared.python.db import get_memory
-        scan_limit_raw = get_memory("scan_limit")
-        try:
-            scan_limit = int(scan_limit_raw) if scan_limit_raw is not None else SCAN_LIMIT_DEFAULT
-        except (TypeError, ValueError):
-            logger.warning(f"Invalid scan_limit in memory: {scan_limit_raw!r}, using default")
-            scan_limit = SCAN_LIMIT_DEFAULT
-        if scan_limit <= 0:
-            logger.warning(f"scan_limit={scan_limit} <= 0, using default {SCAN_LIMIT_DEFAULT}")
-            scan_limit = SCAN_LIMIT_DEFAULT
+        scan_limit = self._get_scan_limit()
 
         def _update_state(**kwargs):
             self.update_state(**kwargs)
@@ -300,6 +288,43 @@ class CoreEngine:
         log(f"\n--- 1. Поиск новых рынков{cat_msg} ---")
         _update_state(stage="Отбор рынков")
         
+        markets = self._select_markets(screened_market_ids, scan_limit, category, market_id, log)
+
+        if not markets:
+            _update_state(stage="Нет рынков")
+            raise NoMarketsFoundError(f"Нет активных рынков для анализа{cat_msg}.")
+
+        for m in markets: save_market(m)
+
+        # 3. Обсуждение
+        log(f"\n--- 2. Обсуждение идей (SCOUT + SWING + SHADOW) ---")
+        
+        processed_ids = self._run_math_gate_sync(markets, summary_callback)
+
+        remaining_markets = [m for m in markets if m.id not in processed_ids]
+        _update_state(total_markets=len(remaining_markets), stage="Обсуждение (SCOUT + SWING + SHADOW)")
+        
+        for i, m in enumerate(remaining_markets, 1):
+            self._process_single_market(m, i, summary_callback, _update_state, log, market_id=market_id, **kwargs)
+                
+        _update_state(stage="Завершено")
+        log("\n✅ Обсуждение завершено.")
+        return len(markets)
+
+    def _get_scan_limit(self) -> int:
+        from agents.shared.python.db import get_memory
+        scan_limit_raw = get_memory("scan_limit")
+        try:
+            scan_limit = int(scan_limit_raw) if scan_limit_raw is not None else SCAN_LIMIT_DEFAULT
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid scan_limit in memory: {scan_limit_raw!r}, using default")
+            scan_limit = SCAN_LIMIT_DEFAULT
+        if scan_limit <= 0:
+            logger.warning(f"scan_limit={scan_limit} <= 0, using default {SCAN_LIMIT_DEFAULT}")
+            scan_limit = SCAN_LIMIT_DEFAULT
+        return scan_limit
+
+    def _select_markets(self, screened_market_ids: list[str], scan_limit: int, category: Optional[str], market_id: Optional[str], log) -> list[Market]:
         markets = []
         if market_id:
             try:
@@ -323,20 +348,9 @@ class CoreEngine:
             markets = selector.select(total_limit=scan_limit, category=category)
             if not category:
                 log(f"  Категория ротации: {selector.get_auto_category()}")
-                
-        log(f"  Отобрано рынков: {len(markets)}")
-        if not markets:
-            msg = "Рынки по заданным фильтрам не найдены (возможно, в этой категории сейчас нет активных подходящих рынков)."
-            log(f"⚠️ {msg}")
-            _update_state(stage="Завершено (Рынков не найдено)")
-            raise NoMarketsFoundError(msg)
-            
-        for m in markets: save_market(m)
+        return markets
 
-        # 3. Обсуждение
-        log(f"\n--- 2. Обсуждение идей (SCOUT + SWING + SHADOW) ---")
-        
-        # Run Math Gate
+    def _run_math_gate_sync(self, markets: list[Market], summary_callback) -> list[str]:
         processed_ids = []
         try:
             loop = asyncio.new_event_loop()
@@ -352,242 +366,254 @@ class CoreEngine:
         except Exception as e:
             logger.error(f"Error running math gate: {e}", exc_info=True)
             processed_ids = []
+        return processed_ids
 
-        remaining_markets = [m for m in markets if m.id not in processed_ids]
-        _update_state(total_markets=len(remaining_markets), stage="Обсуждение (SCOUT + SWING + SHADOW)")
-        
-        for i, m in enumerate(remaining_markets, 1):
-
+    def _fetch_pre_orderbook(self, market: Market) -> Optional[Any]:
+        pre_orderbook = None
+        if market.tokens:
             try:
-                _update_state(
-                    current_market_index=i, current_market_title=m.title, current_market_url=m.url,
-                    scout_status="⏳ Ожидает", swing_status="⏳ Ожидает", shadow_status="⏳ Ожидает"
-                )
-                with self._markets_lock:
-                    self.active_markets[m.id] = m.title
-                
-                last_price = get_last_analyzed_price(m.id)
-                if last_price is not None and not market_id:
-                    if abs(last_price - m.price) >= 0.03: log(f"\n[РЫНОК]: {m.title} (Цена: {last_price} -> {m.price})")
-                    else: log(f"\n[РЫНОК]: {m.title} (Кулдаун истек)")
-                else:
-                    log(f"\n[РЫНОК]: {m.title} (Новый/Точечный)")
-                    
-                save_price_point(m.id, m.price)
-                
-                # Параллельный парсинг и оценка
-                trigger_type = kwargs.get("trigger_type", "scheduled")
-                source_url = kwargs.get("source_url")
-                source_text = kwargs.get("source_text")
-                triggered_at = kwargs.get("triggered_at")
-                
-                from agents.shared.python.db import get_price_history
-                price_hist = get_price_history(m.id, hours=24)
-                
-                # Получаем базовый ордербук для YES (по умолчанию) ДО запуска агентов
-                pre_orderbook = None
-                if m.tokens:
-                    try:
-                        ob_raw = self.adapter.get_orderbook(m.tokens[0])
-                        if ob_raw:
-                            from core.context import OrderbookSnapshot
-                            pre_orderbook = OrderbookSnapshot(
-                                top_bid=ob_raw.get("top_bid"),
-                                top_ask=ob_raw.get("top_ask"),
-                                spread_cents=round(ob_raw["spread"] * 100, 4) if ob_raw.get("spread") is not None else None,
-                                bid_depth_5=ob_raw.get("bid_depth_5"),
-                                ask_depth_5=ob_raw.get("ask_depth_5"),
-                            )
-                    except Exception as e:
-                        logger.error(f"Failed to fetch pre-orderbook: {e}")
-
-                signal, swing_signal, context = run_agent_evaluation(
-                    m, self.scout, self.swing, _update_state,
-                    adapter=self.adapter,
-                    trigger_type=trigger_type,
-                    source_url=source_url,
-                    source_text=source_text,
-                    triggered_at=triggered_at,
-                    price_history=price_hist,
-                    pre_orderbook=pre_orderbook
-                )
-
-                if context is None:
-                    logger.info(f"  Рынок {m.id} пропущен (дедупликация)")
-                    continue
-
-                active_signal = signal or swing_signal
-                opinion_shadow = None
-                if active_signal:
-                    if signal:
-                        log(f"  SCOUT: Edge: {signal.edge:.2f}")
-                        _update_state(scout_status=f"🟢 Edge ({signal.edge:.2f})")
-                    else: _update_state(scout_status="⚪️ Нет фундамента")
-                        
-                    if swing_signal:
-                        log(f"  SWING: Хайп найден!")
-                        _update_state(swing_status=f"🚀 Ждет памп")
-                    else: _update_state(swing_status="⚪️ Нет хайпа")
-                        
-                    _update_state(shadow_status="🔄 Проверяет ордербук...")
-                    
-                    target_outcome = getattr(active_signal, 'target_outcome', 'YES')
-                    # Если выбран исход NO и у нас есть соответствующий токен (tokens[1]),
-                    # дозагружаем ордербук для NO, чтобы скорректировать контекст для SHADOW.
-                    # В противном случае context.orderbook уже содержит YES-стакан (pre_orderbook).
-                    if target_outcome.upper() == 'NO' and len(m.tokens) > 1:
-                        try:
-                            ob_raw = self.adapter.get_orderbook(m.tokens[1])
-                            if ob_raw:
-                                from core.context import OrderbookSnapshot
-                                context.orderbook = OrderbookSnapshot(
-                                    top_bid=ob_raw.get("top_bid"),
-                                    top_ask=ob_raw.get("top_ask"),
-                                    spread_cents=round(ob_raw["spread"] * 100, 4) if ob_raw.get("spread") is not None else None,
-                                    bid_depth_5=ob_raw.get("bid_depth_5"),
-                                    ask_depth_5=ob_raw.get("ask_depth_5"),
-                                )
-                        except Exception as e:
-                            logger.error(f"Failed to fetch orderbook for NO: {e}")
-
-                    # Для обратной совместимости с check_liquidity_fast формируем orderbook dict из context.orderbook
-                    orderbook = None
-                    if context.orderbook is not None:
-                        orderbook = {
-                            "top_bid": context.orderbook.top_bid,
-                            "top_ask": context.orderbook.top_ask,
-                            "spread": round(context.orderbook.spread_cents / 100, 4) if context.orderbook.spread_cents is not None else None,
-                            "bid_depth_5": context.orderbook.bid_depth_5,
-                            "ask_depth_5": context.orderbook.ask_depth_5,
-                        }
-                    
-                    
-                    
-                    log("  SHADOW проверяет...")
-                    from services.onchain_provider import get_recent_trades, get_top_positions
-                    from core.smart_money import analyze_smart_money
-
-                    onchain_trades = get_recent_trades(m.condition_id) if m.condition_id else []
-                    onchain_positions = get_top_positions(m.condition_id) if m.condition_id else []
-                    smart_money = analyze_smart_money(onchain_trades, onchain_positions)
-                    
-                    # Добавляем smart_money в контекст
-                    context.smart_money = smart_money
-                    
-                    from services.wallet_tracker import ingest_trades
-                    ingest_trades(m.id, onchain_trades, onchain_positions)
-                    
-                    from core.onchain_scorer import compute_onchain_score
-                    target = getattr(active_signal, 'target_outcome', 'YES')
-                    oc_score = compute_onchain_score(smart_money, target_outcome=target)
-                    
-                    # Корректируем edge детерминированно (без LLM)
-                    if active_signal and signal and oc_score.confidence > 0.3:
-                        if oc_score.direction == "CONFIRM":
-                            signal.edge = min(signal.edge * (1 + oc_score.score * 0.2), 0.95)
-                        elif oc_score.direction == "CONTRA":
-                            signal.edge = signal.edge * (1 - abs(oc_score.score) * 0.3)
-                    
-                    # В контекст уходит только аннотация — 1 строка, ~10 токенов
-                    context.onchain_annotation = oc_score.annotation
-                    
-                    try:
-                        scout_opinion = getattr(signal, 'details', '') or getattr(signal, 'signal_cause', '') if signal else ""
-                        swing_opinion = getattr(swing_signal, 'details', '') or getattr(swing_signal, 'catalyst', '') if swing_signal else ""
-                        combined_opinion = "\n\n".join(filter(None, [scout_opinion, swing_opinion]))
-                        
-                        from core.liquidity_checker import check_liquidity_fast
-                        liq = check_liquidity_fast(orderbook)
-                        has_smart_money = bool(smart_money and getattr(smart_money, 'available', False))
-                        
-                        if not liq.ok and not has_smart_money:
-                            from core.models import AgentOpinion
-                            opinion_shadow = AgentOpinion(
-                                agent_name="SHADOW",
-                                market_id=m.id,
-                                opinion=liq.reason,
-                                confidence=liq.confidence,
-                                agree=False,
-                                orderbook_facts=liq.reason,
-                                risk_assessment="Ордербук пуст, Smart Money отсутствуют",
-                                shadow_verdict="SHADOW: авто-отклонение (нет данных)",
-                                liquidity_risk=liq.liquidity_risk
-                            )
-                            logger.info(f"  [SHADOW fast-path] Авто-отклонение: {liq.reason}")
-                        else:
-                            from core.whale_gate import check_whale_gate
-                            gate = check_whale_gate(oc_score)
-                            if not gate.allow:
-                                from core.models import AgentOpinion
-                                opinion_shadow = AgentOpinion(
-                                    agent_name="SHADOW",
-                                    market_id=m.id,
-                                    opinion=gate.reason,
-                                    confidence=0.9,
-                                    agree=False,
-                                    orderbook_facts="Whale Gate active",
-                                    risk_assessment="Крупные кошельки торгуют против идеи",
-                                    shadow_verdict=gate.reason,
-                                    liquidity_risk="HIGH"
-                                )
-                                logger.info(f"  [WHALE GATE] {gate.reason}")
-                            else:
-                                opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, price_history=price_hist)
-                        save_checkpoint(f"shadow_{m.id}", status="ok")
-                    except LLMUnavailableError:
-                        save_checkpoint(f"shadow_{m.id}", status="llm_unavailable")
-                        raise
-                    except Exception as e:
-                        save_checkpoint(f"shadow_{m.id}", status="error", error=str(e))
-                        opinion_shadow = None
-                    status_sh = "✅ Согласен" if (opinion_shadow and opinion_shadow.agree) else "❌ Против"
-                    _update_state(shadow_status=f"{status_sh} (Увер: {opinion_shadow.confidence if opinion_shadow else 0})")
-                    
-                    if opinion_shadow:
-                        add_discussion_message(m.id, opinion_shadow.agent_name, opinion_shadow.opinion, opinion_shadow.confidence, opinion_shadow.agree)
-                
-                if active_signal:
-                    process_consensus(context, signal, swing_signal, opinion_shadow, self.state, _update_state, summary_callback)
-                else:
-                    log(f"  Нет сигнала для {m.id}, пропускаем консенсус.")
-                    _update_state(scout_status="⚪️ Нет сигнала", swing_status="⚪️ Нет сигнала")
-                
-                mark_market_analyzed(m.id, m.price)
-                
-            except LLMUnavailableError as e:
-                agent_name = getattr(e, "agent_name", "UNKNOWN")
-                log(f"🔴 LLM API недоступен для агента {agent_name}. Сканирование прервано.")
-                if summary_callback:
-                    try:
-                        reply_markup = {
-                            "inline_keyboard": [
-                                [{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]
-                            ]
-                        }
-                        text = f"🔴 <b>LLM недоступна у агента {agent_name}</b>. Сканирование остановлено. Попробуйте позже."
-                        if _callback_accepts_reply_markup(summary_callback):
-                            summary_callback(text, reply_markup=reply_markup)
-                        else:
-                            summary_callback(text)
-                    except Exception as cb_err:
-                        logger.error(f"summary_callback error: {cb_err}")
-                raise e
+                ob_raw = self.adapter.get_orderbook(market.tokens[0])
+                if ob_raw:
+                    from core.context import OrderbookSnapshot
+                    pre_orderbook = OrderbookSnapshot(
+                        top_bid=ob_raw.get("top_bid"),
+                        top_ask=ob_raw.get("top_ask"),
+                        spread_cents=round(ob_raw["spread"] * 100, 4) if ob_raw.get("spread") is not None else None,
+                        bid_depth_5=ob_raw.get("bid_depth_5"),
+                        ask_depth_5=ob_raw.get("ask_depth_5"),
+                    )
             except Exception as e:
-                error_msg = f"[ОШИБКА] Рынок {m.title}: {e}\n<pre>{html.escape(traceback.format_exc())}</pre>"
-                log(f"[ОШИБКА] Рынок {m.title}: {e}\n{traceback.format_exc()}")
-                if summary_callback:
-                    try:
-                        summary_callback(error_msg)
-                    except Exception as cb_err:
-                        logger.error(f"summary_callback error: {cb_err}")
-            finally:
-                with self._markets_lock:
-                    if m.id in self.active_markets:
-                        del self.active_markets[m.id]
+                logger.error(f"Failed to fetch pre-orderbook: {e}")
+        return pre_orderbook
+
+    def _run_shadow_analysis(self, m: Market, active_signal, signal, swing_signal, context, price_hist, _update_state, log):
+        from core.guards import LLMUnavailableError
+        from core.checkpoint import save_checkpoint
+        opinion_shadow = None
+        if active_signal:
+            if signal:
+                log(f"  SCOUT: Edge: {signal.edge:.2f}")
+                _update_state(scout_status=f"🟢 Edge ({signal.edge:.2f})")
+            else: _update_state(scout_status="⚪️ Нет фундамента")
                 
-        _update_state(stage="Завершено")
-        log("\n✅ Обсуждение завершено.")
-        return len(markets)
+            if swing_signal:
+                log(f"  SWING: Хайп найден!")
+                _update_state(swing_status=f"🚀 Ждет памп")
+            else: _update_state(swing_status="⚪️ Нет хайпа")
+                
+            _update_state(shadow_status="🔄 Проверяет ордербук...")
+            
+            target_outcome = getattr(active_signal, 'target_outcome', 'YES')
+            # Если выбран исход NO и у нас есть соответствующий токен (tokens[1]),
+            # дозагружаем ордербук для NO, чтобы скорректировать контекст для SHADOW.
+            # В противном случае context.orderbook уже содержит YES-стакан (pre_orderbook).
+            if target_outcome.upper() == 'NO' and len(m.tokens) > 1:
+                try:
+                    ob_raw = self.adapter.get_orderbook(m.tokens[1])
+                    if ob_raw:
+                        from core.context import OrderbookSnapshot
+                        context.orderbook = OrderbookSnapshot(
+                            top_bid=ob_raw.get("top_bid"),
+                            top_ask=ob_raw.get("top_ask"),
+                            spread_cents=round(ob_raw["spread"] * 100, 4) if ob_raw.get("spread") is not None else None,
+                            bid_depth_5=ob_raw.get("bid_depth_5"),
+                            ask_depth_5=ob_raw.get("ask_depth_5"),
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to fetch orderbook for NO: {e}")
+
+            # Для обратной совместимости с check_liquidity_fast формируем orderbook dict из context.orderbook
+            orderbook = None
+            if context.orderbook is not None:
+                orderbook = {
+                    "top_bid": context.orderbook.top_bid,
+                    "top_ask": context.orderbook.top_ask,
+                    "spread": round(context.orderbook.spread_cents / 100, 4) if context.orderbook.spread_cents is not None else None,
+                    "bid_depth_5": context.orderbook.bid_depth_5,
+                    "ask_depth_5": context.orderbook.ask_depth_5,
+                }
+            
+            log("  SHADOW проверяет...")
+            from services.onchain_provider import get_recent_trades, get_top_positions
+            from core.smart_money import analyze_smart_money
+
+            onchain_trades = get_recent_trades(m.condition_id) if m.condition_id else []
+            onchain_positions = get_top_positions(m.condition_id) if m.condition_id else []
+            smart_money = analyze_smart_money(onchain_trades, onchain_positions)
+            
+            # Добавляем smart_money в контекст
+            context.smart_money = smart_money
+            
+            from services.wallet_tracker import ingest_trades
+            ingest_trades(m.id, onchain_trades, onchain_positions)
+            
+            from core.onchain_scorer import compute_onchain_score
+            target_outcome = getattr(active_signal, 'target_outcome', 'YES')
+            oc_score = compute_onchain_score(smart_money, target_outcome=target_outcome)
+            
+            # Корректируем edge детерминированно (без LLM)
+            if active_signal and signal and oc_score.confidence > 0.3:
+                if oc_score.direction == "CONFIRM":
+                    signal.edge = min(signal.edge * (1 + oc_score.score * 0.2), 0.95)
+                elif oc_score.direction == "CONTRA":
+                    signal.edge = signal.edge * (1 - abs(oc_score.score) * 0.3)
+            
+            # В контекст уходит только аннотация — 1 строка, ~10 токенов
+            context.onchain_annotation = oc_score.annotation
+            
+            try:
+                scout_opinion = getattr(signal, 'details', '') or getattr(signal, 'signal_cause', '') if signal else ""
+                swing_opinion = getattr(swing_signal, 'details', '') or getattr(swing_signal, 'catalyst', '') if swing_signal else ""
+                combined_opinion = "\n\n".join(filter(None, [scout_opinion, swing_opinion]))
+                
+                from core.liquidity_checker import check_liquidity_fast
+                liq = check_liquidity_fast(orderbook)
+                has_smart_money = bool(smart_money and getattr(smart_money, 'available', False))
+                
+                if not liq.ok and not has_smart_money:
+                    from core.models import AgentOpinion
+                    opinion_shadow = AgentOpinion(
+                        agent_name="SHADOW",
+                        market_id=m.id,
+                        opinion=liq.reason,
+                        confidence=liq.confidence,
+                        agree=False,
+                        orderbook_facts=liq.reason,
+                        risk_assessment="Ордербук пуст, Smart Money отсутствуют",
+                        shadow_verdict="SHADOW: авто-отклонение (нет данных)",
+                        liquidity_risk=liq.liquidity_risk
+                    )
+                    logger.info(f"  [SHADOW fast-path] Авто-отклонение: {liq.reason}")
+                else:
+                    from core.whale_gate import check_whale_gate
+                    gate = check_whale_gate(oc_score)
+                    if not gate.allow:
+                        from core.models import AgentOpinion
+                        opinion_shadow = AgentOpinion(
+                            agent_name="SHADOW",
+                            market_id=m.id,
+                            opinion=gate.reason,
+                            confidence=0.9,
+                            agree=False,
+                            orderbook_facts="Whale Gate active",
+                            risk_assessment="Крупные кошельки торгуют против идеи",
+                            shadow_verdict=gate.reason,
+                            liquidity_risk="HIGH"
+                        )
+                        logger.info(f"  [WHALE GATE] {gate.reason}")
+                    else:
+                        opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, price_history=price_hist)
+                save_checkpoint(f"shadow_{m.id}", status="ok")
+            except LLMUnavailableError:
+                save_checkpoint(f"shadow_{m.id}", status="llm_unavailable")
+                raise
+            except Exception as e:
+                save_checkpoint(f"shadow_{m.id}", status="error", error=str(e))
+                opinion_shadow = None
+            status_sh = "✅ Согласен" if (opinion_shadow and opinion_shadow.agree) else "❌ Против"
+            _update_state(shadow_status=f"{status_sh} (Увер: {opinion_shadow.confidence if opinion_shadow else 0})")
+            
+            if opinion_shadow:
+                add_discussion_message(m.id, opinion_shadow.agent_name, opinion_shadow.opinion, opinion_shadow.confidence, opinion_shadow.agree)
+        return opinion_shadow
+
+    def _process_single_market(self, m: Market, i: int, summary_callback, _update_state, log, **kwargs):
+        from core.guards import LLMUnavailableError
+        try:
+            _update_state(
+                current_market_index=i, current_market_title=m.title, current_market_url=m.url,
+                scout_status="⏳ Ожидает", swing_status="⏳ Ожидает", shadow_status="⏳ Ожидает"
+            )
+            with self._markets_lock:
+                self.active_markets[m.id] = m.title
+            
+            last_price = get_last_analyzed_price(m.id)
+            market_id = kwargs.get("market_id")
+            if last_price is not None and not market_id:
+                if abs(last_price - m.price) >= 0.03: log(f"\n[РЫНОК]: {m.title} (Цена: {last_price} -> {m.price})")
+                else: log(f"\n[РЫНОК]: {m.title} (Кулдаун истек)")
+            else:
+                log(f"\n[РЫНОК]: {m.title} (Новый/Точечный)")
+                
+            save_price_point(m.id, m.price)
+            
+            # Параллельный парсинг и оценка
+            trigger_type = kwargs.get("trigger_type", "scheduled")
+            source_url = kwargs.get("source_url")
+            source_text = kwargs.get("source_text")
+            triggered_at = kwargs.get("triggered_at")
+            
+            from agents.shared.python.db import get_price_history
+            price_hist = get_price_history(m.id, hours=24)
+            
+            # Получаем базовый ордербук для YES (по умолчанию) ДО запуска агентов
+            pre_orderbook = self._fetch_pre_orderbook(m)
+
+            signal, swing_signal, context = run_agent_evaluation(
+                m, self.scout, self.swing, _update_state,
+                adapter=self.adapter,
+                trigger_type=trigger_type,
+                source_url=source_url,
+                source_text=source_text,
+                triggered_at=triggered_at,
+                price_history=price_hist,
+                pre_orderbook=pre_orderbook
+            )
+
+            if context is None:
+                logger.info(f"  Рынок {m.id} пропущен (дедупликация)")
+                return
+
+            active_signal = signal or swing_signal
+            opinion_shadow = self._run_shadow_analysis(
+                m=m,
+                active_signal=active_signal,
+                signal=signal,
+                swing_signal=swing_signal,
+                context=context,
+                price_hist=price_hist,
+                _update_state=_update_state,
+                log=log
+            )
+            
+            if active_signal:
+                process_consensus(context, signal, swing_signal, opinion_shadow, self.state, _update_state, summary_callback)
+            else:
+                log(f"  Нет сигнала для {m.id}, пропускаем консенсус.")
+                _update_state(scout_status="⚪️ Нет сигнала", swing_status="⚪️ Нет сигнала")
+            
+            mark_market_analyzed(m.id, m.price)
+            
+        except LLMUnavailableError as e:
+            agent_name = getattr(e, "agent_name", "UNKNOWN")
+            log(f"🔴 LLM API недоступен для агента {agent_name}. Сканирование прервано.")
+            if summary_callback:
+                try:
+                    reply_markup = {
+                        "inline_keyboard": [
+                            [{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]
+                        ]
+                    }
+                    text = f"🔴 <b>LLM недоступна у агента {agent_name}</b>. Сканирование остановлено. Попробуйте позже."
+                    if _callback_accepts_reply_markup(summary_callback):
+                        summary_callback(text, reply_markup=reply_markup)
+                    else:
+                        summary_callback(text)
+                except Exception as cb_err:
+                    logger.error(f"summary_callback error: {cb_err}")
+            raise e
+        except Exception as e:
+            error_msg = f"[ОШИБКА] Рынок {m.title}: {e}\n<pre>{html.escape(traceback.format_exc())}</pre>"
+            log(f"[ОШИБКА] Рынок {m.title}: {e}\n{traceback.format_exc()}")
+            if summary_callback:
+                try:
+                    summary_callback(error_msg)
+                except Exception as cb_err:
+                    logger.error(f"summary_callback error: {cb_err}")
+        finally:
+            with self._markets_lock:
+                if m.id in self.active_markets:
+                    del self.active_markets[m.id]
 
     async def analyze_post_async(
         self, post_id: int, chat_id: str,

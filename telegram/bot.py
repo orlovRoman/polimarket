@@ -827,8 +827,8 @@ async def callback_trigger_trend_hunter(callback: CallbackQuery) -> None:
             if chat_id:
                 try:
                     await bot.send_message(chat_id=chat_id, text=f"⚠️ TrendHunter упал: {e}")
-                except:
-                    pass
+                except Exception as tg_err:
+                    logger.error(f"[TrendHunter] Не удалось отправить алерт об ошибке в Telegram: {tg_err}")
 
     asyncio.create_task(_run_trend_hunter_safe())
 
