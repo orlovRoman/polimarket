@@ -242,10 +242,10 @@ class SignalLogger:
         Вычисляет, было ли предсказание прибыльным, и считает виртуальный PnL.
         Виртуальная ставка берется через ConfigProvider (по умолчанию $10).
         """
-        from core.config_provider import config_provider
         try:
+            from core.config_provider import config_provider
             virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, ImportError):
             virtual_stake = 10.0
 
         if resolution_outcome == "N/A":
@@ -288,12 +288,6 @@ class SignalLogger:
                 pnl = -virtual_stake
             return is_win, round(pnl, 2)
 
-        # Если в метаданных сохранены детали сторон сделки (например, market_a_outcome, market_b_outcome).
-        # Иначе используем простую эвристику: если edge_at_signal > 0 и резолюция совпадает, то профит.
-        
-        # Давайте по умолчанию для коридоров:
-        # was_profitable = True, если мы не вышли за границы (для коридора).
-        # В synthetic_corridor в метаданных есть 'pnl_in_corridor_usd' и другие.
         # Если мы не можем детально восстановить, то:
         # Если resolution_outcome == target_outcome:
         is_win = (target_outcome == resolution_outcome)
