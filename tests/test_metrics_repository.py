@@ -63,17 +63,20 @@ def test_metrics_repository_flow():
     assert metrics.win_rate == pytest.approx(0.6667, abs=1e-3)
     assert metrics.avg_edge == pytest.approx(0.0667, abs=1e-3)
     assert metrics.avg_realized_pnl == pytest.approx(3.33)  # (8 + 12 - 10) / 3 = 3.33
+    assert metrics.sharpe_ratio == pytest.approx(0.4926, abs=1e-3)
 
     # 3. Проверяем получение последних метрик
     latest = asyncio.run(repository.get_latest_metrics(StrategyType.SCOUT))
     assert latest is not None
     assert latest.total_signals == 3
     assert latest.win_rate == metrics.win_rate
+    assert latest.sharpe_ratio == metrics.sharpe_ratio
 
     # 4. Проверяем тренд
     trend = asyncio.run(repository.get_metrics_trend(StrategyType.SCOUT, last_n_periods=5))
     assert len(trend) == 1
     assert trend[0].total_signals == 3
+    assert trend[0].sharpe_ratio == metrics.sharpe_ratio
 
     # 5. Проверяем пустую стратегию (должна вернуть None)
     empty_metrics = asyncio.run(repository.compute_and_store_metrics(StrategyType.WHALE, period_days=10))

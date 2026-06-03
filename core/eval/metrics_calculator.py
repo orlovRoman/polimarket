@@ -16,16 +16,17 @@ class StrategyMetrics:
     win_rate: float
     avg_edge: float
     avg_realized_pnl: Optional[float]
-    brier_score: float
-    calibration_error: float  # Expected Calibration Error (ECE)
+    brier_score: Optional[float]
+    calibration_error: Optional[float]  # Expected Calibration Error (ECE)
+    sharpe_ratio: Optional[float] = None
 
-def calculate_brier_score(records: Sequence[SignalRecord]) -> float:
+def calculate_brier_score(records: Sequence[SignalRecord]) -> Optional[float]:
     """
     Brier Score = mean((predicted - outcome)^2)
     Чем ниже — тем лучше. 0.0 = идеально, 0.25 = случайно, 1.0 = всегда неверно.
     """
     if not records:
-        return 0.0
+        return None
         
     squared_errors = []
     for r in records:
@@ -34,14 +35,14 @@ def calculate_brier_score(records: Sequence[SignalRecord]) -> float:
         
     return sum(squared_errors) / len(records)
 
-def calculate_ece(records: Sequence[SignalRecord], n_bins: int = 10) -> float:
+def calculate_ece(records: Sequence[SignalRecord], n_bins: int = 10) -> Optional[float]:
     """
     Expected Calibration Error (ECE):
     Разбиваем на N бинов по предсказанной вероятности от 0.0 до 1.0.
     Сравниваем среднее предсказанное значение со средней фактической точностью в каждом бине.
     """
     if not records:
-        return 0.0
+        return None
         
     total_signals = len(records)
     ece = 0.0
@@ -109,6 +110,20 @@ def calculate_metrics(records: Sequence[SignalRecord]) -> Optional[StrategyMetri
     brier = calculate_brier_score(resolved_records)
     ece = calculate_ece(resolved_records)
     
+    # Расчет Sharpe Ratio
+    sharpe_ratio = None
+    if len(pnl_values) > 1:
+        sum_pnl = sum(pnl_values)
+        n = len(pnl_values)
+        avg_pnl_val = sum_pnl / n
+        sq_devs = sum((x - avg_pnl_val) ** 2 for x in pnl_values)
+        variance = sq_devs / (n - 1)
+        import math
+        std_pnl = math.sqrt(variance)
+        if std_pnl > 0:
+            sharpe_ratio = (avg_pnl_val / std_pnl) * math.sqrt(n)
+            sharpe_ratio = round(sharpe_ratio, 4)
+            
     return StrategyMetrics(
         total_signals=total_count,
         resolved_signals=total_count,
@@ -116,6 +131,7 @@ def calculate_metrics(records: Sequence[SignalRecord]) -> Optional[StrategyMetri
         win_rate=round(win_rate, 4),
         avg_edge=round(avg_edge, 4),
         avg_realized_pnl=round(avg_pnl, 2) if avg_pnl is not None else None,
-        brier_score=round(brier, 4),
-        calibration_error=round(ece, 4)
+        brier_score=round(brier, 4) if brier is not None else None,
+        calibration_error=round(ece, 4) if ece is not None else None,
+        sharpe_ratio=sharpe_ratio
     )

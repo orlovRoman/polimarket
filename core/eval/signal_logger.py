@@ -114,7 +114,11 @@ class SignalLogger:
                         predicted_probability=excluded.predicted_probability,
                         market_price_at_signal=excluded.market_price_at_signal,
                         edge_at_signal=excluded.edge_at_signal,
-                        strategy_type=excluded.strategy_type
+                        strategy_type=excluded.strategy_type,
+                        status = CASE
+                            WHEN signals.resolved_at IS NOT NULL THEN signals.status
+                            ELSE 'PENDING'
+                        END
                 """, (
                     payload.signal_id,
                     payload.strategy_type.value.upper(),
@@ -236,18 +240,33 @@ class SignalLogger:
     ) -> tuple[bool, float]:
         """
         Вычисляет, было ли предсказание прибыльным, и считает виртуальный PnL.
-        Виртуальная ставка берется из env (по умолчанию $10).
+        Виртуальная ставка берется через ConfigProvider (по умолчанию $10).
         """
-        # Читаем виртуальную ставку из ENV
-        import os
+        from core.config_provider import config_provider
         try:
-            virtual_stake = float(os.getenv("EVAL_VIRTUAL_STAKE_USD", "10.0"))
-        except ValueError:
+            virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
+        except (ValueError, TypeError):
             virtual_stake = 10.0
 
         if resolution_outcome == "N/A":
             # Рынок отменен, PnL = 0, не прибыльный
             return False, 0.0
+
+        # Для коридоров и арбитража:
+        if strategy_type in ('synthetic_corridor', 'temporal_corridor', 'cross_platform'):
+            expected_pnl = metadata.get('pnl_in_corridor_usd') or metadata.get('expected_pnl_usd')
+            if expected_pnl is not None:
+                try:
+                    pnl_val = float(expected_pnl)
+                except (ValueError, TypeError):
+                    pnl_val = 0.0
+                is_win = pnl_val > 0
+                pnl = pnl_val if is_win else -abs(pnl_val)
+                return is_win, round(pnl, 2)
+            # fallback если метаданные не содержат PnL
+            is_win = (target_outcome == resolution_outcome)
+            pnl = virtual_stake * 0.10 if is_win else -virtual_stake
+            return is_win, round(pnl, 2)
 
         # По умолчанию (для scout и whale):
         # Если target_outcome совпадает с resolution_outcome
@@ -269,24 +288,6 @@ class SignalLogger:
                 pnl = -virtual_stake
             return is_win, round(pnl, 2)
 
-        # Для коридоров и арбитража:
-        # Для synthetic_corridor и temporal_corridor
-        # synthetic_corridor: покупаем YES нижнего рынка и NO верхнего рынка.
-        # Обе позиции должны сойтись, чтобы не было пересечения.
-        # Если в метаданных записана ожидаемая доходность или логика:
-        # Давайте проверим, принес ли спред прибыль.
-        # Если resolution_price для обеих сторон совпали с ожиданием.
-        # Простой критерий для коридоров: was_profitable = True, если обе стороны верны.
-        # А PnL рассчитывается исходя из ROI %, указанного в метаданных, или ROI по исходам.
-        # Так как точные цены закрытия индивидуальных рынков коридора могут быть сложными,
-        # мы можем использовать сохраненные спреды и ROI в качестве прокси.
-        # Если обе стороны в выигрыше (например, нижний YES = 1.0 и верхний NO = 1.0)
-        # Давайте по умолчанию считать, что если исход верный, то мы получаем прибыль:
-        # was_profitable = True, если обе позиции принесли прибыль.
-        # Если в метаданных есть 'roi_min_pct' или 'expected_pnl_pct':
-        # Для простоты:
-        # Для арбитража (cross_platform): если Polymarket YES == Kalshi YES (или цены сошлись как ожидалось).
-        # Давайте сделаем обобщенный расчет:
         # Если в метаданных сохранены детали сторон сделки (например, market_a_outcome, market_b_outcome).
         # Иначе используем простую эвристику: если edge_at_signal > 0 и резолюция совпадает, то профит.
         

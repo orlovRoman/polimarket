@@ -585,6 +585,7 @@ def init_db():
                     avg_realized_pnl REAL,
                     brier_score REAL,
                     calibration_error REAL,
+                    sharpe_ratio REAL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -592,6 +593,11 @@ def init_db():
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_strategy_metrics_unique 
                 ON strategy_metrics (strategy_type, period_start, period_end)
             """)
+
+            # Миграция: добавляем sharpe_ratio в strategy_metrics (если его нет)
+            metrics_cols = {row[1] for row in cursor.execute("PRAGMA table_info(strategy_metrics)").fetchall()}
+            if 'sharpe_ratio' not in metrics_cols:
+                cursor.execute("ALTER TABLE strategy_metrics ADD COLUMN sharpe_ratio REAL DEFAULT NULL")
 
             # Таблица calibration_params
             cursor.execute("""

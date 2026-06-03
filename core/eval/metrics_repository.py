@@ -83,8 +83,8 @@ class MetricsRepository:
                 cursor.execute("""
                     INSERT INTO strategy_metrics (
                         strategy_type, period_start, period_end, total_signals, resolved_signals,
-                        profitable_signals, win_rate, avg_edge, avg_realized_pnl, brier_score, calibration_error
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        profitable_signals, win_rate, avg_edge, avg_realized_pnl, brier_score, calibration_error, sharpe_ratio
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(strategy_type, period_start, period_end) DO UPDATE SET
                         total_signals=excluded.total_signals,
                         resolved_signals=excluded.resolved_signals,
@@ -94,6 +94,7 @@ class MetricsRepository:
                         avg_realized_pnl=excluded.avg_realized_pnl,
                         brier_score=excluded.brier_score,
                         calibration_error=excluded.calibration_error,
+                        sharpe_ratio=excluded.sharpe_ratio,
                         created_at=CURRENT_TIMESTAMP
                 """, (
                     strategy_type.value,
@@ -106,7 +107,8 @@ class MetricsRepository:
                     metrics.avg_edge,
                     metrics.avg_realized_pnl,
                     metrics.brier_score,
-                    metrics.calibration_error
+                    metrics.calibration_error,
+                    metrics.sharpe_ratio
                 ))
                 conn.commit()
                 logger.info(f"Метрики для {strategy_type.value} успешно сохранены в strategy_metrics.")
@@ -124,7 +126,7 @@ class MetricsRepository:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT total_signals, resolved_signals, profitable_signals, win_rate, 
-                           avg_edge, avg_realized_pnl, brier_score, calibration_error
+                           avg_edge, avg_realized_pnl, brier_score, calibration_error, sharpe_ratio
                     FROM strategy_metrics
                     WHERE strategy_type = ?
                     ORDER BY period_end DESC, id DESC
@@ -142,7 +144,8 @@ class MetricsRepository:
                     avg_edge=row["avg_edge"],
                     avg_realized_pnl=row["avg_realized_pnl"],
                     brier_score=row["brier_score"],
-                    calibration_error=row["calibration_error"]
+                    calibration_error=row["calibration_error"],
+                    sharpe_ratio=row["sharpe_ratio"]
                 )
         except Exception as e:
             logger.error(f"Ошибка чтения последних метрик для {strategy_type.value}: {e}", exc_info=True)
@@ -161,7 +164,7 @@ class MetricsRepository:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT total_signals, resolved_signals, profitable_signals, win_rate, 
-                           avg_edge, avg_realized_pnl, brier_score, calibration_error
+                           avg_edge, avg_realized_pnl, brier_score, calibration_error, sharpe_ratio
                     FROM strategy_metrics
                     WHERE strategy_type = ?
                     ORDER BY period_end DESC, id DESC
@@ -179,7 +182,8 @@ class MetricsRepository:
                         avg_edge=row["avg_edge"],
                         avg_realized_pnl=row["avg_realized_pnl"],
                         brier_score=row["brier_score"],
-                        calibration_error=row["calibration_error"]
+                        calibration_error=row["calibration_error"],
+                        sharpe_ratio=row["sharpe_ratio"]
                     ))
                 return trend
         except Exception as e:

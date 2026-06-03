@@ -17,10 +17,10 @@ def test_brier_score_known_values():
     assert calculate_brier_score(rec3) == 1.0
 
 def test_brier_score_empty_sequence():
-    assert calculate_brier_score([]) == 0.0
+    assert calculate_brier_score([]) is None
 
 def test_ece_empty_sequence():
-    assert calculate_ece([]) == 0.0
+    assert calculate_ece([]) is None
 
 def test_ece_perfect_calibration():
     # 5 сигналов с предсказанием 0.8, все 4 из 5 (80%) выиграли. Точность = 80%. Разница = 0.
@@ -54,6 +54,7 @@ def test_calculate_metrics_all_correct():
     assert metrics.win_rate == 1.0
     assert metrics.avg_realized_pnl == 12.50
     assert metrics.brier_score == pytest.approx(0.025)  # mean((0.1)^2, (0.2)^2) = (0.01 + 0.04) / 2 = 0.025
+    assert metrics.sharpe_ratio == pytest.approx(5.0)
 
 def test_calculate_metrics_empty():
     assert calculate_metrics([]) is None

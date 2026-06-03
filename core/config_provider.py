@@ -98,3 +98,24 @@ class ConfigProvider:
             
         cls._cache[cache_key] = val
         return val
+
+    @classmethod
+    def get_sync(cls, key: str, default: Any = None) -> Any:
+        """
+        Возвращает значение конфигурации по ключу.
+        Сначала считывает из переменных окружения (os.getenv), затем из модуля config.
+        """
+        import os
+        # Преобразуем ключ вида "eval.virtual_stake_usd" -> "EVAL_VIRTUAL_STAKE_USD"
+        env_key = key.replace(".", "_").upper()
+        # Сначала ищем в env
+        val = os.getenv(env_key)
+        if val is not None:
+            return val
+        # Иначе ищем в config
+        if hasattr(config, env_key):
+            return getattr(config, env_key)
+        return default
+
+config_provider = ConfigProvider
+
