@@ -213,6 +213,25 @@ def extract_response_text(result: dict) -> str:
         raw = json.dumps(result)
         raise ValueError(f"Не удалось извлечь текст ответа. API вернуло: {raw[:MAX_ERR_DUMP]}{'...' if len(raw) > MAX_ERR_DUMP else ''}") from e
 
+def _sanitize_payload_strings(data):
+    """Рекурсивно очищает строки в payload от null bytes, управляющих символов и обрезает их при превышении лимита."""
+    if isinstance(data, dict):
+        return {k: _sanitize_payload_strings(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_sanitize_payload_strings(item) for item in data]
+    elif isinstance(data, str):
+        # 1. Убираем null bytes и управляющие символы (ord < 32, кроме \n, \r, \t)
+        cleaned = "".join(ch for ch in data if ch >= " " or ch in "\n\r\t")
+        # 2. Обрезка текста (безопасный лимит ~80k символов)
+        MAX_CONTEXT_CHARS = 80_000
+        if len(cleaned) > MAX_CONTEXT_CHARS:
+            logger.warning(
+                f"[GEMINI_CLIENT] Текст в payload превышает {MAX_CONTEXT_CHARS} символов и будет обрезан (исходная длина: {len(cleaned)})"
+            )
+            cleaned = cleaned[:MAX_CONTEXT_CHARS] + "\n\n[...контекст обрезан...]"
+        return cleaned
+    return data
+
 def _send_gemini(payload: dict, model: str, api_key: str, timeout: int) -> Tuple[dict, int, int]:
     """Отправка запроса напрямую в Google Gemini API."""
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -230,7 +249,12 @@ def _send_gemini(payload: dict, model: str, api_key: str, timeout: int) -> Tuple
         "Content-Type": "application/json"
     }
     response = requests.post(api_url, json=gemini_payload, headers=headers, timeout=timeout)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 400:
+            logger.error(f"[GEMINI] 400 Bad Request Details: {response.text[:1000]}")
+        raise e
     result = response.json()
     if "candidates" not in result or not result["candidates"]:
         raise ValueError("No candidates in response")
@@ -255,7 +279,12 @@ def _send_openrouter(payload: dict, model: str, api_key: str, timeout: int) -> T
         headers=headers,
         timeout=timeout
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 400:
+            logger.error(f"[OPENROUTER] 400 Bad Request Details: {response.text[:1000]}")
+        raise e
     openai_res = response.json()
     if "error" in openai_res:
         raise ValueError(str(openai_res["error"]))
@@ -280,7 +309,12 @@ def _send_cerebras(payload: dict, model: str, api_key: str, timeout: int) -> Tup
         headers=headers,
         timeout=timeout
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 400:
+            logger.error(f"[CEREBRAS] 400 Bad Request Details: {response.text[:1000]}")
+        raise e
     openai_res = response.json()
     result = convert_openai_to_gemini(openai_res)
     prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
@@ -372,6 +406,9 @@ def generate_content_with_fallback(
     моделям и ключам с поддержкой автоматического переключения при ошибках.
     """
     from agents.shared.python.db import get_memory, save_memory
+
+    # Санитизация строк в payload перед отправкой (убираем null bytes, управляющие символы и ограничиваем размер)
+    payload = _sanitize_payload_strings(payload)
 
     # Настраиваем тайм-аут по умолчанию динамически
     if timeout == 30:

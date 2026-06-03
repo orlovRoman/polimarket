@@ -258,6 +258,8 @@ def test_gemini_keys_fallback_on_first_key_error():
     payload = {"contents": [{"parts": [{"text": "test"}]}]}
 
     with patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
+         patch("agents.shared.utils.gemini_client.get_memory", return_value=0), \
+         patch("agents.shared.utils.gemini_client.save_memory") as mock_save, \
          patch("os.getenv", side_effect=lambda k, d="": "key_secondary" if k == "GOOGLE_API_KEY_SECONDARY" else d):
         
         result, active_model = gemini_client.generate_content_with_fallback(
@@ -614,4 +616,40 @@ def test_provider_switch_is_logged(caplog):
         "Переключение между провайдерами не логируется. "
         "Добавь logger.info при смене провайдера."
     )
+
+
+# ── Санитизация payload и обрезка длинного контекста ──────────────────────────
+
+def test_sanitize_payload_strings():
+    """Проверяет санитизацию строк: удаление null bytes, управляющих символов и обрезку длинного контекста."""
+    from agents.shared.utils.gemini_client import _sanitize_payload_strings
+    
+    # 1. Null bytes и control characters
+    bad_payload = {
+        "text": "Hello \x00 World!",
+        "nested": {
+            "control": "Line 1\nLine 2\r\tWith control \x1a char"
+        },
+        "list": [
+            "Good",
+            "Bad \x00"
+        ],
+        "int": 42
+    }
+    
+    cleaned = _sanitize_payload_strings(bad_payload)
+    
+    assert cleaned["text"] == "Hello  World!"
+    assert cleaned["nested"]["control"] == "Line 1\nLine 2\r\tWith control  char"
+    assert cleaned["list"][0] == "Good"
+    assert cleaned["list"][1] == "Bad "
+    assert cleaned["int"] == 42
+    
+    # 2. Обрезка длинного контекста (> 80k символов)
+    long_str = "A" * 85000
+    cleaned_long = _sanitize_payload_strings(long_str)
+    
+    assert len(cleaned_long) == 80000 + len("\n\n[...контекст обрезан...]")
+    assert cleaned_long.endswith("[...контекст обрезан...]")
+
 
