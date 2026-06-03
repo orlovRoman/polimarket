@@ -550,6 +550,63 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_market_lists_type ON market_lists(list_type)"
             )
 
+            # Миграция Evaluation Engine: новые колонки в signals
+            signal_cols = {row[1] for row in cursor.execute("PRAGMA table_info(signals)").fetchall()}
+            eval_cols = [
+                ("predicted_probability", "REAL"),
+                ("market_price_at_signal", "REAL"),
+                ("edge_at_signal", "REAL"),
+                ("strategy_type", "TEXT"),
+                ("resolved_at", "TIMESTAMP"),
+                ("resolution_outcome", "TEXT"),
+                ("resolution_price", "REAL"),
+                ("was_profitable", "INTEGER"),
+                ("pnl_realized", "REAL")
+            ]
+            for col, col_type in eval_cols:
+                if col not in signal_cols:
+                    cursor.execute(f"ALTER TABLE signals ADD COLUMN {col} {col_type} DEFAULT NULL")
+
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_strategy ON signals(strategy_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_resolved_at ON signals(resolved_at)")
+
+            # Таблица strategy_metrics
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS strategy_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy_type TEXT NOT NULL,
+                    period_start TIMESTAMP NOT NULL,
+                    period_end TIMESTAMP NOT NULL,
+                    total_signals INTEGER NOT NULL,
+                    resolved_signals INTEGER NOT NULL,
+                    profitable_signals INTEGER NOT NULL,
+                    win_rate REAL NOT NULL,
+                    avg_edge REAL,
+                    avg_realized_pnl REAL,
+                    brier_score REAL,
+                    calibration_error REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_strategy_metrics_unique 
+                ON strategy_metrics (strategy_type, period_start, period_end)
+            """)
+
+            # Таблица calibration_params
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS calibration_params (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy_type TEXT NOT NULL,
+                    param_name TEXT NOT NULL,
+                    param_value REAL NOT NULL,
+                    previous_value REAL NOT NULL,
+                    reason TEXT NOT NULL,
+                    auto_applied INTEGER DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
         _db_initialized = True
         logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
 

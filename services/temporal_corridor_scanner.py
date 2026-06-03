@@ -160,6 +160,32 @@ def run_temporal_corridor_scan(
         )
 
         save_temporal_corridor(signal)
+        
+        # Запись в Evaluation Engine
+        try:
+            from core.eval.signal_logger import SignalLogger, StrategyType
+            logger_eval = SignalLogger()
+            logger_eval.log_signal(
+                signal_id=signal.signal_id,
+                strategy_type=StrategyType.TEMPORAL_CORRIDOR,
+                market_id=c.early.market_id,
+                predicted_probability=c.p_in_corridor if c.p_in_corridor is not None else 0.80,
+                market_price_at_signal=ob["real_cost"],
+                edge_at_signal=ob["real_spread_pct"] / 100.0,
+                metadata={
+                    "early_market_id": c.early.market_id,
+                    "late_market_id": c.late.market_id,
+                    "early_cost": ob["ask_no_early"],
+                    "late_cost": ob["ask_yes_late"],
+                    "expected_pnl_pct": sizing["roi_min_pct"],
+                    "target_outcome": "CORRIDOR",
+                    "summary": f"Temporal Corridor: {signal.event_title}",
+                    "platform": "polymarket"
+                }
+            )
+        except Exception as e:
+            logger.error(f"[TC] Ошибка логирования в Evaluation Engine: {e}", exc_info=True)
+
         found.append(signal)
 
         logger.info(

@@ -112,6 +112,33 @@ def run_synthetic_corridor_scan(
         )
         
         save_synthetic_corridor(signal)
+        
+        # Запись в Evaluation Engine
+        try:
+            from core.eval.signal_logger import SignalLogger, StrategyType
+            logger_eval = SignalLogger()
+            logger_eval.log_signal(
+                signal_id=signal.signal_id,
+                strategy_type=StrategyType.SYNTHETIC_CORRIDOR,
+                market_id=v.lower.market_id,
+                predicted_probability=0.95,
+                market_price_at_signal=orderbook["real_cost"],
+                edge_at_signal=orderbook["real_spread_pct"] / 100.0,
+                metadata={
+                    "lower_market_id": v.lower.market_id,
+                    "upper_market_id": v.upper.market_id,
+                    "lower_price_yes": v.price_yes_lower,
+                    "upper_price_yes": v.price_yes_upper,
+                    "real_spread_pct": orderbook["real_spread_pct"],
+                    "expected_pnl_pct": sizing["roi_min_pct"],
+                    "target_outcome": "CORRIDOR",
+                    "summary": f"Synthetic Corridor: {signal.event_title}",
+                    "platform": "polymarket"
+                }
+            )
+        except Exception as e:
+            logger.error(f"[SCA] Ошибка логирования в Evaluation Engine: {e}", exc_info=True)
+
         found.append(signal)
         
         logger.info(

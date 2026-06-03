@@ -45,6 +45,37 @@ def scan_volume_spikes(min_spike_ratio: float = 3.0) -> list[dict]:
             continue
         spikes.append(dict(row))
         mark_alert_sent(alert_key, "onchain_spike")
+        
+        # Запись в Evaluation Engine
+        try:
+            total_vol = row['yes_vol'] + row['no_vol']
+            ratio_yes = row['yes_vol'] / total_vol if total_vol > 0 else 0.5
+            side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
+            prob = ratio_yes if side == "YES" else (1.0 - ratio_yes)
+            prob = max(0.0, min(1.0, prob))
+
+            from core.eval.signal_logger import SignalLogger, StrategyType
+            logger_eval = SignalLogger()
+            logger_eval.log_signal(
+                signal_id=f"sig-whale-{row['market_id']}",
+                strategy_type=StrategyType.WHALE,
+                market_id=row['market_id'],
+                predicted_probability=prob,
+                market_price_at_signal=row['price'],
+                edge_at_signal=max(-1.0, min(1.0, prob - row['price'])),
+                metadata={
+                    "target_outcome": side,
+                    "priority": "medium",
+                    "summary": f"Whale volume spike: {row['title']}",
+                    "platform": "polymarket",
+                    "yes_vol": row['yes_vol'],
+                    "no_vol": row['no_vol'],
+                    "vol_recent": row['vol_recent'],
+                    "vol_prev": row['vol_prev']
+                }
+            )
+        except Exception as e:
+            logger.error(f"[OnchainTrend] Ошибка логирования Whale-сигнала в Evaluation Engine: {e}", exc_info=True)
     return spikes
 
 

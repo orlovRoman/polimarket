@@ -170,6 +170,31 @@ def run_cross_platform_scan(
         if signal.has_arbitrage:
             save_cross_arbitrage(signal)
             
+            # Запись в Evaluation Engine
+            try:
+                from core.eval.signal_logger import SignalLogger, StrategyType
+                logger_eval = SignalLogger()
+                logger_eval.log_signal(
+                    signal_id=f"{signal.market_a_id}__{signal.market_b_id}",
+                    strategy_type=StrategyType.CROSS_PLATFORM,
+                    market_id=signal.market_a_id,
+                    predicted_probability=1.0,
+                    market_price_at_signal=signal.market_a_price,
+                    edge_at_signal=signal.spread_percent / 100.0,
+                    metadata={
+                        "market_a_id": signal.market_a_id,
+                        "market_b_id": signal.market_b_id,
+                        "market_a_price": signal.market_a_price,
+                        "market_b_price": signal.market_b_price,
+                        "spread_percent": signal.spread_percent,
+                        "target_outcome": "YES_A" if signal.market_a_price < signal.market_b_price else "YES_B",
+                        "summary": f"Arbitrage: {signal.market_a_title} vs {signal.market_b_title}",
+                        "platform": "polymarket_kalshi"
+                    }
+                )
+            except Exception as e:
+                logger.error(f"[SCAN] Ошибка логирования арбитража в Evaluation Engine: {e}", exc_info=True)
+            
             if signal.spread_percent >= min_spread_alert:
                 from core.models import ArbitrageSignal
                 from core.workflow import process_arbitrage_signal

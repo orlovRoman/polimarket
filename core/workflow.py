@@ -477,7 +477,27 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
     
     if decision.status == 'saved':
         logger.info("  !!! ИДЕЯ ПОДТВЕРЖДЕНА КОНСЕНСУСОМ.")
-        if signal: save_signal(signal)
+        if signal:
+            save_signal(signal)
+            try:
+                from core.eval.signal_logger import SignalLogger, StrategyType
+                logger_eval = SignalLogger()
+                logger_eval.log_signal(
+                    signal_id=signal.id,
+                    strategy_type=StrategyType.SCOUT,
+                    market_id=signal.market_id,
+                    predicted_probability=getattr(signal, 'confidence', 0.5),
+                    market_price_at_signal=m.price,
+                    edge_at_signal=getattr(signal, 'edge', 0.0) or 0.0,
+                    metadata={
+                        "target_outcome": signal.target_outcome,
+                        "priority": signal.priority,
+                        "summary": signal.summary,
+                        "platform": signal.platform,
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Ошибка логирования Scout-сигнала в Evaluation Engine: {e}", exc_info=True)
         if swing_signal and getattr(swing_signal, 'recommendation', '').lower() == 'buy':
             swing_as_signal = Signal(
                 id=swing_signal.id,

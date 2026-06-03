@@ -264,6 +264,18 @@ async def start_system():
             logger.error(f"Ошибка при резолюции: {e}")
 
     scheduler.add_job(scheduled_resolution, 'interval', hours=2)
+
+    async def scheduled_eval_resolutions():
+        try:
+            logger.info(">>> Запуск автоматической резолюции сигналов в Evaluation Engine...")
+            from services.resolution_fetcher import ResolutionFetcher
+            fetcher = ResolutionFetcher()
+            resolved = await fetcher.fetch_pending_resolutions()
+            logger.info(f"<<< Автоматическая резолюция сигналов завершена. Обновлено сигналов: {resolved}")
+        except Exception as e:
+            logger.error(f"Ошибка при резолюции сигналов в Evaluation Engine: {e}", exc_info=True)
+
+    scheduler.add_job(scheduled_eval_resolutions, 'interval', hours=1, id="eval_resolutions_job", replace_existing=True)
     
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
