@@ -47,6 +47,8 @@ def _callback_accepts_reply_markup(func) -> bool:
 
     try:
         with _markup_cache_lock:
+            if len(_markup_cache) >= 64:
+                _markup_cache.clear()
             _markup_cache.setdefault(func, res)  # атомарная запись только если нет
     except TypeError:
         pass
@@ -187,6 +189,7 @@ class CoreEngine:
             try:
                 self.active_markets: Dict[str, Any] = {}
                 self._markets_lock = threading.Lock()
+                self._state_lock = threading.Lock()
                 self.state: Dict[str, Any] = {
                     "category": "Авто-микс",
                     "stage": "Инициализация",
@@ -215,10 +218,12 @@ class CoreEngine:
                 raise
 
     def update_state(self, **kwargs):
-        self.state.update(kwargs)
+        with self._state_lock:
+            self.state.update(kwargs)
 
     def get_status(self) -> Dict[str, Any]:
-        return self.state
+        with self._state_lock:
+            return self.state.copy()
 
     def get_active_markets(self) -> Dict[str, Any]:
         with self._markets_lock:
@@ -363,9 +368,37 @@ class CoreEngine:
                 ))
             finally:
                 loop.close()
+        except RuntimeError as e:
+            if "already running" in str(e) or "cannot be called from a running event loop" in str(e):
+                logger.warning("Event loop is already running in this thread. Falling back to isolated thread execution.")
+                try:
+                    import threading
+                    from concurrent.futures import Future
+                    
+                    def run_in_new_thread(fut, coro):
+                        try:
+                            res = asyncio.run(coro)
+                            fut.set_result(res)
+                        except Exception as ex:
+                            fut.set_exception(ex)
+                    
+                    fut = Future()
+                    coro = _run_math_gate(
+                        markets=markets,
+                        api_key=self.api_key,
+                        notify_fn=summary_callback,
+                        min_spread_pct=5.0
+                    )
+                    t = threading.Thread(target=run_in_new_thread, args=(fut, coro))
+                    t.start()
+                    t.join()
+                    processed_ids = fut.result()
+                except Exception as inner_e:
+                    logger.error(f"Fallback math gate run failed: {inner_e}", exc_info=True)
+            else:
+                logger.error(f"Error running math gate: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Error running math gate: {e}", exc_info=True)
-            processed_ids = []
         return processed_ids
 
     def _fetch_pre_orderbook(self, market: Market) -> Optional[Any]:

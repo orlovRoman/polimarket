@@ -2,6 +2,7 @@ import time
 import logging
 import functools
 import requests
+import asyncio
 
 logger = logging.getLogger("NexusPolyBot.HttpUtils")
 
@@ -26,3 +27,24 @@ def fetch_with_retry(fetch_fn, *args, max_attempts: int = 3, base_delay: float =
                 time.sleep(base_delay * (2 ** attempt))
     logger.error(f"[HttpUtils] All {max_attempts} attempts exhausted. Last: {last_exc}")
     return None
+
+async def fetch_with_retry_async(fetch_fn, *args, max_attempts: int = 3, base_delay: float = 1.0):
+    """Повторяет асинхронный fetch_fn(*args) до max_attempts раз при исключениях."""
+    last_exc = None
+    for attempt in range(max_attempts):
+        try:
+            import inspect
+            if inspect.iscoroutinefunction(fetch_fn):
+                return await fetch_fn(*args)
+            else:
+                return fetch_fn(*args)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            last_exc = e
+            logger.warning(f"[HttpUtils] Async attempt {attempt+1}/{max_attempts} failed: {e}")
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(base_delay * (2 ** attempt))
+    logger.error(f"[HttpUtils] All {max_attempts} async attempts exhausted. Last: {last_exc}")
+    return None
+
