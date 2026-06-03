@@ -151,6 +151,27 @@ class CalibrationStore:
             logger.error(f"Ошибка чтения истории калибровки для {param_name}: {e}", exc_info=True)
             return []
 
+    async def get_latest_applied_value(self, param_name: str) -> Optional[float]:
+        """
+        Возвращает последнее примененное значение для параметра.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT param_value FROM calibration_params
+                    WHERE param_name = ?
+                      AND auto_applied = 1
+                    ORDER BY updated_at DESC, id DESC
+                    LIMIT 1
+                """, (param_name,))
+                row = cursor.fetchone()
+                if row:
+                    return row["param_value"]
+        except Exception as e:
+            logger.error(f"Ошибка чтения последнего примененного значения для {param_name}: {e}")
+        return None
+
     async def rollback(self, suggestion_id: int) -> bool:
         """
         Откатывает изменение: записывает НОВОЕ значение в БД (которое совпадает с предыдущим значением).

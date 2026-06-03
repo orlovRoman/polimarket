@@ -277,6 +277,43 @@ async def start_system():
 
     scheduler.add_job(scheduled_eval_resolutions, 'interval', hours=1, id="eval_resolutions_job", replace_existing=True)
     
+    async def scheduled_daily_evaluation():
+        try:
+            logger.info(">>> Запуск ежедневного оценивания стратегий (Evaluation Engine)...")
+            from core.eval.evaluation_engine import EvaluationEngine
+            engine = EvaluationEngine()
+            await engine.run_full_evaluation(period_days=30)
+            logger.info("<<< Ежедневное оценивание стратегий завершено успешно.")
+        except Exception as e:
+            logger.error(f"Ошибка во время ежедневного оценивания: {e}", exc_info=True)
+
+    async def scheduled_weekly_evaluation():
+        try:
+            logger.info(">>> Запуск еженедельного глубокого оценивания стратегий (Evaluation Engine)...")
+            from core.eval.evaluation_engine import EvaluationEngine
+            engine = EvaluationEngine()
+            await engine.run_full_evaluation(period_days=90)
+            logger.info("<<< Еженедельное глубокое оценивание стратегий завершено успешно.")
+        except Exception as e:
+            logger.error(f"Ошибка во время еженедельного оценивания: {e}", exc_info=True)
+
+    from apscheduler.triggers.cron import CronTrigger
+    scheduler.add_job(
+        scheduled_daily_evaluation,
+        trigger=CronTrigger(hour=3, minute=0),
+        id="daily_evaluation",
+        replace_existing=True,
+        misfire_grace_time=3600
+    )
+    
+    scheduler.add_job(
+        scheduled_weekly_evaluation,
+        trigger=CronTrigger(day_of_week="mon", hour=4, minute=0),
+        id="weekly_deep_evaluation",
+        replace_existing=True,
+        misfire_grace_time=3600
+    )
+    
     scheduler.add_job(scheduled_memory_archive, 'interval', hours=24)
     scheduler.add_job(scheduled_trend_hunting, 'interval', hours=2)
     scheduler.add_job(scheduled_cross_arbitrage_scan, 'interval', hours=4)  # кросс-арбитраж каждые 4 ч
