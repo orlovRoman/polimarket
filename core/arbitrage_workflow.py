@@ -37,7 +37,8 @@ def run_cross_platform_scan(
     poly_limit = poly_limit if poly_limit is not None else config.ARB_POLY_LIMIT
     kalshi_limit = kalshi_limit if kalshi_limit is not None else config.ARB_KALSHI_LIMIT
     min_match_score = min_match_score if min_match_score is not None else config.ARB_MIN_MATCH_SCORE
-    min_spread_alert = min_spread_alert if min_spread_alert is not None else config.ARB_MIN_SPREAD_ALERT
+    from core.config_provider import ConfigProvider
+    min_spread_alert = min_spread_alert if min_spread_alert is not None else (ConfigProvider.get_min_spread_sync("cross_platform") * 100.0)
 
     if adapters is None:
         adapters = [PolymarketAdapter(), KalshiAdapter()]

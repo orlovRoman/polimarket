@@ -97,7 +97,7 @@ class EvaluationEngine:
         suggestions = []
         
         if strategy == StrategyType.SCOUT:
-            current_edge = await self.calibration_store.get_latest_applied_value("min_edge")
+            current_edge = await self.calibration_store.get_latest_applied_value("min_edge", strategy.value)
             if current_edge is None:
                 current_edge = getattr(config, "MIN_EDGE_DEFAULT", 0.05)
                 
@@ -107,7 +107,7 @@ class EvaluationEngine:
                 
         elif strategy in (StrategyType.SYNTHETIC_CORRIDOR, StrategyType.TEMPORAL_CORRIDOR, StrategyType.CROSS_PLATFORM):
             # Для коридоров и кросс-платформы параметр называется min_spread
-            current_spread = await self.calibration_store.get_latest_applied_value("min_spread")
+            current_spread = await self.calibration_store.get_latest_applied_value("min_spread", strategy.value)
             if current_spread is None:
                 # Значения по умолчанию
                 if strategy == StrategyType.SYNTHETIC_CORRIDOR:
@@ -122,7 +122,7 @@ class EvaluationEngine:
                 suggestions.append(sug)
                 
         elif strategy == StrategyType.WHALE:
-            current_whale_tr = await self.calibration_store.get_latest_applied_value("whale_win_rate_threshold")
+            current_whale_tr = await self.calibration_store.get_latest_applied_value("whale_win_rate_threshold", strategy.value)
             if current_whale_tr is None:
                 current_whale_tr = getattr(config, "WHALE_GATE_MIN_CONFIDENCE", 0.70)
                 

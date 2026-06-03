@@ -295,8 +295,8 @@ class ScoutAgent:
             target_outcome = "YES" if edge_yes > edge_no else "NO"
             
             # Фильтруем по минимальному edge
-            from config import MIN_EDGE_DEFAULT
-            min_edge = float(get_memory("min_edge") or MIN_EDGE_DEFAULT)
+            from core.config_provider import ConfigProvider
+            min_edge = float(get_memory("min_edge") or ConfigProvider.get_min_edge_sync("scout"))
             
             if edge > min_edge:
                 # === НОВЫЙ БЛОК: Читаем структурированные поля ===

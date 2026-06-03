@@ -23,6 +23,8 @@ def run_synthetic_corridor_scan(
     min_executable_contracts: float = 20,
     budget_per_trade: float = 200.0,
 ) -> list[SyntheticCorridorSignal]:
+    from core.config_provider import ConfigProvider
+    min_real_spread_pct = ConfigProvider.get_min_spread_sync("synthetic_corridor") * 100.0
     
     raw = get_raw_events(
         cache_key=f"poly_events_{poly_limit}",

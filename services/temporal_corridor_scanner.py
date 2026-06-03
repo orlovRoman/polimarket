@@ -24,6 +24,8 @@ def run_temporal_corridor_scan(
     min_quality_score: float = 0.4,
     budget: float = 200.0,
 ) -> list[TemporalCorridorSignal]:
+    from core.config_provider import ConfigProvider
+    min_real_spread_pct = ConfigProvider.get_min_spread_sync("temporal_corridor") * 100.0
 
     # 1. Загрузка событий (/events API — группы готовы) через кэш
     raw = get_raw_events(

@@ -1,0 +1,100 @@
+import logging
+from typing import Dict, Any, Optional
+import config
+from core.eval.calibration_store import CalibrationStore
+
+logger = logging.getLogger("ConfigProvider")
+
+class ConfigProvider:
+    _cache: Dict[str, Any] = {}
+    _store: Optional[CalibrationStore] = None
+
+    @classmethod
+    def _get_store(cls) -> CalibrationStore:
+        if cls._store is None:
+            cls._store = CalibrationStore()
+        return cls._store
+
+    @classmethod
+    def invalidate_cache(cls) -> None:
+        """Сбрасывает локальный кэш конфигураций."""
+        cls._cache.clear()
+        logger.info("Кэш конфигураций сброшен (invalidate_cache).")
+
+    @classmethod
+    async def get_min_edge(cls, strategy_type: str = "scout") -> float:
+        """
+        Возвращает минимальный порог Edge для стратегии (например, scout) асинхронно.
+        """
+        return cls.get_min_edge_sync(strategy_type)
+
+    @classmethod
+    def get_min_edge_sync(cls, strategy_type: str = "scout") -> float:
+        """
+        Возвращает минимальный порог Edge для стратегии (например, scout) синхронно.
+        """
+        cache_key = f"min_edge_{strategy_type}"
+        if cache_key in cls._cache:
+            return cls._cache[cache_key]
+
+        val = cls._get_store().get_latest_applied_value_sync("min_edge", strategy_type)
+        if val is None:
+            val = getattr(config, "MIN_EDGE_DEFAULT", 0.05)
+            
+        cls._cache[cache_key] = val
+        return val
+
+    @classmethod
+    async def get_min_spread(cls, strategy_type: str) -> float:
+        """
+        Возвращает минимальный порог спреда для стратегии асинхронно.
+        """
+        return cls.get_min_spread_sync(strategy_type)
+
+    @classmethod
+    def get_min_spread_sync(cls, strategy_type: str) -> float:
+        """
+        Возвращает минимальный порог спреда для стратегии синхронно.
+        Допустимые strategy_type: synthetic_corridor, temporal_corridor, cross_platform
+        """
+        cache_key = f"min_spread_{strategy_type}"
+        if cache_key in cls._cache:
+            return cls._cache[cache_key]
+
+        val = cls._get_store().get_latest_applied_value_sync("min_spread", strategy_type)
+        if val is None:
+            # Значения по умолчанию, если в БД нет записей
+            if strategy_type == "synthetic_corridor":
+                val = 0.008  # 0.8%
+            elif strategy_type == "temporal_corridor":
+                val = 0.020  # 2.0%
+            elif strategy_type == "cross_platform":
+                val = getattr(config, "ARB_MIN_SPREAD_ALERT", 5.0) / 100.0  # 0.05 (5.0%)
+            else:
+                val = 0.020  # Дефолт для неизвестных
+                
+        cls._cache[cache_key] = val
+        return val
+
+    @classmethod
+    async def get_whale_win_rate_threshold(cls) -> float:
+        """
+        Возвращает порог win_rate для следования за китами асинхронно.
+        """
+        return cls.get_whale_win_rate_threshold_sync()
+
+    @classmethod
+    def get_whale_win_rate_threshold_sync(cls) -> float:
+        """
+        Возвращает порог win_rate для следования за китами синхронно.
+        """
+        cache_key = "whale_win_rate_threshold"
+        if cache_key in cls._cache:
+            return cls._cache[cache_key]
+
+        val = cls._get_store().get_latest_applied_value_sync("whale_win_rate_threshold", "whale")
+        if val is None:
+            val = getattr(config, "WHALE_GATE_MIN_CONFIDENCE", 0.70)
+            
+        cls._cache[cache_key] = val
+        return val

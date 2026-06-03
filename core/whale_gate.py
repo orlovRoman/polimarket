@@ -9,13 +9,17 @@ class WhaleGateResult:
 
 def check_whale_gate(
     oc_score: OnchainScore,
-    min_confidence: float = WHALE_GATE_MIN_CONFIDENCE,
+    min_confidence: float = None,
     min_whale_count: int = WHALE_GATE_MIN_COUNT
 ) -> WhaleGateResult:
     """
     Если умные деньги уверенно против сигнала — блокируем LLM-вызов.
     Срабатывает только при наличии known_whales с историей (confidence > min_confidence).
     """
+    if min_confidence is None:
+        from core.config_provider import ConfigProvider
+        min_confidence = ConfigProvider.get_whale_win_rate_threshold_sync()
+
     if oc_score.confidence < min_confidence:
         return WhaleGateResult(True, "Whale gate: данных недостаточно, пропускаем")
 

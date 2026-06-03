@@ -123,6 +123,11 @@ async def set_commands(bot: Bot):
         BotCommand(command="arbitrage", description="Запуск кросс-платформенного арбитража (PM ↔ Kalshi)"),
         BotCommand(command="corridor", description="Временной арбитраж (Temporal Corridor)"),
         BotCommand(command="lists", description="Списки рынков: Игнорировать / Следить"),
+        BotCommand(command="eval", description="Запуск оценки торговых стратегий"),
+        BotCommand(command="eval_status", description="Просмотр текущих порогов"),
+        BotCommand(command="eval_history", description="История калибровок стратегии"),
+        BotCommand(command="eval_apply", description="Применить калибровочное предложение"),
+        BotCommand(command="eval_rollback", description="Откатить калибровочное изменение"),
     ]
     await bot.set_my_commands(commands)
 
@@ -333,6 +338,12 @@ async def command_help_handler(message: types.Message) -> None:
         "📈 /stats — общая статистика (рынки, сигналы)\n"
         "🧹 /cleanup — архивировать устаревшие сигналы\n"
         "📜 /logs — последние 10 строк системного лога\n\n"
+        "<b>Калибровка и Оценка (Evaluation):</b>\n"
+        "📊 /eval — запустить оценку торговых стратегий за 30 дней вручную\n"
+        "⚙️ /eval_status — показать текущие торговые пороги систем\n"
+        "📜 /eval_history &lt;strategy&gt; — история изменений порогов для стратегии\n"
+        "✅ /eval_apply &lt;id&gt; — применить калибровочное предложение вручную\n"
+        "⏪ /eval_rollback &lt;id&gt; — откатить изменение параметров к предыдущему значению\n\n"
         "❓ /help — это сообщение\n"
         "👋 /start — перезапустить приветствие\n\n"
         "<b>Экспериментальные функции:</b>\n"
@@ -2122,6 +2133,199 @@ async def _send_lists_page(message_or_target, edit: bool = False) -> None:
 async def command_lists_handler(message: types.Message) -> None:
     """Показывает списки Игнорировать и Следить."""
     await _send_lists_page(message)
+
+
+# ── Управление калибровкой и оценкой (Evaluation Engine) ──────────────────────
+
+@dp.message(Command("eval"))
+async def command_eval_handler(message: types.Message) -> None:
+    """Запускает полный цикл оценки по всем стратегиям вручную."""
+    await message.answer("🔄 Запуск оценки торговых стратегий за последние 30 дней. Сбор результатов Polymarket и расчет метрик...")
+    try:
+        from core.eval.evaluation_engine import EvaluationEngine
+        engine = EvaluationEngine()
+        await engine.run_full_evaluation()
+        await message.answer("✅ Оценка успешно завершена! Сводный отчет отправлен в чат.")
+    except Exception as e:
+        logger.error(f"Ошибка при ручном запуске оценки: {e}", exc_info=True)
+        await message.answer(f"❌ Произошла ошибка при запуске оценки: {e}")
+
+@dp.message(Command("eval_status"))
+async def command_eval_status_handler(message: types.Message) -> None:
+    """Показывает текущие торговые пороги систем."""
+    try:
+        from core.eval.calibration_store import CalibrationStore
+        from core.eval.signal_logger import StrategyType
+        import config
+        
+        store = CalibrationStore()
+        
+        # scout
+        scout_val = await store.get_latest_applied_value("min_edge", StrategyType.SCOUT.value)
+        if scout_val is None:
+            scout_val = getattr(config, "MIN_EDGE_DEFAULT", 0.05)
+            
+        # synthetic corridor
+        synthetic_val = await store.get_latest_applied_value("min_spread", StrategyType.SYNTHETIC_CORRIDOR.value)
+        if synthetic_val is None:
+            synthetic_val = 0.008  # 0.8%
+            
+        # temporal corridor
+        temporal_val = await store.get_latest_applied_value("min_spread", StrategyType.TEMPORAL_CORRIDOR.value)
+        if temporal_val is None:
+            temporal_val = 0.020  # 2.0%
+            
+        # cross platform
+        cross_val = await store.get_latest_applied_value("min_spread", StrategyType.CROSS_PLATFORM.value)
+        if cross_val is None:
+            cross_val = 0.050  # 5.0%
+            
+        # whale
+        whale_val = await store.get_latest_applied_value("whale_win_rate_threshold", StrategyType.WHALE.value)
+        if whale_val is None:
+            whale_val = getattr(config, "WHALE_GATE_MIN_CONFIDENCE", 0.70)
+            
+        status_text = (
+            "⚙️ <b>Текущие торговые пороги систем:</b>\n\n"
+            f"🕵️ <b>SCOUT:</b> min_edge = <code>{scout_val:.1%}</code>\n"
+            f"🔬 <b>SYNTHETIC CORRIDOR:</b> min_spread = <code>{synthetic_val:.1%}</code>\n"
+            f"⏳ <b>TEMPORAL CORRIDOR:</b> min_spread = <code>{temporal_val:.1%}</code>\n"
+            f"🔄 <b>CROSS PLATFORM:</b> min_spread = <code>{cross_val:.1%}</code>\n"
+            f"🐋 <b>WHALE FOLLOWING:</b> win_rate_threshold = <code>{whale_val:.0%}</code>\n"
+        )
+        await message.answer(status_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка при получении статуса порогов: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка при получении статуса: {e}")
+
+@dp.message(Command("eval_history"))
+async def command_eval_history_handler(message: types.Message) -> None:
+    """Показывает историю калибровок для стратегии."""
+    try:
+        args = message.text.split()
+        if len(args) < 2:
+            await message.answer(
+                "⚠️ Укажите стратегию для просмотра истории.\n"
+                "Использование: <code>/eval_history &lt;strategy&gt;</code>\n"
+                "Доступные стратегии: <code>scout</code>, <code>synthetic_corridor</code>, <code>temporal_corridor</code>, <code>cross_platform</code>, <code>whale</code>",
+                parse_mode="HTML"
+            )
+            return
+            
+        strategy_input = args[1].lower().strip()
+        from core.eval.signal_logger import StrategyType
+        strategy_map = {
+            "scout": StrategyType.SCOUT,
+            "synthetic_corridor": StrategyType.SYNTHETIC_CORRIDOR,
+            "temporal_corridor": StrategyType.TEMPORAL_CORRIDOR,
+            "cross_platform": StrategyType.CROSS_PLATFORM,
+            "whale": StrategyType.WHALE
+        }
+        
+        if strategy_input not in strategy_map:
+            await message.answer(
+                f"❌ Неизвестная стратегия: <code>{strategy_input}</code>\n"
+                "Доступные стратегии: <code>scout</code>, <code>synthetic_corridor</code>, <code>temporal_corridor</code>, <code>cross_platform</code>, <code>whale</code>",
+                parse_mode="HTML"
+            )
+            return
+            
+        strategy = strategy_map[strategy_input]
+        
+        from core.eval.calibration_store import CalibrationStore
+        store = CalibrationStore()
+        history = await store.get_strategy_history(strategy.value, 10)
+        
+        if not history:
+            await message.answer(f"📜 История калибровок для стратегии <b>{strategy.value}</b> пуста.", parse_mode="HTML")
+            return
+            
+        text = f"📜 <b>История калибровок ({strategy.value.upper()}):</b>\n\n"
+        for idx, record in enumerate(history, 1):
+            is_applied = "✅ Применено" if record.auto_applied else "⏳ Ожидает ручного подтверждения"
+            is_pct = record.param_name in ("min_edge", "min_spread")
+            if is_pct:
+                prev = f"{record.previous_value:.1%}"
+                curr = f"{record.param_value:.1%}"
+            else:
+                prev = f"{record.previous_value:.2f}"
+                curr = f"{record.param_value:.2f}"
+                
+            text += (
+                f"<b>{idx}. Предложение #{record.id}</b>\n"
+                f"• Параметр: <code>{record.param_name}</code>\n"
+                f"• Изменение: {prev} → <b>{curr}</b>\n"
+                f"• Статус: {is_applied}\n"
+                f"• Обоснование: <i>{record.reason}</i>\n"
+                f"• Дата: {record.updated_at}\n\n"
+            )
+            
+        await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка при получении истории калибровок: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка при получении истории: {e}")
+
+@dp.message(Command("eval_apply"))
+async def command_eval_apply_handler(message: types.Message) -> None:
+    """Применяет калибровочное предложение вручную."""
+    try:
+        args = message.text.split()
+        if len(args) < 2:
+            await message.answer(
+                "⚠️ Укажите ID калибровочного предложения для применения.\n"
+                "Использование: <code>/eval_apply &lt;id&gt;</code>",
+                parse_mode="HTML"
+            )
+            return
+            
+        try:
+            suggestion_id = int(args[1])
+        except ValueError:
+            await message.answer("❌ ID предложения должен быть целым числом.")
+            return
+            
+        from core.eval.calibration_store import CalibrationStore
+        store = CalibrationStore()
+        success = await store.apply_suggestion(suggestion_id)
+        
+        if success:
+            await message.answer(f"✅ Предложение калибровки #{suggestion_id} успешно применено. Новые параметры загружены в систему.")
+        else:
+            await message.answer(f"❌ Не удалось применить предложение #{suggestion_id}. Возможно, ID не существует или уже применен.")
+    except Exception as e:
+        logger.error(f"Ошибка при применении предложения: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка при применении предложения: {e}")
+
+@dp.message(Command("eval_rollback"))
+async def command_eval_rollback_handler(message: types.Message) -> None:
+    """Откатывает калибровочное предложение вручную."""
+    try:
+        args = message.text.split()
+        if len(args) < 2:
+            await message.answer(
+                "⚠️ Укажите ID примененной записи для отката.\n"
+                "Использование: <code>/eval_rollback &lt;id&gt;</code>",
+                parse_mode="HTML"
+            )
+            return
+            
+        try:
+            suggestion_id = int(args[1])
+        except ValueError:
+            await message.answer("❌ ID записи должен быть целым числом.")
+            return
+            
+        from core.eval.calibration_store import CalibrationStore
+        store = CalibrationStore()
+        success = await store.rollback(suggestion_id)
+        
+        if success:
+            await message.answer(f"✅ Успешный откат изменения #{suggestion_id}. Предыдущие параметры восстановлены.")
+        else:
+            await message.answer(f"❌ Не удалось откатить изменение #{suggestion_id}. Проверьте, что запись с этим ID действительно была применена (auto_applied=1).")
+    except Exception as e:
+        logger.error(f"Ошибка при откате предложения: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка при откате предложения: {e}")
 
 
 @dp.message(F.text)

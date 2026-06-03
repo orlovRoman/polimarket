@@ -151,25 +151,71 @@ class CalibrationStore:
             logger.error(f"Ошибка чтения истории калибровки для {param_name}: {e}", exc_info=True)
             return []
 
-    async def get_latest_applied_value(self, param_name: str) -> Optional[float]:
+    async def get_strategy_history(self, strategy_type: str, last_n: int = 10) -> List[CalibrationRecord]:
         """
-        Возвращает последнее примененное значение для параметра.
+        Возвращает историю изменений и предложений калибровки для указанной стратегии.
         """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT param_value FROM calibration_params
-                    WHERE param_name = ?
-                      AND auto_applied = 1
+                    SELECT id, strategy_type, param_name, param_value, previous_value, reason, auto_applied, updated_at
+                    FROM calibration_params
+                    WHERE strategy_type = ?
                     ORDER BY updated_at DESC, id DESC
-                    LIMIT 1
-                """, (param_name,))
+                    LIMIT ?
+                """, (strategy_type, last_n))
+                rows = cursor.fetchall()
+                
+                return [CalibrationRecord(
+                    id=r["id"],
+                    strategy_type=r["strategy_type"],
+                    param_name=r["param_name"],
+                    param_value=r["param_value"],
+                    previous_value=r["previous_value"],
+                    reason=r["reason"],
+                    auto_applied=bool(r["auto_applied"]),
+                    updated_at=r["updated_at"]
+                ) for r in rows]
+        except Exception as e:
+            logger.error(f"Ошибка чтения истории калибровки для стратегии {strategy_type}: {e}", exc_info=True)
+            return []
+
+
+    async def get_latest_applied_value(self, param_name: str, strategy_type: Optional[str] = None) -> Optional[float]:
+        """
+        Возвращает последнее примененное значение для параметра (с опциональной фильтрацией по стратегии).
+        """
+        return self.get_latest_applied_value_sync(param_name, strategy_type)
+
+    def get_latest_applied_value_sync(self, param_name: str, strategy_type: Optional[str] = None) -> Optional[float]:
+        """
+        Синхронно возвращает последнее примененное значение для параметра (с опциональной фильтрацией по стратегии).
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if strategy_type:
+                    cursor.execute("""
+                        SELECT param_value FROM calibration_params
+                        WHERE param_name = ? AND strategy_type = ?
+                          AND auto_applied = 1
+                        ORDER BY updated_at DESC, id DESC
+                        LIMIT 1
+                    """, (param_name, strategy_type))
+                else:
+                    cursor.execute("""
+                        SELECT param_value FROM calibration_params
+                        WHERE param_name = ?
+                          AND auto_applied = 1
+                        ORDER BY updated_at DESC, id DESC
+                        LIMIT 1
+                    """, (param_name,))
                 row = cursor.fetchone()
                 if row:
                     return row["param_value"]
         except Exception as e:
-            logger.error(f"Ошибка чтения последнего примененного значения для {param_name}: {e}")
+            logger.error(f"Ошибка чтения последнего примененного значения для {param_name} ({strategy_type}): {e}")
         return None
 
     async def rollback(self, suggestion_id: int) -> bool:
