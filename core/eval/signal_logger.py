@@ -29,7 +29,7 @@ class SignalPayload(BaseModel):
 
     @field_validator('predicted_probability', 'market_price_at_signal', 'edge_at_signal', mode='before')
     @classmethod
-    def convert_float(cls, v: Any) -> float:
+    def validate_signal_floats(cls, v: Any) -> float:
         return float(v)
 
 class ResolutionPayload(BaseModel):
@@ -40,7 +40,7 @@ class ResolutionPayload(BaseModel):
 
     @field_validator('resolution_price', mode='before')
     @classmethod
-    def convert_float(cls, v: Any) -> float:
+    def validate_resolution_floats(cls, v: Any) -> float:
         return float(v)
 
 class SignalLogger:
@@ -138,7 +138,6 @@ class SignalLogger:
                     payload.edge_at_signal,
                     payload.strategy_type.value
                 ))
-                conn.commit()
                 logger.info(f"Сигнал {payload.signal_id} ({payload.strategy_type.value}) успешно записан.")
         except Exception as e:
             logger.error(f"Ошибка записи сигнала в БД: {e}", exc_info=True)
@@ -177,7 +176,7 @@ class SignalLogger:
                     logger.warning(f"Сигнал с ID {payload.signal_id} не найден. Запись резолюции невозможна.")
                     return
 
-                strategy_type = row["strategy_type"]
+                strategy_type = (row["strategy_type"] or "").lower()
                 target_outcome = row["target_outcome"] or "YES"
                 predicted_probability = row["predicted_probability"]
                 market_price_at_signal = row["market_price_at_signal"]
@@ -223,7 +222,6 @@ class SignalLogger:
                     pnl_realized,
                     payload.signal_id
                 ))
-                conn.commit()
                 logger.info(f"Резолюция для сигнала {payload.signal_id} обновлена: outcome={payload.resolution_outcome}, status={status}, PnL={pnl_realized}")
         except Exception as e:
             logger.error(f"Ошибка записи резолюции в БД: {e}", exc_info=True)
@@ -242,6 +240,7 @@ class SignalLogger:
         Вычисляет, было ли предсказание прибыльным, и считает виртуальный PnL.
         Виртуальная ставка берется через ConfigProvider (по умолчанию $10).
         """
+        strategy_type = (strategy_type or "").lower()
         try:
             from core.config_provider import config_provider
             virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
@@ -277,7 +276,7 @@ class SignalLogger:
             # Если target_outcome == 'NO', мы покупаем NO по цене (1.0 - market_price_at_signal).
             price_safe = market_price_at_signal if market_price_at_signal is not None else 0.5
             buy_price = price_safe if target_outcome == 'YES' else (1.0 - price_safe)
-            if buy_price <= 0 or buy_price >= 1:
+            if not (0.001 < buy_price < 0.999):
                 buy_price = 0.5  # Защита от деления на 0/нереальных цен
 
             # Количество контрактов, которые мы могли купить на virtual_stake
@@ -289,7 +288,7 @@ class SignalLogger:
             return is_win, round(pnl, 2)
 
         # Если мы не можем детально восстановить, то:
-        # Если resolution_outcome == target_outcome:
+        logger.warning(f"Неизвестный strategy_type '{strategy_type}', используется proxy PnL.")
         is_win = (target_outcome == resolution_outcome)
         pnl = virtual_stake * 0.15 if is_win else -virtual_stake  # Прокси-доходность 15% для выигрышного арбитража/коридора
         return is_win, round(pnl, 2)
