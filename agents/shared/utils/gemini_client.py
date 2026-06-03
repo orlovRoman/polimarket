@@ -213,6 +213,18 @@ def extract_response_text(result: dict) -> str:
         raw = json.dumps(result)
         raise ValueError(f"Не удалось извлечь текст ответа. API вернуло: {raw[:MAX_ERR_DUMP]}{'...' if len(raw) > MAX_ERR_DUMP else ''}") from e
 
+def _is_safe_char(ch: str) -> bool:
+    cp = ord(ch)
+    # Разрешаем: printable ASCII + Unicode + таб/новая строка/возврат каретки
+    # Блокируем: C0 (0-31 кроме \t (9), \n (10), \r (13)), DEL (127), C1 (128-159)
+    if cp in (9, 10, 13):
+        return True
+    if cp < 32 or cp == 127:
+        return False
+    if 128 <= cp <= 159:
+        return False
+    return True
+
 def _sanitize_payload_strings(data):
     """Рекурсивно очищает строки в payload от null bytes, управляющих символов и обрезает их при превышении лимита."""
     if isinstance(data, dict):
@@ -220,8 +232,8 @@ def _sanitize_payload_strings(data):
     elif isinstance(data, list):
         return [_sanitize_payload_strings(item) for item in data]
     elif isinstance(data, str):
-        # 1. Убираем null bytes и управляющие символы (ord < 32, кроме \n, \r, \t)
-        cleaned = "".join(ch for ch in data if ch >= " " or ch in "\n\r\t")
+        # 1. Убираем null bytes и управляющие символы (C0, DEL, C1)
+        cleaned = "".join(ch for ch in data if _is_safe_char(ch))
         # 2. Обрезка текста (безопасный лимит ~80k символов)
         MAX_CONTEXT_CHARS = 80_000
         if len(cleaned) > MAX_CONTEXT_CHARS:
@@ -412,13 +424,11 @@ def generate_content_with_fallback(
 
     # Настраиваем тайм-аут по умолчанию динамически
     if timeout == 30:
-        model_key = default_model.lower() if default_model else ""
-        if "gemini-2.5-pro" in model_key:
-            timeout = 90
-        elif "gemini-2.5-flash" in model_key:
-            timeout = 45
-        else:
-            timeout = 30
+        TIMEOUT_MAP = {
+            "gemini-2.5-pro": 90,
+            "gemini-2.5-flash": 45,
+        }
+        timeout = TIMEOUT_MAP.get(default_model.lower() if default_model else "", 30)
 
     # Строим рабочий словарь providers явно (без deepcopy, чтобы MagicMock в тестах работал).
     # Ключи gemini: если PROVIDERS_CONFIG["gemini"]["keys"] непустой (патч в тестах),

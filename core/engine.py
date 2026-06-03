@@ -369,27 +369,30 @@ class CoreEngine:
             finally:
                 loop.close()
         except RuntimeError as e:
-            if "already running" in str(e) or "cannot be called from a running event loop" in str(e):
+            err_msg = str(e).lower()
+            if "already running" in err_msg or "cannot be called from" in err_msg or "loop is running" in err_msg:
                 logger.warning("Event loop is already running in this thread. Falling back to isolated thread execution.")
                 try:
                     import threading
                     from concurrent.futures import Future
                     
-                    def run_in_new_thread(fut, coro):
+                    def _coro_factory():
+                        return _run_math_gate(
+                            markets=markets,
+                            api_key=self.api_key,
+                            notify_fn=summary_callback,
+                            min_spread_pct=5.0
+                        )
+
+                    def run_in_new_thread(fut, factory):
                         try:
-                            res = asyncio.run(coro)
+                            res = asyncio.run(factory())
                             fut.set_result(res)
                         except Exception as ex:
                             fut.set_exception(ex)
                     
                     fut = Future()
-                    coro = _run_math_gate(
-                        markets=markets,
-                        api_key=self.api_key,
-                        notify_fn=summary_callback,
-                        min_spread_pct=5.0
-                    )
-                    t = threading.Thread(target=run_in_new_thread, args=(fut, coro))
+                    t = threading.Thread(target=run_in_new_thread, args=(fut, _coro_factory))
                     t.start()
                     t.join()
                     processed_ids = fut.result()

@@ -653,3 +653,23 @@ def test_sanitize_payload_strings():
     assert cleaned_long.endswith("[...контекст обрезан...]")
 
 
+def test_sanitize_nested_large_string():
+    """Проверяет, что 80k-лимит работает в глубоко вложенных структурах."""
+    from agents.shared.utils.gemini_client import _sanitize_payload_strings
+    large = "x" * 90_000
+    payload = {"contents": [{"parts": [{"text": large}]}]}
+    result = _sanitize_payload_strings(payload)
+    text = result["contents"][0]["parts"][0]["text"]
+    assert len(text) <= 80_000 + len("\n\n[...контекст обрезан...]")
+    assert text.endswith("[...контекст обрезан...]")
+
+
+def test_sanitize_c1_control_chars():
+    """DEL и C1-символы должны быть удалены, а стандартные управляющие сохранены."""
+    from agents.shared.utils.gemini_client import _sanitize_payload_strings
+    payload = {"text": "hello\x7f\x85\x9fworld\nline2\ttab\r"}
+    result = _sanitize_payload_strings(payload)
+    assert result["text"] == "helloworld\nline2\ttab\r"
+
+
+
