@@ -314,7 +314,6 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     api_key = getattr(scout, 'api_key', None) or getattr(swing, 'api_key', None)
     
-    from agents.shared.python.db import get_memory
     grounding_model = get_memory("agent_config_GROUNDING", {}).get("model") \
         or get_memory("agent_config_NEXUS", {}).get("model") \
         or "gemini-2.5-flash"
