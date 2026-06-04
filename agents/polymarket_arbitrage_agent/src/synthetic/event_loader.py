@@ -89,6 +89,7 @@ def load_events_with_levels_from_raw(
                 question = m.get("question", "")
                 parsed = parse_numeric_level(question)
                 numeric_level, unit = parsed if parsed else (None, "unknown")
+                logger.debug(f"[PARSER] '{question[:60]}' -> ({numeric_level}, {unit})")
                 
                 outcome_markets.append(OutcomeMarket(
                     market_id=m["id"],

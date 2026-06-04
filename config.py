@@ -29,7 +29,7 @@ PRICE_RANGE_MIN = float(os.getenv("PRICE_RANGE_MIN", "0.10"))
 PRICE_RANGE_MAX = float(os.getenv("PRICE_RANGE_MAX", "0.90"))
 
 # Категории для ротации при автоскане (culture=0 результатов на API)
-SCAN_CATEGORIES = ["politics", "crypto", "sports", "science", "business"]
+SCAN_CATEGORIES = os.getenv("SCAN_CATEGORIES", "politics,crypto,sports,science,business").split(",")
 
 # Настройки Telegram Userbot для Telethon
 TG_API_ID = os.getenv("TG_API_ID", "")
@@ -76,38 +76,53 @@ GOOGLE_API_KEY_SECONDARY = os.getenv("GOOGLE_API_KEY_SECONDARY", "")
 GOOGLE_API_KEY_THIRD = os.getenv("GOOGLE_API_KEY_THIRD", "")
 
 # Настройки блокировки
-LOCK_FILE = str(PROJECT_ROOT / "vault" / "scan.lock")
+LOCK_FILE = Path(PROJECT_ROOT / "vault" / "scan.lock")
 LOCK_TIMEOUT_SEC = 600
 SCREENING_INTERVAL_SEC = 1800
 
-# Health Gate
-from core.guards import LLMHealthGate
-llm_health_gate = LLMHealthGate()
+# Health Gate (Lazy)
+_llm_health_gate = None
+
+def get_llm_health_gate():
+    global _llm_health_gate
+    if _llm_health_gate is None:
+        from core.guards import LLMHealthGate
+        _llm_health_gate = LLMHealthGate()
+    return _llm_health_gate
 
 # Логирование
 import logging
 from logging.handlers import RotatingFileHandler
 
 LOGS_DIR = PROJECT_ROOT / "logs"
-LOGS_DIR.mkdir(exist_ok=True)
 LOG_PATH = LOGS_DIR / "main.log"
 
 def setup_logger(name="NexusPolyBot"):
     log = logging.getLogger(name)
-    log.setLevel(logging.INFO)
-    log.propagate = False
-    if not log.handlers:
-        file_handler = RotatingFileHandler(LOG_PATH, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(formatter)
-        log.addHandler(file_handler)
+    if log.handlers:
+        return log
         
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        log.addHandler(console_handler)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log.setLevel(logging.DEBUG)
+    log.propagate = False
+    
+    file_handler = RotatingFileHandler(LOG_PATH, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    log.addHandler(file_handler)
+    
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    log.addHandler(console_handler)
     return log
 
-logger = setup_logger()
+# PEP 562 lazy loading for llm_health_gate and logger
+def __getattr__(name):
+    if name == "llm_health_gate":
+        return get_llm_health_gate()
+    if name == "logger":
+        return setup_logger()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 def startup_check():
     """
@@ -120,12 +135,31 @@ def startup_check():
         missing.append("TELEGRAM_BOT_TOKEN")
     if not TELEGRAM_CHAT_ID:
         missing.append("TELEGRAM_CHAT_ID")
+    if not TG_API_ID or not TG_API_HASH:
+        missing.append("TG_API_ID / TG_API_HASH (нужны для Telethon userbot)")
         
     if missing:
         msg = f"КРИТИЧЕСКАЯ ОШИБКА: Не заданы обязательные переменные окружения: {', '.join(missing)}. Проверьте .env файл."
-        logger.error(msg)
+        # Call setup_logger explicitly in case logger is not available via __getattr__ locally
+        setup_logger().error(msg)
         raise RuntimeError(msg)
         
     # Убеждаемся, что системные папки существуют
     VAULT_PATH.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+__all__ = [
+    "PROJECT_ROOT", "VAULT_PATH", "DB_PATH", "MEMORY_FACTS_LIMIT",
+    "MARKET_COOLDOWN_HOURS", "MARKET_OFFSET_MAX", "PRICE_RANGE_MIN", "PRICE_RANGE_MAX",
+    "SCAN_CATEGORIES", "TG_API_ID", "TG_API_HASH", "TG_PHONE",
+    "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_BOT_ID",
+    "TELEGRAM_GROUP2_SOURCE", "TELEGRAM_GROUP2_TARGET_ID",
+    "SCAN_LIMIT_DEFAULT", "MIN_EDGE_DEFAULT", "WHALE_ALERT_MIN_USD",
+    "WHALE_GATE_MIN_CONFIDENCE", "WHALE_GATE_MIN_COUNT",
+    "ARB_POLY_LIMIT", "ARB_KALSHI_LIMIT", "ARB_MIN_MATCH_SCORE",
+    "ARB_MIN_SPREAD_ALERT", "ARB_MAX_DAYS_DIFF", "MAX_SCREENING_MARKETS",
+    "CORRIDOR_BUDGET_PER_TRADE", "POLY_EVENTS_CACHE_TTL_SECONDS",
+    "GOOGLE_API_KEY", "GOOGLE_API_KEY_SECONDARY", "GOOGLE_API_KEY_THIRD",
+    "LOCK_FILE", "LOCK_TIMEOUT_SEC", "SCREENING_INTERVAL_SEC",
+    "get_llm_health_gate", "setup_logger", "startup_check"
+]
