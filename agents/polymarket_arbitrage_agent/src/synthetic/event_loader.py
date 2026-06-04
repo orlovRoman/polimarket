@@ -103,7 +103,8 @@ def load_events_with_levels_from_raw(
                     numeric_level=numeric_level,
                     level_unit=unit,
                 ))
-            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError) as e:
+                logger.debug(f"[PARSER] Пропущен рынок {m.get('id','?')}: {e}")
                 continue
         
         # Только события где >= 2 рынков с распознанными числовыми уровнями

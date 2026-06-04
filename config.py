@@ -116,12 +116,17 @@ def setup_logger(name="NexusPolyBot"):
     log.addHandler(console_handler)
     return log
 
+_logger_instance = None
+
 # PEP 562 lazy loading for llm_health_gate and logger
 def __getattr__(name):
+    global _logger_instance
     if name == "llm_health_gate":
         return get_llm_health_gate()
     if name == "logger":
-        return setup_logger()
+        if _logger_instance is None:
+            _logger_instance = setup_logger()
+        return _logger_instance
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 def startup_check():
