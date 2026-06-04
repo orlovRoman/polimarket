@@ -413,7 +413,11 @@ class CoreEngine:
                     t.join()
                     processed_ids = fut.result()
                 except Exception as inner_e:
-                    logger.error(f"Fallback math gate run failed: {inner_e}", exc_info=True)
+                    logger.error(
+                        f"Fallback math gate run failed: {inner_e} "
+                        f"(original: {e})",
+                        exc_info=True
+                    )
             else:
                 logger.error(f"Error running math gate: {e}", exc_info=True)
         except Exception as e:
@@ -500,7 +504,6 @@ class CoreEngine:
             ingest_trades(m.id, onchain_trades, onchain_positions)
             
             from core.onchain_scorer import compute_onchain_score
-            target_outcome = getattr(active_signal, 'target_outcome', 'YES')
             oc_score = compute_onchain_score(smart_money, target_outcome=target_outcome)
             
             # Корректируем edge детерминированно (без LLM)
@@ -602,16 +605,30 @@ class CoreEngine:
             pre_orderbook = self._fetch_pre_orderbook(m)
 
             import asyncio
-            signal, swing_signal, context = asyncio.run(run_agent_evaluation(
-                m, self.scout, self.swing, _update_state,
-                adapter=self.adapter,
-                trigger_type=trigger_type,
-                source_url=source_url,
-                source_text=source_text,
-                triggered_at=triggered_at,
-                price_history=price_hist,
-                pre_orderbook=pre_orderbook
-            ))
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = ex.submit(asyncio.run, run_agent_evaluation(
+                        m, self.scout, self.swing, _update_state,
+                        adapter=self.adapter, trigger_type=trigger_type,
+                        source_url=source_url, source_text=source_text,
+                        triggered_at=triggered_at, price_history=price_hist,
+                        pre_orderbook=pre_orderbook
+                    ))
+                    signal, swing_signal, context = fut.result()
+            else:
+                signal, swing_signal, context = asyncio.run(run_agent_evaluation(
+                    m, self.scout, self.swing, _update_state,
+                    adapter=self.adapter, trigger_type=trigger_type,
+                    source_url=source_url, source_text=source_text,
+                    triggered_at=triggered_at, price_history=price_hist,
+                    pre_orderbook=pre_orderbook
+                ))
 
             if context is None:
                 logger.info(f"  Рынок {m.id} пропущен (дедупликация)")

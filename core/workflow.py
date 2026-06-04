@@ -313,11 +313,15 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     trends_data = fetch_google_trends(search_query)
 
     api_key = getattr(scout, 'api_key', None) or getattr(swing, 'api_key', None)
-    model = getattr(scout, 'model', None) or getattr(swing, 'model', None) or "gemini-2.5-flash"
+    
+    from agents.shared.python.db import get_memory
+    grounding_model = get_memory("agent_config_GROUNDING", {}).get("model") \
+        or get_memory("agent_config_NEXUS", {}).get("model") \
+        or "gemini-2.5-flash"
     
     grounded = ""
     if api_key:
-        grounded = _fetch_grounded_context(m, api_key, model)
+        grounded = _fetch_grounded_context(m, api_key, grounding_model)
     else:
         grounded = "Grounding не выполнен (нет API-ключа)."
 
