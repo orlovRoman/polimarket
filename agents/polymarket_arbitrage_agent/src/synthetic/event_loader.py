@@ -116,14 +116,17 @@ def load_events_with_levels_from_raw(
             stats["mixed_units"] += 1
             continue  # смешанные единицы — пропускаем без LLM
 
+        total_yes_prob = sum(m.price_yes for m in leveled)
+        logger.debug(f"[SCA] '{event.get('title','')[:50]}': leveled={len(leveled)}, sum_yes={total_yes_prob:.2f}, units={units}")
+
         # Фильтр: отсекаем взаимоисключающие рынки (mutually exclusive)
         # У накопительных рынков (выше X, выше Y) сумма price_yes должна быть заметно больше 1.0 (например, > 1.2)
         # Если сумма около 1.0, значит это взаимоисключающие бины.
-        total_yes_prob = sum(m.price_yes for m in leveled)
-        if total_yes_prob < 1.05:
-            logger.debug(
-                f"[SCA] Событие '{event.get('title', '')[:40]}' пропущено: "
-                f"sum(price_yes)={total_yes_prob:.2f} < 1.05 (вероятно взаимоисключающие бины)"
+        MIN_CUMULATIVE_SUM = 1.02
+        if total_yes_prob < MIN_CUMULATIVE_SUM:
+            logger.info(
+                f"[SCA] Пропущено '{event.get('title', '')[:40]}': "
+                f"sum(price_yes)={total_yes_prob:.2f} < {MIN_CUMULATIVE_SUM} (взаимоисключающие бины)"
             )
             stats["low_sum"] += 1
             continue

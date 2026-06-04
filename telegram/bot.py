@@ -80,6 +80,7 @@ async def init_nexus_agent() -> None:
         return  # Уже инициализирован — ничего не делаем
     import logging
     log = logging.getLogger("NexusPolyBot")
+    log.propagate = False
     log.info("Инициализация NexusAgent...")
     # Инициализируем в отдельном потоке, чтобы не блокировать event loop
     _nexus_agent = await asyncio.to_thread(NexusAgent)
