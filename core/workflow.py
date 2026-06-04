@@ -284,22 +284,29 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     IS_TECH_MARKET = any(kw in m.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
     
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-    future_rss = executor.submit(fetch_rss_news, search_query)
-    future_reddit = executor.submit(fetch_reddit_news, search_query)
-    future_wiki = executor.submit(fetch_wikipedia_context, search_query)
-    future_hn = executor.submit(fetch_hackernews, search_query) if IS_TECH_MARKET else None
     
     try:
-        news_titles = _safe_result(future_rss, default=[], timeout=15)
-        reddit_posts = _safe_result(future_reddit, default=[], timeout=15)
-        wiki_context = _safe_result(future_wiki, default=[], timeout=20)
+        future_rss = executor.submit(fetch_rss_news, search_query)
+        future_reddit = executor.submit(fetch_reddit_news, search_query)
+        future_wiki = executor.submit(fetch_wikipedia_context, search_query)
+        future_hn = executor.submit(fetch_hackernews, search_query) if IS_TECH_MARKET else None
+    except RuntimeError as e:
+        if "interpreter shutdown" in str(e) or "cannot schedule" in str(e):
+            logger.warning(f"[workflow] Executor shutdown during scan, skipping background fetches: {e}")
+            future_rss, future_reddit, future_wiki, future_hn = None, None, None, None
+        else:
+            raise
+    
+    try:
+        news_titles = _safe_result(future_rss, default=[], timeout=15) if future_rss is not None else []
+        reddit_posts = _safe_result(future_reddit, default=[], timeout=15) if future_reddit is not None else []
+        wiki_context = _safe_result(future_wiki, default=[], timeout=20) if future_wiki is not None else []
         hn_posts = _safe_result(future_hn, default=[], timeout=15) if future_hn else []
     finally:
-        future_rss.cancel()
-        future_reddit.cancel()
-        future_wiki.cancel()
-        if future_hn:
-            future_hn.cancel()
+        if future_rss: future_rss.cancel()
+        if future_reddit: future_reddit.cancel()
+        if future_wiki: future_wiki.cancel()
+        if future_hn: future_hn.cancel()
         if sys.version_info >= (3, 9):
             executor.shutdown(wait=False, cancel_futures=True)
         else:

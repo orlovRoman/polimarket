@@ -418,6 +418,8 @@ def generate_content_with_fallback(
     моделям и ключам с поддержкой автоматического переключения при ошибках.
     """
     from agents.shared.python.db import get_memory, save_memory
+    import random
+    time.sleep(random.uniform(0, 2.0))
 
     # Санитизация строк в payload перед отправкой (убираем null bytes, управляющие символы и ограничиваем размер)
     payload = _sanitize_payload_strings(payload)
