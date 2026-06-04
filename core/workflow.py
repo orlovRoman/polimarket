@@ -314,9 +314,9 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     api_key = getattr(scout, 'api_key', None) or getattr(swing, 'api_key', None)
     
-    grounding_model = get_memory("agent_config_GROUNDING", {}).get("model") \
-        or get_memory("agent_config_NEXUS", {}).get("model") \
-        or "gemini-2.5-flash"
+    grounding_config = get_memory("agent_config_GROUNDING") or {}
+    nexus_config = get_memory("agent_config_NEXUS") or {}
+    grounding_model = grounding_config.get("model") or nexus_config.get("model") or "gemini-2.5-flash"
     
     grounded = ""
     if api_key:
