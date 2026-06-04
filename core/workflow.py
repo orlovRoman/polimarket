@@ -220,12 +220,9 @@ def _fetch_grounded_context(market: Market, api_key: str, model: str) -> str:
         }
         from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
         
-        GROUNDING_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro"]
-        grounding_model = GROUNDING_MODELS[0]
-        
         result, _ = generate_content_with_fallback(
             api_key=api_key, payload=payload,
-            default_model=grounding_model, agent_name="GROUNDING", market_id=market.id
+            default_model=model, agent_name="GROUNDING", market_id=market.id
         )
         text = extract_response_text(result) if result else ""
         return text or "Grounding: результатов не найдено."

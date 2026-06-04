@@ -1138,6 +1138,13 @@ async def callback_save_model(callback: CallbackQuery) -> None:
     config = {"provider": provider, "model": model_name}
     await asyncio.to_thread(save_memory, f"agent_config_{agent}", config)
     
+    engine = get_core_engine()
+    if engine:
+        if agent == "SCOUT" and hasattr(engine, 'scout'): engine.scout.model = model_name
+        if agent == "SWING" and hasattr(engine, 'swing'): engine.swing.model = model_name
+        if agent == "SHADOW" and hasattr(engine, 'shadow'): engine.shadow.model = model_name
+        if agent == "NEXUS" and hasattr(engine, 'nexus'): engine.nexus.model_name = model_name
+    
     await callback.answer(f"✅ Модель установлена!", show_alert=True)
     await send_models_menu(callback)
 

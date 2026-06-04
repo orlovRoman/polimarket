@@ -205,11 +205,14 @@ class CoreEngine:
                 self.api_key = GOOGLE_API_KEY
                 if not self.api_key:
                     logger.error("ОШИБКА: GOOGLE_API_KEY не установлен.")
-                    
-                self.scout = ScoutAgent(api_key=self.api_key)
-                self.swing = SwingAgent(api_key=self.api_key)
-                self.shadow = ShadowAgent(api_key=self.api_key)
-                self.nexus = NexusAgent(api_key=self.api_key)
+                from agents.shared.python.db import get_memory
+                def get_am(agent_name):
+                    return get_memory(f"agent_config_{agent_name}", {}).get("model", "gemini-2.5-flash")
+                
+                self.scout = ScoutAgent(api_key=self.api_key, model=get_am("SCOUT"))
+                self.swing = SwingAgent(api_key=self.api_key, model=get_am("SWING"))
+                self.shadow = ShadowAgent(api_key=self.api_key, model=get_am("SHADOW"))
+                self.nexus = NexusAgent(api_key=self.api_key, model_name=get_am("NEXUS"))
                 self.adapter = PolymarketAdapter()
                 init_db()
                 self.initialized = True
