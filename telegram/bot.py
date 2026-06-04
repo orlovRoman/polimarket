@@ -329,7 +329,7 @@ async def command_help_handler(message: types.Message) -> None:
         "📚 <b>Справочник команд NEXUS:</b>\n\n"
         "<b>Основные:</b>\n"
         "🚦 /monitor — управление мониторингом (Вкл/Выкл + авто-расписание)\n"
-        "🚀 /scan — запустить поиск идей (выбор из 7 категорий)\n"
+        "🚀 /scan — запустить поиск идей (выбор из 11 категорий)\n"
         "💡 /ideas — показать последние 5 активных сигналов\n"
         "⚙️ /status — детальный статус агентов и метрики (в т.ч. Точность SCOUT*)\n"
         "📊 /audit — аудит воронки идей (отказы SHADOW)\n\n"
@@ -1409,24 +1409,37 @@ def get_active_scan_status_text() -> str:
     )
 
 
+def build_scan_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌐 Все (авто-микс)",        callback_data="scan_all")],
+        [InlineKeyboardButton(text="🏛 Политика",               callback_data="scan_politics"),
+         InlineKeyboardButton(text="₿ Крипто",                  callback_data="scan_crypto")],
+        [InlineKeyboardButton(text="⚽ Спорт",                  callback_data="scan_sports"),
+         InlineKeyboardButton(text="🎬 Культура",               callback_data="scan_culture")],
+        [InlineKeyboardButton(text="🔬 Наука/Тех",              callback_data="scan_science"),
+         InlineKeyboardButton(text="💼 Бизнес",                 callback_data="scan_business")],
+        [InlineKeyboardButton(text="🌦 Погода/Климат",          callback_data="scan_weather"),
+         InlineKeyboardButton(text="🎮 Игры/Кино",              callback_data="scan_entertainment")],
+        [InlineKeyboardButton(text="🌍 Геополитика",            callback_data="scan_geopolitics"),
+         InlineKeyboardButton(text="🏥 Здоровье",               callback_data="scan_health")],
+        [InlineKeyboardButton(text="🪙 Penny Stocks (1-5%)",    callback_data="scan_penny_stocks")],
+    ])
+
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:
     engine = get_core_engine()
-    if _scan_lock.locked() or engine._scan_lock.locked():
-        status_text = get_active_scan_status_text()
-        await message.answer(status_text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        return
+    is_busy = _scan_lock.locked() or engine._scan_lock.locked()
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌐 Все (авто-микс)", callback_data="scan_all")],
-        [InlineKeyboardButton(text="🏛 Политика", callback_data="scan_politics"),
-         InlineKeyboardButton(text="₿ Крипто", callback_data="scan_crypto")],
-        [InlineKeyboardButton(text="⚽ Спорт", callback_data="scan_sports"),
-         InlineKeyboardButton(text="🔬 Наука", callback_data="scan_science")],
-        [InlineKeyboardButton(text="💼 Бизнес", callback_data="scan_business")],
-        [InlineKeyboardButton(text="🪙 Penny Stocks (1-5%)", callback_data="scan_penny_stocks")]
-    ])
-    await message.answer("🔍 <b>Выберите категорию для сканирования:</b>", reply_markup=keyboard)
+    # Всегда показываем меню — статус занятости отображается в тексте
+    status_banner = ""
+    if is_busy:
+        status_text = get_active_scan_status_text()
+        status_banner = f"{status_text}\n\n━━━━━━━━━━━━━━━━━━━━\n⬇️ <b>Выберите категорию (запустится после):</b>\n"
+
+    keyboard = build_scan_keyboard()
+    header = status_banner if is_busy else "🔍 <b>Выберите категорию для сканирования:</b>"
+    await message.answer(header, reply_markup=keyboard, parse_mode="HTML",
+                         link_preview_options=LinkPreviewOptions(is_disabled=True))
 
 @dp.callback_query(F.data.startswith("scan_"))
 async def callback_scan_handler(callback: CallbackQuery) -> None:
@@ -1454,10 +1467,17 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
     else:
         category_param = category
         cat_map = {
-            "politics": "🏛 Политика", "crypto": "₿ Крипто",
-            "sports": "⚽ Спорт", "science": "🔬 Наука",
-            "culture": "🎬 Культура", "business": "💼 Бизнес",
-            "penny_stocks": "🪙 Penny Stocks"
+            "politics":      "🏛 Политика",
+            "crypto":        "₿ Крипто",
+            "sports":        "⚽ Спорт",
+            "science":       "🔬 Наука/Тех",
+            "culture":       "🎬 Культура",
+            "business":      "💼 Бизнес",
+            "penny_stocks":  "🪙 Penny Stocks",
+            "weather":       "🌦 Погода/Климат",
+            "entertainment": "🎮 Игры/Кино",
+            "geopolitics":   "🌍 Геополитика",
+            "health":        "🏥 Здоровье",
         }
         cat_name = cat_map.get(category, category)
 

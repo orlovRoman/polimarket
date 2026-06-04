@@ -124,33 +124,51 @@ class PolymarketAdapter(BaseMarketAdapter):
         return datetime(2099, 12, 31, tzinfo=timezone.utc)
 
     def list_markets(self, limit: int = 20, category: str = None) -> List[Market]:
-        """Получает список активных рынков с Polymarket. Если передан category, фильтрует по тегу."""
+        """Получает список активных рынков с Polymarket. Если передан category, фильтрует по тегам."""
+        POLYMARKET_TAG_MAP = {
+            "politics":      ["politics", "elections", "government"],
+            "crypto":        ["crypto", "bitcoin", "ethereum"],
+            "sports":        ["sports", "football", "basketball", "soccer"],
+            "science":       ["science", "technology", "ai", "space"],
+            "culture":       ["culture", "entertainment", "awards"],
+            "business":      ["business", "economy", "stocks"],
+            "weather":       ["weather", "climate", "environment"],
+            "entertainment": ["gaming", "movies", "tv", "esports"],
+            "geopolitics":   ["geopolitics", "war", "international", "nato"],
+            "health":        ["health", "medicine", "pandemic"],
+        }
+        
         markets = []
         if category:
-            params = {
-                "active": "true",
-                "closed": "false",
-                "limit": limit,
-                "tag_slug": category
-            }
-            response = self.session.get(f"{self.api_url}/events", params=params, timeout=15)
-            response.raise_for_status()
-            data = response.json()
-            
+            tags_to_query = POLYMARKET_TAG_MAP.get(category, [category])
             items = []
-            for event in data:
-                event_slug = event.get('slug')
-                event_desc = event.get('description', '')
-                for m in event.get('markets', []):
-                    # Добавляем slug события для генерации правильного URL
-                    if 'slug' not in m or not m['slug']:
-                        m['slug'] = event_slug
-                    else:
-                        # Polymarket URL часто использует slug события
-                        m['event_slug'] = event_slug
-                    if not m.get("description"):
-                        m["description"] = event_desc
-                    items.append(m)
+            
+            for tag in tags_to_query:
+                try:
+                    params = {
+                        "active": "true",
+                        "closed": "false",
+                        "limit": limit,
+                        "tag_slug": tag
+                    }
+                    response = self.session.get(f"{self.api_url}/events", params=params, timeout=15)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    for event in data:
+                        event_slug = event.get('slug')
+                        event_desc = event.get('description', '')
+                        for m in event.get('markets', []):
+                            if 'slug' not in m or not m['slug']:
+                                m['slug'] = event_slug
+                            else:
+                                m['event_slug'] = event_slug
+                            if not m.get("description"):
+                                m["description"] = event_desc
+                            items.append(m)
+                except Exception as e:
+                    logger.debug(f"[PolymarketAdapter] Failed to fetch tag {tag}: {e}")
+                    continue
         else:
             events = self.fetch_raw_events(limit)
             items = []
