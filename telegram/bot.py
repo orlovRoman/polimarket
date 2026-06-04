@@ -1443,19 +1443,23 @@ async def command_scan_handler(message: types.Message) -> None:
     engine = get_core_engine()
     is_busy = _scan_lock.locked() or engine._scan_lock.locked()
 
-    # Всегда показываем меню — статус занятости отображается в тексте
-    status_banner = ""
     if is_busy:
         status_text = get_active_scan_status_text()
-        status_banner = (
-            f"{status_text}\n\n━━━━━━━━━━━━━━━━━━━━\n"
-            f"⬇️ <b>Новый запуск будет доступен после завершения текущего сканирования.</b>\n"
+        header = (
+            f"{status_text}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⬇️ <b>Выберите категорию — запустится после окончания:</b>"
         )
+    else:
+        header = "🔍 <b>Выберите категорию для сканирования:</b>"
 
     keyboard = build_scan_keyboard()
-    header = status_banner if is_busy else "🔍 <b>Выберите категорию для сканирования:</b>"
-    await message.answer(header, reply_markup=keyboard, parse_mode="HTML",
-                         link_preview_options=LinkPreviewOptions(is_disabled=True))
+    await message.answer(
+        header,
+        reply_markup=keyboard,
+        parse_mode="HTML",
+        link_preview_options=LinkPreviewOptions(is_disabled=True)
+    )
 
 @dp.callback_query(F.data.startswith("scan_"))
 async def callback_scan_handler(callback: CallbackQuery) -> None:

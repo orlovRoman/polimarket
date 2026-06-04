@@ -58,7 +58,7 @@ async def test_scan_shows_menu_when_busy(user_message):
         user_message.answer.assert_called_once()
         args, kwargs = user_message.answer.call_args
         assert "BUSY_STATUS" in args[0]
-        assert "Новый запуск будет доступен после завершения" in args[0]
+        assert "Выберите категорию — запустится после окончания:" in args[0]
         assert kwargs.get("reply_markup") is not None
 
 @pytest.mark.asyncio
