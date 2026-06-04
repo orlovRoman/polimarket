@@ -1085,13 +1085,30 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
         buttons.append([InlineKeyboardButton(text=val[2], callback_data=f"sm_{agent}_{key}")])
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_models")])
     
-    await callback.message.edit_text(
-        f"🤖 <b>Настройка модели для: {agent}</b>\n\n"
-        f"Текущая ручная модель: <code>{nice_model_name}</code>\n\n"
-        f"Выберите новую модель:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-    )
-    await callback.answer()
+    import aiogram.exceptions
+    try:
+        if isinstance(message_or_callback, types.CallbackQuery):
+            await message_or_callback.message.edit_text(
+                f"🤖 <b>Настройка модели для: {agent}</b>\n\n"
+                f"Текущая ручная модель: <code>{nice_model_name}</code>\n\n"
+                f"Выберите новую модель:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="HTML"
+            )
+        else:
+            await message_or_callback.answer(
+                f"🤖 <b>Настройка модели для: {agent}</b>\n\n"
+                f"Текущая ручная модель: <code>{nice_model_name}</code>\n\n"
+                f"Выберите новую модель:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="HTML"
+            )
+    except aiogram.exceptions.TelegramBadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            logger.error(f"Error sending models menu: {e}")
+    
+    if isinstance(message_or_callback, types.CallbackQuery):
+        await message_or_callback.answer()
 
 @dp.callback_query(F.data.startswith("sm_"))
 async def callback_save_model(callback: CallbackQuery) -> None:
@@ -1379,15 +1396,16 @@ def get_active_scan_status_text() -> str:
         logger.error(f"Ошибка получения статуса сканирования из CoreEngine: {e}")
         return "⚠️ <b>Сканирование запущено.</b>\n<i>Информацию о текущем рынке и агентах получить не удалось, так как система инициализируется. Пожалуйста, подождите...</i> 🔄"
 
-    category = state.get("category", "Авто-микс")
-    stage = state.get("stage", "В процессе")
+    import html
+    category = html.escape(state.get("category", "Авто-микс"))
+    stage = html.escape(state.get("stage", "В процессе"))
     cur_idx = state.get('current_market_index', 0)
     tot = state.get('total_markets', 0)
-    title = state.get('current_market_title', 'Поиск...')
+    title = html.escape(state.get('current_market_title', 'Поиск...'))
     url = state.get('current_market_url', '')
-    scout = state.get('scout_status', '⏳ Ожидает')
-    swing = state.get('swing_status', '⏳ Ожидает')
-    shadow = state.get('shadow_status', '⏳ Ожидает')
+    scout = html.escape(state.get('scout_status', '⏳ Ожидает'))
+    swing = html.escape(state.get('swing_status', '⏳ Ожидает'))
+    shadow = html.escape(state.get('shadow_status', '⏳ Ожидает'))
     ideas = state.get('ideas_found', 0)
 
     market_link = f"<a href='{url}'>{title}</a>" if url else f"<b>{title}</b>"
