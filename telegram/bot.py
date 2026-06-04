@@ -1269,7 +1269,7 @@ async def command_corridor_handler(message: types.Message) -> None:
     try:
         from services.temporal_corridor_scanner import run_temporal_corridor_scan
         signals = await asyncio.to_thread(
-            run_temporal_corridor_scan, poly_limit=100, budget=200.0
+            run_temporal_corridor_scan, poly_limit=500, budget=200.0
         )
         if not signals:
             await status_msg.edit_text("🕐 Временных коридоров с положительным EV не найдено.")

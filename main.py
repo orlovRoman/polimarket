@@ -144,7 +144,7 @@ async def scheduled_temporal_corridors():
         from config import CORRIDOR_BUDGET_PER_TRADE
         found = await asyncio.to_thread(
             run_temporal_corridor_scan,
-            poly_limit=100,
+            poly_limit=500,
             budget=CORRIDOR_BUDGET_PER_TRADE,
         )
         if found:

@@ -1,6 +1,9 @@
 import json
+import logging
 import requests
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Optional
 
@@ -56,11 +59,14 @@ def load_events_with_levels_from_raw(
     Парсит сырые события в PolyEvent с числовыми уровнями.
     Возвращает только события с >= 2 рынками с числовыми уровнями.
     """
+    stats = {"total": 0, "few_markets": 0, "no_levels": 0, "mixed_units": 0, "low_sum": 0, "passed": 0}
     result: list[PolyEvent] = []
     
     for event in raw_events:
+        stats["total"] += 1
         raw_markets = event.get("markets", [])
         if len(raw_markets) < min_markets_per_event:
+            stats["few_markets"] += 1
             continue
         
         outcome_markets: list[OutcomeMarket] = []
@@ -101,20 +107,28 @@ def load_events_with_levels_from_raw(
         # Только события где >= 2 рынков с распознанными числовыми уровнями
         leveled = [m for m in outcome_markets if m.numeric_level is not None]
         if len(leveled) < min_markets_per_event:
+            stats["no_levels"] += 1
             continue
         
         # Проверяем что все уровни имеют одну единицу — иначе сравнение некорректно
         units = set(m.level_unit for m in leveled)
         if len(units) > 1:
+            stats["mixed_units"] += 1
             continue  # смешанные единицы — пропускаем без LLM
 
         # Фильтр: отсекаем взаимоисключающие рынки (mutually exclusive)
         # У накопительных рынков (выше X, выше Y) сумма price_yes должна быть заметно больше 1.0 (например, > 1.2)
         # Если сумма около 1.0, значит это взаимоисключающие бины.
         total_yes_prob = sum(m.price_yes for m in leveled)
-        if total_yes_prob < 1.2:
+        if total_yes_prob < 1.05:
+            logger.debug(
+                f"[SCA] Событие '{event.get('title', '')[:40]}' пропущено: "
+                f"sum(price_yes)={total_yes_prob:.2f} < 1.05 (вероятно взаимоисключающие бины)"
+            )
+            stats["low_sum"] += 1
             continue
         
+        stats["passed"] += 1
         slug = event.get("slug", "")
         result.append(PolyEvent(
             event_slug=slug,
@@ -123,4 +137,5 @@ def load_events_with_levels_from_raw(
             markets=leveled,
         ))
     
+    logger.info(f"[SCA] Статистика парсинга: {stats}")
     return result
