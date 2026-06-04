@@ -144,10 +144,16 @@ def startup_check():
         missing.append("TG_API_ID / TG_API_HASH (нужны для Telethon userbot)")
         
     if missing:
-        msg = f"КРИТИЧЕСКАЯ ОШИБКА: Не заданы обязательные переменные окружения: {', '.join(missing)}. Проверьте .env файл."
-        # Call setup_logger explicitly in case logger is not available via __getattr__ locally
-        setup_logger().error(msg)
-        raise RuntimeError(msg)
+        raise RuntimeError(f"Отсутствуют обязательные переменные окружения: {', '.join(missing)}")
+        
+    # Test ping Google API Key
+    try:
+        import requests
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GOOGLE_API_KEY}"
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+    except Exception as e:
+        raise RuntimeError(f"GOOGLE_API_KEY недействителен, истек или недоступен: {e}")
         
     # Убеждаемся, что системные папки существуют
     VAULT_PATH.mkdir(parents=True, exist_ok=True)
