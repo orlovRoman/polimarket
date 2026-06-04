@@ -25,4 +25,4 @@ def test_listener_no_direct_prints_for_logging():
 def test_logger_initialization():
     """Проверяет, что logger в telegram_listener инициализирован корректно"""
     assert hasattr(telegram_listener, "logger")
-    assert telegram_listener.logger.name == "telegram_listener"
+    assert telegram_listener.logger.name == "NexusPolyBot.telegram_listener"

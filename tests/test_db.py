@@ -285,17 +285,19 @@ class TestSaveIdeaAudit:
         assert abs(row["scout_edge"] - 0.15) < 1e-9
 
     def test_save_idea_audit_does_not_raise_on_db_error(self, db_module, caplog):
-        """При ошибке БД исключение перехватывается и логируется."""
+        """Даже при ошибках записи в базу функция не должна падать."""
+        import sqlite3
         import logging
-        with caplog.at_level(logging.ERROR, logger="DB"):
+        with caplog.at_level(logging.ERROR, logger="NexusPolyBot.DB"):
             with patch.object(db_module, "get_connection") as mock_conn:
                 mock_conn.side_effect = sqlite3.OperationalError("disk full")
-                # Не должно бросить исключение наружу
+                # Вызываем функцию
                 db_module.save_idea_audit(
                     market_id="mkt_bad",
                     market_title="Bad Market",
                     audit_data={},
                 )
+        
         assert any("idea_audit" in r.message for r in caplog.records)
 
     def test_save_idea_audit_partial_data(self, db_module):

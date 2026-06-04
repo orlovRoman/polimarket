@@ -67,29 +67,32 @@ async def test_command_eval_status_handler():
     assert "75%" in sent_text
 
 @pytest.mark.anyio
-async def test_command_eval_history_handler_no_args():
+async def test_command_eval_history_handler():
     mock_message = AsyncMock()
     mock_message.text = "/eval_history"
     
     await command_eval_history_handler(mock_message)
     
     sent_text = mock_message.answer.call_args[0][0]
-    assert "Укажите стратегию для просмотра истории" in sent_text
+    assert "История калибровок" in sent_text
+    assert "Выберите стратегию:" in sent_text
 
 @pytest.mark.anyio
-async def test_command_eval_history_handler_invalid_strategy():
-    mock_message = AsyncMock()
-    mock_message.text = "/eval_history unknown"
+async def test_callback_eval_history_invalid_strategy():
+    from telegram.bot import callback_eval_history_handler
+    mock_callback = AsyncMock()
+    mock_callback.data = "evalhist_unknown"
     
-    await command_eval_history_handler(mock_message)
+    await callback_eval_history_handler(mock_callback)
     
-    sent_text = mock_message.answer.call_args[0][0]
+    sent_text = mock_callback.message.answer.call_args[0][0]
     assert "Неизвестная стратегия" in sent_text
 
 @pytest.mark.anyio
-async def test_command_eval_history_handler_success():
-    mock_message = AsyncMock()
-    mock_message.text = "/eval_history scout"
+async def test_callback_eval_history_success():
+    from telegram.bot import callback_eval_history_handler
+    mock_callback = AsyncMock()
+    mock_callback.data = "evalhist_scout"
     
     mock_store = MagicMock()
     mock_store.get_strategy_history = AsyncMock(return_value=[
@@ -106,9 +109,9 @@ async def test_command_eval_history_handler_success():
     ])
     
     with patch("core.eval.calibration_store.CalibrationStore", return_value=mock_store):
-        await command_eval_history_handler(mock_message)
+        await callback_eval_history_handler(mock_callback)
         
-    sent_text = mock_message.answer.call_args[0][0]
+    sent_text = mock_callback.message.answer.call_args[0][0]
     assert "История калибровок (SCOUT)" in sent_text
     assert "Предложение #12" in sent_text
     assert "High win rate" in sent_text

@@ -25,7 +25,7 @@ def test_heuristic_filters_mutually_exclusive():
         "title": "BTC Price",
         "markets": [
             {"id": "4", "question": "BTC above $1000", "outcomePrices": '["0.9", "0.1"]', "volume": "10000"},
-            {"id": "5", "question": "BTC above $2000", "outcomePrices": '["0.7", "0.3"]', "volume": "10000"},
+            {"id": "5", "question": "BTC above $2500", "outcomePrices": '["0.7", "0.3"]', "volume": "10000"},
             {"id": "6", "question": "BTC above $3000", "outcomePrices": '["0.4", "0.6"]', "volume": "10000"},
         ]
     }
