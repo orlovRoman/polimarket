@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from config import DB_PATH
 
-logger = logging.getLogger("SignalLogger")
+logger = logging.getLogger("NexusPolyBot.SignalLogger")
 
 class StrategyType(str, Enum):
     SCOUT = 'scout'

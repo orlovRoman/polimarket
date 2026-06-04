@@ -3,7 +3,7 @@ import time
 import numpy as np
 from typing import List, Tuple, Optional
 
-logger = logging.getLogger("SemanticFilter")
+logger = logging.getLogger("NexusPolyBot.SemanticFilter")
 
 # Константы для порогов raw cosine similarity
 SAME_EVENT_THRESHOLD = 0.75

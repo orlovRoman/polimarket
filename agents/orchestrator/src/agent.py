@@ -1,5 +1,5 @@
 import logging
-logger = logging.getLogger("NexusAgent")
+logger = logging.getLogger("NexusPolyBot.NexusAgent")
 import os
 import json
 from datetime import datetime, timezone
@@ -243,6 +243,9 @@ class NexusAgent:
             correlations_count = len(result.get("correlations", []))
             logger.info(f"[NEXUS SCREENER] Отобрано {len(candidates)} кандидатов, найдено {correlations_count} корреляций")
             
+            report_logger = logging.getLogger("AgentReports")
+            import json
+            report_logger.info(f"=== NEXUS REPORT ===\nПромпт: SCREENER\n\nОтвет:\n{json.dumps(result, indent=2, ensure_ascii=False)}")
             return result
             
         except Exception as e:
@@ -592,7 +595,10 @@ class NexusAgent:
             if not function_calls:
                 # Если вызовов функций нет, возвращаем текстовый ответ
                 text_parts = [p['text'] for p in parts if 'text' in p]
-                return "\n".join(text_parts) if text_parts else "Агент выполнил задачу."
+                text_response = "\n".join(text_parts) if text_parts else "Агент выполнил задачу."
+                report_logger = logging.getLogger("AgentReports")
+                report_logger.info(f"=== NEXUS REPORT ===\nПромпт: {prompt[:200]}\n\nОтвет:\n{text_response}")
+                return text_response
 
             # Обрабатываем все вызовы функций в текущем ответе
             response_parts = []
@@ -635,6 +641,7 @@ class NexusAgent:
                 except Exception as e:
                     result = f"Ошибка при выполнении {name}: {e}"
 
+                logger.debug(f"  ↳ Результат {name}: {str(result)[:500]}")
                 response_parts.append({
                     "functionResponse": {
                         "name": name,

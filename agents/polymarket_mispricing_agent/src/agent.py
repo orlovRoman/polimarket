@@ -11,7 +11,7 @@ from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 import logging
 from agents.shared.python.llm_wrapper import with_retry
 
-logger = logging.getLogger("scout_agent")
+logger = logging.getLogger("NexusPolyBot.scout_agent")
 
 class ScoutAgent:
     """

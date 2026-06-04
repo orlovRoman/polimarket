@@ -3,7 +3,7 @@ import logging
 from typing import Optional
 from agents.shared.python.db import get_connection
 
-logger = logging.getLogger("LLMLogger")
+logger = logging.getLogger("NexusPolyBot.LLMLogger")
 
 class LLMLogger:
     """Единая система оценки и логов LLM."""

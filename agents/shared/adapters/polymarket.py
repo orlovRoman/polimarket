@@ -6,7 +6,7 @@ from typing import List, Optional
 from .base_adapter import BaseMarketAdapter
 from core.models import Market
 
-logger = logging.getLogger("PolymarketAdapter")
+logger = logging.getLogger("NexusPolyBot.PolymarketAdapter")
 
 def _clean_slug_for_search(slug: str) -> str:
     """Очищает slug от стоп-слов для более надежного текстового поиска в public-search."""

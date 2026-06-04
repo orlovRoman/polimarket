@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from config import DB_PATH
 import logging
 
-logger = logging.getLogger("DB")
+logger = logging.getLogger("NexusPolyBot.DB")
 
 _db_initializing = False
 

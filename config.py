@@ -96,6 +96,7 @@ from logging.handlers import RotatingFileHandler
 
 LOGS_DIR = PROJECT_ROOT / "logs"
 LOG_PATH = LOGS_DIR / "main.log"
+AGENT_REPORTS_PATH = LOGS_DIR / "agent_reports.log"
 
 def setup_logger(name="NexusPolyBot"):
     log = logging.getLogger(name)
@@ -106,14 +107,32 @@ def setup_logger(name="NexusPolyBot"):
     log.setLevel(logging.DEBUG)
     log.propagate = False
     
-    file_handler = RotatingFileHandler(LOG_PATH, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Handler 1: основной лог (всё)
+    file_handler = RotatingFileHandler(LOG_PATH, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
     file_handler.setFormatter(formatter)
     log.addHandler(file_handler)
     
+    # Handler 2: консоль
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     log.addHandler(console_handler)
+    
+    # Handler 3: отдельный файл для агентских отчётов (только INFO+)
+    report_formatter = logging.Formatter('[%(asctime)s] [%(name)s]\n%(message)s\n' + '-'*60)
+    report_handler = RotatingFileHandler(AGENT_REPORTS_PATH, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8")
+    report_handler.setFormatter(report_formatter)
+    report_handler.setLevel(logging.INFO)
+    
+    # Отдельный логгер для отчётов
+    report_log = logging.getLogger("AgentReports")
+    report_log.setLevel(logging.INFO)
+    # Avoid duplicate handlers if setup_logger is called multiple times for some reason
+    if not report_log.handlers:
+        report_log.addHandler(report_handler)
+    report_log.propagate = False
+    
     return log
 
 _logger_instance = None

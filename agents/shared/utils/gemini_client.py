@@ -9,7 +9,7 @@ from threading import Lock
 from typing import Optional, Tuple
 from agents.shared.python.db import save_memory, get_memory
 
-logger = logging.getLogger("gemini_client")
+logger = logging.getLogger("NexusPolyBot.gemini_client")
 
 def _lower_types(schema):
     """Рекурсивно приводит значения 'type' к нижнему регистру для совместимости с OpenAI."""

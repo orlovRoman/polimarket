@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from core.math_filter import MathFilterResult, FilterDecision
 
-logger = logging.getLogger("math_filter_metrics")
+logger = logging.getLogger("NexusPolyBot.math_filter_metrics")
 
 
 def log_filter_result(

@@ -12,7 +12,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-logger = logging.getLogger("WatchlistMonitor")
+logger = logging.getLogger("NexusPolyBot.WatchlistMonitor")
 
 # Интервал опроса, секунды
 POLL_INTERVAL_SEC = 10 * 60  # 10 минут

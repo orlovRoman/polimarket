@@ -3,7 +3,7 @@ import logging
 from agents.shared.python.db import get_connection, cleanup_stale_signals, save_agent_episode
 from agents.shared.adapters.polymarket import PolymarketAdapter
 
-logger = logging.getLogger("ResolutionCheck")
+logger = logging.getLogger("NexusPolyBot.ResolutionCheck")
 
 def resolve_closed_markets():
     """

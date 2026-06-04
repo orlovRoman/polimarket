@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from core.eval.signal_logger import SignalLogger
 from config import DB_PATH
 
-logger = logging.getLogger("ResolutionFetcher")
+logger = logging.getLogger("NexusPolyBot.ResolutionFetcher")
 
 class ResolutionFetcher:
     """

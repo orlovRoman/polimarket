@@ -19,7 +19,7 @@ from agents.shared.python.market_selector import MarketSelector
 from core.workflow import run_screening, run_agent_evaluation, process_consensus
 from services.notifications import send_telegram as send_telegram_alert
 
-logger = logging.getLogger("CoreEngine")
+logger = logging.getLogger("NexusPolyBot.CoreEngine")
 
 import inspect
 import traceback

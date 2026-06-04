@@ -11,7 +11,7 @@ from core.eval.metrics_repository import MetricsRepository
 from core.eval.calibration_store import CalibrationStore
 import config
 
-logger = logging.getLogger("EvaluationEngine")
+logger = logging.getLogger("NexusPolyBot.EvaluationEngine")
 
 class EvalResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)

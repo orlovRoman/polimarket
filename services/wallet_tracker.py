@@ -5,7 +5,7 @@ from agents.shared.python.db import (
     get_connection, save_trader_transaction, update_wallet_stats
 )
 
-logger = logging.getLogger("WalletTracker")
+logger = logging.getLogger("NexusPolyBot.WalletTracker")
 _MIN_TRADE_USD = 500.0  # порог "крупной" сделки
 
 def ingest_trades(market_id: str, trades: list, positions: list) -> int:

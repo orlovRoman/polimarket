@@ -4,7 +4,7 @@ import time
 import logging
 from typing import Optional, List, Dict, Any
 
-logger = logging.getLogger("OnChainProvider")
+logger = logging.getLogger("NexusPolyBot.OnChainProvider")
 
 CLOB_BASE = "https://clob.polymarket.com"
 GAMMA_BASE = "https://gamma-api.polymarket.com"

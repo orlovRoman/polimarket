@@ -7,7 +7,7 @@ from core.eval.signal_logger import StrategyType
 from core.eval.metrics_calculator import SignalRecord, StrategyMetrics, calculate_metrics
 from config import DB_PATH
 
-logger = logging.getLogger("MetricsRepository")
+logger = logging.getLogger("NexusPolyBot.MetricsRepository")
 
 class MetricsRepository:
     """

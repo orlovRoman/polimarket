@@ -6,7 +6,7 @@ from typing import Optional
 import logging
 from core.models import Market
 
-logger = logging.getLogger("math_filter")
+logger = logging.getLogger("NexusPolyBot.math_filter")
 
 _COMMON_STOPWORDS = frozenset({
     'will', 'the', 'a', 'an', 'in', 'by', 'of', 'to', 'at', 'on', 'for',

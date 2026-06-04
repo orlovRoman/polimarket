@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional
 import config
 from core.eval.calibration_store import CalibrationStore
 
-logger = logging.getLogger("ConfigProvider")
+logger = logging.getLogger("NexusPolyBot.ConfigProvider")
 
 class ConfigProvider:
     _cache: Dict[str, Any] = {}

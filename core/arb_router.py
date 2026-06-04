@@ -12,7 +12,7 @@ from core.math_filter import MathFilterResult, FilterDecision
 if TYPE_CHECKING:
     from core.models import Market
 
-logger = logging.getLogger("arb_router")
+logger = logging.getLogger("NexusPolyBot.arb_router")
 
 try:
     from agents.shared.utils.gemini_client import (

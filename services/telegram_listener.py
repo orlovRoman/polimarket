@@ -28,7 +28,7 @@ from core.engine import CoreEngine
 from agents.orchestrator.src.news_processor import NewsProcessor
 from core.arb_scanner import _PRICE_TAG_RE
 
-logger = logging.getLogger("telegram_listener")
+logger = logging.getLogger("NexusPolyBot.telegram_listener")
 
 try:
     from telethon import TelegramClient, events

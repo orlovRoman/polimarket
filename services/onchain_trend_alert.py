@@ -1,7 +1,7 @@
 import logging
 from agents.shared.python.db import get_connection, is_alert_already_sent, mark_alert_sent
 
-logger = logging.getLogger("OnchainTrend")
+logger = logging.getLogger("NexusPolyBot.OnchainTrend")
 
 def scan_volume_spikes(min_spike_ratio: float = 3.0) -> list[dict]:
     """

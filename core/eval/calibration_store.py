@@ -7,7 +7,7 @@ from core.eval.signal_logger import StrategyType
 from core.eval.threshold_calibrator import CalibrationSuggestion
 from config import DB_PATH
 
-logger = logging.getLogger("CalibrationStore")
+logger = logging.getLogger("NexusPolyBot.CalibrationStore")
 
 class CalibrationRecord:
     def __init__(

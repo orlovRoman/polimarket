@@ -11,7 +11,7 @@ from core.math_filter import math_pre_filter, FilterDecision, MathFilterResult
 if TYPE_CHECKING:
     from core.models import Market
 
-logger = logging.getLogger("arb_scanner")
+logger = logging.getLogger("NexusPolyBot.arb_scanner")
 
 _STOPWORDS = frozenset({
     'will', 'the', 'a', 'an', 'in', 'by', 'to', 'at', 'on',

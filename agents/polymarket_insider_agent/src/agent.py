@@ -198,7 +198,7 @@ class ShadowAgent:
 
         # === POST-VALIDATION GUARDS ===
         import logging
-        logger = logging.getLogger("shadow_agent")
+        logger = logging.getLogger("NexusPolyBot.shadow_agent")
 
         # Гард 1: ордербук недоступен → confidence не может быть > 0.40
         if ob_snap is None:

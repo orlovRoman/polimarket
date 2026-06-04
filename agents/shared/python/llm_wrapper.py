@@ -7,7 +7,7 @@ from typing import Callable, Any
 from config import llm_health_gate
 from core.guards import LLMUnavailableError
 
-logger = logging.getLogger("llm_wrapper")
+logger = logging.getLogger("NexusPolyBot.llm_wrapper")
 
 def with_retry(max_attempts: int = 3, initial_backoff: float = 2.0):
     """

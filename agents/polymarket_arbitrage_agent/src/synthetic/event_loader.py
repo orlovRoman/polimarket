@@ -3,7 +3,7 @@ import logging
 import requests
 from dataclasses import dataclass, field
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"NexusPolyBot.{__name__}")
 from datetime import datetime
 from typing import Optional
 

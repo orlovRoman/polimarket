@@ -7,7 +7,7 @@ from agents.shared.utils.gemini_client import generate_content_with_fallback, ex
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from core.models import Market
 
-logger = logging.getLogger("NewsProcessor")
+logger = logging.getLogger("NexusPolyBot.NewsProcessor")
 
 class NewsProcessor:
     """
