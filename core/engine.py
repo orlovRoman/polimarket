@@ -27,32 +27,16 @@ import html
 
 from core.guards import LLMUnavailableError
 
-_markup_cache: dict = {}
-_markup_cache_lock = threading.Lock()
+import functools
 
+@functools.lru_cache(maxsize=128)
 def _callback_accepts_reply_markup(func) -> bool:
     """Кэширует результат проверки наличия reply_markup в сигнатуре колбэка."""
     try:
-        with _markup_cache_lock:
-            if func in _markup_cache:
-                return _markup_cache[func]
-    except TypeError:
-        pass  # нехэшируемая функция — идём дальше без кэша
-
-    try:
         sig = inspect.signature(func)
-        res = "reply_markup" in sig.parameters
+        return "reply_markup" in sig.parameters
     except (ValueError, TypeError):
         return False
-
-    try:
-        with _markup_cache_lock:
-            if len(_markup_cache) >= 64:
-                _markup_cache.clear()
-            _markup_cache.setdefault(func, res)  # атомарная запись только если нет
-    except TypeError:
-        pass
-    return res
 
 class NoMarketsFoundError(Exception):
     """Исключение, выбрасываемое когда активные рынки по фильтрам не найдены."""
@@ -217,6 +201,11 @@ class CoreEngine:
                 init_db()
                 self.initialized = True
             except Exception:
+                for attr in ("scout", "swing", "shadow", "nexus", "adapter"):
+                    obj = getattr(self, attr, None)
+                    if obj and hasattr(obj, "close"):
+                        try: obj.close()
+                        except: pass
                 CoreEngine._instance = None  # позволяет пересоздать после исправления конфига
                 raise
 
@@ -372,57 +361,31 @@ class CoreEngine:
         return markets
 
     def _run_math_gate_sync(self, markets: list[Market], summary_callback) -> list[str]:
-        processed_ids = []
-        try:
-            loop = asyncio.new_event_loop()
+        """Всегда запускает в изолированном потоке — предсказуемо."""
+        import threading
+        from concurrent.futures import Future
+        
+        def _factory():
+            return _run_math_gate(
+                markets=markets, api_key=self.api_key,
+                notify_fn=summary_callback, min_spread_pct=5.0
+            )
+        
+        fut: Future = Future()
+        def _runner(f, factory):
             try:
-                processed_ids = loop.run_until_complete(_run_math_gate(
-                    markets=markets,
-                    api_key=self.api_key,
-                    notify_fn=summary_callback,
-                    min_spread_pct=5.0
-                ))
-            finally:
-                loop.close()
-        except RuntimeError as e:
-            err_msg = str(e).lower()
-            if "already running" in err_msg or "cannot be called from" in err_msg or "loop is running" in err_msg:
-                logger.warning("Event loop is already running in this thread. Falling back to isolated thread execution.")
-                try:
-                    import threading
-                    from concurrent.futures import Future
-                    
-                    def _coro_factory():
-                        return _run_math_gate(
-                            markets=markets,
-                            api_key=self.api_key,
-                            notify_fn=summary_callback,
-                            min_spread_pct=5.0
-                        )
-
-                    def run_in_new_thread(fut, factory):
-                        try:
-                            res = asyncio.run(factory())
-                            fut.set_result(res)
-                        except Exception as ex:
-                            fut.set_exception(ex)
-                    
-                    fut = Future()
-                    t = threading.Thread(target=run_in_new_thread, args=(fut, _coro_factory))
-                    t.start()
-                    t.join()
-                    processed_ids = fut.result()
-                except Exception as inner_e:
-                    logger.error(
-                        f"Fallback math gate run failed: {inner_e} "
-                        f"(original: {e})",
-                        exc_info=True
-                    )
-            else:
-                logger.error(f"Error running math gate: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"Error running math gate: {e}", exc_info=True)
-        return processed_ids
+                import asyncio
+                f.set_result(asyncio.run(factory()))
+            except Exception as ex:
+                f.set_exception(ex)
+        
+        t = threading.Thread(target=_runner, args=(fut, _factory), daemon=True)
+        t.start()
+        t.join(timeout=120)  # таймаут на весь math_gate
+        if not t.is_alive():
+            return fut.result()
+        logger.error("[math_gate] Timeout exceeded (120s), returning empty list")
+        return []
 
     def _fetch_pre_orderbook(self, market: Market) -> Optional[Any]:
         pre_orderbook = None
@@ -459,11 +422,12 @@ class CoreEngine:
                 
             _update_state(shadow_status="🔄 Проверяет ордербук...")
             
-            target_outcome = getattr(active_signal, 'target_outcome', 'YES')
+            from core.constants import Outcome
+            target_outcome = getattr(active_signal, 'target_outcome', Outcome.YES)
             # Если выбран исход NO и у нас есть соответствующий токен (tokens[1]),
             # дозагружаем ордербук для NO, чтобы скорректировать контекст для SHADOW.
             # В противном случае context.orderbook уже содержит YES-стакан (pre_orderbook).
-            if target_outcome.upper() == 'NO' and len(m.tokens) > 1:
+            if target_outcome.upper() == Outcome.NO and len(m.tokens) > 1:
                 try:
                     ob_raw = self.adapter.get_orderbook(m.tokens[1])
                     if ob_raw:
@@ -605,30 +569,17 @@ class CoreEngine:
             pre_orderbook = self._fetch_pre_orderbook(m)
 
             import asyncio
+            loop = asyncio.new_event_loop()
             try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop and loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                    fut = ex.submit(asyncio.run, run_agent_evaluation(
-                        m, self.scout, self.swing, _update_state,
-                        adapter=self.adapter, trigger_type=trigger_type,
-                        source_url=source_url, source_text=source_text,
-                        triggered_at=triggered_at, price_history=price_hist,
-                        pre_orderbook=pre_orderbook
-                    ))
-                    signal, swing_signal, context = fut.result()
-            else:
-                signal, swing_signal, context = asyncio.run(run_agent_evaluation(
+                signal, swing_signal, context = loop.run_until_complete(run_agent_evaluation(
                     m, self.scout, self.swing, _update_state,
                     adapter=self.adapter, trigger_type=trigger_type,
                     source_url=source_url, source_text=source_text,
                     triggered_at=triggered_at, price_history=price_hist,
                     pre_orderbook=pre_orderbook
                 ))
+            finally:
+                loop.close()
 
             if context is None:
                 logger.info(f"  Рынок {m.id} пропущен (дедупликация)")
