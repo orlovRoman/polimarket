@@ -1,0 +1,1 @@
+from core.utils import _callback_accepts_reply_markup

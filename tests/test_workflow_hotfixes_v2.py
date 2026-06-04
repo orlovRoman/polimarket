@@ -47,21 +47,16 @@ def test_fetch_markets_parallel_handles_partial_failures():
 
 def test_fetch_markets_parallel_timeout():
     """При полном зависании возвращает пустой список через 30с."""
+    import concurrent.futures
     adapter = MagicMock()
-    # Mock submit to do nothing and as_completed to raise TimeoutError on the generator
     with patch("core.workflow.concurrent.futures.as_completed") as mock_ac:
-        def fake_as_completed(futures, timeout):
-            import concurrent.futures
-            raise concurrent.futures.TimeoutError()
-            yield
-        mock_ac.side_effect = fake_as_completed
+        mock_ac.side_effect = concurrent.futures.TimeoutError
         result = _fetch_markets_parallel(adapter, ["id1"], max_workers=1)
-    
     assert result == []
 
 def test_process_consensus_calls_callback_with_markup():
     calls = []
-    def cb_with_markup(text, reply_markup=None):
+    def cb_with_markup(text, reply_markup):
         calls.append({"text": text, "markup": reply_markup})
 
     context = MagicMock()
@@ -70,10 +65,10 @@ def test_process_consensus_calls_callback_with_markup():
     signal = MagicMock(edge=0.6)
     opinion = MagicMock(agree=True, liquidity_risk="LOW", confidence=0.8,
                         orderbook_facts="bid=0.55", risk_assessment="ok",
-                        shadow_verdict="accept", opinion="ok")
+                        shadow_verdict="ok", opinion="ok")
 
     with patch("core.workflow.IdeaDecision", return_value=MagicMock(status='saved')):
-        with patch("agents.shared.python.db.save_agent_episode"):
+        with patch("agents.shared.python.db.save_agent_episode", create=True):
             with patch("core.workflow.save_idea_audit"):
                 with patch("core.workflow.save_signal"):
                     process_consensus(context, signal, None, opinion, MagicMock(status='saved'), lambda **kw: None, cb_with_markup)
@@ -92,7 +87,7 @@ def test_process_consensus_calls_callback_without_markup():
                         orderbook_facts="", risk_assessment="", shadow_verdict="ok", opinion="ok")
 
     with patch("core.workflow.IdeaDecision", return_value=MagicMock(status='saved')):
-        with patch("agents.shared.python.db.save_agent_episode"):
+        with patch("agents.shared.python.db.save_agent_episode", create=True):
             with patch("core.workflow.save_idea_audit"):
                 with patch("core.workflow.save_signal"):
                     process_consensus(context, signal, None, opinion, MagicMock(status='saved'), lambda **kw: None, cb_no_markup)

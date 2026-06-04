@@ -245,33 +245,44 @@ Description:
 # ─────────────────────────────────────────────
 
 import json
+import asyncio
+import os
 from config import VAULT_PATH
 
 _runtime_rss_cache: dict[str, str] = {}
 _RSS_CACHE_FILE = VAULT_PATH / "rss_cache.json"
+_cache_loaded = False
+_rss_lock = asyncio.Lock()
 
-def _load_rss_cache():
-    global _runtime_rss_cache
-    if not _runtime_rss_cache and _RSS_CACHE_FILE.exists():
+async def _load_rss_cache():
+    global _runtime_rss_cache, _cache_loaded
+    if _cache_loaded:
+        return
+    if _RSS_CACHE_FILE.exists():
         try:
             with open(_RSS_CACHE_FILE, "r", encoding="utf-8") as f:
                 _runtime_rss_cache = json.load(f)
         except Exception as e:
             logger.error(f"[autodiscover_rss] Ошибка загрузки кэша: {e}")
+    _cache_loaded = True
 
-def _save_rss_cache():
+async def _save_rss_cache():
     try:
-        with open(_RSS_CACHE_FILE, "w", encoding="utf-8") as f:
+        tmp_file = _RSS_CACHE_FILE.with_suffix(".json.tmp")
+        with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(_runtime_rss_cache, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_file, _RSS_CACHE_FILE)
     except Exception as e:
         logger.error(f"[autodiscover_rss] Ошибка сохранения кэша: {e}")
 
 AUTODISCOVER_PATHS = ["/feed", "/rss", "/feed.xml", "/rss.xml", "/feeds/posts/default", "/news/rss"]
 
 async def autodiscover_rss(domain: str) -> Optional[str]:
-    _load_rss_cache()
-    if domain in _runtime_rss_cache:
-        return _runtime_rss_cache[domain]
+    async with _rss_lock:
+        await _load_rss_cache()
+        if domain in _runtime_rss_cache:
+            val = _runtime_rss_cache[domain]
+            return None if val == "NONE" else val
         
     async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
         for path in AUTODISCOVER_PATHS:
@@ -279,12 +290,17 @@ async def autodiscover_rss(domain: str) -> Optional[str]:
                 url = f"https://{domain}{path}"
                 r = await client.get(url, headers={"Accept": "application/rss+xml"})
                 if r.status_code == 200 and "xml" in r.headers.get("content-type", ""):
-                    _runtime_rss_cache[domain] = url
-                    _save_rss_cache()
+                    async with _rss_lock:
+                        _runtime_rss_cache[domain] = url
+                        await _save_rss_cache()
                     logger.info(f"[autodiscover_rss] Найдена лента: {domain} -> {url}")
                     return url
             except Exception:
                 continue
+                
+    async with _rss_lock:
+        _runtime_rss_cache[domain] = "NONE"
+        await _save_rss_cache()
     return None
 
 # ─────────────────────────────────────────────
