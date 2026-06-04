@@ -119,21 +119,23 @@ def setup_logger(name="NexusPolyBot"):
     console_handler.setFormatter(formatter)
     log.addHandler(console_handler)
     
-    # Handler 3: отдельный файл для агентских отчётов (только INFO+)
-    report_formatter = logging.Formatter('[%(asctime)s] [%(name)s]\n%(message)s\n' + '-'*60)
-    report_handler = RotatingFileHandler(AGENT_REPORTS_PATH, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8")
-    report_handler.setFormatter(report_formatter)
-    report_handler.setLevel(logging.INFO)
-    
-    # Отдельный логгер для отчётов
-    report_log = logging.getLogger("AgentReports")
-    report_log.setLevel(logging.INFO)
-    # Avoid duplicate handlers if setup_logger is called multiple times for some reason
-    if not report_log.handlers:
-        report_log.addHandler(report_handler)
-    report_log.propagate = False
-    
     return log
+
+def get_report_logger():
+    """Возвращает логгер для агентских отчётов, инициализируя его при первом вызове."""
+    report_log = logging.getLogger("AgentReports")
+    if not report_log.handlers:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        report_formatter = logging.Formatter('[%(asctime)s] [%(name)s]\n%(message)s\n' + '-'*60)
+        report_handler = RotatingFileHandler(
+            AGENT_REPORTS_PATH, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8"
+        )
+        report_handler.setFormatter(report_formatter)
+        report_handler.setLevel(logging.INFO)
+        report_log.addHandler(report_handler)
+        report_log.setLevel(logging.INFO)
+        report_log.propagate = False
+    return report_log
 
 _logger_instance = None
 

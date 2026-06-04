@@ -243,9 +243,16 @@ class NexusAgent:
             correlations_count = len(result.get("correlations", []))
             logger.info(f"[NEXUS SCREENER] Отобрано {len(candidates)} кандидатов, найдено {correlations_count} корреляций")
             
-            report_logger = logging.getLogger("AgentReports")
-            import json
-            report_logger.info(f"=== NEXUS REPORT ===\nПромпт: SCREENER\n\nОтвет:\n{json.dumps(result, indent=2, ensure_ascii=False)}")
+            from config import get_report_logger
+            report_logger = get_report_logger()
+            result_str = json.dumps(result, indent=2, ensure_ascii=False)
+            MAX_REPORT_LEN = 3000
+            report_logger.info(
+                f"=== NEXUS REPORT ===\n"
+                f"Промпт: (SCREENER)\n\n"
+                f"Ответ (JSON):\n{result_str[:MAX_REPORT_LEN]}"
+                f"{'...[truncated]' if len(result_str) > MAX_REPORT_LEN else ''}"
+            )
             return result
             
         except Exception as e:
@@ -596,8 +603,15 @@ class NexusAgent:
                 # Если вызовов функций нет, возвращаем текстовый ответ
                 text_parts = [p['text'] for p in parts if 'text' in p]
                 text_response = "\n".join(text_parts) if text_parts else "Агент выполнил задачу."
-                report_logger = logging.getLogger("AgentReports")
-                report_logger.info(f"=== NEXUS REPORT ===\nПромпт: {prompt[:200]}\n\nОтвет:\n{text_response}")
+                from config import get_report_logger
+                report_logger = get_report_logger()
+                MAX_REPORT_LEN = 3000
+                report_logger.info(
+                    f"=== NEXUS REPORT ===\n"
+                    f"Промпт: {prompt[:200]}\n\n"
+                    f"Ответ:\n{text_response[:MAX_REPORT_LEN]}"
+                    f"{'...[truncated]' if len(text_response) > MAX_REPORT_LEN else ''}"
+                )
                 return text_response
 
             # Обрабатываем все вызовы функций в текущем ответе
