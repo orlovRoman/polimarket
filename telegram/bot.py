@@ -1409,21 +1409,16 @@ def get_active_scan_status_text() -> str:
     )
 
 
+from agents.shared.scan_categories import SCAN_CATEGORIES
+
 def build_scan_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌐 Все (авто-микс)",        callback_data="scan_all")],
-        [InlineKeyboardButton(text="🏛 Политика",               callback_data="scan_politics"),
-         InlineKeyboardButton(text="₿ Крипто",                  callback_data="scan_crypto")],
-        [InlineKeyboardButton(text="⚽ Спорт",                  callback_data="scan_sports"),
-         InlineKeyboardButton(text="🎬 Культура",               callback_data="scan_culture")],
-        [InlineKeyboardButton(text="🔬 Наука/Тех",              callback_data="scan_science"),
-         InlineKeyboardButton(text="💼 Бизнес",                 callback_data="scan_business")],
-        [InlineKeyboardButton(text="🌦 Погода/Климат",          callback_data="scan_weather"),
-         InlineKeyboardButton(text="🎮 Игры/Кино",              callback_data="scan_entertainment")],
-        [InlineKeyboardButton(text="🌍 Геополитика",            callback_data="scan_geopolitics"),
-         InlineKeyboardButton(text="🏥 Здоровье",               callback_data="scan_health")],
-        [InlineKeyboardButton(text="🪙 Penny Stocks (1-5%)",    callback_data="scan_penny_stocks")],
-    ])
+    buttons = [[InlineKeyboardButton(
+        text=v["label"], callback_data=f"scan_{k}"
+    )] for k, v in SCAN_CATEGORIES.items()]
+    buttons.insert(0, [InlineKeyboardButton(
+        text="🌐 Все (авто-микс)", callback_data="scan_all"
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:
@@ -1472,8 +1467,6 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         from agents.shared.scan_categories import SCAN_CATEGORIES
         if category in SCAN_CATEGORIES:
             cat_name = SCAN_CATEGORIES[category]["label"]
-        elif category == "penny_stocks":
-            cat_name = "🪙 Penny Stocks"
         else:
             cat_name = category
 

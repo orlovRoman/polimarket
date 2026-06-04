@@ -5,9 +5,15 @@ from core.engine import CoreEngine
 @pytest.fixture
 def engine():
     e = CoreEngine()
-    e.update_scan_state = e.update_state
-    e.get_scan_state = e.get_status
-    # Mock some internals if needed
+    assert hasattr(e, 'update_state') or hasattr(e, 'update_scan_state'), \
+        "CoreEngine должен иметь метод update_state или update_scan_state"
+    assert hasattr(e, 'get_status') or hasattr(e, 'get_scan_state'), \
+        "CoreEngine должен иметь метод get_status или get_scan_state"
+    
+    if hasattr(e, 'update_state'):
+        e.update_scan_state = e.update_state
+    if hasattr(e, 'get_status'):
+        e.get_scan_state = e.get_status
     return e
 
 @pytest.fixture

@@ -9,4 +9,5 @@ SCAN_CATEGORIES = {
     "entertainment": {"label": "🎮 Игры/Кино",       "tags": ["gaming", "movies", "tv", "esports"]},
     "geopolitics":   {"label": "🌍 Геополитика",     "tags": ["geopolitics", "war", "international"]},
     "health":        {"label": "🏥 Здоровье",        "tags": ["health", "medicine", "pandemic"]},
+    "penny_stocks":  {"label": "🪙 Penny Stocks",    "tags": ["penny_stocks"]},
 }

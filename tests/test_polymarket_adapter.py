@@ -35,7 +35,7 @@ def test_list_markets_deduplication(mock_adapter):
     mock_adapter.set_tag_response("politics", [{"slug": "evt1", "markets": [market]}])
     mock_adapter.set_tag_response("elections", [{"slug": "evt1", "markets": [market]}])
     result = mock_adapter.list_markets(limit=20, category="politics")
-    ids = [m.id for m in result]
+    ids = [m.id if hasattr(m, 'id') else m.get('id') for m in result]
     assert ids.count("mkt1") == 1
 
 def test_list_markets_respects_limit(mock_adapter):
