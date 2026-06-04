@@ -95,6 +95,7 @@ LOG_PATH = LOGS_DIR / "main.log"
 def setup_logger(name="NexusPolyBot"):
     log = logging.getLogger(name)
     log.setLevel(logging.INFO)
+    log.propagate = False
     if not log.handlers:
         file_handler = RotatingFileHandler(LOG_PATH, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
