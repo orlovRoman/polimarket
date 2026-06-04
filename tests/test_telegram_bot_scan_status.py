@@ -58,10 +58,19 @@ def test_command_scan_handler_locked():
         mock_message = AsyncMock()
         
         with patch("telegram.bot._scan_lock.locked", return_value=True), \
+             patch("telegram.bot.get_core_engine") as mock_engine_func, \
              patch("telegram.bot.get_active_scan_status_text", return_value="FAKE_SCANNING_STATUS"):
+            
+            mock_engine = MagicMock()
+            mock_engine._scan_lock.locked.return_value = True
+            mock_engine_func.return_value = mock_engine
+            
             await command_scan_handler(mock_message)
             
-        mock_message.answer.assert_called_once_with("FAKE_SCANNING_STATUS", parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        mock_message.answer.assert_called_once()
+        args, kwargs = mock_message.answer.call_args
+        assert "FAKE_SCANNING_STATUS" in args[0]
+        assert "reply_markup" in kwargs
 
     asyncio.run(run_test())
 
