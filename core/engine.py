@@ -307,12 +307,25 @@ class CoreEngine:
         processed_ids = self._run_math_gate_sync(markets, summary_callback)
 
         remaining_markets = [m for m in markets if m.id not in processed_ids]
-        _update_state(total_markets=len(remaining_markets), stage="Обсуждение (SCOUT + SWING + SHADOW)")
+        _update_state(
+            total_markets=len(remaining_markets),
+            current_market_index=0,
+            stage="Обсуждение (SCOUT + SWING + SHADOW)"
+        )
         
         for i, m in enumerate(remaining_markets, 1):
             self._process_single_market(m, i, summary_callback, _update_state, log, market_id=market_id, **kwargs)
                 
-        _update_state(stage="Завершено")
+        _update_state(
+            stage="Завершено",
+            current_market_index=0,
+            total_markets=0,
+            current_market_title="",
+            current_market_url="",
+            scout_status="⏳ Ожидает",
+            swing_status="⏳ Ожидает",
+            shadow_status="⏳ Ожидает",
+        )
         log("\n✅ Обсуждение завершено.")
         return len(markets)
 

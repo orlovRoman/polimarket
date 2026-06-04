@@ -1434,7 +1434,10 @@ async def command_scan_handler(message: types.Message) -> None:
     status_banner = ""
     if is_busy:
         status_text = get_active_scan_status_text()
-        status_banner = f"{status_text}\n\n━━━━━━━━━━━━━━━━━━━━\n⬇️ <b>Выберите категорию (запустится после):</b>\n"
+        status_banner = (
+            f"{status_text}\n\n━━━━━━━━━━━━━━━━━━━━\n"
+            f"⬇️ <b>Новый запуск будет доступен после завершения текущего сканирования.</b>\n"
+        )
 
     keyboard = build_scan_keyboard()
     header = status_banner if is_busy else "🔍 <b>Выберите категорию для сканирования:</b>"
@@ -1466,20 +1469,13 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         cat_name = "Все рынки (авто-микс)"
     else:
         category_param = category
-        cat_map = {
-            "politics":      "🏛 Политика",
-            "crypto":        "₿ Крипто",
-            "sports":        "⚽ Спорт",
-            "science":       "🔬 Наука/Тех",
-            "culture":       "🎬 Культура",
-            "business":      "💼 Бизнес",
-            "penny_stocks":  "🪙 Penny Stocks",
-            "weather":       "🌦 Погода/Климат",
-            "entertainment": "🎮 Игры/Кино",
-            "geopolitics":   "🌍 Геополитика",
-            "health":        "🏥 Здоровье",
-        }
-        cat_name = cat_map.get(category, category)
+        from agents.shared.scan_categories import SCAN_CATEGORIES
+        if category in SCAN_CATEGORIES:
+            cat_name = SCAN_CATEGORIES[category]["label"]
+        elif category == "penny_stocks":
+            cat_name = "🪙 Penny Stocks"
+        else:
+            cat_name = category
 
     async with _scan_lock:
         await callback.message.edit_text(f"🚀 Запускаю полный цикл анализа (Категория: {cat_name})...")
@@ -2221,44 +2217,50 @@ async def command_eval_status_handler(message: types.Message) -> None:
 
 @dp.message(Command("eval_history"))
 async def command_eval_history_handler(message: types.Message) -> None:
-    """Показывает историю калибровок для стратегии."""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🕵️ Scout",            callback_data="evalhist_scout"),
+            InlineKeyboardButton(text="📊 Synthetic Corridor", callback_data="evalhist_synthetic_corridor"),
+        ],
+        [
+            InlineKeyboardButton(text="⏱ Temporal Corridor",  callback_data="evalhist_temporal_corridor"),
+            InlineKeyboardButton(text="🌐 Cross Platform",     callback_data="evalhist_cross_platform"),
+        ],
+        [
+            InlineKeyboardButton(text="🐳 Whale",              callback_data="evalhist_whale"),
+        ],
+    ])
+    await message.answer(
+        "📚 <b>История калибровок</b>\nВыберите стратегию:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+@dp.callback_query(lambda c: c.data and c.data.startswith("evalhist_"))
+async def callback_eval_history_handler(callback: types.CallbackQuery) -> None:
+    await callback.answer()
+    strategy_input = callback.data.replace("evalhist_", "")
+    
+    from core.eval.signal_logger import StrategyType
+    strategy_map = {
+        "scout":               StrategyType.SCOUT,
+        "synthetic_corridor":  StrategyType.SYNTHETIC_CORRIDOR,
+        "temporal_corridor":   StrategyType.TEMPORAL_CORRIDOR,
+        "cross_platform":      StrategyType.CROSS_PLATFORM,
+        "whale":               StrategyType.WHALE,
+    }
+    strategy = strategy_map.get(strategy_input)
+    if not strategy:
+        await callback.message.answer("❌ Неизвестная стратегия")
+        return
+        
     try:
-        args = message.text.split()
-        if len(args) < 2:
-            await message.answer(
-                "⚠️ Укажите стратегию для просмотра истории.\n"
-                "Использование: <code>/eval_history &lt;strategy&gt;</code>\n"
-                "Доступные стратегии: <code>scout</code>, <code>synthetic_corridor</code>, <code>temporal_corridor</code>, <code>cross_platform</code>, <code>whale</code>",
-                parse_mode="HTML"
-            )
-            return
-            
-        strategy_input = args[1].lower().strip()
-        from core.eval.signal_logger import StrategyType
-        strategy_map = {
-            "scout": StrategyType.SCOUT,
-            "synthetic_corridor": StrategyType.SYNTHETIC_CORRIDOR,
-            "temporal_corridor": StrategyType.TEMPORAL_CORRIDOR,
-            "cross_platform": StrategyType.CROSS_PLATFORM,
-            "whale": StrategyType.WHALE
-        }
-        
-        if strategy_input not in strategy_map:
-            await message.answer(
-                f"❌ Неизвестная стратегия: <code>{strategy_input}</code>\n"
-                "Доступные стратегии: <code>scout</code>, <code>synthetic_corridor</code>, <code>temporal_corridor</code>, <code>cross_platform</code>, <code>whale</code>",
-                parse_mode="HTML"
-            )
-            return
-            
-        strategy = strategy_map[strategy_input]
-        
         from core.eval.calibration_store import CalibrationStore
         store = CalibrationStore()
         history = await store.get_strategy_history(strategy.value, 10)
         
         if not history:
-            await message.answer(f"📜 История калибровок для стратегии <b>{strategy.value}</b> пуста.", parse_mode="HTML")
+            await callback.message.answer(f"📜 История калибровок для стратегии <b>{strategy.value}</b> пуста.", parse_mode="HTML")
             return
             
         text = f"📜 <b>История калибровок ({strategy.value.upper()}):</b>\n\n"
@@ -2281,10 +2283,10 @@ async def command_eval_history_handler(message: types.Message) -> None:
                 f"• Дата: {record.updated_at}\n\n"
             )
             
-        await message.answer(text, parse_mode="HTML")
+        await callback.message.answer(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Ошибка при получении истории калибровок: {e}", exc_info=True)
-        await message.answer(f"❌ Ошибка при получении истории: {e}")
+        await callback.message.answer(f"❌ Ошибка при получении истории: {e}")
 
 @dp.message(Command("eval_apply"))
 async def command_eval_apply_handler(message: types.Message) -> None:

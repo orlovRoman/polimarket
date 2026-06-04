@@ -125,22 +125,11 @@ class PolymarketAdapter(BaseMarketAdapter):
 
     def list_markets(self, limit: int = 20, category: str = None) -> List[Market]:
         """Получает список активных рынков с Polymarket. Если передан category, фильтрует по тегам."""
-        POLYMARKET_TAG_MAP = {
-            "politics":      ["politics", "elections", "government"],
-            "crypto":        ["crypto", "bitcoin", "ethereum"],
-            "sports":        ["sports", "football", "basketball", "soccer"],
-            "science":       ["science", "technology", "ai", "space"],
-            "culture":       ["culture", "entertainment", "awards"],
-            "business":      ["business", "economy", "stocks"],
-            "weather":       ["weather", "climate", "environment"],
-            "entertainment": ["gaming", "movies", "tv", "esports"],
-            "geopolitics":   ["geopolitics", "war", "international", "nato"],
-            "health":        ["health", "medicine", "pandemic"],
-        }
         
         markets = []
         if category:
-            tags_to_query = POLYMARKET_TAG_MAP.get(category, [category])
+            from agents.shared.scan_categories import SCAN_CATEGORIES
+            tags_to_query = SCAN_CATEGORIES.get(category, {}).get("tags", [category])
             items = []
             
             for tag in tags_to_query:
@@ -169,6 +158,16 @@ class PolymarketAdapter(BaseMarketAdapter):
                 except Exception as e:
                     logger.debug(f"[PolymarketAdapter] Failed to fetch tag {tag}: {e}")
                     continue
+            
+            seen = set()
+            unique_items = []
+            for m in items:
+                key = m.get("id") or m.get("conditionId") or f"{m.get('slug','')}::{m.get('question','')}"
+                if key not in seen:
+                    seen.add(key)
+                    unique_items.append(m)
+            
+            items = unique_items[:limit]
         else:
             events = self.fetch_raw_events(limit)
             items = []
