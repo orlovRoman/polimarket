@@ -1,3 +1,4 @@
+from unittest.mock import AsyncMock
 """
 Тесты для коммита 9c4dac8:
 - Дедупликация постов

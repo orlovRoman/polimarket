@@ -1,3 +1,5 @@
+import asyncio
+from unittest.mock import AsyncMock
 import pytest
 import concurrent.futures
 import threading
@@ -71,8 +73,8 @@ def test_run_agent_evaluation_futures_cancelled_after_timeout():
         return []
 
     m = _make_market()
-    scout = MagicMock(); scout.estimate_market.return_value = _make_signal()
-    swing = MagicMock(); swing.estimate_market.return_value = None
+    scout = MagicMock(); scout.estimate_market = AsyncMock(return_value=_make_signal())
+    swing = MagicMock(); swing.estimate_market = AsyncMock(return_value=None)
     update_state = MagicMock()
 
     with patch("core.workflow.fetch_rss_news",    side_effect=slow_fetch), \
@@ -87,7 +89,7 @@ def test_run_agent_evaluation_futures_cancelled_after_timeout():
          patch("config.llm_health_gate") as mock_gate, \
          patch("core.workflow._safe_result", return_value=[]):
         mock_gate.check_availability.return_value = True
-        result = run_agent_evaluation(m, scout, swing, update_state)
+        result = asyncio.run(run_agent_evaluation(m, scout, swing, update_state))
 
     # executor.shutdown(wait=False) был вызван — функция не зависла
     assert result is not None or result == (None, None, None)
@@ -101,8 +103,8 @@ def test_executor_shutdown_called_even_on_exception():
 
     m = _make_market()
     m.id = "mkt-layer14-unique"
-    scout = MagicMock(); scout.estimate_market.return_value = None
-    swing = MagicMock(); swing.estimate_market.return_value = None
+    scout = MagicMock(); scout.estimate_market = AsyncMock(return_value=None)
+    swing = MagicMock(); swing.estimate_market = AsyncMock(return_value=None)
     update_state = MagicMock()
     shutdown_called = []
 
@@ -133,7 +135,7 @@ def test_executor_shutdown_called_even_on_exception():
         
         mock_gate.check_availability.return_value = True
         try:
-            run_agent_evaluation(m, scout, swing, update_state)
+            asyncio.run(run_agent_evaluation(m, scout, swing, update_state))
         except Exception:
             pass
 

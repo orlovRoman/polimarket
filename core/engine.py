@@ -598,7 +598,8 @@ class CoreEngine:
             # Получаем базовый ордербук для YES (по умолчанию) ДО запуска агентов
             pre_orderbook = self._fetch_pre_orderbook(m)
 
-            signal, swing_signal, context = run_agent_evaluation(
+            import asyncio
+            signal, swing_signal, context = asyncio.run(run_agent_evaluation(
                 m, self.scout, self.swing, _update_state,
                 adapter=self.adapter,
                 trigger_type=trigger_type,
@@ -607,7 +608,7 @@ class CoreEngine:
                 triggered_at=triggered_at,
                 price_history=price_hist,
                 pre_orderbook=pre_orderbook
-            )
+            ))
 
             if context is None:
                 logger.info(f"  Рынок {m.id} пропущен (дедупликация)")

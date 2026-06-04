@@ -1,3 +1,4 @@
+import asyncio
 # tests/test_swing_agent_v8.py
 """
 Тесты для BUG-1 (empty content → json.loads) и BUG-2 (guard_news_with_age timezone).
@@ -64,7 +65,7 @@ def test_empty_extract_response_text_does_not_crash_agent():
          patch("agents.shared.utils.language_guard.validate_russian_fields", return_value=None):
         
         try:
-            result = agent.estimate_market(ctx, price_history=[])
+            result = asyncio.run(agent.estimate_market(ctx, price_history=[]))
         except Exception as e:
             pytest.fail(f"SwingAgent бросил исключение при пустом ответе: {e}")
 
@@ -96,7 +97,7 @@ def test_empty_response_returns_none_gracefully():
          patch("agents.shared.utils.prompt_guards.guard_news_with_age", return_value=""), \
          patch("agents.shared.utils.language_guard.validate_russian_fields", return_value=None):
         try:
-            result = agent.estimate_market(ctx, price_history=[])
+            result = asyncio.run(agent.estimate_market(ctx, price_history=[]))
         except Exception as e:
             pytest.fail(f"SwingAgent бросил исключение при пустом ответе: {e}")
 
@@ -229,7 +230,7 @@ def test_close_time_aware_no_type_error_regression():
          patch("agents.shared.utils.prompt_guards.guard_news_with_age", return_value=""), \
          patch("agents.shared.utils.language_guard.validate_russian_fields", return_value=None):
         try:
-            agent.estimate_market(ctx, price_history=[])
+            asyncio.run(agent.estimate_market(ctx, price_history=[]))
         except TypeError as e:
             pytest.fail(f"Регрессия BUG-1 #7: {e}")
 

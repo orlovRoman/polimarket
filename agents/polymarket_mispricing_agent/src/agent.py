@@ -34,7 +34,7 @@ class ScoutAgent:
         self._adapter = None
 
     @with_retry(max_attempts=3, initial_backoff=2.0)
-    def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
+    async def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
         """
         Оценивает рынок на предмет математического расхождения (edge).
         

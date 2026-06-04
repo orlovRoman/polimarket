@@ -1,3 +1,5 @@
+import asyncio
+from unittest.mock import AsyncMock
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone, timedelta
@@ -94,9 +96,9 @@ def test_run_agent_evaluation_checks_top_5_and_routes_ambiguous():
     m = _mkt("main", "Bitcoin above 100K", 0.50)
     scout = MagicMock()
     scout.api_key = "test_key"
-    scout.estimate_market.return_value = None
+    scout.estimate_market = AsyncMock(return_value=None)
     swing = MagicMock()
-    swing.estimate_market.return_value = None
+    swing.estimate_market = AsyncMock(return_value=None)
     update_state = MagicMock()
     
     corr_list = [
@@ -150,7 +152,7 @@ def test_run_agent_evaluation_checks_top_5_and_routes_ambiguous():
          patch("core.arb_router.route_ambiguous", return_value={"confirmed_arb": True, "same_event": True, "reason": "ok", "confidence": 0.9}) as mock_route, \
          patch("core.checkpoint.save_checkpoint"):
         
-        sig, swing_sig, ctx = run_agent_evaluation(m, scout, swing, update_state, adapter=adapter)
+        sig, swing_sig, ctx = asyncio.run(run_agent_evaluation(m, scout, swing, update_state, adapter=adapter))
         
         # Проверяем, что get_market вызвался для peer1 - peer5
         assert adapter.get_market.call_count == 5

@@ -31,7 +31,7 @@ class SwingAgent:
             self.system_instruction = f.read()
 
     @with_retry(max_attempts=3, initial_backoff=2.0)
-    def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
+    async def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
         """
         Оценивает рынок на потенциал хайпа.
         """
@@ -48,6 +48,17 @@ class SwingAgent:
         except Exception as e:
             print(f"[SWING] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
+
+        from agents.shared.utils.resolution_extractor import get_resolution_source, check_rss_for_keywords, _build_resolution_block
+        resolution_src = await get_resolution_source(
+            market_description=market.description or "",
+            market_title=market.title,
+            api_key=self.api_key
+        )
+        rss_hit = {"found": False}
+        if resolution_src.resolution_type == "rss_monitorable" and resolution_src.rss_url:
+            rss_hit = check_rss_for_keywords(resolution_src.rss_url, resolution_src.keywords)
+        resolution_block = _build_resolution_block(resolution_src, rss_hit)
 
         price_history_str = "История цен недоступна."
         if price_hist:
@@ -202,6 +213,8 @@ class SwingAgent:
 {velocity_block}
 
 {ob_shape_block}
+
+{resolution_block}
 
 {hype_breakdown}
 
@@ -358,23 +371,17 @@ class SwingAgent:
                 analysis["hype_potential"] = hype_score
 
                 # 1. Horizon strategy min_confidence filter
+                rejection_reason = ""
                 if analysis["recommendation"] == "buy":
                     if analysis["confidence"] < horizon.min_confidence:
                         analysis["recommendation"] = "ignore"
-                        verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
-                        analysis["swing_verdict"] = (
-                            f"{verdict_prefix} [Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} "
-                            f"< минимум {horizon.min_confidence}]"
-                        )
+                        rejection_reason = f"Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} < минимум {horizon.min_confidence}"
                     if horizon.require_immediate_catalyst:
                         catalyst = analysis.get("catalyst", "").lower()
                         no_catalyst_phrases = ["нет катализатора", "отсутствует", "не найден", "не обнаружен"]
                         if any(ph in catalyst for ph in no_catalyst_phrases):
                             analysis["recommendation"] = "ignore"
-                            verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
-                            analysis["swing_verdict"] = (
-                                f"{verdict_prefix} [Горизонт {horizon.label}: нет немедленного катализатора]"
-                            )
+                            rejection_reason = f"Горизонт {horizon.label}: нет немедленного катализатора"
 
                 # 2. ROI-фильтр
                 from agents.shared.utils.roi_filter import apply_roi_filter
@@ -385,14 +392,12 @@ class SwingAgent:
                 )
                 if not roi_result.passes and analysis["recommendation"] == "buy":
                     analysis["recommendation"] = "ignore"
-                    verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
-                    analysis["swing_verdict"] = f"{verdict_prefix} [ROI-фильтр: {roi_result.rejection_reason}]"
+                    rejection_reason = f"ROI-фильтр: {roi_result.rejection_reason}"
 
                 # 3. Контрарианский анализ
                 if asymmetry < 0.55 and analysis["recommendation"] == "buy":
                     analysis["recommendation"] = "ignore"
-                    verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
-                    analysis["swing_verdict"] = f"{verdict_prefix} [Асимметрия {asymmetry:.2f} < 0.55 — рынок сбалансирован, нет edge]"
+                    rejection_reason = f"Асимметрия {asymmetry:.2f} < 0.55 — рынок сбалансирован, нет edge"
 
                 # 4. Catalyst verifier (ПОСЛЕДНИМ)
                 from agents.shared.utils.catalyst_verifier import verify_catalyst
@@ -404,30 +409,25 @@ class SwingAgent:
                 if not catalyst_check.confirmed:
                     old_conf = analysis["confidence"]
                     analysis["confidence"] = round(max(0.1, old_conf - catalyst_check.confidence_penalty), 3)
-                    verdict_prefix = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
-                    analysis["swing_verdict"] = f"{verdict_prefix} [{catalyst_check.warning}]"
-
                     # Повторный horizon check после штрафования уверенности
                     if analysis["confidence"] < horizon.min_confidence and analysis["recommendation"] == "buy":
                         analysis["recommendation"] = "ignore"
-                        analysis["swing_verdict"] += " → сигнал отозван из-за неподтверждённого катализатора"
-
-                # Гард: проверяем обоснование target_exit_price в swing_verdict
-                exit_price = analysis.get("target_exit_price")
-                verdict = analysis.get("swing_verdict", "") or analysis.get("verdict", "")
-                if exit_price and str(exit_price) not in verdict:
-                    print(
-                        f"[SWING] target_exit_price={exit_price} не упомянут в swing_verdict. "
-                        f"Обоснование отсутствует."
-                    )
-                    analysis["swing_verdict"] = (
-                        f"{verdict} [⚠️ целевая цена {exit_price} не обоснована в тексте]"
-                    )
+                        rejection_reason = f"[{catalyst_check.warning}] → отозван (нет катализатора)"
 
                 recommendation = analysis.get("recommendation", "ignore").lower()
                 hype_potential = _safe_float(analysis.get("hype_potential"), 0.0)
                 target_outcome = direction
                 target_price = _safe_float(analysis.get("target_exit_price"), 0.15)
+                
+                # Формируем структурированный swing_verdict
+                catalyst_text = analysis.get('catalyst', analysis.get('catalyst_absence_reason', '—'))
+                contrarian_text = analysis.get('contrarian_case', '—')
+                final_verdict = f"📊 {market.title}\nНаправление: {direction} | Цель: {target_price:.2f} | ROI: {roi_result.roi_percent:.1f}%\n\n💡 Тезис: {catalyst_text}\n⚠️ Контр-кейс: {contrarian_text}\n\n"
+                
+                if recommendation == 'buy':
+                    final_verdict += "✅ Рекомендация: ВХОДИТЬ"
+                else:
+                    final_verdict += f"⏸ Причина пропуска: {rejection_reason or 'Низкий потенциал хайпа'}"
                 
                 # Расчет ROI для деталей
                 current_price = market.price if target_outcome == "YES" else (1.0 - market.price)
@@ -452,7 +452,7 @@ class SwingAgent:
                     catalyst=analysis.get("catalyst", ""),
                     catalyst_absence_reason=analysis.get("catalyst_absence_reason", ""),
                     swing_risk=analysis.get("swing_risk", "") or analysis.get("risk", "Не указан риск"),
-                    swing_verdict=analysis.get("swing_verdict", "") or analysis.get("verdict", "Не указан вердикт"),
+                    swing_verdict=final_verdict,
                     summary=f"🚀 Памп {target_outcome} (Хайп {hype_potential*100:.0f}%, Цель {target_price:.2f})" if recommendation == "buy" else f"💤 Игнор (Хайп {hype_potential*100:.0f}%)",
                     details=(
                         f"Рекомендация: {recommendation.upper()} {target_outcome} по ~{current_price:.2f}, выход по {target_price:.2f} (ROI ~{roi_result.roi_percent:.0f}%).\n"

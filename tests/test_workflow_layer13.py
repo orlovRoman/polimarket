@@ -1,3 +1,5 @@
+import asyncio
+from unittest.mock import AsyncMock
 # tests/test_workflow_layer13.py
 
 import pytest
@@ -109,9 +111,9 @@ def test_run_agent_evaluation_wiki_timeout_uses_empty_string():
 
     m = _make_market()
     scout = MagicMock()
-    scout.estimate_market.return_value = _make_signal()
+    scout.estimate_market = AsyncMock(return_value=_make_signal())
     swing = MagicMock()
-    swing.estimate_market.return_value = None
+    swing.estimate_market = AsyncMock(return_value=None)
     update_state = MagicMock()
 
     def slow_wiki(_query):
@@ -138,7 +140,7 @@ def test_run_agent_evaluation_wiki_timeout_uses_empty_string():
         # С timeout=15 — должен завершиться быстро, не ждать 30 сек
         # В тесте мокаем _safe_result напрямую
         with patch("core.workflow._safe_result", side_effect=[[], [], "", []]):
-            result = run_agent_evaluation(m, scout, swing, update_state)
+            result = asyncio.run(run_agent_evaluation(m, scout, swing, update_state))
         elapsed = time.time() - start
 
     assert elapsed < 5, f"Оценка заняла {elapsed:.1f}с — timeout не работает"

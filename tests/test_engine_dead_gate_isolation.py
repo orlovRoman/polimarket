@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 import time
 from unittest.mock import MagicMock, patch
@@ -35,4 +36,4 @@ def test_dead_gate_in_workflow_raises_not_silently_skips():
         update_state = MagicMock()
 
         with pytest.raises(LLMUnavailableError):
-            run_agent_evaluation(m, scout, swing, update_state)
+            asyncio.run(run_agent_evaluation(m, scout, swing, update_state))

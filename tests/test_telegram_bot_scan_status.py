@@ -1,3 +1,4 @@
+from unittest.mock import AsyncMock
 """
 Тесты для отображения активного статуса сканирования и агентов в Telegram-боте.
 """

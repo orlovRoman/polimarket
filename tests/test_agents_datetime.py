@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
@@ -39,7 +40,7 @@ def test_swing_agent_prompt_contains_datetime():
             with patch("agents.shared.python.llm_wrapper.with_retry") as mock_retry:
                 # Напрямую вызовем generate_content_with_fallback или сэмулируем
                 with patch("agents.shared.utils.gemini_client.generate_content_with_fallback", return_value=(mock_result, "model")) as mock_gen:
-                    agent.estimate_market(context)
+                    asyncio.run(agent.estimate_market(context))
                     assert mock_gen.called
                     called_payload = mock_gen.call_args[1]["payload"]
                     prompt_text = called_payload["contents"][0]["parts"][0]["text"]

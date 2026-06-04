@@ -1,3 +1,4 @@
+from unittest.mock import AsyncMock
 """
 Дополнительные тесты для bagов BUG-1, BUG-2, BUG-3 в коммите 6ce8378.
 """

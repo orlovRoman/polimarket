@@ -1,3 +1,4 @@
+from unittest.mock import AsyncMock
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup

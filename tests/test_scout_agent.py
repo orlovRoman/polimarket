@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
@@ -60,7 +61,7 @@ def test_prompt_contains_math_filter_block():
                     with patch("agents.shared.python.db.get_performance_summary",
                                return_value=""):
                         ctx = MarketContext(market=market)
-                        agent.estimate_market(ctx)
+                        asyncio.run(agent.estimate_market(ctx))
 
     if captured_prompt:
         assert any("MATH-FILTER" in p for p in captured_prompt), \

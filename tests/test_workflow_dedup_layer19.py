@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone
@@ -35,13 +36,13 @@ def test_dedup_skips_recently_analyzed_market():
 
     with patch("core.workflow.get_memory", return_value=recent_iso), \
          patch("core.workflow.save_memory") as mock_save:
-        result = run_agent_evaluation(
+        result = asyncio.run(run_agent_evaluation(
             m=m,
             scout=MagicMock(),
             swing=MagicMock(),
             update_state=MagicMock(),
             trigger_type="event_driven",
-        )
+        ))
 
     assert result == (None, None, None), \
         "Дублирующий анализ должен вернуть (None, None, None)"
@@ -70,10 +71,10 @@ def test_dedup_allows_after_cooldown():
         scout = MagicMock()
         swing = MagicMock()
 
-        result = run_agent_evaluation(
+        result = asyncio.run(run_agent_evaluation(
             m=m, scout=scout, swing=swing,
             update_state=MagicMock(),
-        )
+        ))
         # LLM degraded → (None, None, None), но не из-за дедупликации
         # Важно: дедупликация не сработала (прошло 15 минут)
         assert result == (None, None, None)
@@ -87,10 +88,10 @@ def test_dedup_different_trigger_types_same_market():
         from core.workflow import run_agent_evaluation
         m = _make_market("mkt-x")
 
-        r1 = run_agent_evaluation(m, MagicMock(), MagicMock(), MagicMock(),
-                                   trigger_type="scheduled")
-        r2 = run_agent_evaluation(m, MagicMock(), MagicMock(), MagicMock(),
-                                   trigger_type="event_driven")
+        r1 = asyncio.run(run_agent_evaluation(m, MagicMock(), MagicMock(), MagicMock(),
+                                   trigger_type="scheduled"))
+        r2 = asyncio.run(run_agent_evaluation(m, MagicMock(), MagicMock(), MagicMock(),
+                                   trigger_type="event_driven"))
 
     # Оба должны быть задедуплицированы — cooldown по market_id, не trigger_type
     assert r1 == (None, None, None)
@@ -231,10 +232,10 @@ def test_two_scans_same_market_only_one_analysis():
         from core.workflow import run_agent_evaluation
         m = _make_market("mkt-double")
 
-        r1 = run_agent_evaluation(m, MagicMock(), MagicMock(), MagicMock(),
-                                   trigger_type="scheduled")
-        r2 = run_agent_evaluation(m, MagicMock(), MagicMock(), MagicMock(),
-                                   trigger_type="event_driven")
+        r1 = asyncio.run(run_agent_evaluation(m, MagicMock(), MagicMock(), MagicMock(),
+                                   trigger_type="scheduled"))
+        r2 = asyncio.run(run_agent_evaluation(m, MagicMock(), MagicMock(), MagicMock(),
+                                   trigger_type="event_driven"))
 
     # r1 дошёл до LLM (вернул None из-за degraded), r2 задедуплицирован
     assert r2 == (None, None, None), "Второй анализ должен быть задедуплицирован"

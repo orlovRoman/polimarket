@@ -234,7 +234,7 @@ def _fetch_grounded_context(market: Market, api_key: str, model: str) -> str:
 
 
 
-def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None):
+async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None):
     _cleanup_session_dedup()
 
     # In-session дедупликация (быстрая проверка без БД)
@@ -412,7 +412,7 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
     
     # SCOUT
     try:
-        signal = scout.estimate_market(context, price_history=price_history or [])
+        signal = await scout.estimate_market(context, price_history=price_history or [])
         save_checkpoint(f"scout_{m.id}", status="ok", edge=signal.edge if signal else None)
     except LLMUnavailableError:
         save_checkpoint(f"scout_{m.id}", status="llm_unavailable")
@@ -430,7 +430,7 @@ def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapte
             logger.info(f"  SWING: пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)")
             swing_signal = None
         else:
-            swing_signal = swing.estimate_market(context, price_history=price_history)
+            swing_signal = await swing.estimate_market(context, price_history=price_history)
         save_checkpoint(f"swing_{m.id}", status="ok")
     except LLMUnavailableError:
         save_checkpoint(f"swing_{m.id}", status="llm_unavailable")

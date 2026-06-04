@@ -1,3 +1,4 @@
+import asyncio
 """
 Тесты для BUG-1 (offset-naive vs aware) и BUG-2 (empty parts) из production-логов.
 """
@@ -56,7 +57,7 @@ def run_estimate(close_time_value, news_titles=None):
          patch("agents.shared.utils.rag.get_rag_context", return_value=""), \
          patch("agents.shared.utils.prompt_guards.guard_news_with_age", return_value=""), \
          patch("agents.shared.utils.language_guard.validate_russian_fields", return_value=None):
-        return agent.estimate_market(context, price_history=[])
+        return asyncio.run(agent.estimate_market(context, price_history=[]))
 
 
 def test_close_time_aware_utc_does_not_raise():
@@ -279,6 +280,6 @@ def test_swing_agent_survives_aware_datetime_and_empty_parts():
          patch("agents.shared.utils.prompt_guards.guard_news_with_age", return_value=""), \
          patch("agents.shared.utils.language_guard.validate_russian_fields", return_value=None):
         try:
-            result = agent.estimate_market(context, price_history=[])
+            result = asyncio.run(agent.estimate_market(context, price_history=[]))
         except TypeError as e:
             pytest.fail(f"TypeError выжил в интеграционном тесте: {e}")

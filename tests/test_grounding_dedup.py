@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from unittest.mock import MagicMock, patch
 from core.models import Market
@@ -53,7 +54,7 @@ def test_grounding_called_once_per_market():
         
         update_state = MagicMock()
         
-        run_agent_evaluation(m, scout_agent, swing_agent, update_state)
+        asyncio.run(run_agent_evaluation(m, scout_agent, swing_agent, update_state))
         
         # Считаем вызовы с agent_name='GROUNDING' — должно быть ровно 1
         grounding_calls = [

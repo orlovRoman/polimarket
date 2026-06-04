@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from agents.shared.utils.language_guard import has_forbidden_script, validate_russian_fields
 
@@ -142,7 +143,7 @@ def test_agent_retries_on_forbidden_language(monkeypatch):
         ctx.source_text = None
         ctx.search_query = "Test" # Adding this as we will modify MarketContext to have it
 
-        signal = agent.estimate_market(ctx)
+        signal = asyncio.run(agent.estimate_market(ctx))
 
     assert call_count["n"] == 2, "Агент должен сделать 2 попытки и преуспеть на второй"
     assert signal is not None, "При успешной второй попытке возвращается сигнал"
@@ -214,7 +215,7 @@ def test_agent_sanitizes_forbidden_language_without_retry():
         ctx.hn_posts = []
         ctx.correlation_hint = ""
 
-        signal = agent.estimate_market(ctx)
+        signal = asyncio.run(agent.estimate_market(ctx))
 
     assert call_count["n"] == 1, "Агент должен сделать ровно 1 попытку благодаря санитизации"
     assert signal is not None
@@ -279,7 +280,7 @@ def test_swing_sanitizes_forbidden_language_without_retry():
         ctx.velocity_annotation = ""
         ctx.orderbook_shape_annotation = ""
 
-        signal = agent.estimate_market(ctx, price_history=[])
+        signal = asyncio.run(agent.estimate_market(ctx, price_history=[]))
 
     assert call_count["n"] == 1, "Агент должен сделать ровно 1 попытку благодаря санитизации"
     assert signal is not None

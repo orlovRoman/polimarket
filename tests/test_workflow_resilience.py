@@ -1,3 +1,5 @@
+import asyncio
+from unittest.mock import AsyncMock
 # tests/test_workflow_resilience.py
 import pytest
 from unittest.mock import patch, MagicMock
@@ -52,8 +54,8 @@ def test_scout_llm_unavailable_raises_and_saves_checkpoint():
 
     mock_scout = MagicMock()
     mock_swing = MagicMock()
-    mock_scout.estimate_market.side_effect = LLMUnavailableError("429 rate limit")
-    mock_swing.estimate_market.return_value = MagicMock(recommendation="buy")
+    mock_scout.estimate_market = AsyncMock(side_effect=LLMUnavailableError("429 rate limit"))
+    mock_swing.estimate_market = AsyncMock(return_value=MagicMock(recommendation="buy"))
 
     m = get_fake_market("mkt-resilience-1")
 
@@ -71,12 +73,12 @@ def test_scout_llm_unavailable_raises_and_saves_checkpoint():
         mock_gate.check_availability.return_value = True
 
         with pytest.raises(LLMUnavailableError):
-            run_agent_evaluation(
+            asyncio.run(run_agent_evaluation(
                 m=m,
                 scout=mock_scout,
                 swing=mock_swing,
                 update_state=lambda **k: None,
-            )
+            ))
 
     cp = get_checkpoint(f"scout_{m.id}")
     assert cp["status"] == "llm_unavailable"
@@ -88,8 +90,8 @@ def test_scout_parse_error_does_not_block_swing():
     """ValueError в SCOUT → scout_signal=None, swing продолжает работать."""
     mock_scout = MagicMock()
     mock_swing = MagicMock()
-    mock_scout.estimate_market.side_effect = ValueError("Parse error")
-    mock_swing.estimate_market.return_value = MagicMock(recommendation="buy")
+    mock_scout.estimate_market = AsyncMock(side_effect=ValueError("Parse error"))
+    mock_swing.estimate_market = AsyncMock(return_value=MagicMock(recommendation="buy"))
 
     m = get_fake_market("mkt-resilience-2")
 
@@ -106,12 +108,12 @@ def test_scout_parse_error_does_not_block_swing():
     ):
         mock_gate.check_availability.return_value = True
 
-        scout_signal, swing_signal, context = run_agent_evaluation(
+        scout_signal, swing_signal, context = asyncio.run(run_agent_evaluation(
             m=m,
             scout=mock_scout,
             swing=mock_swing,
             update_state=lambda **k: None,
-        )
+        ))
 
     # SCOUT упал — его сигнал None
     assert scout_signal is None
@@ -133,8 +135,8 @@ def test_swing_llm_unavailable_raises_and_saves_checkpoint():
 
     mock_scout = MagicMock()
     mock_swing = MagicMock()
-    mock_scout.estimate_market.return_value = MagicMock(edge=0.12)
-    mock_swing.estimate_market.side_effect = LLMUnavailableError("503 overloaded")
+    mock_scout.estimate_market = AsyncMock(return_value=MagicMock(edge=0.12))
+    mock_swing.estimate_market = AsyncMock(side_effect=LLMUnavailableError("503 overloaded"))
 
     m = get_fake_market("mkt-resilience-3")
 
@@ -152,12 +154,12 @@ def test_swing_llm_unavailable_raises_and_saves_checkpoint():
         mock_gate.check_availability.return_value = True
 
         with pytest.raises(LLMUnavailableError):
-            run_agent_evaluation(
+            asyncio.run(run_agent_evaluation(
                 m=m,
                 scout=mock_scout,
                 swing=mock_swing,
                 update_state=lambda **k: None,
-            )
+            ))
 
     cp_scout = get_checkpoint(f"scout_{m.id}")
     assert cp_scout["status"] == "ok"
@@ -172,8 +174,8 @@ def test_deduplication_skips_repeated_market():
     """Повторный вызов для того же рынка возвращает (None, None, None)."""
     mock_scout = MagicMock()
     mock_swing = MagicMock()
-    mock_scout.estimate_market.return_value = MagicMock(edge=0.10)
-    mock_swing.estimate_market.return_value = MagicMock(recommendation="buy")
+    mock_scout.estimate_market = AsyncMock(return_value=MagicMock(edge=0.10))
+    mock_swing.estimate_market = AsyncMock(return_value=MagicMock(recommendation="buy"))
 
     m = get_fake_market("mkt-dedup-1")
 
@@ -190,14 +192,14 @@ def test_deduplication_skips_repeated_market():
     ):
         mock_gate.check_availability.return_value = True
 
-        result1 = run_agent_evaluation(
+        result1 = asyncio.run(run_agent_evaluation(
             m=m, scout=mock_scout, swing=mock_swing,
             update_state=lambda **k: None,
-        )
-        result2 = run_agent_evaluation(
+        ))
+        result2 = asyncio.run(run_agent_evaluation(
             m=m, scout=mock_scout, swing=mock_swing,
             update_state=lambda **k: None,
-        )
+        ))
 
     # Первый вызов — полный анализ
     assert result1 != (None, None, None)

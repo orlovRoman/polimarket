@@ -1,3 +1,5 @@
+import asyncio
+from unittest.mock import AsyncMock
 import time
 import pytest
 from unittest.mock import patch, MagicMock
@@ -93,10 +95,10 @@ def test_session_dedup_blocks_within_ttl():
     m.id = "mkt-block"
 
     with patch("core.workflow.get_memory", return_value=None):
-        result = workflow.run_agent_evaluation(
+        result = asyncio.run(workflow.run_agent_evaluation(
             m=m, scout=MagicMock(), swing=MagicMock(),
             update_state=MagicMock(), trigger_type="scheduled"
-        )
+        ))
 
     assert result == (None, None, None), "In-session дедупликация должна заблокировать"
 
@@ -115,10 +117,10 @@ def test_session_dedup_per_trigger_type_is_same_market():
     # event_driven того же рынка — в in-session нет, но проверяем БД:
     recent = datetime.now(timezone.utc).isoformat()
     with patch("core.workflow.get_memory", return_value=recent):
-        result = workflow.run_agent_evaluation(
+        result = asyncio.run(workflow.run_agent_evaluation(
             m=m, scout=MagicMock(), swing=MagicMock(),
             update_state=MagicMock(), trigger_type="event_driven"
-        )
+        ))
     assert result == (None, None, None), "БД cooldown должен заблокировать event_driven после scheduled"
 
 
@@ -143,10 +145,10 @@ def test_save_memory_called_before_llm():
     def mock_scout_estimate(*a, **kw):
         call_order.append("scout_llm")
         return None
-    scout.estimate_market.side_effect = mock_scout_estimate
+    scout.estimate_market = AsyncMock(side_effect=mock_scout_estimate)
 
     swing = MagicMock()
-    swing.estimate_market.side_effect = lambda *a, **kw: None
+    swing.estimate_market = AsyncMock(side_effect=lambda *a, **kw: None)
 
     with patch("core.workflow.get_memory", return_value=None), \
          patch("core.workflow.save_memory", side_effect=mock_save_memory), \
@@ -160,10 +162,10 @@ def test_save_memory_called_before_llm():
          patch("core.workflow.fetch_wikipedia_context", return_value="", create=True):
 
         gate.check_availability.return_value = True
-        workflow.run_agent_evaluation(
+        asyncio.run(workflow.run_agent_evaluation(
             m=m, scout=scout, swing=swing,
             update_state=MagicMock(), trigger_type="scheduled"
-        )
+        ))
 
     save_idx  = call_order.index("save_memory") if "save_memory" in call_order else -1
     scout_idx = call_order.index("scout_llm")   if "scout_llm"   in call_order else -1
@@ -188,10 +190,10 @@ def test_dedup_db_cooldown_still_works():
     m.id = "mkt-5min"
 
     with patch("core.workflow.get_memory", return_value=five_min_ago):
-        result = workflow.run_agent_evaluation(
+        result = asyncio.run(workflow.run_agent_evaluation(
             m=m, scout=MagicMock(), swing=MagicMock(),
             update_state=MagicMock()
-        )
+        ))
 
     assert result == (None, None, None)
 
@@ -217,10 +219,10 @@ def test_dedup_db_cooldown_expired():
          patch("core.workflow.get_market_correlations", return_value=[], create=True):
 
         gate.check_availability.return_value = False  # DEGRADED
-        result = workflow.run_agent_evaluation(
+        result = asyncio.run(workflow.run_agent_evaluation(
             m=m, scout=MagicMock(), swing=MagicMock(),
             update_state=MagicMock()
-        )
+        ))
 
     # DEGRADED → (None, None, None), но причина — не дедупликация
     assert result == (None, None, None)
