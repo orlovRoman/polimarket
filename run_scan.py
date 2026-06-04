@@ -5,13 +5,13 @@ from config import setup_logger, startup_check
 from agents.polymarket_arbitrage_agent.src.synthetic.event_loader import load_events_with_levels_from_raw
 
 def main():
+    logger = setup_logger("run_scan")
+    logging.getLogger("agents").setLevel(logging.DEBUG)
+
     try:
         startup_check()
     except RuntimeError as e:
-        print(f"Skipping strict startup check failures for standalone script: {e}")
-
-    logger = setup_logger("run_scan")
-    logging.getLogger("agents").setLevel(logging.DEBUG)
+        logger.warning(f"Startup check skipped for standalone script: {e}")
 
     url = "https://gamma-api.polymarket.com/events?limit=50&active=true&closed=false&order=volume&ascending=false"
     logger.info(f"Fetching {url}")
