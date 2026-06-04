@@ -1060,55 +1060,43 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
     from agents.shared.python.db import get_memory
     current_config = get_memory(f"agent_config_{agent}", {})
     current_model_id = current_config.get("model", "Дефолт (.env)")
-    
-    # Пытаемся найти красивое имя модели
-    nice_model_name = get_nice_model_name(current_model_id)
+
     is_default = False
-    
     if current_model_id == "Дефолт (.env)":
-        # Если ручная модель не задана, по умолчанию используется Gemini 2.5 Flash
         current_model_id = "gemini-2.5-flash"
         is_default = True
-        nice_model_name = get_nice_model_name(current_model_id)
-        
+
+    nice_model_name = get_nice_model_name(current_model_id)
     models_mapping = get_dynamic_models_mapping()
+
     for k, v in models_mapping.items():
         if v[1] == current_model_id:
             nice_model_name = v[2]
             break
-            
+
     if is_default:
         nice_model_name += " (По умолчанию)"
-            
-    buttons = []
-    for key, val in models_mapping.items():
-        buttons.append([InlineKeyboardButton(text=val[2], callback_data=f"sm_{agent}_{key}")])
+
+    buttons = [
+        [InlineKeyboardButton(text=val[2], callback_data=f"sm_{agent}_{key}")]
+        for key, val in models_mapping.items()
+    ]
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_models")])
-    
-    import aiogram.exceptions
+
+    from aiogram.exceptions import TelegramBadRequest
     try:
-        if isinstance(message_or_callback, types.CallbackQuery):
-            await message_or_callback.message.edit_text(
-                f"🤖 <b>Настройка модели для: {agent}</b>\n\n"
-                f"Текущая ручная модель: <code>{nice_model_name}</code>\n\n"
-                f"Выберите новую модель:",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-                parse_mode="HTML"
-            )
-        else:
-            await message_or_callback.answer(
-                f"🤖 <b>Настройка модели для: {agent}</b>\n\n"
-                f"Текущая ручная модель: <code>{nice_model_name}</code>\n\n"
-                f"Выберите новую модель:",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-                parse_mode="HTML"
-            )
-    except aiogram.exceptions.TelegramBadRequest as e:
+        await callback.message.edit_text(
+            f"🤖 <b>Настройка модели для: {agent}</b>\n\n"
+            f"Текущая модель: <code>{nice_model_name}</code>\n\n"
+            f"Выберите новую модель:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest as e:
         if "message is not modified" not in str(e).lower():
-            logger.error(f"Error sending models menu: {e}")
-    
-    if isinstance(message_or_callback, types.CallbackQuery):
-        await message_or_callback.answer()
+            logger.error(f"Error in callback_set_agent_model: {e}")
+
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("sm_"))
 async def callback_save_model(callback: CallbackQuery) -> None:
