@@ -87,7 +87,8 @@ def load_events_with_levels_from_raw(
                 token_no = tokens[1] if len(tokens) > 1 else None
                 
                 question = m.get("question", "")
-                numeric_level, unit = parse_numeric_level(question)
+                parsed = parse_numeric_level(question)
+                numeric_level, unit = parsed if parsed else (None, "unknown")
                 
                 outcome_markets.append(OutcomeMarket(
                     market_id=m["id"],
