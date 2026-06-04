@@ -3,7 +3,6 @@ core/constants.py
 Shared constants and enums used across the engine and agents.
 """
 
-
 class Outcome:
     """String constants for market outcome sides."""
     YES = "YES"

@@ -47,7 +47,7 @@ def _prefilter_markets(markets_compact: list) -> list:
     Уровень 1 (без LLM): базовая фильтрация по объёму, цене и времени.
     Сокращает ~1000 рынков до ~100-150 перед передачей в NEXUS.
     """
-    from config import PRICE_RANGE_MIN, PRICE_RANGE_MAX
+    from config import PRICE_RANGE_MIN, PRICE_RANGE_MAX, MIN_MARKET_VOLUME_USD
     from datetime import datetime, timezone, timedelta
 
     now = datetime.now(timezone.utc)
@@ -66,8 +66,8 @@ def _prefilter_markets(markets_compact: list) -> list:
         # Фильтр: цена в диапазоне интереса
         if not (PRICE_RANGE_MIN <= price <= PRICE_RANGE_MAX):
             continue
-        # Фильтр: объём > $5000 (есть ликвидность)
-        if volume < 5000:
+        # Фильтр: объём (есть ликвидность)
+        if volume < MIN_MARKET_VOLUME_USD:
             continue
         # Фильтр: рынок закроется не раньше чем через 3 дня
         if close_str:
@@ -82,6 +82,24 @@ def _prefilter_markets(markets_compact: list) -> list:
 
     return filtered
 
+
+def _fetch_markets_parallel(adapter, market_ids: list, max_workers: int = 8) -> list:
+    """Параллельно загружает рынки, игнорирует ошибки отдельных запросов."""
+    import concurrent.futures as cf
+    results = []
+    with cf.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(adapter.get_market, mid): mid for mid in market_ids}
+        try:
+            for fut in cf.as_completed(futures, timeout=30):
+                try:
+                    m = fut.result()
+                    if m:
+                        results.append(m)
+                except Exception as e:
+                    logger.debug(f"get_market failed for {futures[fut]}: {e}")
+        except cf.TimeoutError:
+            logger.warning("Timeout in _fetch_markets_parallel after 30s")
+    return results
 
 def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, market_id: str, summary_callback=None) -> list:
 
@@ -146,10 +164,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
             # 2. Корреляции без LLM
             #    Нужны полные объекты Market для math_pre_filter
-            screened_markets_full = [
-                adapter.get_market(mid) for mid in screened_market_ids
-            ]
-            screened_markets_full = [m for m in screened_markets_full if m is not None]
+            screened_markets_full = _fetch_markets_parallel(adapter, screened_market_ids)
 
             arb_pairs = find_complementary_pairs(screened_markets_full, min_spread_pct=5.0)
             correlations_count = len(arb_pairs)
@@ -261,9 +276,6 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         except (ValueError, TypeError):
             pass
 
-    # Записываем ДО анализа — защищает от дублей даже при сбое LLM.
-    # Цена: пропуск одного повтора за следующие 10 мин при падении анализа.
-    save_memory(last_analysis_key, datetime.now(timezone.utc).isoformat(), category='cache', ttl=_SESSION_DEDUP_TTL_SEC)
 
     # Guard: проверяем доступность LLM перед запуском
     from config import llm_health_gate  # глобальный инстанс
@@ -281,33 +293,27 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     IS_TECH_MARKET = any(kw in m.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
     
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-    
     try:
-        future_rss = executor.submit(fetch_rss_news, search_query)
-        future_reddit = executor.submit(fetch_reddit_news, search_query)
-        future_wiki = executor.submit(fetch_wikipedia_context, search_query)
-        future_hn = executor.submit(fetch_hackernews, search_query) if IS_TECH_MARKET else None
-    except RuntimeError as e:
-        if "interpreter shutdown" in str(e) or "cannot schedule" in str(e):
-            logger.warning(f"[workflow] Executor shutdown during scan, skipping background fetches: {e}")
-            future_rss, future_reddit, future_wiki, future_hn = None, None, None, None
-        else:
-            raise
-    
-    try:
-        news_titles = _safe_result(future_rss, default=[], timeout=15) if future_rss is not None else []
-        reddit_posts = _safe_result(future_reddit, default=[], timeout=15) if future_reddit is not None else []
-        wiki_context = _safe_result(future_wiki, default=[], timeout=20) if future_wiki is not None else []
+        try:
+            future_rss = executor.submit(fetch_rss_news, search_query)
+            future_reddit = executor.submit(fetch_reddit_news, search_query)
+            future_wiki = executor.submit(fetch_wikipedia_context, search_query)
+            future_hn = executor.submit(fetch_hackernews, search_query) if IS_TECH_MARKET else None
+        except RuntimeError as e:
+            if "interpreter shutdown" in str(e) or "cannot schedule" in str(e):
+                logger.warning(f"[workflow] Executor shutdown during scan: {e}")
+                future_rss = future_reddit = future_wiki = future_hn = None
+            else:
+                raise
+        
+        news_titles = _safe_result(future_rss, default=[], timeout=15) if future_rss else []
+        reddit_posts = _safe_result(future_reddit, default=[], timeout=15) if future_reddit else []
+        wiki_context = _safe_result(future_wiki, default=[], timeout=20) if future_wiki else []
         hn_posts = _safe_result(future_hn, default=[], timeout=15) if future_hn else []
     finally:
-        if future_rss: future_rss.cancel()
-        if future_reddit: future_reddit.cancel()
-        if future_wiki: future_wiki.cancel()
-        if future_hn: future_hn.cancel()
-        if sys.version_info >= (3, 9):
-            executor.shutdown(wait=False, cancel_futures=True)
-        else:
-            executor.shutdown(wait=False)
+        shutdown_kwargs = {"wait": False, "cancel_futures": True} \
+            if sys.version_info >= (3, 9) else {"wait": False}
+        executor.shutdown(**shutdown_kwargs)
 
     # Google Trends — последовательно (не thread-safe)
     trends_data = fetch_google_trends(search_query)
@@ -446,6 +452,13 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         save_checkpoint(f"swing_{m.id}", status="error", error=str(e))
         swing_signal = None
         
+    if signal is not None or swing_signal is not None:
+        save_memory(last_analysis_key, datetime.now(timezone.utc).isoformat(),
+                    category='cache', ttl=_SESSION_DEDUP_TTL_SEC)
+    else:
+        save_memory(last_analysis_key, datetime.now(timezone.utc).isoformat(),
+                    category='cache', ttl=300)
+
     return signal, swing_signal, context
 
 def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion]) -> IdeaDecision:
@@ -631,9 +644,8 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         }
 
         try:
-            import inspect
-            sig_params = inspect.signature(summary_callback).parameters
-            if "reply_markup" in sig_params:
+            from core.utils import _callback_accepts_reply_markup
+            if _callback_accepts_reply_markup(summary_callback):
                 summary_callback(summary_text, reply_markup=market_action_markup)
             else:
                 summary_callback(summary_text)

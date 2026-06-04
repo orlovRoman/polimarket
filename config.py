@@ -27,6 +27,7 @@ MARKET_COOLDOWN_HOURS = int(os.getenv("MARKET_COOLDOWN_HOURS", "4"))
 MARKET_OFFSET_MAX = int(os.getenv("MARKET_OFFSET_MAX", "200"))
 PRICE_RANGE_MIN = float(os.getenv("PRICE_RANGE_MIN", "0.10"))
 PRICE_RANGE_MAX = float(os.getenv("PRICE_RANGE_MAX", "0.90"))
+MIN_MARKET_VOLUME_USD = int(os.getenv("MIN_MARKET_VOLUME_USD", "5000"))
 
 # Категории для ротации при автоскане (culture=0 результатов на API)
 SCAN_CATEGORIES = os.getenv("SCAN_CATEGORIES", "politics,crypto,sports,science,business").split(",")
@@ -183,7 +184,7 @@ def startup_check():
 __all__ = [
     "PROJECT_ROOT", "VAULT_PATH", "DB_PATH", "MEMORY_FACTS_LIMIT",
     "MARKET_COOLDOWN_HOURS", "MARKET_OFFSET_MAX", "PRICE_RANGE_MIN", "PRICE_RANGE_MAX",
-    "SCAN_CATEGORIES", "TG_API_ID", "TG_API_HASH", "TG_PHONE",
+    "MIN_MARKET_VOLUME_USD", "SCAN_CATEGORIES", "TG_API_ID", "TG_API_HASH", "TG_PHONE",
     "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_BOT_ID",
     "TELEGRAM_GROUP2_SOURCE", "TELEGRAM_GROUP2_TARGET_ID",
     "SCAN_LIMIT_DEFAULT", "MIN_EDGE_DEFAULT", "WHALE_ALERT_MIN_USD",
