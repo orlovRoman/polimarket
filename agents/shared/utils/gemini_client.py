@@ -457,6 +457,18 @@ def _collect_gemini_keys(primary_key: str) -> list[str]:
     return keys
 
 
+_failure_lock = Lock()
+
+def _increment_failure(agent_name: str) -> int:
+    """Атомарно увеличивает счетчик ошибок для агента с использованием блокировки."""
+    from agents.shared.python.db import get_memory, save_memory
+    fail_key = f"consecutive_failures_{agent_name}"
+    with _failure_lock:
+        failures = int(get_memory(fail_key) or 0) + 1
+        save_memory(fail_key, failures)
+        return failures
+
+
 def generate_content_with_fallback(
     api_key: str,
     payload: dict,
@@ -508,7 +520,12 @@ def generate_content_with_fallback(
 
     # Разделяем дефолтную модель по провайдерам, чтобы не слать некорректные модели в Gemini API
     is_gemini_model = default_model.startswith("gemini-") or default_model in PROVIDERS_CONFIG["gemini"]["models"]
-    is_cerebras_model = default_model.startswith("qwen") or default_model in PROVIDERS_CONFIG["cerebras"]["models"]
+    # Покрываем все известные Cerebras-префиксы + динамическую проверку по списку моделей
+    _CEREBRAS_PREFIXES = ("qwen", "gpt-oss", "zai-", "llama")
+    is_cerebras_model = (
+        any(default_model.startswith(p) for p in _CEREBRAS_PREFIXES)
+        or default_model in PROVIDERS_CONFIG["cerebras"]["models"]
+    )
 
     providers = {
         "gemini": {
@@ -548,11 +565,17 @@ def generate_content_with_fallback(
     # 2. Формируем список планов исполнения: (provider, model)
     plans = []
 
-    # Cerebras
+    # Cerebras: добавляем ВСЕ модели с ротацией (аналогично Gemini),
+    # чтобы при ошибке первой модели фоллбэк шёл на следующие Cerebras-модели,
+    # а не сразу переключался на другой провайдер.
     if "cerebras" in active_providers:
         cer_models = providers["cerebras"]["models"]
-        cer_model = cer_models[cer_rr_idx_snapshot % len(cer_models)]
-        plans.append(("cerebras", cer_model))
+        cer_rotated = cer_models[cer_rr_idx_snapshot % len(cer_models):] + cer_models[:cer_rr_idx_snapshot % len(cer_models)]
+        cer_seen: set = set()
+        for _cm in cer_rotated:
+            if _cm not in cer_seen:
+                cer_seen.add(_cm)
+                plans.append(("cerebras", _cm))
 
     # OpenRouter
     if "openrouter" in active_providers:
@@ -598,7 +621,9 @@ def generate_content_with_fallback(
                     
                     plans = gemini_plans + [p for p in plans if p[0] != "gemini"]
                 elif prov_override == "openrouter":
-                    if db_model and db_model.lower().startswith("gemini-"):
+                    if not db_model:
+                        db_model = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+                    if db_model.lower().startswith("gemini-"):
                         logger.warning(f"[{agent_name}] Модель {db_model} несовместима с OpenRouter, сброс на дефолт")
                         db_model = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
                     plans = [p for p in plans if p[0] != "openrouter"]
@@ -713,9 +738,7 @@ def generate_content_with_fallback(
     # 5. Если все провайдеры, модели и ключи дали ошибку
     logger.error(f"[{agent_name}] Критическая ошибка: все доступные модели и ключи вернули ошибку.")
     
-    fail_key = f"consecutive_failures_{agent_name}"
-    failures = int(get_memory(fail_key) or 0) + 1
-    save_memory(fail_key, failures)
+    failures = _increment_failure(agent_name)
     
     # Уведомляем по экспоненциальной шкале (3, 10, 30, 90...), не сбрасывая failures в 0 сразу
     if failures in (3, 10, 30, 90, 270):

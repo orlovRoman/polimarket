@@ -707,3 +707,133 @@ def test_timeout_map_applied_only_to_default_model():
 
     # Только первая модель (default) получает таймаут из TIMEOUT_MAP
     assert used_timeouts.get("gemini-2.5-flash") == 45, f"Expected 45s for 2.5-flash, got {used_timeouts}"
+
+
+# ══════════════════════════════════════════════════════════════
+# BUG-01 (Итерация 8): is_cerebras_model охватывает все префиксы Cerebras
+# BUG-02 (Итерация 8): Cerebras добавляет ВСЕ модели в plans (аналогично Gemini)
+# ══════════════════════════════════════════════════════════════
+
+def test_gpt_oss_model_routed_to_cerebras():
+    """
+    BUG-01: default_model='gpt-oss-120b' должен быть определён как Cerebras-модель
+    и добавлен в providers['cerebras']['models'], не попасть в OpenRouter.
+    """
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, PROVIDERS_CONFIG
+
+    tried = []
+
+    def cerebras_track(payload, model, key, timeout):
+        tried.append(("cerebras", model))
+        return (
+            {"candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}],
+             "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1}},
+            1, 1
+        )
+
+    def openrouter_track(payload, model, key, timeout):
+        tried.append(("openrouter", model))
+        raise ValueError("should not be called")
+
+    with patch.dict(PROVIDERS_CONFIG, {
+        "cerebras": {"keys": ["ck"], "models": ["gpt-oss-120b", "llama3.1-8b"], "send_func": cerebras_track},
+        "openrouter": {"keys": ["ok"], "models": ["llama-3.3-70b"], "send_func": openrouter_track},
+        "gemini": {"keys": [], "models": [], "send_func": MagicMock()},
+    }), \
+    patch("agents.shared.python.db.get_memory", return_value=0), \
+    patch("agents.shared.python.db.save_memory"), \
+    patch("agents.shared.utils.gemini_client.LLMLogger.log_call"), \
+    patch("agents.shared.utils.gemini_client.extract_prompt_from_payload", return_value="t"):
+        result, model = generate_content_with_fallback(
+            "", {"contents": [{"parts": [{"text": "t"}], "role": "user"}]},
+            default_model="gpt-oss-120b", agent_name="TEST"
+        )
+
+    # gpt-oss-120b должен был пойти в Cerebras первым
+    assert tried[0] == ("cerebras", "gpt-oss-120b"), \
+        f"BUG-01: gpt-oss-120b не определён как Cerebras-модель. tried={tried}"
+    assert all(p == "cerebras" for p, _ in tried), \
+        f"BUG-01: модель gpt-oss-120b попала в OpenRouter. tried={tried}"
+
+
+def test_cerebras_fallback_tries_all_models():
+    """
+    BUG-02: при ошибке первой Cerebras-модели должны пробоваться остальные,
+    а не немедленный переход к следующему провайдеру.
+    """
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, PROVIDERS_CONFIG
+
+    tried_models = []
+
+    def cerebras_fail_first_ok_rest(payload, model, key, timeout):
+        tried_models.append(model)
+        if model == "qwen-3-235b-a22b-instruct-2507":
+            raise ValueError("model temporarily unavailable")
+        return (
+            {"candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}],
+             "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1}},
+            1, 1
+        )
+
+    with patch.dict(PROVIDERS_CONFIG, {
+        "cerebras": {
+            "keys": ["ck"],
+            "models": ["qwen-3-235b-a22b-instruct-2507", "gpt-oss-120b", "zai-glm-4.7"],
+            "send_func": cerebras_fail_first_ok_rest
+        },
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "gemini": {"keys": [], "models": [], "send_func": MagicMock()},
+    }), \
+    patch("agents.shared.python.db.get_memory", return_value=0), \
+    patch("agents.shared.python.db.save_memory"), \
+    patch("agents.shared.utils.gemini_client.LLMLogger.log_call"), \
+    patch("agents.shared.utils.gemini_client.extract_prompt_from_payload", return_value="t"):
+        result, model = generate_content_with_fallback(
+            "", {"contents": [{"parts": [{"text": "t"}], "role": "user"}]},
+            agent_name="TEST"
+        )
+
+    assert tried_models[0] == "qwen-3-235b-a22b-instruct-2507", \
+        f"BUG-02: ожидалась первая модель Cerebras первой. tried={tried_models}"
+    assert "gpt-oss-120b" in tried_models, \
+        f"BUG-02: вторая Cerebras-модель не была попробована. tried={tried_models}"
+    assert model == "gpt-oss-120b", \
+        f"BUG-02: успешный ответ должен быть от gpt-oss-120b. model={model}"
+
+
+def test_zai_model_routed_to_cerebras():
+    """
+    BUG-01: default_model='zai-glm-4.7' (prefix 'zai-') должен быть определён как Cerebras.
+    """
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, PROVIDERS_CONFIG
+
+    tried = {"cerebras": 0, "openrouter": 0}
+
+    def cerebras_ok(payload, model, key, timeout):
+        tried["cerebras"] += 1
+        return (
+            {"candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}],
+             "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1}},
+            1, 1
+        )
+
+    def openrouter_fail(payload, model, key, timeout):
+        tried["openrouter"] += 1
+        raise ValueError("should not reach openrouter")
+
+    with patch.dict(PROVIDERS_CONFIG, {
+        "cerebras": {"keys": ["ck"], "models": ["zai-glm-4.7", "llama3.1-8b"], "send_func": cerebras_ok},
+        "openrouter": {"keys": ["ok"], "models": ["some-model"], "send_func": openrouter_fail},
+        "gemini": {"keys": [], "models": [], "send_func": MagicMock()},
+    }), \
+    patch("agents.shared.python.db.get_memory", return_value=0), \
+    patch("agents.shared.python.db.save_memory"), \
+    patch("agents.shared.utils.gemini_client.LLMLogger.log_call"), \
+    patch("agents.shared.utils.gemini_client.extract_prompt_from_payload", return_value="t"):
+        generate_content_with_fallback(
+            "", {"contents": [{"parts": [{"text": "t"}], "role": "user"}]},
+            default_model="zai-glm-4.7", agent_name="TEST"
+        )
+
+    assert tried["cerebras"] >= 1, "BUG-01: zai-glm-4.7 не попал в Cerebras"
+    assert tried["openrouter"] == 0, "BUG-01: zai-glm-4.7 ошибочно попал в OpenRouter"
