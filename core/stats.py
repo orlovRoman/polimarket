@@ -37,10 +37,11 @@ def binomial_pvalue(n: int, k: int, p0: float = 0.5) -> float:
     log_p0 = math.log(p0)
     log_q0 = math.log(1 - p0)
 
-    pvalue = 0.0
+    terms = []
     for i in range(k, n + 1):
         log_term = _log_binom_coeff(n, i) + i * log_p0 + (n - i) * log_q0
-        pvalue += math.exp(log_term)
+        terms.append(math.exp(log_term))
+    pvalue = math.fsum(terms)
 
     return min(pvalue, 1.0)  # плавающая точка может дать 1.0000000002
 

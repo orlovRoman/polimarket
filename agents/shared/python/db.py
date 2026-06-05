@@ -1267,7 +1267,7 @@ def cleanup_expired_memory():
     return count
 
 def upsert_known_whale(address: str, alias: str, win_rate: float,
-                       total_won: float = 0.0, total_vol: float = 0.0,
+                       total_profit: float = 0.0, total_vol: float = 0.0,
                        force_insider: bool = False) -> None:
     """Добавляет или обновляет известного кита (whale) в базе данных. force_insider=True только для вручную верифицированных адресов."""
     with get_connection() as conn:
@@ -1280,7 +1280,8 @@ def upsert_known_whale(address: str, alias: str, win_rate: float,
                 total_profit=excluded.total_profit,
                 is_insider=excluded.is_insider,
                 last_seen=CURRENT_TIMESTAMP
-        """, (address.lower(), alias, win_rate, total_won, force_insider))
+        """, (address.lower(), alias, win_rate, total_profit, force_insider))
+
 
 
 def add_wallet(address: str, alias: str = None, is_insider: bool = False):
@@ -1329,8 +1330,9 @@ def get_wallets_for_pvalue_recalc() -> list[dict]:
             LEFT JOIN trader_transactions t ON w.address = t.wallet_address
             LEFT JOIN markets m ON t.market_id = m.id AND m.outcome IS NOT NULL
             GROUP BY w.address
-            HAVING tx_count > 0
+            HAVING tx_count > 0 OR w.n_trades > 0
         """)
+
         return [dict(r) for r in cursor.fetchall()]
 
 def add_discussion_message(market_id: str, agent_name: str, message: str, confidence: float = None, agree: bool = True):
@@ -1699,12 +1701,14 @@ def get_known_whales() -> dict:
                     "alias": row["alias"],
                     "win_rate": row["win_rate"],
                     "total_won": total_won,
+                    "total_profit": total_won,
                     "total_vol": total_vol,
                     "is_insider": bool(row["is_insider"]),
                     "n_trades": row["n_trades"] or 0,
                     "n_wins": row["n_wins"] or 0,
                     "p_value": row["p_value"] or 1.0
                 }
+
         except Exception as e:
             logger.error(f"[DB] Ошибка при чтении wallets для known_whales: {e}")
     return whales
