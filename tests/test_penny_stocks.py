@@ -135,8 +135,8 @@ class TestPennyStocks(unittest.TestCase):
         # Проверяем, что в check_onchain_gate был проброшен market_tag="penny_stocks"
         mock_gate.assert_called_once()
         args, kwargs = mock_gate.call_args
-        # Аргументы: check_onchain_gate(oc_score, m.id, total_vol, market_tag)
-        self.assertEqual(args[3], "penny_stocks")
+        market_tag_val = kwargs.get("market_tag") or (args[3] if len(args) > 3 else None)
+        self.assertEqual(market_tag_val, "penny_stocks")
 
 if __name__ == '__main__':
     unittest.main()

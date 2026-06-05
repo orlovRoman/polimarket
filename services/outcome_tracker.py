@@ -21,6 +21,12 @@ def run_resolution_cycle() -> dict:
     запрашивает resolution через Polymarket API, обновляет signals и strategy_metrics.
     Возвращает статистику прогона: {resolved, skipped, errors}.
     """
+    try:
+        from agents.shared.python.db import cleanup_stale_signals
+        cleanup_stale_signals()
+    except Exception as e:
+        logger.error(f"[OutcomeTracker] Ошибка при очистке старых сигналов: {e}")
+
     stats = {"resolved": 0, "skipped": 0, "errors": 0}
     pending = _get_pending_with_closed_market()
     logger.info(f"[OutcomeTracker] Найдено {len(pending)} сигналов для резолюции.")
@@ -134,17 +140,65 @@ def _resolve_signal(row: dict, resolution: str) -> None:
 
     pnl_realized = round(pnl_realized, 2)
 
+    new_status = 'WIN' if was_correct else 'LOSS'
+    outcome_label = 'correct' if was_correct else 'incorrect'
+    if resolution == 'N/A':
+        new_status = 'ARCHIVED'
+        outcome_label = 'unknown'
+
+    from agents.shared.python.db import save_agent_episode, get_memory, save_memory
+
+    # Сохраняем эпизод агента
+    agent_name = (row.get("strategy_type") or 'SCOUT').upper()
+    predicted_prob = row.get("estimated_probability") or 0.5
+    target = (row.get("target_outcome") or "YES").upper()
+    try:
+        save_agent_episode(
+            agent_name=agent_name,
+            event_type='signal_resolved',
+            summary=f"Рынок '{row['market_title'][:50]}...' закрылся как {resolution}. Прогноз агента: {predicted_prob:.0%}. Результат: {new_status}",
+            market_id=row["market_id"],
+            market_title=row['market_title'],
+            context={
+                'predicted_prob': predicted_prob,
+                'target': target,
+                'resolved_as': resolution
+            },
+            outcome=outcome_label
+        )
+    except Exception as e:
+        logger.error(f"[OutcomeTracker] Ошибка при сохранении эпизода агента: {e}")
+
+    # Обновляем точность в memory
+    if resolution != 'N/A':
+        try:
+            total_correct_key = f"{agent_name.lower()}_correct_total"
+            total_eval_key   = f"{agent_name.lower()}_evaluated_total"
+            accuracy_key     = f"{agent_name.lower()}_accuracy_pct"
+
+            prev_correct  = get_memory(total_correct_key) or 0
+            prev_total    = get_memory(total_eval_key)    or 0
+            new_correct   = prev_correct + (1 if was_correct else 0)
+            new_total     = prev_total + 1
+            new_accuracy  = round(new_correct / new_total * 100, 1) if new_total > 0 else 0.0
+
+            save_memory(total_correct_key, new_correct, category='fact', priority=7)
+            save_memory(total_eval_key,    new_total,   category='fact', priority=7)
+            save_memory(accuracy_key,      new_accuracy, category='fact', priority=9)
+        except Exception as e:
+            logger.error(f"[OutcomeTracker] Ошибка при обновлении memory точности: {e}")
+
     with get_connection() as conn:
         conn.execute("""
             UPDATE signals
-            SET status          = 'ARCHIVED',
+            SET status          = ?,
                 resolved_at     = ?,
                 resolution_outcome = ?,
                 was_profitable  = ?,
                 pnl_realized    = ?,
                 strategy_type   = COALESCE(strategy_type, 'SCOUT')
             WHERE id = ?
-        """, (now, resolution, int(was_correct), pnl_realized, row["id"]))
+        """, (new_status, now, resolution, int(was_correct), pnl_realized, row["id"]))
 
         conn.execute("""
             UPDATE markets

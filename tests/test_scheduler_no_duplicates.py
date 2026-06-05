@@ -1,0 +1,43 @@
+# tests/test_scheduler_no_duplicates.py
+"""Проверяет что в scheduler нет дублирующих резолверов."""
+import pytest
+from unittest.mock import patch, MagicMock, AsyncMock
+
+def test_only_one_resolution_job_registered():
+    """main.py не должен регистрировать более одного резолвера сигналов."""
+    jobs_added = []
+
+    class FakeScheduler:
+        def add_job(self, func, *a, id=None, **kw):
+            jobs_added.append({"func": getattr(func, "__name__", str(func)), "id": id})
+        def start(self): pass
+
+    with patch("main.AsyncIOScheduler", return_value=FakeScheduler()), \
+         patch("main.asyncio.create_task"), \
+         patch("main.init_nexus_agent", new_callable=AsyncMock), \
+         patch("main.dp"), patch("main.bot"), \
+         patch("main.ensure_single_instance"), \
+         patch("main.start_fastapi", new_callable=AsyncMock), \
+         patch("telegram.bot.set_commands", new_callable=AsyncMock), \
+         patch("main.asyncio.wait", side_effect=Exception("Stop wait")):
+        
+        # Импортируем start_system и запускаем, чтобы сработала регистрация джобов
+        from main import start_system
+        try:
+            # Запускаем в mock-окружении
+            import asyncio
+            asyncio.run(start_system())
+        except Exception:
+            # Игнорируем ошибки запуска после настройки планировщика
+            pass
+
+    resolution_jobs = [
+        j for j in jobs_added
+        if any(kw in j["func"] for kw in ["resolution", "resolve", "outcome"])
+    ]
+    
+    # Должен быть только один outcome_tracker
+    assert len(resolution_jobs) <= 1, (
+        f"Найдено {len(resolution_jobs)} резолверов: {resolution_jobs}. "
+        "Должен быть только один — outcome_tracker."
+    )
