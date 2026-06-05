@@ -127,5 +127,31 @@ class TestOnchainGate(unittest.TestCase):
         self.assertTrue(res.allow)
         self.assertEqual(res.blocked_by, "pass")
 
+    @patch("core.onchain_gate.get_cluster_size_for_market")
+    @patch("core.onchain_gate.ConfigProvider")
+    def test_gate_recent_activity_pass(self, mock_config, mock_get_cluster):
+        # Проверяем, что гейт пропускает рынок при высокой недавней активности (recent_ratio_2h >= 0.3),
+        # даже если нет китов и кластеров.
+        mock_config.get_swing_min_volume_sync.return_value = 5000.0
+        mock_config.get_swing_min_whale_count_sync.return_value = 1
+        mock_get_cluster.return_value = 0 # 0 кластеров
+
+        # 0 китов, но recent_ratio_2h = 0.35 (высокая недавняя активность)
+        oc_score = OnchainScore(
+            score=0.0, confidence=0.3, direction="NEUTRAL",
+            annotation="Recent volume spike", whale_count=0, yes_dominance=0.5,
+            recent_ratio_2h=0.35
+        )
+        
+        res = check_onchain_gate(
+            oc_score=oc_score,
+            market_id="market_1",
+            total_volume_usd=6000.0,
+            market_tag="default"
+        )
+        self.assertTrue(res.allow)
+        self.assertEqual(res.blocked_by, "pass")
+        self.assertIn("recent_2h=35%", res.reason)
+
 if __name__ == '__main__':
     unittest.main()

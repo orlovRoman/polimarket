@@ -54,20 +54,21 @@ def check_onchain_gate(
     
     # Защита от None для oc_score
     whale_count = oc_score.whale_count if oc_score else 0
-    has_smart_money = (whale_count >= min_whales) or (cluster_size >= 1)
+    recent_ratio = oc_score.recent_ratio_2h if oc_score else 0.0
+    has_smart_money = (whale_count >= min_whales) or (cluster_size >= 1) or (recent_ratio >= 0.3)
 
     if not has_smart_money:
         return GateResult(
             allow=False,
             reason=(
                 f"Нет умных денег: known_whales={whale_count} "
-                f"(порог={min_whales}), clusters={cluster_size}"
+                f"(порог={min_whales}), clusters={cluster_size}, recent_2h={recent_ratio:.0%}"
             ),
             blocked_by="whales"
         )
 
     return GateResult(
         allow=True,
-        reason=f"Пропущен: vol=${total_volume_usd:,.0f}, whales={whale_count}, clusters={cluster_size}",
+        reason=f"Пропущен: vol=${total_volume_usd:,.0f}, whales={whale_count}, clusters={cluster_size}, recent_2h={recent_ratio:.0%}",
         blocked_by="pass"
     )

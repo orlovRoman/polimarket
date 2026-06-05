@@ -11,7 +11,7 @@ def main(condition_id: str):
     print(f"Тестирование ончейн-аналитики для Condition ID: {condition_id}\n")
     
     print("1. Получение сделок из CLOB API...")
-    trades = get_recent_trades(condition_id, limit=50)
+    trades = get_recent_trades(condition_id, limit=200)
     print(f"   Найдено сделок: {len(trades)}")
     
     print("2. Получение позиций из Gamma API...")
