@@ -89,7 +89,7 @@ def send_correlation_alerts(summary_callback=None) -> None:
     new_corrs = []  # Баг #3: объявляем до try, чтобы finally мог обратиться к переменной
     try:
         new_corrs = get_new_correlations()
-        logger.info(f"[DEBUG] new_corrs count: {len(new_corrs)}")
+        logger.info(f"[Notifier] Корреляций для обработки: {len(new_corrs)}")
         if not new_corrs:
             return
 
@@ -116,29 +116,35 @@ def send_correlation_alerts(summary_callback=None) -> None:
                 score=int(c.get('confidence', 0) * 100)
             )
 
-            logger.info(f"[DEBUG] signal={signal}, has_arbitrage={getattr(signal,'has_arbitrage',None)}, spread={getattr(signal,'spread_percent',None)}")
+            logger.debug(f"[Notifier] signal={signal}, has_arbitrage={getattr(signal,'has_arbitrage',None)}, spread={getattr(signal,'spread_percent',None)}")
 
             if signal:
                 spread = getattr(signal, 'spread_percent', 0.0)
-                if signal.has_arbitrage or (spread is not None and spread >= 5.0):
-                    platform_a = getattr(market_a, "platform", "Polymarket").upper()
-                    platform_b = getattr(market_b, "platform", "Polymarket").upper()
-                    alert_text = (
-                        f"🚨 <b>НАЙДЕН КРОСС-РЫНОЧНЫЙ АРБИТРАЖ ({platform_a} ↔ {platform_b})</b> 🚨\n\n"
-                        f"📍 <b>Рынок A ({platform_a}):</b> <a href='{market_a.url}'>{market_a.title}</a> (Цена: {market_a.price})\n"
-                        f"📍 <b>Рынок B ({platform_b}):</b> <a href='{market_b.url}'>{market_b.title}</a> (Цена: {market_b.price})\n\n"
-                        f"💡 <b>Тип:</b> {signal.arbitrage_type}\n"
-                        f"📈 <b>Разрыв (Spread):</b> {spread}%\n\n"
-                        f"🧠 <b>Логика:</b> {signal.reasoning}\n\n"
-                        f"⚡ <b>Трейд:</b> {signal.trade_instruction}\n"
-                    )
-                    notify(alert_text)
+                platform_a = getattr(market_a, "platform", "Polymarket").upper()
+                platform_b = getattr(market_b, "platform", "Polymarket").upper()
+
+                if signal.has_arbitrage:
+                    header = f"🚨 <b>ПОДТВЕРЖДЁННЫЙ АРБИТРАЖ ({platform_a} ↔ {platform_b})</b> 🚨"
+                elif spread is not None and spread >= 5.0:
+                    header = f"⚠️ <b>ПОТЕНЦИАЛЬНАЯ ВОЗМОЖНОСТЬ ({platform_a} ↔ {platform_b})</b>"
                 else:
                     logger.info(
-                        f"[Notifier] Корреляция {c['id']}: has_arbitrage=False, "
+                        f"[Notifier] Корреляция {c['id']}: пропущена (has_arbitrage=False, "
                         f"spread={spread:.1f}%, "
-                        f"reason={getattr(signal,'reasoning','')[:80]}"
+                        f"reason={getattr(signal,'reasoning','')[:80]})"
                     )
+                    continue
+
+                alert_text = (
+                    f"{header}\n\n"
+                    f"📍 <b>Рынок A ({platform_a}):</b> <a href='{market_a.url}'>{market_a.title}</a> (Цена: {market_a.price})\n"
+                    f"📍 <b>Рынок B ({platform_b}):</b> <a href='{market_b.url}'>{market_b.title}</a> (Цена: {market_b.price})\n\n"
+                    f"💡 <b>Тип:</b> {signal.arbitrage_type}\n"
+                    f"📈 <b>Разрыв (Spread):</b> {spread}%\n\n"
+                    f"🧠 <b>Логика:</b> {signal.reasoning}\n\n"
+                    f"⚡ <b>Трейд:</b> {signal.trade_instruction}\n"
+                )
+                notify(alert_text)
             else:
                 logger.info(f"[Notifier] Корреляция {c['id']}: агент вернул None")
     except Exception as e:

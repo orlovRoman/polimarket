@@ -60,9 +60,30 @@ class TestQuickPairCheck:
         assert _quick_pair_check("", "") is False
         assert _quick_pair_check("", "Bitcoin price") is False
 
-    def test_numeric_and_alphanumeric_tickers(self):
-        """Буквенно-цифровые и числовые тикеры (BTC, 100k, 2025) проходят проверку."""
+    def test_numeric_tickers_match(self):
+        # BTC, ETH, 100k — должны находить пары
         assert _quick_pair_check(
-            "Will BTC hit $100K by Dec 2025?",
-            "Will BTC hit $120K by Dec 2025?"
+            "Will BTC hit $100k by December?",
+            "Will BTC reach $90k in 2025?"
         ) is True
+
+    def test_short_alphanumeric_filter(self):
+        # Двухбуквенные стопслова не дают ложных совпадений
+        assert _quick_pair_check(
+            "Will AI regulation pass in US?",
+            "Will EU impose tariffs on China?"
+        ) is False  # нет общих значимых слов
+
+    def test_price_tag_stripped(self):
+        # Цена в скобках не влияет на matching
+        assert _quick_pair_check(
+            "Bitcoin above 100k (YES: 45¢ | NO: 55¢)",
+            "Bitcoin above 90k"
+        ) is True
+
+    def test_esports_same_game_different_teams(self):
+        # LoL-рынки одной игры должны находить пары
+        assert _quick_pair_check(
+            "LoL: Team A vs Team B - Game 1 Winner",
+            "LoL: Team A vs Team C - Game 2 Winner"
+        ) is True  # общее: lol, team, game, winner

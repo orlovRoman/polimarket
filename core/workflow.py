@@ -11,7 +11,8 @@ from core.context import MarketContext
 
 from config import (
     logger, SCREENING_INTERVAL_SEC, SCAN_LIMIT_DEFAULT, MIN_EDGE_DEFAULT,
-    MAX_SCREENING_MARKETS, PRICE_RANGE_MIN, PRICE_RANGE_MAX, MIN_MARKET_VOLUME_USD
+    MAX_SCREENING_MARKETS, PRICE_RANGE_MIN, PRICE_RANGE_MAX, MIN_MARKET_VOLUME_USD,
+    ARB_MIN_SPREAD_PCT
 )
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import (
@@ -176,7 +177,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             #    Нужны полные объекты Market для math_pre_filter
             screened_markets_full = _fetch_markets_parallel(adapter, screened_market_ids)
 
-            arb_pairs = find_complementary_pairs(screened_markets_full, min_spread_pct=2.0)
+            arb_pairs = find_complementary_pairs(screened_markets_full, min_spread_pct=ARB_MIN_SPREAD_PCT)
             correlations_count = len(arb_pairs)
             saved_count = 0
 

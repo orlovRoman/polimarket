@@ -7,6 +7,7 @@ import re
 import logging
 from typing import TYPE_CHECKING
 from core.math_filter import math_pre_filter, FilterDecision, MathFilterResult
+from config import ARB_MIN_SPREAD_PCT
 
 if TYPE_CHECKING:
     from core.models import Market
@@ -42,7 +43,7 @@ def _quick_pair_check(title_a: str, title_b: str, min_common: int = 2) -> bool:
 
 def find_complementary_pairs(
     markets: list[Market],
-    min_spread_pct: float = 5.0,
+    min_spread_pct: float = ARB_MIN_SPREAD_PCT,
     max_pairs: int = 20,
 ) -> list[tuple[Market, Market, MathFilterResult]]:
     """
