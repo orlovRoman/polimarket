@@ -631,9 +631,16 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         math_result = getattr(context, 'math_filter_result', None)
         if math_result:
             if math_result.has_arbitrage:
-                instruction = math_result.trade_instruction.strip() if (math_result.trade_instruction and math_result.trade_instruction.strip()) else (
-                    f"Купить YES на рынке с ценой {math_result.spread_pct:.1f}% ниже"
-                )
+                instruction = math_result.trade_instruction.strip() if (math_result.trade_instruction and math_result.trade_instruction.strip()) else None
+                if not instruction:
+                    instruction = "Купить YES (арбитраж)"
+                    try:
+                        from agents.shared.python.db import get_last_analyzed_price
+                        last_price = get_last_analyzed_price(m.id)
+                        if last_price:
+                            instruction += f" при цене {last_price:.3f}"
+                    except Exception as db_err:
+                        logger.error(f"Ошибка получения последней цены из БД для fallback-инструкции: {db_err}")
                 summary_text += f"⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{instruction}\n\n"
             elif math_result.decision == FilterDecision.AMBIGUOUS and math_result.spread_pct > 0:
                 if not api_key:
@@ -682,9 +689,12 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
     
     from core.checkpoint import save_checkpoint, verify_checkpoint
     for attempt in range(3):
-        save_checkpoint(f"consensus_{m.id}", status="ok")
-        if verify_checkpoint(f"consensus_{m.id}"):
-            break
+        try:
+            save_checkpoint(f"consensus_{m.id}", status="ok")
+            if verify_checkpoint(f"consensus_{m.id}"):
+                break
+        except Exception as e:
+            logger.error(f"[CHECKPOINT] Ошибка сохранения {m.id}: {e}", exc_info=True)
         logger.warning(f"[CHECKPOINT] Retry {attempt+1}/3 для {m.id}")
     else:
         logger.error(f"[CHECKPOINT] КРИТИЧНО: консенсус {m.id} не сохранён после 3 попыток")

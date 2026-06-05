@@ -532,6 +532,8 @@ async def command_health_handler(message: types.Message) -> None:
     from config import llm_health_gate
     from core.checkpoint import _checkpoints_cache
     from datetime import datetime, timezone
+    import os
+    from agents.shared.python.db import get_memory, get_connection
     
     # Сбор данных LLMHealthGate
     state = llm_health_gate.state
@@ -574,6 +576,133 @@ async def command_health_handler(message: types.Message) -> None:
     lines.append(f"● Последний checkpoint SHADOW: {get_latest_cp('shadow_')}")
     lines.append(f"● Lock статус: {lock_status}")
     
+    # Ротация ключей
+    primary_key = os.getenv("GOOGLE_API_KEY", "")
+    secondary_key = os.getenv("GOOGLE_API_KEY_SECONDARY", "")
+    third_key = os.getenv("GOOGLE_API_KEY_THIRD", "")
+    active_keys = [k for k in [primary_key, secondary_key, third_key] if k and k.strip()]
+    num_keys = len(active_keys)
+    key_rr_idx = int(get_memory("gem_key_rr_index") or 0)
+    current_key_num = (key_rr_idx % num_keys) + 1 if num_keys > 0 else 0
+    
+    lines.append("")
+    lines.append("🔑 <b>Ротация ключей Gemini:</b>")
+    lines.append(f"● Активно ключей: {num_keys}")
+    lines.append(f"● Текущий ключ: #{current_key_num} (индекс: {key_rr_idx})")
+    
+    # Аналитика затрат
+    token_stats_24h = {"in": 0, "out": 0, "total": 0, "cost": 0.0}
+    token_stats_7d = {"in": 0, "out": 0, "total": 0, "cost": 0.0}
+    top_agent_24h = "Нет данных"
+    top_model_24h = "Нет данных"
+    top_agent_7d = "Нет данных"
+    top_model_7d = "Нет данных"
+    
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Агрегация по моделям за 24 часа
+            cursor.execute("""
+                SELECT model_name, SUM(input_tokens) as in_t, SUM(output_tokens) as out_t, SUM(total_tokens) as tot_t
+                FROM llm_calls
+                WHERE created_at >= datetime('now', '-1 day')
+                GROUP BY model_name
+            """)
+            for r in cursor.fetchall():
+                in_t = r['in_t'] or 0
+                out_t = r['out_t'] or 0
+                tot_t = r['tot_t'] or 0
+                token_stats_24h["in"] += in_t
+                token_stats_24h["out"] += out_t
+                token_stats_24h["total"] += tot_t
+                token_stats_24h["cost"] += estimate_llm_cost(r['model_name'] or "", in_t, out_t)
+
+            # Агрегация по моделям за 7 дней
+            cursor.execute("""
+                SELECT model_name, SUM(input_tokens) as in_t, SUM(output_tokens) as out_t, SUM(total_tokens) as tot_t
+                FROM llm_calls
+                WHERE created_at >= datetime('now', '-7 days')
+                GROUP BY model_name
+            """)
+            for r in cursor.fetchall():
+                in_t = r['in_t'] or 0
+                out_t = r['out_t'] or 0
+                tot_t = r['tot_t'] or 0
+                token_stats_7d["in"] += in_t
+                token_stats_7d["out"] += out_t
+                token_stats_7d["total"] += tot_t
+                token_stats_7d["cost"] += estimate_llm_cost(r['model_name'] or "", in_t, out_t)
+
+            # Топ-агент за 24 часа
+            cursor.execute("""
+                SELECT agent_name, SUM(total_tokens) as tot_t
+                FROM llm_calls
+                WHERE created_at >= datetime('now', '-1 day')
+                GROUP BY agent_name
+                ORDER BY tot_t DESC
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            if row:
+                top_agent_24h = f"{row['agent_name']} ({row['tot_t']:,} токенов)"
+
+            # Топ-модель за 24 часа
+            cursor.execute("""
+                SELECT model_name, SUM(total_tokens) as tot_t
+                FROM llm_calls
+                WHERE created_at >= datetime('now', '-1 day')
+                GROUP BY model_name
+                ORDER BY tot_t DESC
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            if row:
+                top_model_24h = f"{row['model_name']} ({row['tot_t']:,} токенов)"
+
+            # Топ-агент за 7 дней
+            cursor.execute("""
+                SELECT agent_name, SUM(total_tokens) as tot_t
+                FROM llm_calls
+                WHERE created_at >= datetime('now', '-7 days')
+                GROUP BY agent_name
+                ORDER BY tot_t DESC
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            if row:
+                top_agent_7d = f"{row['agent_name']} ({row['tot_t']:,} токенов)"
+
+            # Топ-модель за 7 дней
+            cursor.execute("""
+                SELECT model_name, SUM(total_tokens) as tot_t
+                FROM llm_calls
+                WHERE created_at >= datetime('now', '-7 days')
+                GROUP BY model_name
+                ORDER BY tot_t DESC
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            if row:
+                top_model_7d = f"{row['model_name']} ({row['tot_t']:,} токенов)"
+
+    except Exception as db_err:
+        logger.error(f"Ошибка получения статистики токенов из БД: {db_err}", exc_info=True)
+        
+    lines.append("")
+    lines.append("📊 <b>Аналитика затрат API (24 часа):</b>")
+    lines.append(f"● Всего токенов: {token_stats_24h['total']:,} (Вход: {token_stats_24h['in']:,} | Выход: {token_stats_24h['out']:,})")
+    lines.append(f"● Стоимость: ${token_stats_24h['cost']:.4f} USD")
+    lines.append(f"● Топ-агент: {top_agent_24h}")
+    lines.append(f"● Топ-модель: {top_model_24h}")
+
+    lines.append("")
+    lines.append("📆 <b>Аналитика затрат API (7 дней):</b>")
+    lines.append(f"● Всего токенов: {token_stats_7d['total']:,} (Вход: {token_stats_7d['in']:,} | Выход: {token_stats_7d['out']:,})")
+    lines.append(f"● Стоимость: ${token_stats_7d['cost']:.4f} USD")
+    lines.append(f"● Топ-агент: {top_agent_7d}")
+    lines.append(f"● Топ-модель: {top_model_7d}")
+
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
