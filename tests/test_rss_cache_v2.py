@@ -32,7 +32,7 @@ def test_rss_lock_not_created_at_import_time():
 async def test_rss_lock_created_on_first_use():
     """После первого async with _get_rss_lock() — lock не None."""
     import agents.shared.utils.resolution_extractor as m
-    async with m._get_rss_lock():
+    async with await m._get_rss_lock():
         pass
     assert m._rss_lock is not None
 

@@ -589,7 +589,7 @@ class CoreEngine:
             )
             
             if active_signal:
-                process_consensus(context, signal, swing_signal, opinion_shadow, self.state, _update_state, summary_callback)
+                process_consensus(context, signal, swing_signal, opinion_shadow, self.state, _update_state, summary_callback, api_key=self.api_key)
             else:
                 log(f"  Нет сигнала для {m.id}, пропускаем консенсус.")
                 _update_state(scout_status="⚪️ Нет сигнала", swing_status="⚪️ Нет сигнала")

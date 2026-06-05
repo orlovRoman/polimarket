@@ -58,10 +58,16 @@ def _prefilter_markets(markets_compact: list) -> list:
 
     for m in markets_compact:
         price = m.get('price', m.get('p', 0.5))
+        v_val = m.get('volume')
+        if v_val is None:
+            v_val = m.get('vol')
+        if v_val is None:
+            continue
+            
         try:
-            volume = float(m.get('volume') or m.get('vol') or 0.0)
+            volume = float(v_val)
         except (ValueError, TypeError):
-            volume = 0.0
+            continue
             
         close_str = m.get('close_time', m.get('end', ''))
 
@@ -502,7 +508,7 @@ def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signa
         shadow_opinion=opinion_shadow
     )
 
-def process_consensus(context: MarketContext, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion], state: dict, update_state: Callable, summary_callback: Optional[Callable]):
+def process_consensus(context: MarketContext, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion], state: dict, update_state: Callable, summary_callback: Optional[Callable], api_key: Optional[str] = None):
     m = context.market
     decision = make_consensus(context, signal, swing_signal, opinion_shadow)
     

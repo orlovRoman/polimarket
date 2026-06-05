@@ -76,3 +76,52 @@ def test_score_market_favors_uncertainty():
     biased = make_market(price=0.80)
     
     assert selector._score_market(uncertain) >= selector._score_market(biased)
+
+
+def test_prefilter_keeps_markets_in_price_range():
+    from core.workflow import _prefilter_markets
+    from unittest.mock import patch
+
+    ok = {"id": "ok", "price": 0.5, "volume": 1000.0, "close_time": "2099-01-01T00:00:00Z"}
+    low_price = {"id": "low", "price": 0.01, "volume": 1000.0, "close_time": "2099-01-01T00:00:00Z"}
+    closing_soon = {"id": "closing", "price": 0.5, "volume": 1000.0, "close_time": "2024-01-01T00:00:00Z"}
+
+    with patch("core.workflow.PRICE_RANGE_MIN", 0.05), \
+         patch("core.workflow.PRICE_RANGE_MAX", 0.95), \
+         patch("core.workflow.MIN_MARKET_VOLUME_USD", 500.0):
+        result = _prefilter_markets([ok, low_price, closing_soon])
+
+    assert len(result) == 1
+    assert result[0]["id"] == "ok"
+
+
+def test_prefilter_handles_close_time_parse_error():
+    """Рынки с невалидным close_time не должны вызывать исключение."""
+    from core.workflow import _prefilter_markets
+    from unittest.mock import patch
+
+    market = {"id": "bad-date", "price": 0.5, "volume": 1000.0, "close_time": "not-a-date"}
+
+    with patch("core.workflow.PRICE_RANGE_MIN", 0.05), \
+         patch("core.workflow.PRICE_RANGE_MAX", 0.95), \
+         patch("core.workflow.MIN_MARKET_VOLUME_USD", 500.0):
+        result = _prefilter_markets([market])
+
+    assert result[0]
+
+
+def test_prefilter_excludes_zero_volume():
+    from core.workflow import _prefilter_markets
+    from unittest.mock import patch
+
+    markets = [
+        {"id": "a", "price": 0.5, "volume": None, "vol": None, "close_time": "2099-01-01T00:00:00Z"},
+        {"id": "b", "price": 0.5, "volume": 5000.0, "close_time": "2099-01-01T00:00:00Z"},
+    ]
+    with patch("core.workflow.PRICE_RANGE_MIN", 0.05), \
+         patch("core.workflow.PRICE_RANGE_MAX", 0.95), \
+         patch("core.workflow.MIN_MARKET_VOLUME_USD", 100.0):
+        result = _prefilter_markets(markets)
+    ids = [m["id"] for m in result]
+    assert "a" not in ids, "Рынок с volume=None должен быть отфильтрован"
+    assert "b" in ids

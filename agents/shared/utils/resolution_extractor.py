@@ -257,7 +257,7 @@ def _get_rss_cache_file():
     from config import VAULT_PATH
     return VAULT_PATH / "rss_cache.json"
 
-def _get_rss_lock() -> asyncio.Lock:
+async def _get_rss_lock() -> asyncio.Lock:
     global _rss_lock
     if _rss_lock is None:
         _rss_lock = asyncio.Lock()
@@ -267,7 +267,7 @@ async def _load_rss_cache():
     global _runtime_rss_cache, _cache_loaded
     if _cache_loaded:
         return
-    async with _get_rss_lock():
+    async with await _get_rss_lock():
         if _cache_loaded:   # double-checked locking
             return
         cache_file = _get_rss_cache_file()
@@ -280,7 +280,7 @@ async def _load_rss_cache():
         _cache_loaded = True
 
 async def _save_rss_cache():
-    async with _get_rss_lock():
+    async with await _get_rss_lock():
         try:
             cache_file = _get_rss_cache_file()
             tmp_file = cache_file.with_suffix(".json.tmp")
@@ -295,30 +295,30 @@ AUTODISCOVER_PATHS = ["/feed", "/rss", "/feed.xml", "/rss.xml", "/feeds/posts/de
 async def autodiscover_rss(domain: str) -> Optional[str]:
     await _load_rss_cache()
 
-    async with _get_rss_lock():
+    async with await _get_rss_lock():
         if domain in _runtime_rss_cache:
             val = _runtime_rss_cache[domain]
             return None if val == "NONE" else val
         
+    found_url = None
     async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
         for path in AUTODISCOVER_PATHS:
             try:
                 url = f"https://{domain}{path}"
                 r = await client.get(url, headers={"Accept": "application/rss+xml"})
                 if r.status_code == 200 and "xml" in r.headers.get("content-type", ""):
-                    async with _get_rss_lock():
-                        _runtime_rss_cache[domain] = url
-                    await _save_rss_cache()
-                    logger.info(f"[autodiscover_rss] Найдена лента: {domain} -> {url}")
-                    return url
+                    found_url = url
+                    break
             except Exception:
                 continue
-                
-    # Кэшируем miss как "NONE" — следующий вызов не пойдёт в сеть
-    async with _get_rss_lock():
-        _runtime_rss_cache[domain] = "NONE"
+
+    # Повторная проверка под lock — если другой корутин уже записал
+    async with await _get_rss_lock():
+        if domain not in _runtime_rss_cache:
+            _runtime_rss_cache[domain] = found_url or "NONE"
+            
     await _save_rss_cache()
-    return None
+    return found_url
 
 # ─────────────────────────────────────────────
 # Оркестратор
