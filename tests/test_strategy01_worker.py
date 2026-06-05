@@ -4,7 +4,7 @@ import sqlite3
 import asyncio
 from pathlib import Path
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 # Патчим DB_PATH перед всеми импортами
 temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".sqlite")
@@ -39,7 +39,7 @@ def clean_tables():
 @pytest.mark.asyncio
 @patch("core.strategy01_worker.POLYGONSCAN_KEY", "test_api_key")
 async def test_fetch_funding_address():
-    # Мокаем httpx.AsyncClient
+    # Мокаем httpx.AsyncClient целиком как контекст-менеджер
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
@@ -50,15 +50,22 @@ async def test_fetch_funding_address():
             {"from": "0xfunder2", "to": "0xproxy1", "value": "50000"}
         ]
     }
-    
-    with patch("httpx.AsyncClient.get", return_value=mock_resp) as mock_get:
+
+    # httpx.AsyncClient используется как async context manager:
+    # async with httpx.AsyncClient() as client: await client.get(...)
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.get = AsyncMock(return_value=mock_resp)
+
+    with patch("core.strategy01_worker.httpx.AsyncClient", return_value=mock_client):
         funder = await fetch_funding_address("0xproxy1")
         assert funder == "0xfunder1"
-        mock_get.assert_called_once()
-        # Проверяем, что параметры запроса верные
-        params = mock_get.call_args[1]["params"]
-        assert params["address"] == "0xproxy1"
-        assert params["apikey"] == "test_api_key"
+        mock_client.get.assert_called_once()
+        # Проверяем параметры запроса
+        call_kwargs = mock_client.get.call_args[1]
+        assert call_kwargs["params"]["address"] == "0xproxy1"
+        assert call_kwargs["params"]["apikey"] == "test_api_key"
 
 @pytest.mark.asyncio
 @patch("core.strategy01_worker.POLYGONSCAN_KEY", "")
@@ -90,14 +97,15 @@ async def test_update_wallet_clusters_creates_cluster(mock_fetch_funding):
     
     # 0xwallet1 и 0xwallet2 финансируются от 0xfunder_common
     # 0xwallet3 финансируется от 0xfunder_unique
-    def side_effect(addr):
+    # fetch_funding_address — async def, поэтому side_effect тоже должен быть async
+    async def async_side_effect(addr):
         if addr in ("0xwallet1", "0xwallet2"):
             return "0xfunder_common"
         if addr == "0xwallet3":
             return "0xfunder_unique"
         return None
-        
-    mock_fetch_funding.side_effect = side_effect
+
+    mock_fetch_funding.side_effect = async_side_effect
     
     # Запускаем воркер
     inserted = await update_wallet_clusters()
