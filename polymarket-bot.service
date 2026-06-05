@@ -1,7 +1,7 @@
 [Unit]
 Description=Polymarket Agent Team Bot
 After=network-online.target
-Wants=network-online.target
+Requires=network-online.target
 
 [Service]
 Type=simple
@@ -10,11 +10,11 @@ WorkingDirectory=/home/orlovrp/polymarket-bot
 ExecStart=/home/orlovrp/polymarket-bot/venv/bin/python main.py
 EnvironmentFile=/home/orlovrp/polymarket-bot/.env
 Restart=always
-RestartSec=10
-StartLimitIntervalSec=300
-StartLimitBurst=5
-KillMode=mixed
-TimeoutStopSec=15
+RestartSec=30
+StartLimitIntervalSec=0
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=polymarket-bot

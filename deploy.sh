@@ -11,9 +11,12 @@ git stash > /dev/null 2>&1
 echo "📥 Скачиваем последние обновления с GitHub..."
 git pull origin main
 
-# 3. Делаем скрипты исполняемыми (на всякий случай)
+# 3. Делаем скрипты исполняемыми и защищаем .env файл
 chmod +x deploy.sh
 chmod +x create-agent-structure.sh
+if [ -f .env ]; then
+    chmod 600 .env
+fi
 
 # 4. Останавливаем systemd сервис без небезопасного pkill
 echo "🔄 Останавливаем systemd сервис..."
