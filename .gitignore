@@ -80,3 +80,7 @@ scratch/
 *.sqlite
 vault/checkpoints.json
 vault/database.sqlite
+vault/*.session
+vault/*.session-journal
+vault/*.sqlite-shm
+vault/*.sqlite-wal
