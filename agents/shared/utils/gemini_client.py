@@ -747,9 +747,14 @@ def generate_content_with_fallback(
                 # Пропускаем текущую модель; следующие тоже получат 402 — это нормально,
                 # они быстро отсеются и управление перейдёт к следующему провайдеру.
                 if _is_payment_required_error(e):
+                    key_env = {
+                        "cerebras": "CEREBRAS_API_KEY",
+                        "openrouter": "OPENROUTER_API_KEY",
+                        "gemini": "GOOGLE_API_KEY",
+                    }.get(provider, f"{provider.upper()}_API_KEY")
                     logger.error(
                         f"[{agent_name}] 402 Payment Required от {provider} ({model}): "
-                        f"проверьте CEREBRAS_API_KEY на сервере (ключ истёк или неверен). Пропускаем модель."
+                        f"проверьте {key_env} или модель (возможно нужен :free суффикс). Пропускаем."
                     )
                     skip_model = True
                     break
