@@ -115,8 +115,9 @@ def _resolve_signal(row: dict, resolution: str) -> None:
     except Exception:
         virtual_stake = 10.0
 
-    pnl_realized = 0.0
+    pnl_realized = None
     if resolution != "N/A":
+        pnl_realized = 0.0
         strategy = (row["strategy_type"] or "").lower()
         if strategy in ('synthetic_corridor', 'temporal_corridor', 'cross_platform'):
             pnl_realized = virtual_stake * 0.15 if was_correct else -virtual_stake
@@ -138,7 +139,7 @@ def _resolve_signal(row: dict, resolution: str) -> None:
             else:
                 pnl_realized = -virtual_stake
 
-    pnl_realized = round(pnl_realized, 2)
+        pnl_realized = round(pnl_realized, 2)
 
     new_status = 'WIN' if was_correct else 'LOSS'
     outcome_label = 'correct' if was_correct else 'incorrect'
@@ -325,7 +326,9 @@ def _send_telegram_summary(resolved_items: list[tuple[dict, str]]) -> None:
                 WHERE period_end >= datetime('now', '-5 minutes')
             """).fetchall()
             for m in metrics:
-                lines.append(f"- {m['strategy_type']}: <b>{m['win_rate']*100:.1f}%</b> ({m['total_signals']} сигн.)")
+                wr = m['win_rate']
+                wr_str = f"{wr*100:.1f}%" if wr is not None else "—"
+                lines.append(f"- {m['strategy_type']}: <b>{wr_str}</b> ({m['total_signals']} сигн.)")
                 
         text = "\n".join(lines)
         send_telegram(text)

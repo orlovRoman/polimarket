@@ -1403,13 +1403,13 @@ def get_market_discussions(market_id: str):
         )
         return [dict(row) for row in cursor.fetchall()]
 
-def cleanup_stale_signals():
-    """Переносит истёкшие рынки в историю и удаляет сигналы старше 1 года."""
+def cleanup_stale_signals(days: int = 365) -> int:
+    """Переносит истёкшие рынки в историю и удаляет сигналы старше N дней."""
     with get_connection() as conn:
         cursor = conn.cursor()
         
-        # 1. Жесткое удаление старше 1 года (365 дней)
-        cursor.execute("DELETE FROM signals WHERE created_at < datetime('now', '-365 days')")
+        # 1. Жесткое удаление старых сигналов
+        cursor.execute("DELETE FROM signals WHERE created_at < datetime('now', ? || ' days')", (f"-{days}",))
         deleted_old = cursor.rowcount
         
         # 2. Перенос закрытых рынков в историю (status = ARCHIVED)

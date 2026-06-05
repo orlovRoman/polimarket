@@ -31,13 +31,19 @@ def test_only_one_resolution_job_registered():
             # Игнорируем ошибки запуска после настройки планировщика
             pass
 
+    # Проверяем, что планировщик вообще настраивался и задачи были добавлены
+    assert len(jobs_added) > 0, "Список jobs_added пуст! Планировщик не зарегистрировал ни одной задачи."
+
     resolution_jobs = [
         j for j in jobs_added
         if any(kw in j["func"] for kw in ["resolution", "resolve", "outcome"])
     ]
     
-    # Должен быть только один outcome_tracker
-    assert len(resolution_jobs) <= 1, (
+    # Должен быть ровно один outcome_tracker
+    assert len(resolution_jobs) == 1, (
         f"Найдено {len(resolution_jobs)} резолверов: {resolution_jobs}. "
-        "Должен быть только один — outcome_tracker."
+        "Должен быть ровно один — outcome_tracker."
+    )
+    assert resolution_jobs[0]["id"] == "outcome_tracker", (
+        f"Ожидался ID 'outcome_tracker', получено: {resolution_jobs[0]['id']}"
     )
