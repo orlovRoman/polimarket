@@ -61,7 +61,14 @@ class FavouriteFilter:
         for m in markets:
             try:
                 price = float(m.price)
-                volume = float(getattr(m, "volume", 0) or 0)
+                volume_raw = getattr(m, "volume", 0) or 0
+                if isinstance(volume_raw, (int, float)):
+                    volume = float(volume_raw)
+                else:
+                    try:
+                        volume = float(volume_raw)
+                    except Exception:
+                        volume = 0.0
                 close_time = m.close_time
                 if not close_time:
                     continue
@@ -138,6 +145,11 @@ class ObviousnessValidator:
         """Google Grounding через существующий механизм в проекте."""
         try:
             from core.workflow import _fetch_grounded_context
+        except ImportError:
+            logger.warning("[Validator] core.workflow недоступен, Google Grounding отключён")
+            return 0.0, ""
+            
+        try:
             snippet = _fetch_grounded_context(
                 f"Has this happened already? {title}",
                 max_tokens=200
@@ -180,8 +192,8 @@ class ROICalculator:
         # Gross ROI: (1 - price) / price
         gross_roi = (1.0 - price) / price
 
-        # Вычитаем spread
-        spread_cost = (spread_pct or 0.005) / 2  # half-spread
+        spread_val = spread_pct if spread_pct is not None else 0.005
+        spread_cost = price * spread_val / 2  # half-spread
         net_price = price + spread_cost
         net_price = min(net_price, 0.999)
 
@@ -232,6 +244,9 @@ def calibrate_confidence_threshold() -> float:
         return current_threshold
         
     win_rate = row["win_rate"]
+    if win_rate is None:
+        return current_threshold
+        
     new_threshold = current_threshold
     if win_rate > 0.85:
         new_threshold = max(0.4, current_threshold - 0.05)

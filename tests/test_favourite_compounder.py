@@ -181,3 +181,68 @@ class TestCalibrateConfidenceThreshold:
         threshold = calibrate_confidence_threshold()
         assert threshold == 0.55
         mock_save.assert_called_with("min_confidence", "0.55")
+
+
+# ── Тест бага: ROI spread должен учитывать цену ──────────────
+class TestROICalculatorSpreadBug:
+    def test_spread_cost_is_relative_to_price(self):
+        """spread_pct — относительный, spread_cost должен умножаться на price"""
+        calc = ROICalculator()
+        roi = calc.compute(price=0.96, hours_left=12.0, spread_pct=0.02)
+        # spread_cost = 0.96 * 0.02 / 2 = 0.0096
+        # net_price = 0.96 + 0.0096 = 0.9696
+        assert abs(roi["net_price"] - 0.9696) < 0.001, \
+            f"net_price={roi['net_price']}, ожидалось ~0.9696"
+
+    def test_spread_cost_zero_doesnt_change_price(self):
+        roi = ROICalculator().compute(0.96, 12.0, spread_pct=0.0)
+        assert roi["net_price"] == 0.96
+
+
+# ── Тест бага: calibrate при NULL win_rate ────────────────────
+class TestCalibrateNullWinRate:
+    @patch("agents.shared.python.db.get_compound_settings",
+           return_value={"min_confidence": 0.5})
+    @patch("agents.shared.python.db.save_compound_setting")
+    @patch("agents.shared.python.db.get_connection")
+    def test_null_win_rate_returns_current_threshold(self, mock_conn, mock_save, mock_cfg):
+        """NULL win_rate в БД не должен вызывать TypeError"""
+        mock_conn.return_value.__enter__.return_value \
+            .execute.return_value.fetchone.return_value = {
+                "win_rate": None, "total_signals": 10
+            }
+        threshold = calibrate_confidence_threshold()
+        assert threshold == 0.5
+        mock_save.assert_not_called()
+
+
+# ── Тест: ImportError в _check_google ────────────────────────
+class TestObviousnessGoogleImportError:
+    def test_check_google_import_error_returns_zero(self):
+        """Если core.workflow не импортируется — graceful fallback"""
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "core.workflow":
+                raise ImportError("модуль недоступен")
+            return real_import(name, *args, **kwargs)
+
+        m = _market(title="Generic question", price=0.95)
+        with patch("builtins.__import__", side_effect=mock_import):
+            conf, reason = ObviousnessValidator()._check_google(m.title)
+        assert conf == 0.0
+        assert reason == ""
+
+
+# ── Тест: volume не MagicMock ─────────────────────────────────
+class TestFavouriteFilterVolumeSafety:
+    def test_mock_volume_attribute_doesnt_crash(self):
+        """Если volume — MagicMock, scan должен продолжить, а не упасть"""
+        from unittest.mock import MagicMock
+        m = _market()
+        m.volume = MagicMock()   # не число
+        # Не должен выбросить исключение
+        result = FavouriteFilter().scan([m])
+        # volume не является числом, должен быть заменён на 0
+        assert isinstance(result, list)
