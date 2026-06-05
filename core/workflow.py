@@ -288,32 +288,40 @@ def _fetch_grounded_context(market: Market, api_key: str, model: str) -> str:
 async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None):
     _cleanup_session_dedup()
 
-    # In-session дедупликация (быстрая проверка без БД)
-    dedup_key = f"{m.id}:{trigger_type}"
-    with _dedup_lock:
-        if dedup_key in _analyzed_in_session:
-            logger.info(
-                f"[workflow] Пропуск дубля (in-session): {m.id} "
-                f"({trigger_type}), добавлен {time.monotonic() - _analyzed_in_session[dedup_key]:.0f}с назад"
-            )
-            return None, None, None
-        _analyzed_in_session[dedup_key] = time.monotonic()
+    from core.price_velocity import detect_velocity_anomaly
+    velocity = detect_velocity_anomaly(price_history or [])
+    has_anomaly = getattr(velocity, 'has_anomaly', False)
 
-    # БД-уровень дедупликации (межсессионная защита)
     last_analysis_key = f"last_analysis:{m.id}"
-    last_raw = get_memory(last_analysis_key)
-    if last_raw:
-        try:
-            last_dt = datetime.fromisoformat(last_raw)
-            age_sec = (datetime.now(timezone.utc) - last_dt).total_seconds()
-            if age_sec < _SESSION_DEDUP_TTL_SEC:
+
+    if not has_anomaly:
+        # In-session дедупликация (быстрая проверка без БД)
+        dedup_key = f"{m.id}:{trigger_type}"
+        with _dedup_lock:
+            if dedup_key in _analyzed_in_session:
                 logger.info(
-                    f"[workflow] Дедупликация (БД): рынок {m.id} уже анализировался "
-                    f"{age_sec:.0f}с назад (trigger={trigger_type}), пропускаем"
+                    f"[workflow] Пропуск дубля (in-session): {m.id} "
+                    f"({trigger_type}), добавлен {time.monotonic() - _analyzed_in_session[dedup_key]:.0f}с назад"
                 )
                 return None, None, None
-        except (ValueError, TypeError):
-            pass
+            _analyzed_in_session[dedup_key] = time.monotonic()
+
+        # БД-уровень дедупликации (межсессионная защита)
+        last_raw = get_memory(last_analysis_key)
+        if last_raw:
+            try:
+                last_dt = datetime.fromisoformat(last_raw)
+                age_sec = (datetime.now(timezone.utc) - last_dt).total_seconds()
+                if age_sec < _SESSION_DEDUP_TTL_SEC:
+                    logger.info(
+                        f"[workflow] Дедупликация (БД): рынок {m.id} уже анализировался "
+                        f"{age_sec:.0f}с назад (trigger={trigger_type}), пропускаем"
+                    )
+                    return None, None, None
+            except (ValueError, TypeError):
+                pass
+    else:
+        logger.info(f"[workflow] Обход дедупликации для рынка {m.id} из-за аномальной скорости изменения цены.")
 
 
     # Guard: проверяем доступность LLM перед запуском
@@ -385,14 +393,16 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
             if line:
                 grounded_lines.append(line)
 
-    from agents.shared.utils.web_search import deduplicate_results
-    # Дедуплицируем news_titles относительно grounded_lines
-    deduped_combined = deduplicate_results(news_titles, grounded_lines)
-    # Оставляем только те элементы, которые были в исходном news_titles, убирая дубликаты
-    news_titles = [item for item in deduped_combined if item in news_titles]
+    from agents.shared.utils.web_search import deduplicate_rss_against_grounding
+    # Дедуплицируем news_titles относительно grounded_lines (убираем дубликаты без смешивания)
+    news_titles = deduplicate_rss_against_grounding(news_titles, grounded_lines)
     
     # Дедуплицируем посты в reddit_posts
-    reddit_posts = deduplicate_results(reddit_posts, [])
+    from agents.shared.utils.web_search import deduplicate_list
+    reddit_posts = deduplicate_list(reddit_posts)
+    
+    from core.dedup import deduplicate_reddit_posts
+    reddit_posts = deduplicate_reddit_posts(reddit_posts, grounded)
 
     context = MarketContext(
         market=m,
@@ -410,8 +420,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         grounded_context=grounded
     )
 
-    from core.price_velocity import detect_velocity_anomaly
-    velocity = detect_velocity_anomaly(price_history or [])
+    # velocity уже вычислен в начале функции run_agent_evaluation
     context.velocity_annotation = velocity.annotation
 
     from core.orderbook_shape import analyze_orderbook_shape

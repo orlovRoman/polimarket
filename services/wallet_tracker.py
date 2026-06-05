@@ -39,6 +39,26 @@ def ingest_trades(market_id: str, trades: list, positions: list) -> int:
     return saved
 
 
+def binomial_coefficient(n: int, k: int) -> int:
+    if k < 0 or k > n: return 0
+    if k == 0 or k == n: return 1
+    k = min(k, n - k)
+    c = 1
+    for i in range(k):
+        c = c * (n - i) // (i + 1)
+    return c
+
+
+def calculate_binomial_p_value(n: int, k: int, p_base: float = 0.5) -> float:
+    """Вычисляет одностороннее binomial p-value для k или более успехов в n испытаниях."""
+    if n <= 0 or k <= 0: return 1.0
+    if k > n: return 0.0
+    p_val = 0.0
+    for i in range(k, n + 1):
+        p_val += binomial_coefficient(n, i) * (p_base ** i) * ((1.0 - p_base) ** (n - i))
+    return p_val
+
+
 def recalculate_win_rates() -> int:
     """
     Чистый SQL-пересчёт win_rate без LLM.
@@ -61,8 +81,12 @@ def recalculate_win_rates() -> int:
 
     updated = 0
     for row in rows:
-        wr = row["wins"] / row["total"] if row["total"] > 0 else 0.0
-        update_wallet_stats(row["wallet_address"], round(wr, 3), row["total_vol"] or 0.0)
+        total = row["total"]
+        wins = row["wins"] or 0
+        wr = wins / total if total > 0 else 0.0
+        p_val = calculate_binomial_p_value(total, wins)
+        is_insider = (total >= 15 and p_val < 0.05)
+        update_wallet_stats(row["wallet_address"], round(wr, 3), row["total_vol"] or 0.0, is_insider)
         updated += 1
     logger.info(f"[WalletTracker] Пересчитан win_rate для {updated} кошельков")
     return updated

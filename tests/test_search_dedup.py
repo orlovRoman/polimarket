@@ -74,3 +74,46 @@ async def test_dedup_called_in_context_pipeline():
             pass
             
         assert mock_dedup.called, "BUG-DD-02: deduplicate_results не вызывается при построении контекста"
+
+
+def test_deduplicate_rss_against_grounding():
+    from agents.shared.utils.web_search import deduplicate_rss_against_grounding
+    rss = [{"title": "Only in RSS"}, {"title": "[2026-06-01] Duplicate news"}]
+    grounding = [{"title": "Duplicate news"}, {"title": "Only in Grounding"}]
+    res = deduplicate_rss_against_grounding(rss, grounding)
+    assert len(res) == 1
+    assert res[0]["title"] == "Only in RSS"
+
+
+def test_deduplicate_list():
+    from agents.shared.utils.web_search import deduplicate_list
+    items = ["Post A", "Post B", "[Reddit] Post A", "Post C"]
+    res = deduplicate_list(items)
+    assert len(res) == 3
+
+
+def test_deduplicate_reddit_posts():
+    from core.dedup import deduplicate_reddit_posts
+    reddit = ["[r/politics] Trump wins election in November", "Unrelated post"]
+    grounded = "Trump wins election in November according to latest polls."
+    res = deduplicate_reddit_posts(reddit, grounded)
+    assert len(res) == 1
+    assert res[0] == "Unrelated post"
+
+
+def test_cache_gc_toctou():
+    import time
+    from agents.shared.utils.web_search import _get_cached, _news_cache
+    from agents.shared.utils.web_search import NEWS_CACHE_TTL
+    import hashlib
+    k1 = hashlib.md5("test_query1".lower().encode()).hexdigest()
+    _news_cache[k1] = ("old_val", time.time() - NEWS_CACHE_TTL - 10)
+    
+    def mock_fetcher():
+        _news_cache[k1] = ("new_val", time.time())
+        return "some_val"
+        
+    _get_cached("test_query2", mock_fetcher)
+    
+    assert k1 in _news_cache
+    assert _news_cache[k1][0] == "new_val"

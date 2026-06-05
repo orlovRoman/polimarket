@@ -1276,12 +1276,12 @@ def add_wallet(address: str, alias: str = None, is_insider: bool = False):
             (address, alias, is_insider, datetime.now(timezone.utc))
         )
 
-def update_wallet_stats(address: str, win_rate: float, total_profit: float):
+def update_wallet_stats(address: str, win_rate: float, total_profit: float, is_insider: bool = False):
     """Обновляет статистику кошелька (Win Rate) для фильтра Smart Money."""
     with get_connection() as conn:
         conn.execute(
-            "UPDATE wallets SET win_rate = ?, total_profit = ?, last_seen = ? WHERE address = ?",
-            (win_rate, total_profit, datetime.now(timezone.utc), address)
+            "UPDATE wallets SET win_rate = ?, total_profit = ?, is_insider = ?, last_seen = ? WHERE address = ?",
+            (win_rate, total_profit, is_insider, datetime.now(timezone.utc), address)
         )
 
 def add_discussion_message(market_id: str, agent_name: str, message: str, confidence: float = None, agree: bool = True):
@@ -1631,7 +1631,7 @@ def get_known_whales() -> dict:
         try:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT w.address, w.alias, w.win_rate, w.total_profit, 
+                SELECT w.address, w.alias, w.win_rate, w.total_profit, w.is_insider,
                        COALESCE(t.total_vol, 0.0) as total_vol
                 FROM wallets w
                 LEFT JOIN (
@@ -1649,7 +1649,8 @@ def get_known_whales() -> dict:
                     "alias": row["alias"],
                     "win_rate": row["win_rate"],
                     "total_won": total_won,
-                    "total_vol": total_vol
+                    "total_vol": total_vol,
+                    "is_insider": bool(row["is_insider"])
                 }
         except Exception as e:
             logger.error(f"[DB] Ошибка при чтении wallets для known_whales: {e}")

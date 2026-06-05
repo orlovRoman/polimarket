@@ -9,6 +9,7 @@ class WalletInfo(BaseModel):
     win_rate: Optional[float] = None
     side: str  # "YES" | "NO"
     volume_usd: float
+    is_insider: bool = False
 
 class SmartMoneySummary(BaseModel):
     available: bool

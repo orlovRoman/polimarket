@@ -93,17 +93,20 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
         whale_info = known_whales.get(addr.lower(), {})
         alias = whale_info.get("alias", addr[:8] + "...")
         win_rate = whale_info.get("win_rate")
+        is_insider = whale_info.get("is_insider", False)
         wr_str = f" | WR: {win_rate*100:.0f}%" if win_rate is not None else ""  # FIX #3
+        insider_str = " [Insider]" if is_insider else ""
         side = "YES" if stats["yes_usd"] > stats["no_usd"] else "NO"
         vol = stats["yes_usd"] + stats["no_usd"]
-        lines.append(f"  {alias}{wr_str} → {side} ${vol:,.0f}")
+        lines.append(f"  {alias}{wr_str}{insider_str} → {side} ${vol:,.0f}")
         
         wallets_list.append(WalletInfo(
             address=addr,
             alias=whale_info.get("alias"),
             win_rate=win_rate,
             side=side,
-            volume_usd=vol
+            volume_usd=vol,
+            is_insider=is_insider
         ))
 
     recent_ratio = recent_volume_usd / total_volume_usd if total_volume_usd > 0 else 0.0

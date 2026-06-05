@@ -37,7 +37,9 @@ def _get_cached(query: str, fetcher_fn, *args) -> T:
     if expired:
         with _news_cache_lock:
             for k in expired:
-                _news_cache.pop(k, None)
+                entry = _news_cache.get(k)
+                if entry and (now - entry[1] > NEWS_CACHE_TTL):
+                    _news_cache.pop(k, None)
 
     return result
 
@@ -201,3 +203,34 @@ def deduplicate_results(rss_results: list, grounding_results: list) -> list:
             deduped.append(item)
             
     return deduped
+
+
+def deduplicate_rss_against_grounding(rss_results: list, grounding_results: list) -> list:
+    seen_hashes = set()
+    for item in (grounding_results or []):
+        if not item: continue
+        title = item.get("title") or item.get("text") or str(item) if isinstance(item, dict) else str(item)
+        clean = title
+        if title.startswith("[") and "]" in title:
+            parts = title.split("]", 1)
+            if len(parts) > 1: clean = parts[1].strip()
+        h = hashlib.md5(clean.lower().encode('utf-8', errors='ignore')).hexdigest()
+        seen_hashes.add(h)
+        
+    deduped = []
+    for item in (rss_results or []):
+        if not item: continue
+        title = item.get("title") or item.get("text") or str(item) if isinstance(item, dict) else str(item)
+        clean = title
+        if title.startswith("[") and "]" in title:
+            parts = title.split("]", 1)
+            if len(parts) > 1: clean = parts[1].strip()
+        h = hashlib.md5(clean.lower().encode('utf-8', errors='ignore')).hexdigest()
+        if h not in seen_hashes:
+            seen_hashes.add(h)
+            deduped.append(item)
+    return deduped
+
+
+def deduplicate_list(items: list) -> list:
+    return deduplicate_results(items, [])
