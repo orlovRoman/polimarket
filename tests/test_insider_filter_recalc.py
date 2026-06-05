@@ -1,22 +1,38 @@
 # tests/test_insider_filter_recalc.py
 import pytest
-from unittest.mock import patch
 from core.insider_filter import evaluate_wallet, recalculate_all_insiders
 from core.stats import binomial_pvalue
 from agents.shared.python.db import get_wallets_for_pvalue_recalc
 
 
-def test_recalculate_includes_manual_n_trades(monkeypatch):
+@pytest.fixture
+def isolated_db(monkeypatch, tmp_path):
+    """Подменяет DB_PATH на временный файл."""
+    db_file = tmp_path / "test.db"
+    monkeypatch.setattr("agents.shared.python.db.DB_PATH", db_file)
+    # Сбросить флаг инициализации
+    import agents.shared.python.db as db_module
+    monkeypatch.setattr(db_module, "_db_initialized", False)
+    yield db_file
+
+
+def test_recalculate_includes_manual_n_trades():
     """Кошелёк с n_trades>0 но tx_count=0 должен попасть в пересчёт."""
     mock_wallets = [
         {"address": "0xAAA", "n_trades": 20, "n_wins": 15, "tx_count": 0, "computed_wins": None}
     ]
+    captured = []
     
-    with patch("agents.shared.python.db.get_wallets_for_pvalue_recalc", return_value=mock_wallets), \
-         patch("agents.shared.python.db.update_wallet_pvalue") as mock_update:
-        verdicts = recalculate_all_insiders()
-        
+    verdicts = recalculate_all_insiders(
+        fetch_wallets=lambda: mock_wallets,
+        save_verdict=lambda **kw: captured.append(kw),
+    )
+    
     assert any(v.address == "0xAAA" for v in verdicts)
+    assert len(captured) == 1
+    assert captured[0]["address"] == "0xAAA"
+    assert captured[0]["n_trades"] == 20
+    assert captured[0]["n_wins"] == 15
 
 
 def test_evaluate_wallet_low_n_trades_returns_not_insider():
@@ -32,7 +48,7 @@ def test_binomial_pvalue_large_n_no_overflow():
     assert 0.0 <= pv <= 1.0
 
 
-def test_get_wallets_for_pvalue_recalc_includes_manual_wallets():
+def test_get_wallets_for_pvalue_recalc_includes_manual_wallets(isolated_db):
     """Кошельки с n_trades > 0 должны включаться даже без транзакций в БД."""
     from agents.shared.python.db import get_connection, init_db, upsert_known_whale
     
@@ -51,3 +67,4 @@ def test_get_wallets_for_pvalue_recalc_includes_manual_wallets():
     wallets = get_wallets_for_pvalue_recalc()
     addresses = [w["address"] for w in wallets]
     assert "0xmanual" in addresses
+

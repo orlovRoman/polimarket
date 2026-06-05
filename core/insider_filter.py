@@ -64,16 +64,20 @@ def evaluate_wallet(address: str, n_trades: int, n_wins: int) -> InsiderVerdict:
     return InsiderVerdict(address, n_trades, n_wins, win_rate, pv, is_insider, reason)
 
 
-def recalculate_all_insiders() -> list[InsiderVerdict]:
+def recalculate_all_insiders(
+    fetch_wallets=None,
+    save_verdict=None,
+) -> list[InsiderVerdict]:
     """
     Пересчитывает статус is_insider для всех кошельков в БД.
     Запускается периодически (например, раз в час).
     """
-    from agents.shared.python.db import (
-        get_wallets_for_pvalue_recalc, update_wallet_pvalue
-    )
+    if fetch_wallets is None:
+        from agents.shared.python.db import get_wallets_for_pvalue_recalc as fetch_wallets
+    if save_verdict is None:
+        from agents.shared.python.db import update_wallet_pvalue as save_verdict
 
-    wallets = get_wallets_for_pvalue_recalc()
+    wallets = fetch_wallets()
     verdicts = []
 
     for w in wallets:
@@ -82,7 +86,7 @@ def recalculate_all_insiders() -> list[InsiderVerdict]:
             n_trades=w.get("n_trades") or w.get("tx_count", 0),
             n_wins=w.get("n_wins") or w.get("computed_wins") or 0,
         )
-        update_wallet_pvalue(
+        save_verdict(
             address=verdict.address,
             n_trades=verdict.n_trades,
             n_wins=verdict.n_wins,
@@ -94,3 +98,4 @@ def recalculate_all_insiders() -> list[InsiderVerdict]:
     insiders_found = sum(1 for v in verdicts if v.is_insider)
     logger.info(f"[InsiderFilter] Пересчёт завершён: {insiders_found}/{len(verdicts)} инсайдеров")
     return verdicts
+

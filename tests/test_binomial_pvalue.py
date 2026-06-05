@@ -80,3 +80,21 @@ class TestIsStatisticallySignificant:
         """100 сделок, 60 побед (60%) → значимо при большой выборке."""
         significant, pv = is_statistically_significant(100, 60, min_trades=15)
         assert significant, f"60% из 100 должен быть значимым, p={pv}"
+
+    def test_exactly_50pct_winrate_not_insider(self):
+        """WR ровно 50% не должен давать инсайдера."""
+        is_insider, pv = is_statistically_significant(n=20, k=10)
+        assert is_insider is False
+        assert pv == 1.0
+
+    def test_51pct_winrate_not_insider_due_to_pvalue(self):
+        """WR 51% при n=20 не должен быть значимым статистически."""
+        is_insider, pv = is_statistically_significant(n=20, k=11)
+        assert is_insider is False  # p-value будет > 0.05 при n=20
+
+    def test_high_winrate_high_n_is_insider(self):
+        """WR 75% при n=50 должен дать is_insider=True."""
+        is_insider, pv = is_statistically_significant(n=50, k=38)
+        assert is_insider is True
+        assert pv < 0.05
+
