@@ -64,8 +64,7 @@ async def test_scan_shows_menu_when_busy(user_message):
 @pytest.mark.asyncio
 async def test_callback_does_not_start_second_scan(callback_query):
     """При занятом lock нажатие на категорию не запускает второй scan."""
-    with patch("telegram.bot.get_core_engine") as mock_engine_cls, \
-         patch("telegram.bot.get_active_scan_status_text", return_value="BUSY_STATUS"):
+    with patch("telegram.bot.get_core_engine") as mock_engine_cls:
         mock_engine = MagicMock()
         mock_engine._scan_lock = MagicMock()
         mock_engine._scan_lock.locked.return_value = True
@@ -76,7 +75,8 @@ async def test_callback_does_not_start_second_scan(callback_query):
         callback_query.answer.assert_called_once()
         callback_query.message.answer.assert_called_once()
         args, _ = callback_query.message.answer.call_args
-        assert "BUSY_STATUS" in args[0]
+        assert "Сканирование" in args[0]
+        assert "уже выполняется" in args[0]
 
 def test_all_categories_in_keyboard():
     """Все 12 callback должны быть в клавиатуре (включая scan_all)."""

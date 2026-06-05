@@ -405,3 +405,85 @@ def send_temporal_corridor_alerts() -> None:
                 logger.warning(f"[Notifier] Не удалось отправить временной коридор: {signal_id}")
     except Exception as e:
         logger.error(f"[Notifier] Ошибка отправки временного коридора: {e}")
+
+async def send_compound_alert(bot, chat_id: int, opp) -> None:
+    """Отправляет алерт о Favourite Compounding возможности с inline-кнопками."""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    hours = opp.hours_left
+    time_str = f"{hours:.1f}ч" if hours >= 1 else f"{hours*60:.0f}мин"
+    price_cents = int(round(opp.price * 100))
+
+    text = (
+        f"💰 <b>FAVOURITE COMPOUNDING</b>\n\n"
+        f"📍 <b>{opp.title[:100]}...</b>\n\n"
+        f"💵 Цена: <b>{price_cents}¢</b>  "
+        f"📈 ROI: <b>+{opp.roi_net_pct:.2f}%</b>\n"
+        f"⏱ До закрытия: <b>{time_str}</b>  "
+        f"📊 Объём: <b>${opp.volume_usd:,.0f}</b>\n"
+        f"🎯 Уверенность: <b>{opp.confidence*100:.0f}%</b>\n"
+        f"🔍 <i>{opp.obviousness_reason}</i>\n\n"
+        f"📌 Spread: {(opp.spread_pct or 0)*100:.2f}%"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text=f"✅ Купить ({price_cents}¢)",
+            callback_data=f"compound_buy:{opp.opp_id}"
+        ),
+        InlineKeyboardButton(
+            text="❌ Пропустить",
+            callback_data=f"compound_skip:{opp.opp_id}"
+        ),
+        InlineKeyboardButton(
+            text="🔗 Открыть",
+            url=opp.url
+        ),
+    ]])
+
+    await bot.send_message(
+        chat_id, text,
+        parse_mode="HTML",
+        reply_markup=keyboard,
+        disable_web_page_preview=True
+    )
+
+async def send_compound_exit_alert(bot, chat_id: int, opp, current_price: float) -> None:
+    """Отправляет алерт о возможности досрочного закрытия Favourite Compounding позиции (профи-продажа)."""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    price_cents = int(round(current_price * 100))
+    init_cents = int(round(opp["price"] * 100))
+    
+    # Считаем ROI
+    from services.favourite_compounder import ROICalculator
+    from agents.shared.python.db import get_compound_settings
+    cfg = get_compound_settings()
+    virtual_stake = cfg.get("virtual_stake", 50.0)
+    pnl = virtual_stake * (current_price - opp["price"]) / opp["price"] * (1.0 - ROICalculator.POLY_FEE_PCT)
+
+    text = (
+        f"💎 <b>EXIT: ПРОФИ-ПРОДАЖА (Favourite Compounding)</b>\n\n"
+        f"📍 <b>{opp['title'][:100]}...</b>\n\n"
+        f"📈 Текущая цена достигла: <b>{price_cents}¢</b> (покупка по {init_cents}¢)\n"
+        f"💰 Ожидаемый PnL: <b>+${pnl:.2f}</b>\n"
+        f"⚠️ До формальной резолюции UMA осталось совсем немного. Продайте сейчас для высвобождения капитала!"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text=f"✅ Продано по {price_cents}¢",
+            callback_data=f"compound_sell:{opp['id']}:{current_price}"
+        ),
+        InlineKeyboardButton(
+            text="🔗 Открыть",
+            url=opp["url"]
+        ),
+    ]])
+
+    await bot.send_message(
+        chat_id, text,
+        parse_mode="HTML",
+        reply_markup=keyboard,
+        disable_web_page_preview=True
+    )

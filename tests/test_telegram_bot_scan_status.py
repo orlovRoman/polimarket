@@ -76,18 +76,21 @@ def test_command_scan_handler_locked():
     asyncio.run(run_test())
 
 def test_callback_scan_handler_locked():
-    """callback_scan_handler должен выводить детальный статус, если сканирование уже запущено."""
+    """callback_scan_handler должен выводить предупреждение, если сканирование уже запущено."""
     async def run_test():
         mock_callback = AsyncMock()
         mock_callback.data = "scan_politics"
         mock_callback.message = AsyncMock()
         
-        with patch("telegram.bot._scan_lock.locked", return_value=True), \
-             patch("telegram.bot.get_active_scan_status_text", return_value="FAKE_CALLBACK_STATUS"):
+        with patch("telegram.bot._scan_lock.locked", return_value=True):
             await callback_scan_handler(mock_callback)
             
         mock_callback.answer.assert_called_once()
-        mock_callback.message.answer.assert_called_once_with("FAKE_CALLBACK_STATUS", parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        # Проверяем, что отправлен текст предупреждения о занятом сканировании
+        mock_callback.message.answer.assert_called_once()
+        sent_text = mock_callback.message.answer.call_args[0][0]
+        assert "Сканирование" in sent_text
+        assert "уже выполняется" in sent_text
 
     asyncio.run(run_test())
 

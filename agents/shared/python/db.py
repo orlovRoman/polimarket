@@ -60,10 +60,31 @@ def init_db():
     """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
     global _db_initialized
     if _db_initialized:
-        return
+        # Проверяем, действительно ли таблицы существуют в текущем файле БД
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=1)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='markets'")
+            has_table = cursor.fetchone() is not None
+            conn.close()
+            if has_table:
+                return
+        except Exception:
+            pass
+            
     with _db_init_lock:
         if _db_initialized:  # double-check после получения лока
-            return
+            try:
+                conn = sqlite3.connect(DB_PATH, timeout=1)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='markets'")
+                has_table = cursor.fetchone() is not None
+                conn.close()
+                if has_table:
+                    return
+            except Exception:
+                pass
+                
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         
         with get_connection() as conn:
@@ -675,6 +696,51 @@ def init_db():
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_penny_status ON penny_stocks_monitoring(status)")
+
+            # Таблица Favourite Compounding возможностей
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS compound_opportunities (
+                    id          TEXT PRIMARY KEY,        -- market_id + '_' + detected_at[:10]
+                    market_id   TEXT NOT NULL,
+                    title       TEXT NOT NULL,
+                    url         TEXT NOT NULL,
+                    price       REAL NOT NULL,           -- текущая цена YES (≥0.95)
+                    volume_usd  REAL NOT NULL,
+                    close_time  TEXT NOT NULL,
+                    hours_left  REAL NOT NULL,
+                    spread_pct  REAL,                    -- (ask - bid) / mid
+                    roi_net_pct REAL,                    -- (1 - price) / price * 100
+                    confidence  REAL NOT NULL,           -- 0.0–1.0 от валидатора
+                    obviousness_reason TEXT,             -- текст от Google Grounding
+                    status      TEXT DEFAULT 'NEW',      -- NEW | ALERTED | BOUGHT | RESOLVED | EXPIRED
+                    alerted_at  TEXT,
+                    resolved_at TEXT,
+                    actual_outcome TEXT,
+                    exit_price  REAL,
+                    pnl_usd     REAL,
+                    created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_compound_status ON compound_opportunities(status, close_time)"
+            )
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS compound_settings (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
+            # Дефолтные настройки
+            for k, v in [
+                ("min_price", "0.95"),
+                ("min_volume", "10000"),
+                ("max_hours", "48"),
+                ("virtual_stake", "50"),
+                ("enabled", "1"),
+                ("min_confidence", "0.5")
+            ]:
+                cursor.execute("INSERT OR IGNORE INTO compound_settings (key, value) VALUES (?, ?)", (k, v))
 
         _db_initialized = True
         logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
@@ -1961,6 +2027,103 @@ def get_penny_stocks_history(limit: int = 50) -> list[dict]:
         """, (limit,)).fetchall()
     return [dict(r) for r in rows]
 
+
+def upsert_compound_opportunity(opp: dict) -> bool:
+    """Возвращает True если запись НОВАЯ (не дубликат)."""
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM compound_opportunities WHERE id = ?", (opp["id"],)
+        ).fetchone()
+        if existing:
+            return False
+        conn.execute("""
+            INSERT INTO compound_opportunities
+              (id, market_id, title, url, price, volume_usd, close_time,
+               hours_left, spread_pct, roi_net_pct, confidence,
+               obviousness_reason, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', CURRENT_TIMESTAMP)
+        """, (
+            opp["id"], opp["market_id"], opp["title"], opp["url"],
+            opp["price"], opp["volume_usd"], opp["close_time"],
+            opp["hours_left"], opp.get("spread_pct"), opp["roi_net_pct"],
+            opp["confidence"], opp.get("obviousness_reason"),
+        ))
+        return True
+
+def get_active_compound_opportunities() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT * FROM compound_opportunities
+            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT')
+              AND close_time > datetime('now')
+            ORDER BY roi_net_pct DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+def mark_compound_alerted(opp_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE compound_opportunities SET status='ALERTED', alerted_at=datetime('now') WHERE id=?",
+            (opp_id,)
+        )
+
+def mark_compound_bought(opp_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE compound_opportunities SET status='BOUGHT' WHERE id=?",
+            (opp_id,)
+        )
+
+def resolve_compound_opportunity(opp_id: str, outcome: str, pnl_usd: float, exit_price: float = None) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE compound_opportunities
+            SET status='RESOLVED', actual_outcome=?, pnl_usd=?, exit_price=?,
+                resolved_at=datetime('now')
+            WHERE id=?
+        """, (outcome, pnl_usd, exit_price, opp_id))
+
+def get_compound_settings() -> dict:
+    with get_connection() as conn:
+        rows = conn.execute("SELECT key, value FROM compound_settings").fetchall()
+    defaults = {
+        "min_price": "0.95", "min_volume": "10000",
+        "max_hours": "48", "virtual_stake": "50", "enabled": "1",
+        "min_confidence": "0.5"
+    }
+    result = dict(defaults)
+    result.update({r["key"]: r["value"] for r in rows})
+    return {k: float(v) if k not in ("enabled",) else int(v) for k, v in result.items()}
+
+def save_compound_setting(key: str, value: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO compound_settings (key, value) VALUES (?, ?)",
+            (key, str(value))
+        )
+
+def get_compound_stats() -> dict:
+    with get_connection() as conn:
+        row_total = conn.execute("SELECT COUNT(*) as total FROM compound_opportunities").fetchone()
+        row_bought = conn.execute("SELECT COUNT(*) as bought FROM compound_opportunities WHERE status = 'BOUGHT'").fetchone()
+        row_resolved = conn.execute("SELECT COUNT(*) as resolved FROM compound_opportunities WHERE status = 'RESOLVED'").fetchone()
+        row_wins = conn.execute("SELECT COUNT(*) as wins FROM compound_opportunities WHERE status = 'RESOLVED' AND pnl_usd > 0").fetchone()
+        row_pnl = conn.execute("SELECT SUM(pnl_usd) as pnl FROM compound_opportunities WHERE pnl_usd IS NOT NULL").fetchone()
+        
+        total = row_total["total"] if row_total else 0
+        bought = row_bought["bought"] if row_bought else 0
+        resolved = row_resolved["resolved"] if row_resolved else 0
+        wins = row_wins["wins"] if row_wins else 0
+        pnl = row_pnl["pnl"] if row_pnl and row_pnl["pnl"] is not None else 0.0
+        
+        win_rate = wins / resolved if resolved > 0 else 0.0
+        return {
+            "total": total,
+            "bought": bought,
+            "resolved": resolved,
+            "win_rate": win_rate,
+            "total_pnl": round(pnl, 2)
+        }
 
 if __name__ == "__main__":
     init_db()

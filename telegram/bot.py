@@ -131,6 +131,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="eval_rollback", description="Откатить калибровочное изменение"),
         BotCommand(command="gate_stats", description="Статистика On-chain Gatekeeper (экономия)"),
         BotCommand(command="penny", description="Меню Penny Stocks (дешевые рынки)"),
+        BotCommand(command="compound", description="Favourite Compounding (≥95¢)"),
     ]
     await bot.set_my_commands(commands)
 
@@ -353,7 +354,8 @@ async def command_help_handler(message: types.Message) -> None:
         "👋 /start — перезапустить приветствие\n\n"
         "<b>Экспериментальные функции:</b>\n"
         "⚖️ /arbitrage — кросс-платформенный арбитраж (Polymarket ↔ Kalshi)\n"
-        "🔄 /synthetic — внутрирыночный арбитраж (синтетические коридоры Polymarket)\n\n"
+        "🔄 /synthetic — внутрирыночный арбитраж (синтетические коридоры Polymarket)\n"
+        "💰 /compound — Favourite Compounding (≥95¢)\n\n"
         "<i>*Точность SCOUT в меню /status показывает % успешных сигналов. Она 'накапливается', пока рынки, по которым бот дал сигнал, физически не закроются на Polymarket, чтобы сверить прогноз с реальностью.</i>\n\n"
         "<i>Ты также можешь просто писать мне вопросы в чат — я отвечу, используя контекст нашей команды.</i>"
     )
@@ -2687,6 +2689,94 @@ async def command_eval_rollback_handler(message: types.Message) -> None:
     except Exception as e:
         logger.error(f"Ошибка при откате предложения: {e}", exc_info=True)
         await message.answer(f"❌ Ошибка при откате предложения: {e}")
+
+
+@dp.callback_query(lambda c: c.data and c.data.startswith("compound_buy:"))
+async def handle_compound_buy(callback: types.CallbackQuery):
+    opp_id = callback.data.split(":", 1)[1]
+    from agents.shared.python.db import mark_compound_bought
+    await asyncio.to_thread(mark_compound_bought, opp_id)
+    await callback.answer("✅ Отмечено как куплено!")
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.reply(f"🟢 <b>Позиция открыта.</b> Жду резолюцию рынка или Exit-сигнал.", parse_mode="HTML")
+
+@dp.callback_query(lambda c: c.data and c.data.startswith("compound_skip:"))
+async def handle_compound_skip(callback: types.CallbackQuery):
+    opp_id = callback.data.split(":", 1)[1]
+    from agents.shared.python.db import get_connection
+    def run_db():
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE compound_opportunities SET status='EXPIRED' WHERE id=?", (opp_id,)
+            )
+    await asyncio.to_thread(run_db)
+    await callback.answer("❌ Пропущено")
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+@dp.callback_query(lambda c: c.data and c.data.startswith("compound_sell:"))
+async def handle_compound_sell(callback: types.CallbackQuery):
+    # Формат: compound_sell:{opp_id}:{exit_price}
+    parts = callback.data.split(":")
+    opp_id = parts[1]
+    exit_price = float(parts[2])
+    
+    from agents.shared.python.db import get_connection, resolve_compound_opportunity, get_compound_settings
+    from services.favourite_compounder import ROICalculator
+    
+    def run_exit_db():
+        with get_connection() as conn:
+            opp = conn.execute("SELECT * FROM compound_opportunities WHERE id = ?", (opp_id,)).fetchone()
+            if not opp or opp["status"] != "BOUGHT":
+                return None
+            return dict(opp)
+            
+    opp = await asyncio.to_thread(run_exit_db)
+    if not opp:
+        await callback.answer("❌ Ошибка: позиция уже закрыта или не существует")
+        return
+        
+    cfg = await asyncio.to_thread(get_compound_settings)
+    virtual_stake = cfg.get("virtual_stake", 50.0)
+    
+    pnl = virtual_stake * (exit_price - opp["price"]) / opp["price"] * (1.0 - ROICalculator.POLY_FEE_PCT)
+    pnl = round(pnl, 2)
+    
+    await asyncio.to_thread(resolve_compound_opportunity, opp_id, "YES", pnl, exit_price)
+    
+    await callback.answer("💎 Зафиксировано досрочное закрытие!")
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.reply(f"🟢 <b>Позиция досрочно закрыта (Профи-продажа).</b>\n💰 PnL: <b>+${pnl:.2f}</b> (выход по {int(exit_price*100)}¢)", parse_mode="HTML")
+
+@dp.message(Command("compound"))
+async def cmd_compound(message: types.Message):
+    """Показывает активные Favourite Compounding возможности."""
+    from agents.shared.python.db import get_active_compound_opportunities, get_compound_stats
+    opps = await asyncio.to_thread(get_active_compound_opportunities)
+    stats = await asyncio.to_thread(get_compound_stats)
+    
+    lines = ["💰 <b>FAVOURITE COMPOUNDING</b>\n"]
+    lines.append(
+        f"📊 <b>Статистика:</b>\n"
+        f"• Всего возможностей: <b>{stats['total']}</b>\n"
+        f"• Открыто позиций: <b>{stats['bought']}</b>\n"
+        f"• Закрыто позиций: <b>{stats['resolved']}</b>\n"
+        f"• Win Rate: <b>{stats['win_rate']*100:.1f}%</b>\n"
+        f"• Общий PnL: <b>${stats['total_pnl']:.2f}</b>\n\n"
+        f"📈 <b>Активные сигналы:</b>"
+    )
+    
+    if not opps:
+        lines.append("<i>Активных Favourite Compounding возможностей нет.</i>")
+    else:
+        for o in opps[:10]:
+            status_label = "🆕" if o["status"] == "NEW" else ("⏳" if o["status"] == "ALERTED" else "🟢 КУПЛЕНО")
+            lines.append(
+                f"• {o['title'][:40]}...\n"
+                f"  {status_label} | {int(o['price']*100)}¢ | ROI <b>+{o['roi_net_pct']:.2f}%</b> | "
+                f"{o['hours_left']:.1f}ч"
+            )
+            
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 @dp.message(F.text)

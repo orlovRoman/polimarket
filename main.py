@@ -425,6 +425,82 @@ async def scheduled_penny_monitor():
     except Exception as e:
         logger.error(f"Ошибка в мониторинге Penny Stocks: {e}", exc_info=True)
 
+async def scheduled_favourite_compounding():
+    """Сканирует рынки на Favourite Compounding и проверяет Exit-сигналы каждые 15 минут."""
+    logger.info(">>> Favourite Compounding: запуск скана...")
+    try:
+        from core.singleton import get_core_engine
+        from services.favourite_compounder import run_favourite_scan
+        from services.notifications import send_compound_alert, send_compound_exit_alert
+        from agents.shared.python.db import (
+            get_compound_settings, upsert_compound_opportunity, mark_compound_alerted,
+            get_active_compound_opportunities, get_connection
+        )
+        import asyncio
+
+        cfg = get_compound_settings()
+        if not cfg.get("enabled", 1):
+            logger.info("Favourite Compounding отключён в настройках.")
+            return
+
+        engine = get_core_engine()
+
+        # 1. Мониторинг BOUGHT-позиций для профи-продажи (Exit-сигнал, расширение C)
+        bought_opps = await asyncio.to_thread(get_active_compound_opportunities)
+        bought_opps = [o for o in bought_opps if o["status"] == "BOUGHT"]
+        
+        for opp in bought_opps:
+            try:
+                market_obj = await asyncio.to_thread(engine.adapter.get_market, opp["market_id"])
+                if market_obj:
+                    current_price = float(market_obj.price)
+                    if current_price >= 0.995:
+                        await send_compound_exit_alert(bot, AUTHORIZED_CHAT_ID, opp, current_price)
+                        # Меняем статус на ALERTED_EXIT, чтобы не дублировать алерты
+                        def mark_exit_alerted():
+                            with get_connection() as conn:
+                                conn.execute("UPDATE compound_opportunities SET status='ALERTED_EXIT' WHERE id=?", (opp["id"],))
+                        await asyncio.to_thread(mark_exit_alerted)
+            except Exception as exc:
+                logger.error(f"Ошибка при мониторинге BOUGHT-позиции {opp['id']}: {exc}")
+
+        # 2. Сканирование новых возможностей
+        markets = await asyncio.to_thread(
+            engine.adapter.get_markets,
+            limit=500, active_only=True
+        )
+
+        opps = await asyncio.to_thread(run_favourite_scan, markets)
+        sent = 0
+        for opp in opps:
+            is_new = await asyncio.to_thread(
+                upsert_compound_opportunity, {
+                    "id": opp.opp_id,
+                    "market_id": opp.market_id,
+                    "title": opp.title,
+                    "url": opp.url,
+                    "price": opp.price,
+                    "volume_usd": opp.volume_usd,
+                    "close_time": opp.close_time.isoformat(),
+                    "hours_left": opp.hours_left,
+                    "spread_pct": opp.spread_pct,
+                    "roi_net_pct": opp.roi_net_pct,
+                    "confidence": opp.confidence,
+                    "obviousness_reason": opp.obviousness_reason,
+                }
+            )
+            if is_new:
+                await send_compound_alert(bot, AUTHORIZED_CHAT_ID, opp)
+                await asyncio.to_thread(mark_compound_alerted, opp.opp_id)
+                sent += 1
+                await asyncio.sleep(1)  # rate limit
+
+        logger.info(f"<<< Favourite Compounding: отправлено {sent} алертов из {len(opps)} найденных.")
+    except asyncio.CancelledError:
+        logger.info("<<< Favourite Compounding: отменён.")
+    except Exception as e:
+        logger.error(f"Ошибка Favourite Compounding: {e}", exc_info=True)
+
 async def start_system():
     load_dotenv()
     from config import startup_check
@@ -518,6 +594,15 @@ async def start_system():
         trigger="interval",
         hours=2,
         id="outcome_tracker",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    scheduler.add_job(
+        scheduled_favourite_compounding,
+        trigger="interval",
+        minutes=15,
+        id="favourite_compounding",
         replace_existing=True,
         misfire_grace_time=600,
     )

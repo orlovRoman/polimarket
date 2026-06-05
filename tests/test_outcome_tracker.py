@@ -99,8 +99,8 @@ def test_resolve_signal_marks_win(mock_conn):
     
     # 1. Update signals query
     params_sig = executed[0][1]
-    assert params_sig[1] == "YES"        # resolution_outcome
-    assert params_sig[2] == 1            # was_profitable = WIN
+    assert params_sig[2] == "YES"        # resolution_outcome
+    assert params_sig[3] == 1            # was_profitable = WIN
     
     # 2. Update markets query
     params_mkt = executed[1][1]
@@ -120,7 +120,7 @@ def test_resolve_signal_marks_loss(mock_conn):
     _resolve_signal(row, resolution="NO")
 
     params_sig = executed[0][1]
-    assert params_sig[2] == 0            # was_profitable = LOSS
+    assert params_sig[3] == 0            # was_profitable = LOSS
 
 
 @patch("services.outcome_tracker.get_connection")
@@ -135,7 +135,7 @@ def test_resolve_signal_no_target_defaults_to_yes(mock_conn):
     row = _make_row(target_outcome=None)
     _resolve_signal(row, resolution="YES")
 
-    assert executed[0][1][2] == 1   # WIN
+    assert executed[0][1][3] == 1   # WIN
 
 
 # ── 3. run_resolution_cycle: end-to-end с моками ─────────────

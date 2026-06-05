@@ -48,9 +48,17 @@ def run_resolution_cycle() -> dict:
             logger.error(f"[OutcomeTracker] Ошибка резолюции {row['id']}: {exc}")
             stats["errors"] += 1
 
-    if stats["resolved"] > 0:
+    # Авторезолюция Favourite Compounding позиций
+    resolved_compounds = 0
+    try:
+        resolved_compounds = _resolve_compound_outcomes()
+    except Exception as e:
+        logger.error(f"[OutcomeTracker] Ошибка резолюции compound-позиций: {e}", exc_info=True)
+
+    if stats["resolved"] > 0 or resolved_compounds > 0:
         _update_all_strategy_metrics()
-        _send_telegram_summary(resolved_items)
+        if stats["resolved"] > 0:
+            _send_telegram_summary(resolved_items)
 
     logger.info(f"[OutcomeTracker] Итог: {stats}")
     return stats
@@ -121,6 +129,14 @@ def _resolve_signal(row: dict, resolution: str) -> None:
         strategy = (row["strategy_type"] or "").lower()
         if strategy in ('synthetic_corridor', 'temporal_corridor', 'cross_platform'):
             pnl_realized = virtual_stake * 0.15 if was_correct else -virtual_stake
+        elif strategy == 'favourite_compound':
+            # Для Favourite Compounding с учетом комиссии 2%
+            price_safe = row.get("market_price_at_signal") or 0.95
+            contracts = virtual_stake / price_safe
+            if was_correct:
+                pnl_realized = contracts * (1.0 - price_safe) * 0.98
+            else:
+                pnl_realized = -virtual_stake
         else:
             # Для scout и whale
             price_safe = row.get("market_price_at_signal")
@@ -334,3 +350,50 @@ def _send_telegram_summary(resolved_items: list[tuple[dict, str]]) -> None:
         send_telegram(text)
     except Exception as e:
         logger.error(f"[OutcomeTracker] Ошибка при отправке сводки в Telegram: {e}")
+
+def _resolve_compound_outcomes() -> int:
+    """Авторезолюция compound_opportunities по резолюции рынков. Возвращает количество разрешенных позиций."""
+    from agents.shared.python.db import (
+        get_active_compound_opportunities, resolve_compound_opportunity,
+        get_compound_settings, get_connection
+    )
+    from services.favourite_compounder import ROICalculator
+    
+    cfg = get_compound_settings()
+    virtual_stake = cfg.get("virtual_stake", 50.0)
+    
+    # Находим позиции, купленные пользователем
+    active_opps = get_active_compound_opportunities()
+    bought = [o for o in active_opps if o["status"] in ("BOUGHT", "ALERTED_EXIT")]
+    resolved_count = 0
+
+    for opp in bought:
+        res = _fetch_resolution(opp["market_id"])
+        if res not in ("YES", "NO"):
+            continue
+            
+        # Рассчитываем PnL по правилам оракула
+        price = opp["price"]
+        was_correct = res == "YES"  # compound покупает только YES
+        
+        if was_correct:
+            contracts = virtual_stake / price
+            pnl = contracts * (1.0 - price) * (1.0 - ROICalculator.POLY_FEE_PCT)
+        else:
+            pnl = -virtual_stake
+            
+        pnl = round(pnl, 2)
+        
+        # Обновляем таблицу compound_opportunities
+        resolve_compound_opportunity(opp["id"], res, pnl)
+        
+        # Разрешаем соответствующий сигнал в signals (чтобы обновились strategy_metrics)
+        with get_connection() as conn:
+            sig_row = conn.execute("SELECT * FROM signals WHERE id = ?", (opp["id"],)).fetchone()
+            if sig_row:
+                _resolve_signal(dict(sig_row), res)
+                
+        logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} PnL=${pnl:.2f}")
+        resolved_count += 1
+
+    return resolved_count
