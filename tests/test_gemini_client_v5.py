@@ -385,8 +385,8 @@ def test_empty_db_model_falls_back_to_rr_regression():
 @patch("time.sleep")
 def test_rate_limit_does_not_throttle_cerebras(mock_sleep):
     """
-    Проверяет, что лимиты для Cerebras (60 RPM), OpenRouter (20 RPM)
-    и Gemini (динамический: num_keys * 6 RPM) работают независимо.
+    Проверяет, что лимиты для Cerebras (500 RPM = минимум из zai-glm-4.7:500, gpt-oss-120b:1000),
+    OpenRouter (20 RPM) и Gemini (динамический: num_keys * 6 RPM) работают независимо.
     """
     from agents.shared.utils.gemini_client import _rate_limit_wait, _request_times
     import os
@@ -399,12 +399,12 @@ def test_rate_limit_does_not_throttle_cerebras(mock_sleep):
         _request_times["gemini"] = []
         _request_times["openrouter"] = []
 
-        # Cerebras лимит — 60 RPM. Первые 60 вызовов проходят без сна.
-        for _ in range(60):
+        # Cerebras лимит — 500 RPM. Первые 500 вызовов проходят без сна.
+        for _ in range(500):
             _rate_limit_wait(provider="cerebras")
         assert mock_sleep.call_count == 0
 
-        # 61-й вызов должен заснуть
+        # 501-й вызов должен заснуть
         _rate_limit_wait(provider="cerebras")
         assert mock_sleep.call_count == 1
 

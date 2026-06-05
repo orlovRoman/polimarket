@@ -381,7 +381,9 @@ PROVIDERS_CONFIG: dict = {
     },
     "cerebras": {
         "keys": [os.getenv("CEREBRAS_API_KEY", "")],
-        "models": ["qwen-3-235b-a22b-instruct-2507", "gpt-oss-120b", "zai-glm-4.7", "llama3.1-8b"],
+        # Актуальные модели по состоянию на 06.2026 (см. https://api.cerebras.ai/public/v1/models):
+        # qwen-3-235b-a22b-instruct-2507, llama3.1-8b, llama-3.3-70b — удалены с платформы
+        "models": ["gpt-oss-120b", "zai-glm-4.7"],
         "send_func": _send_cerebras
     }
 }
@@ -389,7 +391,10 @@ PROVIDERS_CONFIG: dict = {
 _rate_lock = Lock()
 _rate_limits: dict[str, int] = {
     "openrouter": 20,
-    "cerebras": 60,
+    # zai-glm-4.7: 500 RPM, gpt-oss-120b: 1000 RPM (06.2026, Unicorn plan)
+    # Используем минимальное значение. Примечание: Cerebras может применять
+    # rate limit как 1 RPS, поэтому не превышаем 500.
+    "cerebras": 500,
 }
 _request_times: dict[str, list[float]] = {
     "gemini": [], "openrouter": [], "cerebras": []
@@ -435,6 +440,18 @@ def _is_model_not_found_error(e: Exception) -> bool:
             return True
     err_str = str(e).lower()
     if "model not found" in err_str or "model_not_found" in err_str:
+        return True
+    return False
+
+def _is_payment_required_error(e: Exception) -> bool:
+    """402 Payment Required — ключ бесплатный, модель платная.
+    Обрабатываем аналогично 404: пропускаем модель, не пробуем другие ключи для неё.
+    """
+    if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
+        if e.response.status_code == 402:
+            return True
+    err_str = str(e).lower()
+    if "402" in err_str or "payment required" in err_str:
         return True
     return False
 
@@ -722,6 +739,18 @@ def generate_content_with_fallback(
                         _cer_idx_now = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]
                         save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
+                    skip_model = True
+                    break
+                
+                # 402 Payment Required — ошибка ключа (не модели!).
+                # Обе Cerebras-модели бесплатные (Unicorn plan), поэтому 402 = ключ истёк/неверен.
+                # Пропускаем текущую модель; следующие тоже получат 402 — это нормально,
+                # они быстро отсеются и управление перейдёт к следующему провайдеру.
+                if _is_payment_required_error(e):
+                    logger.error(
+                        f"[{agent_name}] 402 Payment Required от {provider} ({model}): "
+                        f"проверьте CEREBRAS_API_KEY на сервере (ключ истёк или неверен). Пропускаем модель."
+                    )
                     skip_model = True
                     break
                 
