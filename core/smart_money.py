@@ -10,8 +10,30 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
     if not trades and not positions:
         return SmartMoneySummary(available=False, summary="Ончейн данные недоступны.")
 
+    import time
+    from datetime import datetime
+    
+    now_ts = time.time()
+    two_hours_ago = now_ts - 2 * 3600
+    
+    def _parse_trade_time(val) -> float:
+        if not val:
+            return 0.0
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            pass
+        try:
+            dt = datetime.fromisoformat(str(val).replace('Z', '+00:00'))
+            return dt.timestamp()
+        except Exception:
+            return 0.0
+
     # Агрегируем по кошелькам
     wallet_stats: dict = defaultdict(lambda: {"yes_usd": 0.0, "no_usd": 0.0, "trades": 0})
+    
+    total_volume_usd = 0.0
+    recent_volume_usd = 0.0
     
     for trade in trades:
         addr = trade.get("maker_address") or trade.get("taker_address", "")
@@ -26,6 +48,13 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
             continue
             
         usd = size * price
+        total_volume_usd += usd
+        
+        # Проверяем временной интервал (2 часа)
+        trade_time_raw = trade.get("time") or trade.get("timestamp")
+        trade_ts = _parse_trade_time(trade_time_raw)
+        if trade_ts >= two_hours_ago:
+            recent_volume_usd += usd
         
         if outcome == 0:
             wallet_stats[addr]["yes_usd"] += usd
@@ -77,12 +106,22 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
             volume_usd=vol
         ))
 
+    recent_ratio = recent_volume_usd / total_volume_usd if total_volume_usd > 0 else 0.0
+    
+    # Добавляем в текстовое описание недавнюю активность
+    recent_info = f"Недавняя активность (2ч): ${recent_volume_usd:,.0f} ({recent_ratio:.0%})" if total_volume_usd > 0 else "Нет недавней активности."
+    summary_text = "\n".join(lines) if lines else "Крупных сделок не найдено."
+    if lines:
+        summary_text = f"{summary_text}\n{recent_info}"
+
     return SmartMoneySummary(
         available=True,
         total_yes_usd=round(total_yes),
         total_no_usd=round(total_no),
         yes_dominance=round(total_yes / (total_yes + total_no), 2) if (total_yes + total_no) > 0 else 0.5,
         top_wallets=lines,
-        summary="\n".join(lines) if lines else "Крупных сделок не найдено.",
-        wallets_list=wallets_list
+        summary=summary_text,
+        wallets_list=wallets_list,
+        recent_volume_2h_usd=round(recent_volume_usd, 2),
+        recent_ratio_2h=round(recent_ratio, 4)
     )

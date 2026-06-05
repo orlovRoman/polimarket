@@ -192,8 +192,35 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
                         confidence=min(mf.spread_pct / 20.0, 1.0),  # нормализуем спред → confidence
                     ))
                     saved_count += 1
+                    
+                    if mf.has_arbitrage:
+                        # Загружаем стаканы ног
+                        ob_a = adapter.get_orderbook(ma.tokens[0]) if ma.tokens else None
+                        ob_b = adapter.get_orderbook(mb.tokens[0]) if mb.tokens else None
+                        
+                        from core.models import ArbitrageSignal
+                        
+                        arb_sig = ArbitrageSignal(
+                            id=f"sig-arb-intra-{ma.id}-{mb.id}-{int(now.timestamp())}",
+                            type="SYNTHETIC",
+                            market_id_a=ma.id,
+                            market_id_b=mb.id,
+                            platform_a=ma.platform,
+                            platform_b=mb.platform,
+                            spread_pct=mf.spread_pct,
+                            target_outcome="YES",
+                            max_safe_size=100.0,
+                            edge=mf.spread_pct / 100.0,
+                            confidence=min(mf.spread_pct / 20.0, 1.0),
+                            summary=f"Внутриплатформенный арбитраж на Polymarket ({mf.spread_pct:.1f}%)",
+                            details=mf.trade_instruction + "\n\n" + mf.reasoning,
+                            status="PENDING"
+                        )
+                        
+                        if summary_callback:
+                            process_arbitrage_signal(arb_sig, ob_a, ob_b, summary_callback)
                 except Exception as e:
-                    logger.error(f"[screening] save_correlation error: {e}", exc_info=True)
+                    logger.error(f"[screening] save_correlation/arbitrage error: {e}", exc_info=True)
 
             save_memory("screened_market_ids", screened_market_ids, category='cache', ttl=SCREENING_INTERVAL_SEC)
             save_memory("last_screen_time", now.isoformat(), category='cache', ttl=SCREENING_INTERVAL_SEC)
@@ -304,13 +331,17 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     from agents.shared.utils.web_search import fetch_wikipedia_context
     
     IS_TECH_MARKET = any(kw in m.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
+    IS_NICHE_MARKET = not any(
+        kw in m.title.lower()
+        for kw in ["crypto", "bitcoin", "ethereum", "politics", "election", "trump", "biden", "sports", "cup", "game", "league", "ai", "llm", "openai"]
+    )
     
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
     try:
         try:
             future_rss = executor.submit(fetch_rss_news, search_query)
             future_reddit = executor.submit(fetch_reddit_news, search_query)
-            future_wiki = executor.submit(fetch_wikipedia_context, search_query)
+            future_wiki = executor.submit(fetch_wikipedia_context, search_query) if IS_NICHE_MARKET else None
             future_hn = executor.submit(fetch_hackernews, search_query) if IS_TECH_MARKET else None
         except RuntimeError as e:
             if "interpreter shutdown" in str(e) or "cannot schedule" in str(e):
@@ -345,6 +376,10 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     from core.dedup import deduplicate_headlines
     news_titles = deduplicate_headlines(news_titles, grounded)
+
+    from agents.shared.utils.web_search import deduplicate_results
+    news_titles = deduplicate_results(news_titles, [])
+    reddit_posts = deduplicate_results(reddit_posts, [])
 
     context = MarketContext(
         market=m,
@@ -480,7 +515,8 @@ def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signa
     # т.к. пользователь оперирует микро-банком ($10-100) и high liquidity_risk — норма.
     shadow_ok = opinion_shadow and opinion_shadow.agree
     
-    MIN_SCOUT_EDGE = 0.10  # минимальный edge для сохранения идеи
+    from core.config_provider import ConfigProvider
+    MIN_SCOUT_EDGE = ConfigProvider.get_min_edge_sync("scout")
     valid_scout = signal is not None and getattr(signal, 'edge', 0) >= MIN_SCOUT_EDGE
     swing_rec = getattr(swing_signal, 'recommendation', '').lower() if swing_signal else ''
     MIN_SWING_CONFIDENCE = 0.40  # минимум 40% уверенности для BUY

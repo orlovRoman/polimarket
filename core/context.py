@@ -18,6 +18,8 @@ class SmartMoneySummary(BaseModel):
     top_wallets: List[str] = Field(default_factory=list)
     summary: str = "Крупных сделок не найдено."
     wallets_list: List[WalletInfo] = Field(default_factory=list)
+    recent_volume_2h_usd: float = 0.0
+    recent_ratio_2h: float = 0.0
 
 class OrderbookSnapshot(BaseModel):
     top_bid: Optional[float] = None

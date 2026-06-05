@@ -1608,7 +1608,7 @@ def save_trader_transaction(wallet_address: str, market_id: str, outcome: str, a
         """, (wallet_address, market_id, outcome, amount_usd, price))
         
 
-def get_market_trader_transactions(market_id: str, limit: int = 50) -> list:
+def get_market_trader_transactions(market_id: str, limit: int = 200) -> list:
     """
     Возвращает список крупных сделок трейдеров по конкретному рынку.
     """

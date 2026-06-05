@@ -15,9 +15,13 @@ def cluster_by_event_slug(
     markets: list[Market],
 ) -> dict[str, list[Market]]:
     """
-    Группирует рынки по event_slug.
-    Рынки без slug попадают в кластер по первым 3 словам заголовка.
+    Группирует рынки по event_slug и объединяет схожие кластеры
+    по сходству названий (difflib SequenceMatcher >= 0.8) для
+    поддержки временных (temporal) коридоров.
     """
+    from difflib import SequenceMatcher
+    from core.arb_scanner import _strip_price_tag
+
     clusters: dict[str, list[Market]] = defaultdict(list)
 
     for market in markets:
@@ -30,8 +34,35 @@ def cluster_by_event_slug(
             key = "_".join(words) if words else "ungrouped"
             clusters[f"__title__{key}"].append(market)
 
+    # Дополнительное слияние кластеров на основе схожести названий представителей
+    merged_clusters: dict[str, list[Market]] = {}
+    rep_titles = {}
+    for cid, cl_markets in clusters.items():
+        if cl_markets:
+            rep_titles[cid] = _strip_price_tag(cl_markets[0].title).lower()
+
+    visited = set()
+    for cid, cl_markets in clusters.items():
+        if cid in visited:
+            continue
+        visited.add(cid)
+        
+        current_cluster = list(cl_markets)
+        rep_a = rep_titles[cid]
+        
+        for other_cid, other_markets in clusters.items():
+            if other_cid in visited:
+                continue
+            rep_b = rep_titles[other_cid]
+            ratio = SequenceMatcher(None, rep_a, rep_b).ratio()
+            if ratio >= 0.8:
+                current_cluster.extend(other_markets)
+                visited.add(other_cid)
+                
+        merged_clusters[cid] = current_cluster
+
     # Отбрасываем одиночные рынки — пары невозможны
-    return {k: v for k, v in clusters.items() if len(v) >= 2}
+    return {k: v for k, v in merged_clusters.items() if len(v) >= 2}
 
 
 def iter_cluster_pairs(

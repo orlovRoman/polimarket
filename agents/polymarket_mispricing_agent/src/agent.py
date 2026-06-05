@@ -120,9 +120,9 @@ class ScoutAgent:
                     f"{math_analysis}"
                 )
 
-        IS_NICHE_MARKET = len(market.title.split()) > 6 or any(
+        IS_NICHE_MARKET = not any(
             kw in market.title.lower()
-            for kw in ["championship", "election", "league", "cup", "award"]
+            for kw in ["crypto", "bitcoin", "ethereum", "politics", "election", "trump", "biden", "sports", "cup", "game", "league", "ai", "llm", "openai"]
         )
         wiki_block = ""
         if IS_NICHE_MARKET and wiki_context:
@@ -136,7 +136,8 @@ class ScoutAgent:
             
         perf_summary = get_performance_summary("SCOUT", 10) or "История оценок пуста — первые прогнозы."
         hn_block = ""
-        if context.hn_posts:
+        IS_TECH_MARKET = any(kw in market.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
+        if IS_TECH_MARKET and context.hn_posts:
             hn_block = f"\n[HackerNews — технические обсуждения]:\n" + "\n".join(context.hn_posts) + "\n"
 
         corr_section = ""
@@ -367,13 +368,23 @@ class ScoutAgent:
                 fetch_google_trends, fetch_hackernews
             )
             query = market.title
+            
+            IS_TECH_MARKET = any(kw in market.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
+            IS_NICHE_MARKET = not any(
+                kw in market.title.lower()
+                for kw in ["crypto", "bitcoin", "ethereum", "politics", "election", "trump", "biden", "sports", "cup", "game", "league", "ai", "llm", "openai"]
+            )
+            
+            wiki_context = fetch_wikipedia_context(query) if IS_NICHE_MARKET else []
+            hn_posts = fetch_hackernews(query) if IS_TECH_MARKET else []
+            
             context = MarketContext(
                 market=market,
                 news_titles=fetch_rss_news(query),
                 reddit_posts=fetch_reddit_news(query),
-                wiki_context=fetch_wikipedia_context(query),
+                wiki_context=wiki_context,
                 trends_data=fetch_google_trends(query),
-                hn_posts=fetch_hackernews(query)
+                hn_posts=hn_posts
             )
             signal = self.estimate_market(context)
             if signal:

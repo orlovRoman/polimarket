@@ -67,9 +67,9 @@ class SwingAgent:
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
 
-        IS_NICHE_MARKET = len(market.title.split()) > 6 or any(
+        IS_NICHE_MARKET = not any(
             kw in market.title.lower()
-            for kw in ["championship", "election", "league", "cup", "award"]
+            for kw in ["crypto", "bitcoin", "ethereum", "politics", "election", "trump", "biden", "sports", "cup", "game", "league", "ai", "llm", "openai"]
         )
         wiki_block = ""
         if IS_NICHE_MARKET and wiki_context:
@@ -173,8 +173,9 @@ class SwingAgent:
             now=now
         )
         
+        IS_TECH_MARKET = any(kw in market.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
         hn_block = ""
-        if context.hn_posts:
+        if IS_TECH_MARKET and context.hn_posts:
             hn_block = f"\n[HackerNews — технические обсуждения]:\n" + "\n".join(context.hn_posts) + "\n"
 
         velocity_block = f"\n[Velocity Signal]\n{context.velocity_annotation}\n" \

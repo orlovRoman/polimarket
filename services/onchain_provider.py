@@ -33,7 +33,7 @@ def _cached_get(url: str) -> Optional[Any]:
         logger.error(f"[OnChain] Ошибка запроса к {url}: {e}")
     return None
 
-def get_recent_trades(condition_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+def get_recent_trades(condition_id: str, limit: int = 200) -> List[Dict[str, Any]]:
     """Последние сделки на рынке — адреса, направление, размер."""
     url = f"{CLOB_BASE}/trades?condition_id={condition_id}&limit={limit}"
     data = _cached_get(url)

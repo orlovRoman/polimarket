@@ -177,3 +177,41 @@ def build_search_query(market_title: str) -> str:
     words = re.sub(r'[^\w\s]', '', market_title.lower()).split()
     keywords = [w for w in words if w not in stopwords and len(w) > 2]
     return " ".join(keywords[:6])
+
+
+def deduplicate_results(rss_results: list, grounding_results: list) -> list:
+    """
+    Дедуплицирует результаты поиска по хэшу названия/текста.
+    """
+    seen_hashes = set()
+    deduped = []
+    
+    # Объединяем списки
+    combined = (rss_results or []) + (grounding_results or [])
+    for item in combined:
+        if not item:
+            continue
+            
+        # Приводим к словарной форме для извлечения title
+        if isinstance(item, str):
+            item_dict = {"title": item}
+        elif isinstance(item, dict):
+            item_dict = item
+        else:
+            item_dict = {"title": str(item)}
+            
+        title = item_dict.get("title") or item_dict.get("text") or ""
+        
+        # Очищаем префикс даты или источника, например: [2026-05-31 12:00] или [HN, ↑5]
+        clean_title = title
+        if title.startswith("[") and "]" in title:
+            parts = title.split("]", 1)
+            if len(parts) > 1:
+                clean_title = parts[1].strip()
+                
+        h = hashlib.md5(clean_title.encode('utf-8', errors='ignore')).hexdigest()
+        if h not in seen_hashes:
+            seen_hashes.add(h)
+            deduped.append(item)
+            
+    return deduped
