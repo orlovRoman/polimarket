@@ -350,6 +350,17 @@ async def start_system():
     scheduler.add_job(scheduled_cluster_update, 'interval', hours=1) # пересчет кластеров каждый час
     scheduler.add_job(job_onchain_alerts, 'interval', minutes=30) # ончейн-алерты всплесков объема каждые 30 минут
 
+    #Outcome Tracker — авторезолюция сигналов каждые 6 часов
+    from services.outcome_tracker import run_resolution_cycle
+    scheduler.add_job(
+        run_resolution_cycle,
+        trigger="interval",
+        hours=6,
+        id="outcome_tracker",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
     logger.info("🤖 Бот NEXUS запускается...")
     try:
         # Option A+: явная асинхронная инициализация NexusAgent ДО начала polling и планировщика
