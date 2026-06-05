@@ -167,6 +167,19 @@ async def scheduled_wallet_recalculation():
     except Exception as e:
         logger.error(f"Ошибка при пересчете win_rate кошельков: {e}", exc_info=True)
 
+
+async def scheduled_insiders_recalculation():
+    """Периодический пересчет статуса инсайдеров."""
+    logger.info(">>> Запуск периодического пересчета статуса инсайдеров...")
+    try:
+        from core.insider_filter import recalculate_all_insiders
+        await asyncio.to_thread(recalculate_all_insiders)
+        logger.info("<<< Пересчет статуса инсайдеров завершен успешно.")
+    except asyncio.CancelledError:
+        logger.info("<<< Пересчет статуса инсайдеров отменен.")
+    except Exception as e:
+        logger.error(f"Ошибка при пересчете статуса инсайдеров: {e}", exc_info=True)
+
 async def job_onchain_alerts():
     """Фоновый скан и отправка ончейн-всплесков объёма."""
     logger.info(">>> Запуск сканирования ончейн-всплесков объёма...")
@@ -320,6 +333,7 @@ async def start_system():
     scheduler.add_job(scheduled_synthetic_corridors, 'interval', minutes=15) # синтетические коридоры каждые 15 м
     scheduler.add_job(scheduled_temporal_corridors, 'interval', minutes=30) # временные коридоры каждые 30 м
     scheduler.add_job(scheduled_wallet_recalculation, 'cron', hour=3) # пересчет win_rate кошельков раз в сутки в 3:00 ночи
+    scheduler.add_job(scheduled_insiders_recalculation, 'interval', hours=1) # пересчет инсайдеров каждый час
     scheduler.add_job(job_onchain_alerts, 'interval', minutes=30) # ончейн-алерты всплесков объема каждые 30 минут
 
     logger.info("🤖 Бот NEXUS запускается...")

@@ -613,6 +613,18 @@ def init_db():
                 )
             """)
 
+            # Миграция wallets: добавляем поля для p-value фильтра
+            wallet_cols = {row[1] for row in cursor.execute("PRAGMA table_info(wallets)").fetchall()}
+            for col, col_type, default in [
+                ("n_trades", "INTEGER", "0"),
+                ("n_wins",   "INTEGER", "0"),
+                ("p_value",  "REAL",    "1.0"),
+            ]:
+                if col not in wallet_cols:
+                    cursor.execute(
+                        f"ALTER TABLE wallets ADD COLUMN {col} {col_type} DEFAULT {default}"
+                    )
+
         _db_initialized = True
         logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
 
@@ -1283,6 +1295,38 @@ def update_wallet_stats(address: str, win_rate: float, total_profit: float, is_i
             "UPDATE wallets SET win_rate = ?, total_profit = ?, is_insider = ?, last_seen = ? WHERE address = ?",
             (win_rate, total_profit, is_insider, datetime.now(timezone.utc), address)
         )
+
+
+def update_wallet_pvalue(
+    address: str,
+    n_trades: int,
+    n_wins: int,
+    p_value: float,
+    is_insider: bool
+) -> None:
+    """Обновляет статистику p-value и статус инсайдера для кошелька."""
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE wallets
+               SET n_trades=?, n_wins=?, p_value=?, is_insider=?, last_seen=CURRENT_TIMESTAMP
+               WHERE address=?""",
+            (n_trades, n_wins, p_value, is_insider, address.lower())
+        )
+
+
+def get_wallets_for_pvalue_recalc() -> list[dict]:
+    """Возвращает кошельки с достаточным числом транзакций для пересчёта p-value."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT w.address, w.alias, w.n_trades, w.n_wins,
+                   COUNT(t.id) as tx_count
+            FROM wallets w
+            LEFT JOIN trader_transactions t ON w.address = t.wallet_address
+            GROUP BY w.address
+            HAVING tx_count > 0
+        """)
+        return [dict(r) for r in cursor.fetchall()]
 
 def add_discussion_message(market_id: str, agent_name: str, message: str, confidence: float = None, agree: bool = True):
     """Записывает мнение агента в общий журнал обсуждений."""
