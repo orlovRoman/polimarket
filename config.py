@@ -55,6 +55,16 @@ WHALE_ALERT_MIN_USD = float(os.getenv("WHALE_ALERT_MIN_USD", "10000"))  # Мин
 WHALE_GATE_MIN_CONFIDENCE = float(os.getenv("WHALE_GATE_MIN_CONFIDENCE", "0.5"))
 WHALE_GATE_MIN_COUNT = int(os.getenv("WHALE_GATE_MIN_COUNT", "2"))
 
+# Настройки Swing On-chain Gatekeeper
+SWING_MIN_VOLUME_USD = float(os.getenv("SWING_MIN_VOLUME_USD", "5000"))
+SWING_MIN_WHALE_COUNT = int(os.getenv("SWING_MIN_WHALE_COUNT", "1"))
+SWING_VOLUME_BY_TAG = {
+    "politics": float(os.getenv("SWING_VOLUME_POLITICS", "20000")),
+    "crypto":   float(os.getenv("SWING_VOLUME_CRYPTO",   "10000")),
+    "sports":   float(os.getenv("SWING_VOLUME_SPORTS",   "2000")),
+    "science":  float(os.getenv("SWING_VOLUME_SCIENCE",  "1500")),
+}
+
 # Настройки кросс-платформенного арбитража
 ARB_POLY_LIMIT = int(os.getenv("ARB_POLY_LIMIT", "100"))
 ARB_KALSHI_LIMIT = int(os.getenv("ARB_KALSHI_LIMIT", "100"))
@@ -203,6 +213,7 @@ __all__ = [
     "TELEGRAM_GROUP2_SOURCE", "TELEGRAM_GROUP2_TARGET_ID",
     "SCAN_LIMIT_DEFAULT", "MIN_EDGE_DEFAULT", "WHALE_ALERT_MIN_USD",
     "WHALE_GATE_MIN_CONFIDENCE", "WHALE_GATE_MIN_COUNT",
+    "SWING_MIN_VOLUME_USD", "SWING_MIN_WHALE_COUNT", "SWING_VOLUME_BY_TAG",
     "ARB_POLY_LIMIT", "ARB_KALSHI_LIMIT", "ARB_MIN_MATCH_SCORE",
     "ARB_MIN_SPREAD_ALERT", "ARB_MAX_DAYS_DIFF", "MAX_SCREENING_MARKETS",
     "CORRIDOR_BUDGET_PER_TRADE", "POLY_EVENTS_CACHE_TTL_SECONDS",

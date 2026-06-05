@@ -487,6 +487,43 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     # ────────────────────────────────────────────────────────────────────────
 
 
+    # ── ON-CHAIN GATEKEEPER (Итерация 17) ───────────────────────────────────
+    from core.onchain_gate import check_onchain_gate
+    from core.smart_money import fetch_smart_money_sync
+    from core.onchain_scorer import compute_onchain_score
+    from agents.shared.python.db import save_gate_metrics
+    import uuid
+
+    sm_data = fetch_smart_money_sync(m.id)
+    total_vol = (
+        (sm_data.total_yes_usd + sm_data.total_no_usd)
+        if sm_data and sm_data.available
+        else (m.volume or 0.0)
+    )
+    oc_score = compute_onchain_score(sm_data) if sm_data else None
+    market_tag = getattr(m, "category", "default") or "default"
+
+    gate = check_onchain_gate(oc_score, m.id, total_vol, market_tag)
+
+    if not gate.allow:
+        logger.info(f"[SwingGate] ⛔ {m.title[:60]!r} — {gate.reason}")
+        save_gate_metrics(
+            run_id=str(uuid.uuid4())[:8],
+            total=1, passed=0,
+            blocked_no_volume=int(gate.blocked_by == "volume"),
+            blocked_no_whales=int(gate.blocked_by == "whales")
+        )
+        return None, None, None
+    else:
+        save_gate_metrics(
+            run_id=str(uuid.uuid4())[:8],
+            total=1, passed=1,
+            blocked_no_volume=0,
+            blocked_no_whales=0
+        )
+    # ────────────────────────────────────────────────────────────────────────
+
+
     logger.info("  SCOUT и SWING оценивают...")
     update_state(scout_status="🔄 Считает вероятности...", swing_status="🔄 Оценивает хайп...")
 

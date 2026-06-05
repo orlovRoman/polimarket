@@ -384,6 +384,33 @@ def init_db():
                 )
             """)
 
+            # Новые таблицы для гейта и кластеризации
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS wallet_clusters (
+                    cluster_id   TEXT NOT NULL,
+                    address      TEXT NOT NULL,
+                    funding_addr TEXT NOT NULL,
+                    first_seen   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (cluster_id, address)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_clusters_address ON wallet_clusters(address)"
+            )
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS gate_metrics (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id      TEXT NOT NULL,
+                    total       INTEGER NOT NULL,
+                    passed      INTEGER NOT NULL,
+                    blocked_no_volume  INTEGER NOT NULL DEFAULT 0,
+                    blocked_no_whales  INTEGER NOT NULL DEFAULT 0,
+                    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Индексы для ускорения частых запросов
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at)")
@@ -1796,6 +1823,27 @@ def get_learning_impact() -> dict:
             "accuracy": round(correct / total, 3) if total > 0 else None
         }
     return result
+
+def save_gate_metrics(run_id: str, total: int, passed: int,
+                      blocked_no_volume: int, blocked_no_whales: int) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO gate_metrics
+            (run_id, total, passed, blocked_no_volume, blocked_no_whales)
+            VALUES (?, ?, ?, ?, ?)
+        """, (run_id, total, passed, blocked_no_volume, blocked_no_whales))
+
+
+def get_gate_metrics_last_n(n: int = 10) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, run_id, total, passed, blocked_no_volume, blocked_no_whales, created_at 
+            FROM gate_metrics 
+            ORDER BY created_at DESC 
+            LIMIT ?
+        """, (n,)).fetchall()
+    return [dict(r) for r in rows]
+
 
 if __name__ == "__main__":
     init_db()

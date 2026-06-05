@@ -129,6 +129,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="eval_history", description="История калибровок стратегии"),
         BotCommand(command="eval_apply", description="Применить калибровочное предложение"),
         BotCommand(command="eval_rollback", description="Откатить калибровочное изменение"),
+        BotCommand(command="gate_stats", description="Статистика On-chain Gatekeeper (экономия)"),
     ]
     await bot.set_my_commands(commands)
 
@@ -332,7 +333,8 @@ async def command_help_handler(message: types.Message) -> None:
         "🚀 /scan — запустить поиск идей (выбор из 11 категорий)\n"
         "💡 /ideas — показать последние 5 активных сигналов\n"
         "⚙️ /status — детальный статус агентов и метрики (в т.ч. Точность SCOUT*)\n"
-        "📊 /audit — аудит воронки идей (отказы SHADOW)\n\n"
+        "📊 /audit — аудит воронки идей (отказы SHADOW)\n"
+        "🛡 /gate_stats — статистика On-chain Gatekeeper (экономия)\n\n"
         "<b>Настройки:</b>\n"
         "🛠 /settings — лимит рынков + порог Edge (SCOUT)\n"
         "🧠 /model — выбрать языковую модель Gemini\n"
@@ -881,6 +883,51 @@ async def command_audit_handler(message: types.Message) -> None:
         await message.answer(text)
     except Exception as e:
         await message.answer(f"Ошибка получения аудита: {e}")
+
+@dp.message(Command("gate_stats"))
+async def command_gate_stats_handler(message: types.Message) -> None:
+    from agents.shared.python.db import get_connection
+    try:
+        with get_connection() as conn:
+            row = conn.execute("""
+                SELECT 
+                    SUM(total) as total_scanned,
+                    SUM(passed) as total_passed,
+                    SUM(blocked_no_volume) as total_blocked_vol,
+                    SUM(blocked_no_whales) as total_blocked_whales
+                FROM gate_metrics
+                WHERE created_at >= datetime('now', '-24 hours')
+            """).fetchone()
+        
+        if not row or row["total_scanned"] is None or row["total_scanned"] == 0:
+            text = "🛡️ <b>On-chain Gatekeeper (24ч):</b>\n\n<i>Нет данных за последние 24 часа.</i>"
+        else:
+            total = row["total_scanned"]
+            passed = row["total_passed"]
+            blocked_vol = row["total_blocked_vol"]
+            blocked_whales = row["total_blocked_whales"]
+            blocked = total - passed
+            
+            passed_pct = (passed / total * 100) if total > 0 else 0
+            blocked_pct = (blocked / total * 100) if total > 0 else 0
+            
+            saved_usd = blocked * 0.0015
+            
+            text = (
+                f"🛡️ <b>Статистика On-chain Gatekeeper (24ч):</b>\n\n"
+                f"📊 Всего проверено рынков: <b>{total}</b>\n"
+                f"✅ Пропущено к анализу LLM: <b>{passed}</b> ({passed_pct:.1f}%)\n"
+                f"⛔ Заблокировано гейтом: <b>{blocked}</b> ({blocked_pct:.1f}%)\n"
+                f"  ↳ Из-за низкого объема: <b>{blocked_vol}</b>\n"
+                f"  ↳ Из-за отсутствия китов: <b>{blocked_whales}</b>\n\n"
+                f"💰 <b>Экономия бюджета:</b>\n"
+                f"• Сэкономлено вызовов LLM: <b>{blocked}</b>\n"
+                f"• Оценочная экономия: <b>${saved_usd:.2f}</b> (при $0.0015 за вызов)"
+            )
+        await message.answer(text)
+    except Exception as e:
+        await message.answer(f"Ошибка получения статистики гейта: {e}")
+
 
 async def send_settings_menu(message_or_callback):
     from agents.shared.python.db import get_memory

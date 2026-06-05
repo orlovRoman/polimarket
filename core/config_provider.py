@@ -100,6 +100,24 @@ class ConfigProvider:
         return val
 
     @classmethod
+    def get_swing_min_volume_sync(cls, tag: str = "default") -> float:
+        cache_key = f"swing_min_volume_{tag}"
+        if cache_key in cls._cache:
+            return cls._cache[cache_key]
+        vol_by_tag = getattr(config, "SWING_VOLUME_BY_TAG", {})
+        val = vol_by_tag.get(tag) or getattr(config, "SWING_MIN_VOLUME_USD", 5000.0)
+        cls._cache[cache_key] = val
+        return val
+
+    @classmethod
+    def get_swing_min_whale_count_sync(cls) -> int:
+        if "swing_min_whale" in cls._cache:
+            return cls._cache["swing_min_whale"]
+        val = getattr(config, "SWING_MIN_WHALE_COUNT", 1)
+        cls._cache["swing_min_whale"] = val
+        return val
+
+    @classmethod
     def get_sync(cls, key: str, default: Any = None) -> Any:
         """
         Возвращает значение конфигурации по ключу.

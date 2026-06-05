@@ -136,3 +136,118 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
         recent_volume_2h_usd=round(recent_volume_usd, 2),
         recent_ratio_2h=round(recent_ratio, 4)
     )
+
+
+def fetch_smart_money_sync(market_id: str) -> Optional[SmartMoneySummary]:
+    """
+    Читает уже загруженные данные из БД (trader_transactions + wallets).
+    НЕ делает HTTP-запросов — только SELECT.
+    Вызывается синхронно из run_agent_evaluation.
+    """
+    try:
+        from collections import defaultdict
+        from core.context import WalletInfo
+        from agents.shared.python.db import get_connection
+
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT tt.wallet_address, tt.amount_usd, tt.outcome, w.alias, w.win_rate, w.is_insider
+                FROM trader_transactions tt
+                JOIN wallets w ON tt.wallet_address = w.address
+                WHERE tt.market_id = ?
+                  AND tt.timestamp > datetime('now', '-48 hours')
+            """, (market_id,)).fetchall()
+
+        if not rows:
+            return SmartMoneySummary(available=False, summary="Ончейн данные в локальной БД не найдены.")
+
+        # Агрегируем по кошелькам
+        wallets_data = defaultdict(lambda: {"yes_usd": 0.0, "no_usd": 0.0, "alias": None, "win_rate": None, "is_insider": False})
+        for r in rows:
+            addr = r["wallet_address"]
+            outcome = r["outcome"]
+            amount = r["amount_usd"]
+            wallets_data[addr]["alias"] = r["alias"]
+            wallets_data[addr]["win_rate"] = r["win_rate"]
+            wallets_data[addr]["is_insider"] = bool(r["is_insider"])
+            if outcome == "YES":
+                wallets_data[addr]["yes_usd"] += amount
+            else:
+                wallets_data[addr]["no_usd"] += amount
+
+        wallets_list = []
+        total_yes = 0.0
+        total_no = 0.0
+        lines = []
+
+        for addr, data in wallets_data.items():
+            yes_vol = data["yes_usd"]
+            no_vol = data["no_usd"]
+            vol = yes_vol + no_vol
+            side = "YES" if yes_vol >= no_vol else "NO"
+            total_yes += yes_vol
+            total_no += no_vol
+            
+            wallets_list.append(WalletInfo(
+                address=addr,
+                alias=data["alias"],
+                win_rate=data["win_rate"],
+                side=side,
+                volume_usd=vol,
+                is_insider=data["is_insider"]
+            ))
+            
+            insider_tag = " 🔴INSIDER" if data["is_insider"] else ""
+            wr_str = f" | WR: {data['win_rate']*100:.0f}%{insider_tag}" if data['win_rate'] is not None else ""
+            lines.append(f"  {data['alias'] or addr[:8] + '...'}{wr_str} → {side} ${vol:,.0f}")
+
+        total = total_yes + total_no
+        yes_dominance = total_yes / total if total > 0 else 0.5
+
+        return SmartMoneySummary(
+            available=True,
+            total_yes_usd=total_yes,
+            total_no_usd=total_no,
+            yes_dominance=yes_dominance,
+            top_wallets=lines[:5],
+            summary="\n".join(lines[:5]),
+            wallets_list=wallets_list
+        )
+    except Exception as e:
+        from config import logger
+        logger.warning(f"[SmartMoney] fetch_sync ошибка: {e}", exc_info=True)
+        return None
+
+
+async def refresh_known_whales_from_holders(condition_id: str) -> int:
+    """
+    Запрашивает топ-20 холдеров рынка через data-api и
+    upsert-ит их в wallets как кандидатов (без win_rate до первого resolve).
+    Вызывается из background worker, не из основного цикла.
+    """
+    import httpx
+    from agents.shared.python.db import get_connection
+    from config import logger
+
+    url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=20"
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            for token_id in ["0", "1"]:  # YES и NO токены
+                resp = await client.get(url + f"&tokenId={token_id}")
+                holders = resp.json() if resp.status_code == 200 else []
+                if not isinstance(holders, list):
+                    holders = []
+                with get_connection() as conn:
+                    for h in holders:
+                        addr = h.get("proxyWallet", "").lower()
+                        if not addr:
+                            continue
+                        conn.execute("""
+                            INSERT OR IGNORE INTO wallets
+                            (address, alias, win_rate, last_seen)
+                            VALUES (?, ?, NULL, CURRENT_TIMESTAMP)
+                        """, (addr, h.get("pseudonym", addr[:8])))
+    except Exception as e:
+        logger.warning(f"[SmartMoney] refresh_known_whales ошибка: {e}")
+        return 0
+    return 1
