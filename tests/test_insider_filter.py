@@ -45,6 +45,21 @@ class TestEvaluateWallet:
         with pytest.raises((AttributeError, TypeError)):
             v.is_insider = True  # type: ignore
 
+    def test_pvalue_uses_historical_trades_not_current_market(self):
+        """n_trades должен браться из истории кошелька, а не из текущего рынка."""
+        # Кит с 90% историческим WR на 20 сделках — должен быть инсайдером
+        historical_trades = 20
+        historical_wins = 18
+        v = evaluate_wallet("0xABC", historical_trades, historical_wins)
+        assert v.is_insider, f"Ожидался инсайдер по истории, p={v.p_value}"
+
+        # Тот же кит, но только 2 сделки на текущем рынке — НЕ должно использоваться
+        current_market_trades = 2
+        current_wins = int(0.9 * current_market_trades)  # = 1
+        v_wrong = evaluate_wallet("0xABC", current_market_trades, current_wins)
+        assert not v_wrong.is_insider, \
+            "BUG-SM-01: p-value вычислен по 2 сделкам текущего рынка, а не по 20 историческим"
+
 
 class TestRecalculateAllInsiders:
     def test_recalculate_updates_db(self):
@@ -74,3 +89,21 @@ class TestRecalculateAllInsiders:
             verdicts = recalculate_all_insiders()
         assert verdicts == []
         mock_update.assert_not_called()
+
+    def test_recalculate_uses_computed_wins_when_n_wins_is_zero(self):
+        """Если n_wins=0 в БД, берём computed_wins из JOIN."""
+        mock_wallets = [{
+            "address": "0xAAA",
+            "n_trades": 0,    # не обновлено через update_wallet_pvalue
+            "n_wins": 0,      # DEFAULT 0
+            "tx_count": 20,
+            "computed_wins": 17,  # реальные победы из JOIN
+        }]
+        with patch("agents.shared.python.db.get_wallets_for_pvalue_recalc",
+                   return_value=mock_wallets), \
+             patch("agents.shared.python.db.update_wallet_pvalue") as mock_upd:
+            verdicts = recalculate_all_insiders()
+
+        v = verdicts[0]
+        assert v.n_wins == 17, f"BUG-IF-01: n_wins должен браться из computed_wins, получено {v.n_wins}"
+        assert v.is_insider, f"17/20 должен быть инсайдером, p={v.p_value}"

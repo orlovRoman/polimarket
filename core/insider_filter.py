@@ -80,7 +80,7 @@ def recalculate_all_insiders() -> list[InsiderVerdict]:
         verdict = evaluate_wallet(
             address=w["address"],
             n_trades=w.get("n_trades") or w.get("tx_count", 0),
-            n_wins=w.get("n_wins", 0),
+            n_wins=w.get("n_wins") or w.get("computed_wins") or 0,
         )
         update_wallet_pvalue(
             address=verdict.address,

@@ -1320,9 +1320,11 @@ def get_wallets_for_pvalue_recalc() -> list[dict]:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT w.address, w.alias, w.n_trades, w.n_wins,
-                   COUNT(t.id) as tx_count
+                   COUNT(t.id) as tx_count,
+                   SUM(CASE WHEN t.outcome = m.outcome THEN 1 ELSE 0 END) as computed_wins
             FROM wallets w
             LEFT JOIN trader_transactions t ON w.address = t.wallet_address
+            LEFT JOIN markets m ON t.market_id = m.id AND m.outcome IS NOT NULL
             GROUP BY w.address
             HAVING tx_count > 0
         """)

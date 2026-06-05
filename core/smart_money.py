@@ -95,9 +95,9 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
         alias = whale_info.get("alias", addr[:8] + "...")
         win_rate = whale_info.get("win_rate")
         
-        # p-value фильтр
-        n_trades = whale_info.get("n_trades") or stats.get("trades", 0)
-        n_wins   = whale_info.get("n_wins", 0) or int((win_rate or 0) * n_trades)
+        # p-value фильтр (строго по истории из БД)
+        n_trades = whale_info.get("n_trades") or 0
+        n_wins   = whale_info.get("n_wins") or 0
         verdict  = evaluate_wallet(addr, n_trades, n_wins)
 
         insider_tag = " 🔴INSIDER" if verdict.is_insider else ""
