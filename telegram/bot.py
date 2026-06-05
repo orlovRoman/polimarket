@@ -2161,9 +2161,7 @@ async def callback_history_page_handler(callback: CallbackQuery) -> None:
     page = int(callback.data.split("_")[2])
     await send_history_page(callback, page=page)
 
-@dp.message(Command("penny"))
-async def command_penny_handler(message: types.Message) -> None:
-    await send_penny_page(message, page=0)
+
 
 @dp.callback_query(F.data == "close_message")
 async def callback_close_message_handler(callback: CallbackQuery) -> None:
