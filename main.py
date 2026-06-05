@@ -124,7 +124,7 @@ async def scheduled_synthetic_corridors():
         from config import CORRIDOR_BUDGET_PER_TRADE
         found = await asyncio.to_thread(
             run_synthetic_corridor_scan,
-            poly_limit=100,
+            poly_limit=300,
             budget_per_trade=CORRIDOR_BUDGET_PER_TRADE,
         )
         if found:
