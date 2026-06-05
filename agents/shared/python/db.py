@@ -2030,6 +2030,10 @@ def get_penny_stocks_history(limit: int = 50) -> list[dict]:
 
 def upsert_compound_opportunity(opp: dict) -> bool:
     """Возвращает True если запись НОВАЯ (не дубликат)."""
+    close_time_str = opp["close_time"]
+    if isinstance(close_time_str, datetime):
+        close_time_str = close_time_str.strftime("%Y-%m-%d %H:%M:%S")
+        
     with get_connection() as conn:
         existing = conn.execute(
             "SELECT id FROM compound_opportunities WHERE id = ?", (opp["id"],)
@@ -2044,7 +2048,7 @@ def upsert_compound_opportunity(opp: dict) -> bool:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', CURRENT_TIMESTAMP)
         """, (
             opp["id"], opp["market_id"], opp["title"], opp["url"],
-            opp["price"], opp["volume_usd"], opp["close_time"],
+            opp["price"], opp["volume_usd"], close_time_str,
             opp["hours_left"], opp.get("spread_pct"), opp["roi_net_pct"],
             opp["confidence"], opp.get("obviousness_reason"),
         ))

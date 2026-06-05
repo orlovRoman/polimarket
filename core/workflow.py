@@ -287,6 +287,11 @@ def _fetch_grounded_context(market: Market, api_key: str, model: str) -> str:
 
 
 async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None, scan_category: Optional[str] = None):
+    import config
+    if getattr(config, "shutdown_requested", False):
+        logger.info("[workflow] Прерывание оценки: запрошена остановка системы.")
+        return None, None, None
+
     _cleanup_session_dedup()
 
     from core.price_velocity import detect_velocity_anomaly

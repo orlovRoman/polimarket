@@ -206,6 +206,8 @@ def startup_check():
     VAULT_PATH.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
+shutdown_requested = False
+
 __all__ = [
     "PROJECT_ROOT", "VAULT_PATH", "DB_PATH", "MEMORY_FACTS_LIMIT",
     "MARKET_COOLDOWN_HOURS", "MARKET_OFFSET_MAX", "PRICE_RANGE_MIN", "PRICE_RANGE_MAX",
@@ -220,5 +222,5 @@ __all__ = [
     "CORRIDOR_BUDGET_PER_TRADE", "POLY_EVENTS_CACHE_TTL_SECONDS",
     "GOOGLE_API_KEY", "GOOGLE_API_KEY_SECONDARY", "GOOGLE_API_KEY_THIRD",
     "LOCK_FILE", "LOCK_TIMEOUT_SEC", "SCREENING_INTERVAL_SEC",
-    "get_llm_health_gate", "setup_logger", "startup_check"
+    "get_llm_health_gate", "setup_logger", "startup_check", "shutdown_requested"
 ]

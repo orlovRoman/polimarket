@@ -138,6 +138,7 @@ async def set_commands(bot: Bot):
 # Глобальный лок для предотвращения одновременных запусков сканирования
 _scan_lock = asyncio.Lock()
 _penny_scan_lock = asyncio.Lock()
+_favourite_compound_lock = asyncio.Lock()
 
 # ── Управление мониторингом (через /monitor) ──────────────────────────────────
 _monitoring_task: asyncio.Task | None = None
@@ -2822,7 +2823,37 @@ async def cmd_compound(message: types.Message):
                 f"{o['hours_left']:.1f}ч"
             )
             
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Запустить сканирование", callback_data="scan_favourite_compound")]
+    ])
+    await message.answer("\n".join(lines), reply_markup=keyboard, parse_mode="HTML")
+
+
+@dp.callback_query(F.data == "scan_favourite_compound")
+async def callback_scan_favourite_compound(callback: CallbackQuery) -> None:
+    # Дедупликация: игнорируем повторно доставленные callback'и
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+
+    if _favourite_compound_lock.locked():
+        await callback.answer()
+        await callback.message.answer("⚠️ Сканирование Favourite Compounding уже выполняется. Пожалуйста, подождите.")
+        return
+
+    await callback.message.answer("🚀 Запущено сканирование Favourite Compounding...")
+    await callback.answer("🔄 Запуск...")
+    try:
+        from main import scheduled_favourite_compounding
+        await scheduled_favourite_compounding()
+        await callback.message.answer("✅ Сканирование Favourite Compounding завершено!")
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка при сканировании: {e}")
 
 
 @dp.message(F.text)

@@ -300,6 +300,10 @@ class CoreEngine:
         )
         
         for i, m in enumerate(remaining_markets, 1):
+            import config
+            if getattr(config, "shutdown_requested", False):
+                log("🛑 Прерывание сканирования: запрошена остановка системы.")
+                break
             self._process_single_market(m, i, summary_callback, _update_state, log, market_id=market_id, category=category, **kwargs)
                 
         _update_state(
