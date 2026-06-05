@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).parent
 
 # Загружаем переменные окружения из .env
-load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 # Путь к vault (хранилище БД + Obsidian заметки)
 VAULT_PATH = Path(os.getenv("VAULT_PATH", str(PROJECT_ROOT / "vault")))

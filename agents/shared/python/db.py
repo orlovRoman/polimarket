@@ -1532,7 +1532,7 @@ def get_new_correlations() -> list:
             SELECT id, market_id_a, market_id_b, title_a, title_b,
                    correlation_type, description, confidence, detected_at
             FROM correlations
-            WHERE notified = FALSE
+            WHERE notified = 0
             ORDER BY detected_at DESC
         """)
         return [dict(row) for row in cursor.fetchall()]
@@ -1558,7 +1558,7 @@ def mark_correlations_notified(ids: list):
     with get_connection() as conn:
         placeholders = ','.join('?' * len(ids))
         conn.execute(
-            f"UPDATE correlations SET notified = TRUE WHERE id IN ({placeholders})",
+            f"UPDATE correlations SET notified = 1 WHERE id IN ({placeholders})",
             ids
         )
 
