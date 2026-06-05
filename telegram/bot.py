@@ -12,7 +12,7 @@ from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, LinkPreviewOptions
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, LinkPreviewOptions, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.exceptions import TelegramRetryAfter
 from dotenv import load_dotenv
 from pathlib import Path
@@ -314,6 +314,28 @@ async def send_or_edit(message_or_callback, text: str, keyboard: InlineKeyboardM
                 raise
         await message_or_callback.answer()
 
+def build_main_reply_keyboard() -> ReplyKeyboardMarkup:
+    """Строит постоянную Reply Keyboard с основными кнопками меню."""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="🚦 Мониторинг"),
+                KeyboardButton(text="🚀 Сканировать"),
+            ],
+            [
+                KeyboardButton(text="🪙 Penny Stocks"),
+                KeyboardButton(text="💰 Compound"),
+            ],
+            [
+                KeyboardButton(text="💡 Идеи"),
+                KeyboardButton(text="📚 Справка"),
+            ]
+        ],
+        resize_keyboard=True,
+        persistent=True
+    )
+    return keyboard
+
 @dp.message(CommandStart())
 async def command_start_handler(message: types.Message) -> None:
     """
@@ -325,7 +347,7 @@ async def command_start_handler(message: types.Message) -> None:
         f"Моя задача — непрерывный мониторинг рынков и поиск возможностей.\n\n"
         f"Используй /help, чтобы увидеть, что я умею."
     )
-    await message.answer(welcome_text)
+    await message.answer(welcome_text, reply_markup=build_main_reply_keyboard())
 
 @dp.message(Command("help"))
 async def command_help_handler(message: types.Message) -> None:
@@ -355,11 +377,37 @@ async def command_help_handler(message: types.Message) -> None:
         "<b>Экспериментальные функции:</b>\n"
         "⚖️ /arbitrage — кросс-платформенный арбитраж (Polymarket ↔ Kalshi)\n"
         "🔄 /synthetic — внутрирыночный арбитраж (синтетические коридоры Polymarket)\n"
+        "🪙 /penny — Меню Penny Stocks (дешевые рынки)\n"
         "💰 /compound — Favourite Compounding (≥95¢)\n\n"
         "<i>*Точность SCOUT в меню /status показывает % успешных сигналов. Она 'накапливается', пока рынки, по которым бот дал сигнал, физически не закроются на Polymarket, чтобы сверить прогноз с реальностью.</i>\n\n"
         "<i>Ты также можешь просто писать мне вопросы в чат — я отвечу, используя контекст нашей команды.</i>"
     )
-    await message.answer(help_text)
+    await message.answer(help_text, reply_markup=build_main_reply_keyboard())
+
+# Обработчики для текстовых кнопок Reply Keyboard
+@dp.message(F.text == "🚦 Мониторинг")
+async def reply_monitor(message: types.Message):
+    await command_monitor_handler(message)
+
+@dp.message(F.text == "🚀 Сканировать")
+async def reply_scan(message: types.Message):
+    await command_scan_handler(message)
+
+@dp.message(F.text == "🪙 Penny Stocks")
+async def reply_penny(message: types.Message):
+    await command_penny_handler(message)
+
+@dp.message(F.text == "💰 Compound")
+async def reply_compound(message: types.Message):
+    await cmd_compound(message)
+
+@dp.message(F.text == "💡 Идеи")
+async def reply_ideas(message: types.Message):
+    await command_ideas_handler(message)
+
+@dp.message(F.text == "📚 Справка")
+async def reply_help(message: types.Message):
+    await command_help_handler(message)
 
 
 def build_monitor_keyboard() -> InlineKeyboardMarkup:
