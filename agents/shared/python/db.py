@@ -1266,19 +1266,22 @@ def cleanup_expired_memory():
         count = cursor.rowcount
     return count
 
-def upsert_known_whale(address: str, alias: str, win_rate: float, total_won: float = 0.0, total_vol: float = 0.0) -> None:
-    """Добавляет или обновляет известного кита (whale) в базе данных."""
+def upsert_known_whale(address: str, alias: str, win_rate: float,
+                       total_won: float = 0.0, total_vol: float = 0.0,
+                       force_insider: bool = False) -> None:
+    """Добавляет или обновляет известного кита (whale) в базе данных. force_insider=True только для вручную верифицированных адресов."""
     with get_connection() as conn:
         conn.execute("""
             INSERT INTO wallets (address, alias, win_rate, total_profit, is_insider, last_seen)
-            VALUES (?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(address) DO UPDATE SET
                 alias=excluded.alias,
                 win_rate=excluded.win_rate,
                 total_profit=excluded.total_profit,
-                is_insider=TRUE,
+                is_insider=excluded.is_insider,
                 last_seen=CURRENT_TIMESTAMP
-        """, (address.lower(), alias, win_rate, total_won))
+        """, (address.lower(), alias, win_rate, total_won, force_insider))
+
 
 def add_wallet(address: str, alias: str = None, is_insider: bool = False):
     """Добавляет новый кошелек для мониторинга агентом SHADOW."""
@@ -1671,13 +1674,14 @@ def get_market_trader_transactions(market_id: str, limit: int = 200) -> list:
         return [dict(row) for row in cursor.fetchall()]
 
 def get_known_whales() -> dict:
-    """Возвращает словарь {address: {alias, win_rate, total_won, total_vol}} известных китов."""
+    """Возвращает словарь {address: {alias, win_rate, total_won, total_vol, is_insider, n_trades, n_wins, p_value}} известных китов."""
     whales = {}
     with get_connection() as conn:
         try:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT w.address, w.alias, w.win_rate, w.total_profit, w.is_insider,
+                       w.n_trades, w.n_wins, w.p_value,
                        COALESCE(t.total_vol, 0.0) as total_vol
                 FROM wallets w
                 LEFT JOIN (
@@ -1696,11 +1700,15 @@ def get_known_whales() -> dict:
                     "win_rate": row["win_rate"],
                     "total_won": total_won,
                     "total_vol": total_vol,
-                    "is_insider": bool(row["is_insider"])
+                    "is_insider": bool(row["is_insider"]),
+                    "n_trades": row["n_trades"] or 0,
+                    "n_wins": row["n_wins"] or 0,
+                    "p_value": row["p_value"] or 1.0
                 }
         except Exception as e:
             logger.error(f"[DB] Ошибка при чтении wallets для known_whales: {e}")
     return whales
+
 
 
 def get_performance_summary(agent_name: str, limit: int = 20) -> str:

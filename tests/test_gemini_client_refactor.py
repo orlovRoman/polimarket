@@ -94,12 +94,11 @@ def test_cerebras_rr_index_advances_on_error():
         "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}
     }
 
-    call_count = [0]
     def mock_cerebras_send(payload, model, key, timeout):
-        call_count[0] += 1
-        if call_count[0] == 1:
+        if model == "model-a":
             raise requests.HTTPError("429 Too Many Requests")
-        return successful_result, 10, 5
+        raise ValueError("stop here")
+
 
     patched_config = {
         "gemini": {
@@ -312,8 +311,11 @@ def test_cerebras_rr_advances_on_404():
     save_memory("cer_rr_index", 0)
 
     def mock_cerebras_404(payload, model, key, timeout):
-        err = requests.HTTPError(response=MagicMock(status_code=404))
-        raise err
+        if model == "dead-model":
+            err = requests.HTTPError(response=MagicMock(status_code=404))
+            raise err
+        raise ValueError("stop here")
+
 
     patched_config = {
         "gemini": {"keys": [], "models": ["gemini-2.5-flash"], "send_func": MagicMock(side_effect=Exception("no gemini"))},
