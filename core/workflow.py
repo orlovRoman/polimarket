@@ -133,8 +133,10 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
                     except (json.JSONDecodeError, TypeError):
                         cached = []
                 if not isinstance(cached, list):
-                    logger.warning(f"[workflow] Unexpected type for screened_market_ids: {type(cached)}. Expected list.")
-                return cached if isinstance(cached, list) else []
+                    logger.warning(f"[workflow] Unexpected type for screened_market_ids: {type(cached)}, сбрасываем кэш")
+                    save_memory("screened_market_ids", [], category='cache', ttl=SCREENING_INTERVAL_SEC)
+                    return []
+                return cached
         except (ValueError, TypeError):
             pass
             
@@ -170,6 +172,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
             arb_pairs = find_complementary_pairs(screened_markets_full, min_spread_pct=5.0)
             correlations_count = len(arb_pairs)
+            saved_count = 0
 
             for (ma, mb, mf) in arb_pairs:
                 try:
@@ -182,8 +185,9 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
                         description=mf.reasoning[:200],
                         confidence=min(mf.spread_pct / 20.0, 1.0),  # нормализуем спред → confidence
                     ))
+                    saved_count += 1
                 except Exception as e:
-                    logger.error(f"[screening] save_correlation error: {e}")
+                    logger.error(f"[screening] save_correlation error: {e}", exc_info=True)
 
             save_memory("screened_market_ids", screened_market_ids, category='cache', ttl=SCREENING_INTERVAL_SEC)
             save_memory("last_screen_time", now.isoformat(), category='cache', ttl=SCREENING_INTERVAL_SEC)
@@ -191,7 +195,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             logger.info(f"[screening] Код отобрал {len(screened_market_ids)} кандидатов, "
                         f"найдено {correlations_count} арб-пар")
             
-            if correlations_count > 0 and summary_callback:
+            if saved_count > 0 and summary_callback:
                 from services.notifications import send_correlation_alerts
                 send_correlation_alerts(summary_callback)
                 
@@ -211,15 +215,15 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
 
 
-def _safe_result(future: concurrent.futures.Future, default, timeout: int = 15):
+def _safe_result(future: concurrent.futures.Future, default, timeout: int = 15, label: str = "unknown"):
     """Получает результат Future с таймаутом; возвращает default при любой ошибке."""
     try:
         return future.result(timeout=timeout)
     except concurrent.futures.TimeoutError:
-        logger.info(f"[workflow] fetch timed out after {timeout}s, using default")
+        logger.warning(f"[workflow] '{label}' timed out after {timeout}s")
         return default
     except Exception as e:
-        logger.warning(f"[workflow] fetch failed unexpectedly: {e}, using default")
+        logger.warning(f"[workflow] '{label}' failed: {e}")
         return default
 
 
@@ -308,10 +312,10 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
             else:
                 raise
         
-        news_titles = _safe_result(future_rss, default=[], timeout=15) if future_rss else []
-        reddit_posts = _safe_result(future_reddit, default=[], timeout=15) if future_reddit else []
-        wiki_context = _safe_result(future_wiki, default=[], timeout=20) if future_wiki else []
-        hn_posts = _safe_result(future_hn, default=[], timeout=15) if future_hn else []
+        news_titles = _safe_result(future_rss, default=[], timeout=15, label="RSS") if future_rss else []
+        reddit_posts = _safe_result(future_reddit, default=[], timeout=15, label="Reddit") if future_reddit else []
+        wiki_context = _safe_result(future_wiki, default=[], timeout=20, label="Wikipedia") if future_wiki else []
+        hn_posts = _safe_result(future_hn, default=[], timeout=15, label="HackerNews") if future_hn else []
     finally:
         shutdown_kwargs = {"wait": False, "cancel_futures": True} \
             if sys.version_info >= (3, 9) else {"wait": False}
@@ -622,12 +626,19 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             summary_text += "\n"
             
         # Арбитраж из math_filter (если есть)
+        from core.math_filter import FilterDecision
         math_result = getattr(context, 'math_filter_result', None)
-        if math_result and math_result.has_arbitrage:
-            if math_result.trade_instruction and math_result.trade_instruction.strip():
-                summary_text += f"⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{math_result.trade_instruction}\n\n"
-            else:
-                logger.warning(f"[math_filter] has_arbitrage=True but trade_instruction empty for {m.id}")
+        if math_result:
+            if math_result.has_arbitrage:
+                instruction = math_result.trade_instruction.strip() if (math_result.trade_instruction and math_result.trade_instruction.strip()) else (
+                    f"Купить YES на рынке с ценой {math_result.spread_pct:.1f}% ниже"
+                )
+                summary_text += f"⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{instruction}\n\n"
+            elif math_result.decision == FilterDecision.AMBIGUOUS and math_result.spread_pct > 0:
+                if not api_key:
+                    summary_text += f"⚠️ <b>Возможен арбитраж ({math_result.spread_pct:.1f}%):</b>\nНе подтверждён (нет API-ключа для проверки)\n\n"
+                else:
+                    summary_text += f"⚠️ <b>Возможен арбитраж ({math_result.spread_pct:.1f}%):</b>\nНе подтверждён проверкой агента\n\n"
 
         # Итоговое решение консенсуса
         if decision.status == 'saved':
@@ -669,10 +680,19 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         logger.error(f"[workflow] save_idea_audit failed for {m.id}: {e}")
     
     from core.checkpoint import save_checkpoint, verify_checkpoint
-    save_checkpoint(f"consensus_{m.id}", status="ok")
-    saved_ok = verify_checkpoint(f"consensus_{m.id}")
-    if not saved_ok:
-        logger.warning(f"[CHECKPOINT] Консенсус для {m.id} не сохранён в аудит!")
+    for attempt in range(3):
+        save_checkpoint(f"consensus_{m.id}", status="ok")
+        if verify_checkpoint(f"consensus_{m.id}"):
+            break
+        logger.warning(f"[CHECKPOINT] Retry {attempt+1}/3 для {m.id}")
+    else:
+        logger.error(f"[CHECKPOINT] КРИТИЧНО: консенсус {m.id} не сохранён после 3 попыток")
+        try:
+            from services.notifications import send_telegram
+            alert_msg = f"❌ <b>[CHECKPOINT ERROR]</b>\nКРИТИЧНО: консенсус для рынка {m.id} ('{m.title}') не сохранён после 3 попыток!"
+            send_telegram(alert_msg)
+        except Exception as alert_err:
+            logger.error(f"Не удалось отправить алерт об ошибке чекпоинта: {alert_err}")
 
 
     # Эпизодическая память агентов (Спринт 7)
