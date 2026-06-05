@@ -59,3 +59,10 @@ class TestQuickPairCheck:
     def test_empty_titles_return_false(self):
         assert _quick_pair_check("", "") is False
         assert _quick_pair_check("", "Bitcoin price") is False
+
+    def test_numeric_and_alphanumeric_tickers(self):
+        """Буквенно-цифровые и числовые тикеры (BTC, 100k, 2025) проходят проверку."""
+        assert _quick_pair_check(
+            "Will BTC hit $100K by Dec 2025?",
+            "Will BTC hit $120K by Dec 2025?"
+        ) is True

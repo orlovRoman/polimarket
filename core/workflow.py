@@ -176,7 +176,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
             #    Нужны полные объекты Market для math_pre_filter
             screened_markets_full = _fetch_markets_parallel(adapter, screened_market_ids)
 
-            arb_pairs = find_complementary_pairs(screened_markets_full, min_spread_pct=5.0)
+            arb_pairs = find_complementary_pairs(screened_markets_full, min_spread_pct=2.0)
             correlations_count = len(arb_pairs)
             saved_count = 0
 

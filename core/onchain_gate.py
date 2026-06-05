@@ -35,20 +35,11 @@ def check_onchain_gate(
     market_id: str,
     total_volume_usd: float,
     market_tag: str = "default",
-    ignore_pytest: bool = False,
 ) -> GateResult:
     """
     Детерминированный гейт. LLM вызывается ТОЛЬКО при allow=True.
     Условие пропуска: объём >= порог AND (есть киты ИЛИ есть кластер).
     """
-    # Обход для pytest
-    if "PYTEST_CURRENT_TEST" in os.environ and not ignore_pytest:
-        return GateResult(
-            allow=True,
-            reason="pytest bypass",
-            blocked_by="pass"
-        )
-
     min_volume = ConfigProvider.get_swing_min_volume_sync(market_tag)
     min_whales = ConfigProvider.get_swing_min_whale_count_sync()
 

@@ -31,8 +31,8 @@ def _quick_pair_check(title_a: str, title_b: str, min_common: int = 2) -> bool:
     """
     title_a = _strip_price_tag(title_a)
     title_b = _strip_price_tag(title_b)
-    words_a = set(re.findall(r'\b[a-z]{3,}\b', title_a.lower())) - _STOPWORDS
-    words_b = set(re.findall(r'\b[a-z]{3,}\b', title_b.lower())) - _STOPWORDS
+    words_a = set(re.findall(r'\b[a-z\d]{2,}\b', title_a.lower())) - _STOPWORDS
+    words_b = set(re.findall(r'\b[a-z\d]{2,}\b', title_b.lower())) - _STOPWORDS
     if not words_a or not words_b:
         return False
     common = len(words_a & words_b)

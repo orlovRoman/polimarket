@@ -1,25 +1,9 @@
-import os
 import unittest
 from unittest.mock import patch, MagicMock
 from core.onchain_gate import check_onchain_gate, GateResult, get_cluster_size_for_market
 from core.onchain_scorer import OnchainScore
 
 class TestOnchainGate(unittest.TestCase):
-
-    def test_pytest_bypass_by_default(self):
-        # По умолчанию при запуске тестов (когда установлен PYTEST_CURRENT_TEST)
-        # гейт должен возвращать allow=True.
-        with patch.dict(os.environ, {"PYTEST_CURRENT_TEST": "test_some_dummy_test"}):
-            res = check_onchain_gate(
-                oc_score=None,
-                market_id="test_market",
-                total_volume_usd=100.0,
-                market_tag="default",
-                ignore_pytest=False
-            )
-            self.assertTrue(res.allow)
-            self.assertEqual(res.blocked_by, "pass")
-            self.assertEqual(res.reason, "pytest bypass")
 
     @patch("core.onchain_gate.get_cluster_size_for_market")
     @patch("core.onchain_gate.ConfigProvider")
@@ -33,13 +17,11 @@ class TestOnchainGate(unittest.TestCase):
         # Объем меньше порога (4900 < 5000)
         oc_score = OnchainScore(score=1.0, confidence=0.8, direction="CONFIRM", annotation="Whale confirmation", whale_count=2, yes_dominance=0.8)
         
-        # Передаем ignore_pytest=True, чтобы не сработал обход pytest
         res = check_onchain_gate(
             oc_score=oc_score,
             market_id="market_1",
             total_volume_usd=4900.0,
-            market_tag="default",
-            ignore_pytest=True
+            market_tag="default"
         )
         self.assertFalse(res.allow)
         self.assertEqual(res.blocked_by, "volume")
@@ -60,8 +42,7 @@ class TestOnchainGate(unittest.TestCase):
             oc_score=oc_score,
             market_id="market_1",
             total_volume_usd=6000.0,
-            market_tag="default",
-            ignore_pytest=True
+            market_tag="default"
         )
         self.assertFalse(res.allow)
         self.assertEqual(res.blocked_by, "whales")
@@ -82,8 +63,7 @@ class TestOnchainGate(unittest.TestCase):
             oc_score=oc_score,
             market_id="market_1",
             total_volume_usd=6000.0,
-            market_tag="default",
-            ignore_pytest=True
+            market_tag="default"
         )
         self.assertTrue(res.allow)
         self.assertEqual(res.blocked_by, "pass")
@@ -104,8 +84,7 @@ class TestOnchainGate(unittest.TestCase):
             oc_score=oc_score,
             market_id="market_1",
             total_volume_usd=6000.0,
-            market_tag="default",
-            ignore_pytest=True
+            market_tag="default"
         )
         self.assertTrue(res.allow)
         self.assertEqual(res.blocked_by, "pass")
@@ -123,8 +102,7 @@ class TestOnchainGate(unittest.TestCase):
             oc_score=None,
             market_id="market_1",
             total_volume_usd=6000.0,
-            market_tag="default",
-            ignore_pytest=True
+            market_tag="default"
         )
         self.assertFalse(res.allow)
         self.assertEqual(res.blocked_by, "whales")
@@ -144,8 +122,7 @@ class TestOnchainGate(unittest.TestCase):
             oc_score=None,
             market_id="market_1",
             total_volume_usd=3000.0,
-            market_tag="sports",
-            ignore_pytest=True
+            market_tag="sports"
         )
         self.assertTrue(res.allow)
         self.assertEqual(res.blocked_by, "pass")
