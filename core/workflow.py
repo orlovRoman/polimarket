@@ -377,8 +377,21 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     from core.dedup import deduplicate_headlines
     news_titles = deduplicate_headlines(news_titles, grounded)
 
+    # Разбиваем grounded текст на отдельные строки для сопоставления по MD5 хэшам
+    grounded_lines = []
+    if grounded:
+        for line in grounded.split('\n'):
+            line = line.strip().lstrip('-*•1234567890.').strip()
+            if line:
+                grounded_lines.append(line)
+
     from agents.shared.utils.web_search import deduplicate_results
-    news_titles = deduplicate_results(news_titles, [])
+    # Дедуплицируем news_titles относительно grounded_lines
+    deduped_combined = deduplicate_results(news_titles, grounded_lines)
+    # Оставляем только те элементы, которые были в исходном news_titles, убирая дубликаты
+    news_titles = [item for item in deduped_combined if item in news_titles]
+    
+    # Дедуплицируем посты в reddit_posts
     reddit_posts = deduplicate_results(reddit_posts, [])
 
     context = MarketContext(

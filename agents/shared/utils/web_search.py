@@ -4,14 +4,17 @@ from urllib.parse import quote
 import time
 import hashlib
 from threading import Lock
+from typing import TypeVar
+
+T = TypeVar("T")
 
 _news_cache: dict = {}
 _news_cache_lock = Lock()
 NEWS_CACHE_TTL = 900  # 15 минут
 
 
-def _get_cached_news(query: str, fetcher_fn, *args) -> list:
-    """Универсальный thread-safe TTL-кэш для новостных запросов."""
+def _get_cached(query: str, fetcher_fn, *args) -> T:
+    """Универсальный thread-safe TTL-кэш для строковых и списочных запросов с оптимизированным GC."""
     key = hashlib.md5(query.lower().encode()).hexdigest()
     now = time.time()
 
@@ -25,33 +28,16 @@ def _get_cached_news(query: str, fetcher_fn, *args) -> list:
 
     with _news_cache_lock:
         _news_cache[key] = (result, now)
-        # GC: чистим устаревшие записи
-        expired = [k for k, (_, ts) in _news_cache.items() if now - ts > NEWS_CACHE_TTL]
-        for k in expired:
-            del _news_cache[k]
 
-    return result
-
-
-def _get_cached_str(query: str, fetcher_fn, *args) -> str:
-    """Универсальный thread-safe TTL-кэш для строковых запросов."""
-    key = hashlib.md5(query.lower().encode()).hexdigest()
-    now = time.time()
-
+    # GC: чистим устаревшие записи вне основной блокировки записи
     with _news_cache_lock:
-        if key in _news_cache:
-            result, ts = _news_cache[key]
-            if now - ts < NEWS_CACHE_TTL:
-                return result
+        cache_items = list(_news_cache.items())
 
-    result = fetcher_fn(*args)
-
-    with _news_cache_lock:
-        _news_cache[key] = (result, now)
-        # GC: чистим устаревшие записи
-        expired = [k for k, (_, ts) in _news_cache.items() if now - ts > NEWS_CACHE_TTL]
-        for k in expired:
-            del _news_cache[k]
+    expired = [k for k, (_, ts) in cache_items if now - ts > NEWS_CACHE_TTL]
+    if expired:
+        with _news_cache_lock:
+            for k in expired:
+                _news_cache.pop(k, None)
 
     return result
 
@@ -101,12 +87,12 @@ def _fetch_reddit_news_impl(query: str, limit: int = 5) -> list:
 
 def fetch_rss_news(query: str, limit: int = 5) -> list:
     """Получает последние новости через Google News RSS (с кэшированием 15 мин)."""
-    return _get_cached_news(query, _fetch_rss_news_impl, query, limit)
+    return _get_cached(query, _fetch_rss_news_impl, query, limit)
 
 
 def fetch_reddit_news(query: str, limit: int = 5) -> list:
     """Получает последние посты с Reddit по ключевым словам (с кэшированием 15 мин)."""
-    return _get_cached_news(f"reddit:{query}", _fetch_reddit_news_impl, query, limit)
+    return _get_cached(f"reddit:{query}", _fetch_reddit_news_impl, query, limit)
 
 def _fetch_wikipedia_context_impl(query: str, limit: int = 3) -> list:
     """Реальная реализация поиска Wikipedia."""
@@ -129,7 +115,7 @@ def _fetch_wikipedia_context_impl(query: str, limit: int = 3) -> list:
 
 def fetch_wikipedia_context(query: str, limit: int = 3) -> list:
     """Ищет факты в Wikipedia — полезно для спорта, политики, турниров."""
-    return _get_cached_news(f"wiki:{query}", _fetch_wikipedia_context_impl, query, limit)
+    return _get_cached(f"wiki:{query}", _fetch_wikipedia_context_impl, query, limit)
 
 def _fetch_google_trends_impl(query: str) -> str:
     try:
@@ -150,7 +136,7 @@ def _fetch_google_trends_impl(query: str) -> str:
 
 def fetch_google_trends(query: str) -> str:
     """Возвращает уровень интереса к теме за 7 дней по Google Trends."""
-    return _get_cached_str(f"trends:{query}", _fetch_google_trends_impl, query)
+    return _get_cached(f"trends:{query}", _fetch_google_trends_impl, query)
 
 def _fetch_hackernews_impl(query: str, limit: int = 3) -> list:
     try:
@@ -165,7 +151,7 @@ def _fetch_hackernews_impl(query: str, limit: int = 3) -> list:
 
 def fetch_hackernews(query: str, limit: int = 3) -> list:
     """Получает топ-посты с HackerNews по теме (бесплатно, без ключа)."""
-    return _get_cached_news(f"hn:{query}", _fetch_hackernews_impl, query, limit)
+    return _get_cached(f"hn:{query}", _fetch_hackernews_impl, query, limit)
 
 def build_search_query(market_title: str) -> str:
     """Строит короткий поисковый запрос из заголовка рынка."""
@@ -209,7 +195,7 @@ def deduplicate_results(rss_results: list, grounding_results: list) -> list:
             if len(parts) > 1:
                 clean_title = parts[1].strip()
                 
-        h = hashlib.md5(clean_title.encode('utf-8', errors='ignore')).hexdigest()
+        h = hashlib.md5(clean_title.lower().encode('utf-8', errors='ignore')).hexdigest()
         if h not in seen_hashes:
             seen_hashes.add(h)
             deduped.append(item)
