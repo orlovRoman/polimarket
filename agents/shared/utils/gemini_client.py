@@ -387,22 +387,33 @@ PROVIDERS_CONFIG: dict = {
 }
 
 _rate_lock = Lock()
-_request_times: list[float] = []
-MAX_REQUESTS_PER_MINUTE = 12  # 2 ключа × ~6 rpm на ключ
+_rate_limits: dict[str, int] = {
+    "openrouter": 20,
+    "cerebras": 60,
+}
+_request_times: dict[str, list[float]] = {
+    "gemini": [], "openrouter": [], "cerebras": []
+}
 
-def _rate_limit_wait():
+def _rate_limit_wait(provider: str = "gemini", num_keys: int = 1):
     """Блокирует выполнение если превышен лимит запросов в минуту."""
     if "PYTEST_CURRENT_TEST" in os.environ:
         return
+        
+    if provider == "gemini":
+        max_rpm = max(num_keys * 6, 6)
+    else:
+        max_rpm = _rate_limits.get(provider, 12)
+        
     with _rate_lock:
         now = time.monotonic()
-        # Убираем запросы старше 60 секунд
-        _request_times[:] = [t for t in _request_times if now - t < 60]
-        if len(_request_times) >= MAX_REQUESTS_PER_MINUTE:
-            wait = 60 - (now - _request_times[0]) + 1
-            logger.info(f"[rate_limiter] Квота близка, пауза {wait:.1f}с")
+        times = _request_times.setdefault(provider, [])
+        times[:] = [t for t in times if now - t < 60]
+        if len(times) >= max_rpm:
+            wait = 60 - (now - times[0]) + 1
+            logger.info(f"[rate_limiter:{provider}] Пауза {wait:.1f}с (лимит {max_rpm} RPM)")
             time.sleep(wait)
-        _request_times.append(time.monotonic())
+        times.append(time.monotonic())
 
 def _sanitize_error(e: Exception) -> str:
     """Маскирует API ключи в тексте ошибок перед логированием."""
@@ -463,11 +474,13 @@ def generate_content_with_fallback(
     if _gemini_keys_override:
         _gemini_keys = list(_gemini_keys_override)
     else:
-        secondary = os.getenv("GOOGLE_API_KEY_SECONDARY", "")
-        third = os.getenv("GOOGLE_API_KEY_THIRD", "")
-        if not secondary:
-            logger.debug("[gemini_client] GOOGLE_API_KEY_SECONDARY не задан в .env")
-        all_keys = [k for k in [api_key, secondary, third] if k and k.strip()]
+        # Собираем все Gemini ключи: первичный + все вторичные из переменных окружения динамически
+        all_keys = [api_key]
+        for name in sorted(os.environ.keys()):
+            if name.startswith("GOOGLE_API_KEY_"):
+                value = os.getenv(name, "")
+                if value and value.strip() and value not in all_keys:
+                    all_keys.append(value)
         
         # RR по ключам: начинаем с текущего
         key_rr_idx = int(get_memory("gem_key_rr_index") or 0)
@@ -605,7 +618,7 @@ def generate_content_with_fallback(
                 break
             rate_limited_on_this_key = False
             for attempt in range(3):
-                _rate_limit_wait()
+                _rate_limit_wait(provider, num_keys=len(keys))
                 start_time = time.time()
                 logger.info(f"[{agent_name}] Отправка запроса в {provider} (модель {model}, ключ {key_idx+1}/{len(keys)}, попытка {attempt+1}/3)...")
                 try:
@@ -633,7 +646,12 @@ def generate_content_with_fallback(
                         gem_models_list = providers["gemini"]["models"]
                         save_memory("gem_rr_index", (gem_idx + 1) % len(gem_models_list))
                         
-                        all_gem_keys = [k for k in [api_key, os.getenv("GOOGLE_API_KEY_SECONDARY", ""), os.getenv("GOOGLE_API_KEY_THIRD", "")] if k and k.strip()]
+                        all_gem_keys = [api_key]
+                        for name in sorted(os.environ.keys()):
+                            if name.startswith("GOOGLE_API_KEY_"):
+                                val = os.getenv(name, "")
+                                if val and val.strip() and val not in all_gem_keys:
+                                    all_gem_keys.append(val)
                         k_idx = int(get_memory("gem_key_rr_index") or 0)
                         save_memory("gem_key_rr_index", (k_idx + 1) % max(len(all_gem_keys), 1))
                         

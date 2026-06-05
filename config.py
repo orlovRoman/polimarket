@@ -168,14 +168,29 @@ def startup_check():
     if missing:
         raise RuntimeError(f"Отсутствуют обязательные переменные окружения: {', '.join(missing)}")
         
-    # Test ping Google API Key
-    try:
-        import requests
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GOOGLE_API_KEY}"
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
-    except Exception as e:
-        raise RuntimeError(f"GOOGLE_API_KEY недействителен, истек или недоступен: {e}")
+    # Test ping Google API Keys
+    import requests
+    api_keys_to_check = [("GOOGLE_API_KEY", GOOGLE_API_KEY)]
+    for name in sorted(os.environ.keys()):
+        if name.startswith("GOOGLE_API_KEY_"):
+            val = os.getenv(name, "")
+            if val and val.strip():
+                if name != "GOOGLE_API_KEY":
+                    api_keys_to_check.append((name, val))
+
+    for key_name, key_val in api_keys_to_check:
+        if not key_val:
+            continue
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key_val}"
+            resp = requests.get(url, timeout=5)
+            resp.raise_for_status()
+        except Exception as e:
+            if key_name == "GOOGLE_API_KEY":
+                raise RuntimeError(f"Первичный GOOGLE_API_KEY недействителен, истек или недоступен: {e}")
+            else:
+                logger = setup_logger()
+                logger.warning(f"⚠️ {key_name} недействителен или недоступен: {e}")
         
     # Убеждаемся, что системные папки существуют
     VAULT_PATH.mkdir(parents=True, exist_ok=True)

@@ -376,3 +376,117 @@ def test_empty_db_model_falls_back_to_rr_regression():
 
     assert "" not in used_models, f"Регрессия BUG-3: пустая строка попала в запрос. Модели: {used_models}"
     assert used_models and used_models[0] in cer_models, f"Не использован round-robin. Модели: {used_models}"
+
+
+# ══════════════════════════════════════════════════════════════
+# Итерация 7: Разделение Rate Limit и валидация дополнительных ключей
+# ══════════════════════════════════════════════════════════════
+
+@patch("time.sleep")
+def test_rate_limit_does_not_throttle_cerebras(mock_sleep):
+    """
+    Проверяет, что лимиты для Cerebras (60 RPM), OpenRouter (20 RPM)
+    и Gemini (динамический: num_keys * 6 RPM) работают независимо.
+    """
+    from agents.shared.utils.gemini_client import _rate_limit_wait, _request_times
+    import os
+
+    # Временно убираем PYTEST_CURRENT_TEST из окружения
+    old_env = os.environ.pop("PYTEST_CURRENT_TEST", None)
+    try:
+        # Сбрасываем счетчики
+        _request_times["cerebras"] = []
+        _request_times["gemini"] = []
+        _request_times["openrouter"] = []
+
+        # Cerebras лимит — 60 RPM. Первые 60 вызовов проходят без сна.
+        for _ in range(60):
+            _rate_limit_wait(provider="cerebras")
+        assert mock_sleep.call_count == 0
+
+        # 61-й вызов должен заснуть
+        _rate_limit_wait(provider="cerebras")
+        assert mock_sleep.call_count == 1
+
+        mock_sleep.reset_mock()
+
+        # Gemini с 1 ключом — 6 RPM
+        for _ in range(6):
+            _rate_limit_wait(provider="gemini", num_keys=1)
+        assert mock_sleep.call_count == 0
+        _rate_limit_wait(provider="gemini", num_keys=1)
+        assert mock_sleep.call_count == 1
+
+        mock_sleep.reset_mock()
+
+        # Gemini с 3 ключами — 18 RPM
+        _request_times["gemini"] = []
+        for _ in range(18):
+            _rate_limit_wait(provider="gemini", num_keys=3)
+        assert mock_sleep.call_count == 0
+        _rate_limit_wait(provider="gemini", num_keys=3)
+        assert mock_sleep.call_count == 1
+
+    finally:
+        if old_env is not None:
+            os.environ["PYTEST_CURRENT_TEST"] = old_env
+
+
+def test_startup_check_validates_secondary_keys():
+    """
+    Проверяет валидацию первичного, вторичного и третичного ключей в startup_check.
+    Невалидный первичный ключ вызывает RuntimeError.
+    Невалидные вторичный/третичный вызывают warning, но не валят приложение.
+    """
+    import config
+    from unittest.mock import patch, MagicMock
+
+    with patch("config.GOOGLE_API_KEY", "primary_val"), \
+         patch("config.GOOGLE_API_KEY_SECONDARY", "secondary_val"), \
+         patch("config.GOOGLE_API_KEY_THIRD", "third_val"), \
+         patch("config.TELEGRAM_BOT_TOKEN", "bot_token"), \
+         patch("config.TELEGRAM_CHAT_ID", "chat_id"), \
+         patch("config.TG_API_ID", "api_id"), \
+         patch("config.TG_API_HASH", "api_hash"), \
+         patch("config.setup_logger") as mock_setup_logger:
+
+        mock_logger = MagicMock()
+        mock_setup_logger.return_value = mock_logger
+
+        # 1. Все ключи валидны
+        def mock_get_success(url, timeout=5):
+            resp = MagicMock()
+            resp.raise_for_status.return_value = None
+            return resp
+
+        with patch("requests.get", side_effect=mock_get_success) as mock_get:
+            config.startup_check()
+            assert mock_get.call_count == 3
+
+        # 2. Вторичный/третичный невалидны, первичный валиден -> предупреждения
+        def mock_get_secondary_fail(url, timeout=5):
+            resp = MagicMock()
+            if "primary_val" in url:
+                resp.raise_for_status.return_value = None
+            else:
+                resp.raise_for_status.side_effect = requests_lib.exceptions.HTTPError("Invalid Key")
+            return resp
+
+        with patch("requests.get", side_effect=mock_get_secondary_fail) as mock_get:
+            config.startup_check()
+            assert mock_get.call_count == 3
+            assert mock_logger.warning.call_count == 2
+
+        # 3. Первичный невалиден -> RuntimeError
+        def mock_get_primary_fail(url, timeout=5):
+            resp = MagicMock()
+            if "primary_val" in url:
+                resp.raise_for_status.side_effect = requests_lib.exceptions.HTTPError("Invalid Key")
+            else:
+                resp.raise_for_status.return_value = None
+            return resp
+
+        with patch("requests.get", side_effect=mock_get_primary_fail) as mock_get:
+            with pytest.raises(RuntimeError) as exc_info:
+                config.startup_check()
+            assert "Первичный GOOGLE_API_KEY недействителен" in str(exc_info.value)
