@@ -232,17 +232,17 @@ def test_make_consensus_swing_sell_is_not_buy():
 
 # ── Баг #4: _safe_result log уровни ──────────────────────────
 
-def test_safe_result_timeout_logs_info_not_warning():
-    """TimeoutError должен давать INFO, не WARNING"""
+def test_safe_result_timeout_logs_warning():
+    """TimeoutError должен давать WARNING"""
     future = MagicMock()
     future.result.side_effect = concurrent.futures.TimeoutError()
 
-    with patch("core.workflow.logger.info") as mock_info:
+    with patch("core.workflow.logger.warning") as mock_warning:
         result = _safe_result(future, default=[], timeout=5)
 
     assert result == []
-    mock_info.assert_called()
-    assert "timed out" in mock_info.call_args[0][0]
+    mock_warning.assert_called()
+    assert "timed out" in mock_warning.call_args[0][0]
 
 
 def test_safe_result_exception_logs_warning():

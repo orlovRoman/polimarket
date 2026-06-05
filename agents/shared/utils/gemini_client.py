@@ -177,13 +177,20 @@ def convert_openai_to_gemini(openai_res: dict) -> dict:
     prompt_tokens = openai_res.get("usage", {}).get("prompt_tokens", 0)
     completion_tokens = openai_res.get("usage", {}).get("completion_tokens", 0)
     
+    FINISH_REASON_MAP = {
+        "stop": "STOP", "length": "MAX_TOKENS",
+        "content_filter": "SAFETY", "tool_calls": "STOP",
+    }
+    finish_reason = FINISH_REASON_MAP.get(choice.get("finish_reason", ""), "STOP")
+    
     return {
         "candidates": [
             {
                 "content": {
                     "parts": parts,
                     "role": "model"
-                }
+                },
+                "finishReason": finish_reason
             }
         ],
         "usageMetadata": {
@@ -225,13 +232,29 @@ def _is_safe_char(ch: str) -> bool:
         return False
     return True
 
-def _sanitize_payload_strings(data):
+def _sanitize_payload_strings(data, parent_key=None):
     """Рекурсивно очищает строки в payload от null bytes, управляющих символов и обрезает их при превышении лимита."""
     if isinstance(data, dict):
-        return {k: _sanitize_payload_strings(v) for k, v in data.items()}
+        return {k: _sanitize_payload_strings(v, parent_key=k) for k, v in data.items()}
     elif isinstance(data, list):
-        return [_sanitize_payload_strings(item) for item in data]
+        return [_sanitize_payload_strings(item, parent_key=parent_key) for item in data]
     elif isinstance(data, str):
+        # Валидация числовых полей конфигурации генерации, переданных в виде строк
+        if parent_key in ("temperature", "topP"):
+            try:
+                val = float(data)
+                logger.warning(f"[GEMINI_CLIENT] Поле {parent_key} передано как строка, конвертируем в float: {val}")
+                return val
+            except ValueError:
+                pass
+        elif parent_key in ("maxOutputTokens", "topK"):
+            try:
+                val = int(data)
+                logger.warning(f"[GEMINI_CLIENT] Поле {parent_key} передано как строка, конвертируем в int: {val}")
+                return val
+            except ValueError:
+                pass
+
         # 1. Убираем null bytes и управляющие символы (C0, DEL, C1)
         cleaned = "".join(ch for ch in data if _is_safe_char(ch))
         # 2. Обрезка текста (безопасный лимит ~80k символов)
@@ -419,7 +442,8 @@ def generate_content_with_fallback(
     """
     from agents.shared.python.db import get_memory, save_memory
     import random
-    time.sleep(random.uniform(0, 2.0))
+    if "PYTEST_CURRENT_TEST" not in os.environ:
+        time.sleep(random.uniform(0, 2.0))
 
     # Санитизация строк в payload перед отправкой (убираем null bytes, управляющие символы и ограничиваем размер)
     payload = _sanitize_payload_strings(payload)
@@ -493,7 +517,7 @@ def generate_content_with_fallback(
 
     # Cerebras
     if "cerebras" in active_providers:
-        cer_idx = int(get_memory("cer_rr_index", 0))
+        cer_idx = int(get_memory("cer_rr_index") or 0)
         cer_models = providers["cerebras"]["models"]
         cer_model = cer_models[cer_idx % len(cer_models)]
         plans.append(("cerebras", cer_model))
@@ -554,7 +578,7 @@ def generate_content_with_fallback(
                     if not db_model:
                         db_model = "cerebras_round_robin"
                     if db_model == "cerebras_round_robin":
-                        cer_idx = int(get_memory("cer_rr_index", 0))
+                        cer_idx = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]
                         resolved_model = cer_models[cer_idx % len(cer_models)]
                         plans.insert(0, ("cerebras", resolved_model))
@@ -579,6 +603,7 @@ def generate_content_with_fallback(
         for key_idx, key in enumerate(keys):
             if skip_model:
                 break
+            rate_limited_on_this_key = False
             for attempt in range(3):
                 _rate_limit_wait()
                 start_time = time.time()
@@ -599,7 +624,7 @@ def generate_content_with_fallback(
                     
                     # Обновляем round-robin для Cerebras при успехе
                     if provider == "cerebras":
-                        cer_idx = int(get_memory("cer_rr_index", 0))
+                        cer_idx = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]
                         save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
                         
@@ -626,21 +651,22 @@ def generate_content_with_fallback(
                     )
                     
                     # Проверяем тип ошибки
-                    if _is_rate_limit_error(e) and attempt < 2:
-                        wait = 2 ** attempt  # 1s, 2s, 4s
+                    if _is_rate_limit_error(e):
                         logger.warning(
-                            f"[{agent_name}] 429 Rate Limit на {provider} ({model}) ключ {key_idx+1}, "
-                            f"backoff {wait}s (попытка {attempt+1}/3)"
+                            f"[{agent_name}] 429 Rate Limit на {provider} ({model}) ключ {key_idx+1}. Переходим к следующему ключу."
                         )
-                        time.sleep(wait)
-                        # Продолжаем внутренний цикл attempt для повторной попытки
-                        continue
+                        if provider == "cerebras":
+                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
+                            cer_models = providers["cerebras"]["models"]
+                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
+                        rate_limited_on_this_key = True
+                        break
                     
                     # Если это 404 (Model Not Found) — сразу выходим из попыток и переходим к следующей модели
                     if _is_model_not_found_error(e):
                         logger.error(f"[{agent_name}] 404: модель {model} на {provider} не существует или удалена. Пропускаем.")
                         if provider == "cerebras":  # двигаем RR при 404 тоже
-                            _cer_idx_now = int(get_memory("cer_rr_index", 0))
+                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
                             cer_models = providers["cerebras"]["models"]
                             save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
                         skip_model = True
@@ -650,10 +676,13 @@ def generate_content_with_fallback(
                     logger.warning(f"[{agent_name}] Ошибка вызова {provider} ({model}) с ключом {key_idx+1}: {error_msg}")
                     if provider == "cerebras":
                         if isinstance(e, requests.exceptions.HTTPError):
-                            _cer_idx_now = int(get_memory("cer_rr_index", 0))
+                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
                             cer_models = providers["cerebras"]["models"]
                             save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
                     break  # прерываем цикл попыток attempt для текущего ключа
+            
+            if rate_limited_on_this_key:
+                continue
                 
             
             

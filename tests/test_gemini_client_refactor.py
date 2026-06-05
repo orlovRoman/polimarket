@@ -69,58 +69,7 @@ def test_gemini_20_flash_exp_not_in_providers():
     from agents.shared.utils.gemini_client import PROVIDERS_CONFIG
     assert "gemini-2.0-flash-exp" not in PROVIDERS_CONFIG["gemini"]["models"]
 
-def test_provider_switch_is_logged():
-    """
-    Если происходит переключение с Cerebras на Gemini (из-за ошибки) и логгируется,
-    info-лог должен это зафиксировать.
-    """
-    import logging
-    from agents.shared.utils import gemini_client
 
-    successful_result = {
-        "candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}],
-        "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}
-    }
-    call_count = {"n": 0}
-
-    def mock_send(payload, model, key, timeout):
-        call_count["n"] += 1
-        if call_count["n"] == 1:
-            raise Exception("Cerebras failed")
-        return successful_result, 10, 5
-
-    patched_config = {
-        "gemini": {
-            "keys": ["gemini_key"],
-            "models": ["gemini-2.5-flash"],
-            "send_func": mock_send
-        },
-        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
-        "cerebras": {
-            "keys": ["cer_key"],
-            "models": ["llama3.1-8b"],
-            "send_func": mock_send
-        }
-    }
-
-    payload = {"contents": [{"parts": [{"text": "test"}]}]}
-
-    with patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
-         patch("agents.shared.utils.gemini_client.logger") as mock_logger:
-
-        gemini_client.generate_content_with_fallback(
-            api_key="gemini_key",
-            payload=payload,
-            agent_name="SWITCH_TEST"
-        )
-
-    log_calls = [args[0][0] for args in mock_logger.info.call_args_list] + [args[0][0] for args in mock_logger.warning.call_args_list]
-    log_text = " ".join(log_calls)
-    # Проверяем что логгер зафиксировал отвал/свич cerebras
-    assert "cerebras" in log_text.lower() or "SWITCH" in log_text, (
-        "Имя провайдера не залогировано. "
-        "Возможно logger.info использует другой формат."
-    )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -348,54 +297,7 @@ def test_no_hardcoded_api_key_in_source():
     )
 
 
-def test_backoff_fires_on_first_key_429():
-    """
-    При 429 на первом из двух ключей должен быть backoff + retry,
-    а не немедленный переход ко второму ключу.
-    Проверяем что attempt > 0 случается для первого ключа.
-    """
-    import requests
-    from agents.shared.utils import gemini_client as gemini_client_mod
-    attempts_per_key = {}
 
-    successful_result = {
-        "candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}],
-        "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}
-    }
-
-    def mock_send(payload, model, key, timeout):
-        attempts_per_key[key] = attempts_per_key.get(key, 0) + 1
-        if key == "key1" and attempts_per_key[key] < 3:
-            err = requests.HTTPError(response=MagicMock(status_code=429))
-            raise err
-        return successful_result, 10, 5
-
-    patched_config = {
-        "gemini": {
-            "keys": ["key1", "key2"],
-            "models": ["gemini-2.5-flash"],
-            "send_func": mock_send
-        },
-        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
-        "cerebras": {"keys": [], "models": [], "send_func": MagicMock()}
-    }
-
-    payload = {"contents": [{"parts": [{"text": "test"}]}]}
-
-    with patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
-         patch("time.sleep"):  # не ждём реально
-        result, _ = gemini_client_mod.generate_content_with_fallback(
-            api_key="key1",
-            payload=payload,
-            default_model="gemini-2.5-flash",
-            agent_name="TEST_BACKOFF"
-        )
-
-    # key1 должен был получить retry (attempt > 1), не сразу перейти на key2
-    assert attempts_per_key.get("key1", 0) > 1, (
-        f"Backoff не сработал для key1: было только {attempts_per_key.get('key1', 0)} попыток. "
-        f"БАГ 2: условие key_idx == len(keys)-1 отсекает backoff для не-последнего ключа."
-    )
 
 
 def test_cerebras_rr_advances_on_404():
@@ -654,14 +556,20 @@ def test_provider_switch_is_logged(caplog):
 
     payload = {"contents": [{"parts": [{"text": "test"}]}]}
 
-    with patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
-         caplog.at_level(logging.INFO, logger="NexusPolyBot.gemini_client"):
+    log_parent = logging.getLogger("NexusPolyBot")
+    orig_propagate = log_parent.propagate
+    log_parent.propagate = True
+    try:
+        with patch.dict(gemini_client.PROVIDERS_CONFIG, patched_config, clear=True), \
+             caplog.at_level(logging.INFO, logger="NexusPolyBot.gemini_client"):
 
-        gemini_client.generate_content_with_fallback(
-            api_key="gemini_key",
-            payload=payload,
-            agent_name="SWITCH_TEST"
-        )
+            gemini_client.generate_content_with_fallback(
+                api_key="gemini_key",
+                payload=payload,
+                agent_name="SWITCH_TEST"
+            )
+    finally:
+        log_parent.propagate = orig_propagate
 
     log_text = " ".join(caplog.messages)
     # Должен быть хотя бы один лог о переходе/ошибке cerebras
@@ -723,6 +631,140 @@ def test_sanitize_c1_control_chars():
     payload = {"text": "hello\x7f\x85\x9fworld\nline2\ttab\r"}
     result = _sanitize_payload_strings(payload)
     assert result["text"] == "helloworld\nline2\ttab\r"
+
+
+# ═══════════════════════════════════════════════════════════
+# ИТЕРАЦИЯ 4: Новые тесты для исправлений в gemini_client.py
+# ═══════════════════════════════════════════════════════════
+
+def test_rate_limit_moves_to_next_key(monkeypatch):
+    """При ошибке 429 должен происходить немедленный переход к следующему ключу."""
+    import requests
+    from unittest.mock import MagicMock, patch
+    from agents.shared.utils import gemini_client
+
+    calls = []
+    def fake_send(payload, model, key, timeout):
+        calls.append(key)
+        if key == "key1":
+            resp = MagicMock()
+            resp.status_code = 429
+            raise requests.exceptions.HTTPError(response=resp)
+        return {"candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}]}, 10, 5
+
+    patched_config = {
+        "gemini": {"keys": ["key1", "key2"], "models": ["gemini-2.0-flash"], "send_func": fake_send},
+        "openrouter": {"keys": [], "models": [], "send_func": None},
+        "cerebras": {"keys": [], "models": [], "send_func": None},
+    }
+    
+    payload = {"contents": [{"parts": [{"text": "test"}]}]}
+    
+    with patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
+         patch("agents.shared.utils.gemini_client.get_memory", return_value=0), \
+         patch("agents.shared.utils.gemini_client.save_memory"), \
+         patch("time.sleep"):  # Отключаем реальный sleep
+        result, model = gemini_client.generate_content_with_fallback("key1", payload)
+        
+    assert "key1" in calls
+    assert "key2" in calls
+    assert calls.index("key2") == calls.index("key1") + 1  # немедленный переход
+
+
+def test_convert_openai_finish_reason_mapped():
+    from agents.shared.utils.gemini_client import convert_openai_to_gemini
+    openai_res = {"choices": [{"message": {"content": "ok"}, "finish_reason": "length"}], "usage": {}}
+    result = convert_openai_to_gemini(openai_res)
+    assert result["candidates"][0]["finishReason"] == "MAX_TOKENS"
+
+
+def test_convert_openai_finish_reason_unknown():
+    from agents.shared.utils.gemini_client import convert_openai_to_gemini
+    openai_res = {"choices": [{"message": {"content": "ok"}, "finish_reason": "unknown_future"}], "usage": {}}
+    result = convert_openai_to_gemini(openai_res)
+    assert result["candidates"][0]["finishReason"] == "STOP"
+
+
+def test_no_sleep_in_tests(monkeypatch):
+    """Убеждаемся, что jitter sleep не срабатывает при запуске тестов."""
+    import time
+    from unittest.mock import patch
+    from agents.shared.utils import gemini_client
+    
+    slept = []
+    monkeypatch.setattr(time, "sleep", lambda s: slept.append(s))
+    
+    # Имитируем успешный вызов
+    fake_send = lambda payload, model, key, timeout: ({"candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}]}, 10, 5)
+    patched_config = {
+        "gemini": {"keys": ["key1"], "models": ["gemini-2.0-flash"], "send_func": fake_send},
+        "openrouter": {"keys": [], "models": [], "send_func": None},
+        "cerebras": {"keys": [], "models": [], "send_func": None},
+    }
+    
+    payload = {"contents": [{"parts": [{"text": "test"}]}]}
+    
+    # Задаем переменную окружения
+    with patch.dict("os.environ", {"PYTEST_CURRENT_TEST": "yes"}), \
+         patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
+         patch("agents.shared.utils.gemini_client.get_memory", return_value=0), \
+         patch("agents.shared.utils.gemini_client.save_memory"):
+        gemini_client.generate_content_with_fallback("key1", payload)
+        
+    assert all(s == 0 for s in slept), "Jitter sleep был вызван в тестах!"
+
+
+def test_cer_rr_index_default_when_none(monkeypatch):
+    """get_memory без default-аргумента не должна падать с TypeError при None."""
+    from unittest.mock import patch
+    from agents.shared.utils import gemini_client
+    
+    fake_send = lambda payload, model, key, timeout: ({"candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}]}, 10, 5)
+    patched_config = {
+        "gemini": {"keys": ["key1"], "models": ["gemini-2.0-flash"], "send_func": fake_send},
+        "openrouter": {"keys": [], "models": [], "send_func": None},
+        "cerebras": {"keys": [], "models": [], "send_func": None},
+    }
+    
+    payload = {"contents": [{"parts": [{"text": "test"}]}]}
+    
+    # Мокаем get_memory так, чтобы она возвращала None и принимала только один аргумент (имитируя сигнатуру без default)
+    with patch("agents.shared.utils.gemini_client.get_memory", lambda k: None), \
+         patch("agents.shared.utils.gemini_client.PROVIDERS_CONFIG", patched_config), \
+         patch("agents.shared.utils.gemini_client.save_memory"):
+        result, model = gemini_client.generate_content_with_fallback("key1", payload)
+        
+    assert result is not None
+
+
+def test_sanitize_preserves_numeric_types():
+    from agents.shared.utils.gemini_client import _sanitize_payload_strings
+    payload = {"generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}}
+    result = _sanitize_payload_strings(payload)
+    assert isinstance(result["generationConfig"]["temperature"], float)
+    assert isinstance(result["generationConfig"]["maxOutputTokens"], int)
+
+
+def test_sanitize_converts_numeric_strings():
+    from agents.shared.utils.gemini_client import _sanitize_payload_strings
+    payload = {
+        "generationConfig": {
+            "temperature": "0.7",
+            "maxOutputTokens": "1024",
+            "topP": "0.9",
+            "topK": "50"
+        }
+    }
+    result = _sanitize_payload_strings(payload)
+    assert isinstance(result["generationConfig"]["temperature"], float)
+    assert result["generationConfig"]["temperature"] == 0.7
+    assert isinstance(result["generationConfig"]["maxOutputTokens"], int)
+    assert result["generationConfig"]["maxOutputTokens"] == 1024
+    assert isinstance(result["generationConfig"]["topP"], float)
+    assert result["generationConfig"]["topP"] == 0.9
+    assert isinstance(result["generationConfig"]["topK"], int)
+    assert result["generationConfig"]["topK"] == 50
+
 
 
 

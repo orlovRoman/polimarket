@@ -213,15 +213,15 @@ def test_summary_no_source_url_for_event_driven_does_not_crash():
 
 def test_two_scans_same_market_only_one_analysis():
     """Плановый скан + event_driven на один рынок → только первый проходит"""
-    call_count = 0
-    recent_iso = None  # первый вызов — нет записи; второй — есть
+    analyzed_keys = set()
 
     def mock_get_memory(key):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            return None      # первый анализ — разрешаем
-        return datetime.now(timezone.utc).isoformat()  # второй — блокируем
+        if key.startswith("last_analysis:"):
+            if key not in analyzed_keys:
+                analyzed_keys.add(key)
+                return None
+            return datetime.now(timezone.utc).isoformat()
+        return None
 
     with patch("core.workflow.get_memory", side_effect=mock_get_memory), \
          patch("core.workflow.save_memory"), \

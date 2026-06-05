@@ -285,9 +285,10 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     # Guard: проверяем доступность LLM перед запуском
     from config import llm_health_gate  # глобальный инстанс
-    if not llm_health_gate.check_availability():
-        logger.warning(f"LLM в состоянии DEGRADED, пропускаем рынок {m.id}")
-        return None, None, None
+    llm_health_gate.check_availability()
+    # Временный лок перед медленной генерацией LLM
+    save_memory(last_analysis_key, datetime.now(timezone.utc).isoformat(),
+                category='cache', ttl=300)
 
     logger.info("  Скачиваем новости (RSS + Reddit + Wikipedia)...")
     

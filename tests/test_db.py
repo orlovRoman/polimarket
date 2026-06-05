@@ -288,17 +288,22 @@ class TestSaveIdeaAudit:
         """Даже при ошибках записи в базу функция не должна падать."""
         import sqlite3
         import logging
-        with caplog.at_level(logging.ERROR, logger="NexusPolyBot.DB"):
-            with patch.object(db_module, "get_connection") as mock_conn:
-                mock_conn.side_effect = sqlite3.OperationalError("disk full")
-                # Вызываем функцию
-                db_module.save_idea_audit(
-                    market_id="mkt_bad",
-                    market_title="Bad Market",
-                    audit_data={},
-                )
-        
-        assert any("idea_audit" in r.message for r in caplog.records)
+        log_parent = logging.getLogger("NexusPolyBot")
+        orig_propagate = log_parent.propagate
+        log_parent.propagate = True
+        try:
+            with caplog.at_level(logging.ERROR, logger="NexusPolyBot.DB"):
+                with patch.object(db_module, "get_connection") as mock_conn:
+                    mock_conn.side_effect = sqlite3.OperationalError("disk full")
+                    # Вызываем функцию
+                    db_module.save_idea_audit(
+                        market_id="mkt_bad",
+                        market_title="Bad Market",
+                        audit_data={},
+                    )
+                assert any("idea_audit" in r.message for r in caplog.records)
+        finally:
+            log_parent.propagate = orig_propagate
 
     def test_save_idea_audit_partial_data(self, db_module):
         """Вызов с пустым audit_data не вызывает исключение."""
