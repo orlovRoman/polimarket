@@ -40,6 +40,13 @@ def check_onchain_gate(
     Детерминированный гейт. LLM вызывается ТОЛЬКО при allow=True.
     Условие пропуска: объём >= порог AND (есть киты ИЛИ есть кластер).
     """
+    if market_tag == "penny_stocks":
+        return GateResult(
+            allow=True,
+            reason="Пропущен (Penny Stocks: Onchain Gate отключен)",
+            blocked_by="pass"
+        )
+
     min_volume = ConfigProvider.get_swing_min_volume_sync(market_tag)
     min_whales = ConfigProvider.get_swing_min_whale_count_sync()
 

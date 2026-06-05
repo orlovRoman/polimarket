@@ -151,6 +151,7 @@ class CoreEngine:
     _instance = None
     _lock = threading.Lock()
     _scan_lock = threading.Lock()
+    _penny_scan_lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
@@ -214,13 +215,15 @@ class CoreEngine:
 
     def run_team_discussion(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
         if market_id is None:
-            if not self._scan_lock.acquire(blocking=False):
-                logger.warning("Сканирование уже выполняется (другой поток). Пропускаем.")
-                raise RuntimeError("Сканирование уже выполняется в фоновом режиме (возможно, по расписанию). Пожалуйста, подождите завершения текущего цикла.")
+            lock_to_use = self._penny_scan_lock if category == "penny_stocks" else self._scan_lock
+            if not lock_to_use.acquire(blocking=False):
+                scan_type = "Penny Stocks " if category == "penny_stocks" else ""
+                logger.warning(f"Сканирование {scan_type}уже выполняется (другой поток). Пропускаем.")
+                raise RuntimeError(f"Сканирование {scan_type}уже выполняется в фоновом режиме. Пожалуйста, подождите завершения текущего цикла.")
             try:
                 return self._run_team_discussion_inner(log_callback, summary_callback, category, market_id, state_callback, **kwargs)
             finally:
-                self._scan_lock.release()
+                lock_to_use.release()
         else:
             # Для точечного анализа (из Telegram) пропускаем глобальный лок сканирования
             return self._run_team_discussion_inner(log_callback, summary_callback, category, market_id, state_callback, **kwargs)
@@ -297,7 +300,7 @@ class CoreEngine:
         )
         
         for i, m in enumerate(remaining_markets, 1):
-            self._process_single_market(m, i, summary_callback, _update_state, log, market_id=market_id, **kwargs)
+            self._process_single_market(m, i, summary_callback, _update_state, log, market_id=market_id, category=category, **kwargs)
                 
         _update_state(
             stage="Завершено",
@@ -567,7 +570,8 @@ class CoreEngine:
                     adapter=self.adapter, trigger_type=trigger_type,
                     source_url=source_url, source_text=source_text,
                     triggered_at=triggered_at, price_history=price_hist,
-                    pre_orderbook=pre_orderbook
+                    pre_orderbook=pre_orderbook,
+                    scan_category=kwargs.get("category")
                 ))
             finally:
                 loop.close()

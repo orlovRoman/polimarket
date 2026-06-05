@@ -652,6 +652,30 @@ def init_db():
                         f"ALTER TABLE wallets ADD COLUMN {col} {col_type} DEFAULT {default}"
                     )
 
+            # Таблица мониторинга Penny Stocks
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS penny_stocks_monitoring (
+                    market_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    initial_price REAL NOT NULL,
+                    current_price REAL NOT NULL,
+                    max_price_seen REAL NOT NULL,
+                    min_price_seen REAL NOT NULL,
+                    volume_2h REAL NOT NULL DEFAULT 0.0,
+                    predicted_outcome TEXT,
+                    actual_outcome TEXT,
+                    edge REAL,
+                    confidence REAL,
+                    status TEXT NOT NULL DEFAULT 'ACTIVE',
+                    spike_alert_sent BOOLEAN DEFAULT 0,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TIMESTAMP,
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_penny_status ON penny_stocks_monitoring(status)")
+
         _db_initialized = True
         logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
 
@@ -1842,6 +1866,99 @@ def get_gate_metrics_last_n(n: int = 10) -> list[dict]:
             ORDER BY created_at DESC 
             LIMIT ?
         """, (n,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ─── Функции Penny Stocks ───────────────────────────────────
+
+def add_penny_stock_to_monitoring(market_id: str, title: str, url: str, initial_price: float,
+                                  predicted_outcome: str = None, edge: float = None, confidence: float = None) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO penny_stocks_monitoring
+            (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
+             predicted_outcome, edge, confidence, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+        """, (market_id, title, url, initial_price, initial_price, initial_price, initial_price,
+              predicted_outcome, edge, confidence))
+
+def get_active_penny_stocks() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
+                   volume_2h, predicted_outcome, edge, confidence, status, spike_alert_sent, added_at
+            FROM penny_stocks_monitoring
+            WHERE status = 'ACTIVE'
+            ORDER BY added_at DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+def update_penny_stock_price(market_id: str, price: float, volume_2h: float = 0.0) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE penny_stocks_monitoring
+            SET current_price = ?,
+                max_price_seen = MAX(max_price_seen, ?),
+                min_price_seen = MIN(min_price_seen, ?),
+                volume_2h = ?
+            WHERE market_id = ?
+        """, (price, price, price, volume_2h, market_id))
+
+def mark_penny_spike_sent(market_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE penny_stocks_monitoring
+            SET spike_alert_sent = 1
+            WHERE market_id = ?
+        """, (market_id,))
+
+def resolve_penny_stock(market_id: str, actual_outcome: str) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE penny_stocks_monitoring
+            SET status = 'RESOLVED',
+                actual_outcome = ?,
+                resolved_at = CURRENT_TIMESTAMP
+            WHERE market_id = ?
+        """, (actual_outcome, market_id))
+
+def get_penny_stocks_stats() -> dict:
+    with get_connection() as conn:
+        row_total = conn.execute("SELECT COUNT(*) as cnt FROM penny_stocks_monitoring").fetchone()
+        row_active = conn.execute("SELECT COUNT(*) as cnt FROM penny_stocks_monitoring WHERE status = 'ACTIVE'").fetchone()
+        row_resolved = conn.execute("SELECT COUNT(*) as cnt FROM penny_stocks_monitoring WHERE status = 'RESOLVED'").fetchone()
+        row_correct = conn.execute("""
+            SELECT COUNT(*) as cnt FROM penny_stocks_monitoring 
+            WHERE status = 'RESOLVED' AND UPPER(predicted_outcome) = UPPER(actual_outcome)
+        """).fetchone()
+        row_avg_edge = conn.execute("SELECT AVG(edge) as avg_edge FROM penny_stocks_monitoring WHERE edge IS NOT NULL").fetchone()
+        
+    total = row_total["cnt"] if row_total else 0
+    active = row_active["cnt"] if row_active else 0
+    resolved = row_resolved["cnt"] if row_resolved else 0
+    correct = row_correct["cnt"] if row_correct else 0
+    avg_edge = row_avg_edge["avg_edge"] if row_avg_edge and row_avg_edge["avg_edge"] is not None else 0.0
+    
+    win_rate = (correct / resolved) if resolved > 0 else 0.0
+    return {
+        "total": total,
+        "active": active,
+        "resolved": resolved,
+        "correct": correct,
+        "win_rate": win_rate,
+        "avg_edge": avg_edge
+    }
+
+def get_penny_stocks_history(limit: int = 50) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
+                   predicted_outcome, actual_outcome, edge, confidence, added_at, resolved_at
+            FROM penny_stocks_monitoring
+            WHERE status = 'RESOLVED'
+            ORDER BY resolved_at DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 

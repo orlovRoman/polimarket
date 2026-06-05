@@ -286,7 +286,7 @@ def _fetch_grounded_context(market: Market, api_key: str, model: str) -> str:
 
 
 
-async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None):
+async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None, scan_category: Optional[str] = None):
     _cleanup_session_dedup()
 
     from core.price_velocity import detect_velocity_anomaly
@@ -502,7 +502,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         else (m.volume or 0.0)
     )
     oc_score = compute_onchain_score(sm_data) if sm_data else None
-    market_tag = getattr(m, "category", "default") or "default"
+    market_tag = scan_category or getattr(m, "category", "default") or "default"
 
     gate = check_onchain_gate(oc_score, m.id, total_vol, market_tag)
 

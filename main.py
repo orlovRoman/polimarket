@@ -350,6 +350,185 @@ async def start_system():
     scheduler.add_job(scheduled_cluster_update, 'interval', hours=1) # пересчет кластеров каждый час
     scheduler.add_job(job_onchain_alerts, 'interval', minutes=30) # ончейн-алерты всплесков объема каждые 30 минут
 
+    async def scheduled_penny_discovery():
+        try:
+            logger.info(">>> Запуск автоматического поиска Penny Stocks...")
+            from agents.shared.python.market_selector import MarketSelector
+            from core.singleton import get_core_engine
+            from agents.shared.python.db import (
+                add_penny_stock_to_monitoring,
+                get_active_penny_stocks
+            )
+            from core.workflow import run_agent_evaluation
+            import asyncio
+            
+            engine = get_core_engine()
+            selector = MarketSelector(engine.adapter)
+            markets = selector.select(total_limit=10, category="penny_stocks")
+            if not markets:
+                logger.info("Penny Stocks не обнаружены.")
+                return
+
+            active_ids = {m["market_id"] for m in get_active_penny_stocks()}
+            
+            new_discovered = 0
+            for m in markets:
+                if m.id in active_ids:
+                    continue
+                
+                logger.info(f"Обнаружен новый Penny Stock: {m.title} ({m.price})")
+                
+                add_penny_stock_to_monitoring(
+                    market_id=m.id,
+                    title=m.title,
+                    url=m.url,
+                    initial_price=m.price
+                )
+                
+                try:
+                    price_hist = []
+                    try:
+                        from agents.shared.python.db import get_price_history
+                        price_hist = get_price_history(m.id, hours=24)
+                    except Exception:
+                        pass
+                    
+                    pre_orderbook = engine._fetch_pre_orderbook(m)
+                    
+                    def dummy_update(**kwargs):
+                        pass
+                    
+                    signal, swing_signal, context = await run_agent_evaluation(
+                        m, engine.scout, engine.swing, dummy_update,
+                        adapter=engine.adapter, trigger_type="scheduled",
+                        price_history=price_hist, pre_orderbook=pre_orderbook,
+                        scan_category="penny_stocks"
+                    )
+                    
+                    active_sig = signal or swing_signal
+                    if active_sig:
+                        from agents.shared.python.db import get_connection
+                        with get_connection() as conn:
+                            conn.execute("""
+                                UPDATE penny_stocks_monitoring
+                                SET predicted_outcome = ?,
+                                    edge = ?,
+                                    confidence = ?
+                                WHERE market_id = ?
+                            """, (active_sig.target_outcome, active_sig.edge, active_sig.confidence, m.id))
+                        
+                        logger.info(f"Penny Stock {m.title} проанализирован: {active_sig.target_outcome} (edge: {active_sig.edge})")
+                except Exception as exc:
+                    logger.error(f"Ошибка анализа Penny Stock {m.id}: {exc}", exc_info=True)
+                
+                new_discovered += 1
+                price_cents = int(round(m.price * 100))
+                msg = (
+                    f"🪙 <b>Найден новый Penny Stock!</b>\n\n"
+                    f"📍 <b>{m.title}</b>\n"
+                    f"📈 Текущая цена: <b>{price_cents}¢</b>\n"
+                    f"🔗 <a href='{m.url}'>Открыть рынок</a>"
+                )
+                await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+                await asyncio.sleep(1)
+                
+            logger.info(f"<<< Поиск Penny Stocks завершен. Добавлено {new_discovered} новых рынков.")
+        except Exception as e:
+            logger.error(f"Ошибка при автоматическом поиске Penny Stocks: {e}", exc_info=True)
+
+    async def scheduled_penny_monitor():
+        try:
+            logger.info(">>> Запуск мониторинга Penny Stocks...")
+            from agents.shared.python.db import (
+                get_active_penny_stocks,
+                update_penny_stock_price,
+                mark_penny_spike_sent,
+                resolve_penny_stock
+            )
+            from services.outcome_tracker import _fetch_resolution
+            from core.singleton import get_core_engine
+            import asyncio
+            
+            active_stocks = get_active_penny_stocks()
+            if not active_stocks:
+                logger.info("Нет активных Penny Stocks для мониторинга.")
+                return
+                
+            engine = get_core_engine()
+            
+            for stock in active_stocks:
+                m_id = stock["market_id"]
+                
+                from datetime import datetime, timezone
+                try:
+                    market_obj = engine.adapter.get_market(m_id)
+                except Exception:
+                    market_obj = None
+                    
+                if market_obj:
+                    current_price = market_obj.price
+                    volume_2h = getattr(market_obj, 'volume', 0.0)
+                    update_penny_stock_price(m_id, current_price, volume_2h)
+                    
+                    init_price = stock["initial_price"]
+                    price_growth = 0.0
+                    if init_price > 0:
+                        price_growth = (current_price - init_price) / init_price
+                        
+                    if not stock["spike_alert_sent"] and price_growth >= 1.0:
+                        mark_penny_spike_sent(m_id)
+                        msg = (
+                            f"⚡️ <b>РЕЗКИЙ ВСПЛЕСК на Penny Stocks!</b>\n\n"
+                            f"📍 <b>{stock['title']}</b>\n"
+                            f"📈 Цена: {int(round(init_price*100))}¢ -> <b>{int(round(current_price*100))}¢</b> (рост на {price_growth*100:.0f}%!)\n"
+                            f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
+                        )
+                        await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+                        await asyncio.sleep(1)
+                
+                close_time_passed = False
+                if market_obj and market_obj.close_time:
+                    close_time_passed = market_obj.close_time < datetime.now(timezone.utc)
+                    
+                if close_time_passed:
+                    res = _fetch_resolution(m_id)
+                    if res in ("YES", "NO"):
+                        resolve_penny_stock(m_id, res)
+                        pred = stock["predicted_outcome"]
+                        result_str = "УСПЕШНО 🎉" if pred and pred.upper() == res else "НЕ СОВПАЛО ❌"
+                        msg = (
+                            f"🔔 <b>Закрытие рынка Penny Stocks!</b>\n\n"
+                            f"📍 <b>{stock['title']}</b>\n"
+                            f"🎯 Прогноз бота: <b>{pred}</b>\n"
+                            f"✅ Исход Polymarket: <b>{res}</b>\n"
+                            f"🏆 Результат: <b>{result_str}</b>\n"
+                            f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
+                        )
+                        await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+                        await asyncio.sleep(1)
+                        
+            logger.info("<<< Мониторинг Penny Stocks завершен.")
+        except Exception as e:
+            logger.error(f"Ошибка в мониторинге Penny Stocks: {e}", exc_info=True)
+
+    scheduler.add_job(
+        scheduled_penny_discovery,
+        trigger="interval",
+        hours=4,
+        id="penny_discovery_job",
+        replace_existing=True,
+        misfire_grace_time=3600
+    )
+
+    scheduler.add_job(
+        scheduled_penny_monitor,
+        trigger="interval",
+        minutes=15,
+        id="penny_monitor_job",
+        replace_existing=True,
+        misfire_grace_time=600
+    )
+
     #Outcome Tracker — авторезолюция сигналов каждые 6 часов
     from services.outcome_tracker import run_resolution_cycle
     scheduler.add_job(

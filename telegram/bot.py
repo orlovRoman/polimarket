@@ -130,11 +130,13 @@ async def set_commands(bot: Bot):
         BotCommand(command="eval_apply", description="Применить калибровочное предложение"),
         BotCommand(command="eval_rollback", description="Откатить калибровочное изменение"),
         BotCommand(command="gate_stats", description="Статистика On-chain Gatekeeper (экономия)"),
+        BotCommand(command="penny", description="Меню Penny Stocks (дешевые рынки)"),
     ]
     await bot.set_my_commands(commands)
 
 # Глобальный лок для предотвращения одновременных запусков сканирования
 _scan_lock = asyncio.Lock()
+_penny_scan_lock = asyncio.Lock()
 
 # ── Управление мониторингом (через /monitor) ──────────────────────────────────
 _monitoring_task: asyncio.Task | None = None
@@ -1646,13 +1648,21 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         return
 
     engine = get_core_engine()
-    if _scan_lock.locked() or engine._scan_lock.locked():
+    category = callback.data.replace("scan_", "")
+    is_penny = (category == "penny_stocks")
+    
+    active_lock = _penny_scan_lock if is_penny else _scan_lock
+    active_engine_lock = engine._penny_scan_lock if is_penny else engine._scan_lock
+
+    if active_lock.locked() or active_engine_lock.locked():
         await callback.answer()
-        status_text = get_active_scan_status_text()
-        await callback.message.answer(status_text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        scan_type_str = "Penny Stocks " if is_penny else ""
+        await callback.message.answer(
+            f"⚠️ Сканирование {scan_type_str}уже выполняется. Пожалуйста, подождите завершения текущего цикла.",
+            parse_mode="HTML"
+        )
         return
 
-    category = callback.data.replace("scan_", "")
     if category == "all":
         category_param = None
         cat_name = "Все рынки (авто-микс)"
@@ -1664,7 +1674,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
         else:
             cat_name = category
 
-    async with _scan_lock:
+    async with active_lock:
         await callback.message.edit_text(f"🚀 Запускаю полный цикл анализа (Категория: {cat_name})...")
         await callback.answer("🔄 Сканирование запущено...")
         status_msg = callback.message
@@ -1716,7 +1726,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
             last_text = ""
             start_time = asyncio.get_running_loop().time()
             max_duration_sec = 1800  # Таймаут 30 минут
-            while _scan_lock.locked() or summaries_queue:
+            while active_lock.locked() or summaries_queue:
                 if asyncio.get_running_loop().time() - start_time > max_duration_sec:
                     logging.getLogger("NexusPolyBot").warning("Превышен лимит времени работы (30 мин) для update_message, принудительное завершение задачи обновления.")
                     break
@@ -1743,7 +1753,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                         print(f"Ошибка отправки summary: {e}")
                 
                 # Update log status
-                if current_state and _scan_lock.locked():
+                if current_state and active_lock.locked():
                     new_html = render_dashboard(current_state)
                     if new_html != last_text:
                         try:
@@ -1961,6 +1971,147 @@ async def send_history_page(message_or_callback, page: int = 0) -> None:
         
     keyboard = build_paginated_keyboard(page, total_pages, "history_page")
     await send_or_edit(message_or_callback, response, keyboard)
+
+
+@dp.message(Command("penny"))
+async def command_penny_handler(message: types.Message) -> None:
+    await send_penny_menu(message)
+
+async def send_penny_menu(message_or_callback) -> None:
+    from agents.shared.python.db import get_penny_stocks_stats, get_active_penny_stocks
+    stats = await asyncio.to_thread(get_penny_stocks_stats)
+    active = await asyncio.to_thread(get_active_penny_stocks)
+    
+    discovery_status = "🟢 Активен (4ч)"
+    monitor_status = "🟢 Активен (15м)"
+    
+    text = (
+        f"🪙 <b>Меню Penny Stocks (дешевые рынки)</b>\n\n"
+        f"📋 <b>Статус мониторинга:</b>\n"
+        f"  • Поиск новых: {discovery_status}\n"
+        f"  • Обновление цен/исходов: {monitor_status}\n\n"
+        f"📊 <b>Статистика прогнозов:</b>\n"
+        f"  • Активных на отслеживании: <b>{len(active)}</b>\n"
+        f"  • Завершено рынков: <b>{stats['resolved']}</b>\n"
+        f"  • Точность (Win Rate): <b>{stats['win_rate']:.1%}</b> (совпало: {stats['correct']})\n"
+        f"  • Средний Edge: <b>+{stats['avg_edge']*100:.1f}%</b>\n"
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🪙 Активные рынки", callback_data="penny_active_0")],
+        [InlineKeyboardButton(text="🗄 История исходов", callback_data="penny_history_0")],
+        [
+            InlineKeyboardButton(text="🚀 Искать новые", callback_data="scan_penny_stocks"),
+            InlineKeyboardButton(text="🔄 Меню", callback_data="penny_menu")
+        ]
+    ])
+    
+    await send_or_edit(message_or_callback, text, keyboard)
+
+@dp.callback_query(F.data == "penny_menu")
+async def callback_penny_menu(callback: CallbackQuery) -> None:
+    await send_penny_menu(callback)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("penny_active_"))
+async def callback_penny_active(callback: CallbackQuery) -> None:
+    page = int(callback.data.split("_")[2])
+    await send_penny_active_page(callback, page)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("penny_history_"))
+async def callback_penny_history(callback: CallbackQuery) -> None:
+    page = int(callback.data.split("_")[2])
+    await send_penny_history_page(callback, page)
+    await callback.answer()
+
+async def send_penny_active_page(message_or_callback, page: int = 0) -> None:
+    from agents.shared.python.db import get_active_penny_stocks
+    active = await asyncio.to_thread(get_active_penny_stocks)
+    
+    if not active:
+        text = "🪙 Нет активных дешевых рынков на отслеживании. Запустите сканирование."
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Искать новые", callback_data="scan_penny_stocks")],
+            [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="penny_menu")]
+        ])
+        await send_or_edit(message_or_callback, text, keyboard)
+        return
+
+    chunk_size = 5
+    total_pages = (len(active) + chunk_size - 1) // chunk_size
+    if page >= total_pages:
+        page = 0
+        
+    start_idx = page * chunk_size
+    chunk = active[start_idx:start_idx + chunk_size]
+    
+    response = f"🪙 <b>Активные Penny Stocks ({start_idx + 1}-{min(start_idx + chunk_size, len(active))} из {len(active)}):</b>\n\n"
+    
+    for stock in chunk:
+        init_price_cents = int(round(stock['initial_price'] * 100))
+        curr_price_cents = int(round(stock['current_price'] * 100))
+        max_price_cents = int(round(stock['max_price_seen'] * 100))
+        
+        pred = stock['predicted_outcome'] or 'Нет прогноза'
+        edge_str = f"+{stock['edge']*100:.1f}%" if stock['edge'] is not None else "N/A"
+        
+        title_safe = stock['title'].replace('<', '&lt;').replace('>', '&gt;')
+        response += (
+            f"📍 <b>{title_safe}</b>\n"
+            f"🎯 Прогноз: <b>{pred}</b> (Edge: {edge_str})\n"
+            f"📈 Начальная: {init_price_cents}¢ | Текущая: <b>{curr_price_cents}¢</b> (пик: {max_price_cents}¢)\n"
+            f"🔗 <a href='{stock['url']}'>Открыть рынок</a>\n\n"
+        )
+        
+    keyboard = build_paginated_keyboard(page, total_pages, "penny_active")
+    keyboard.inline_keyboard.append([InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="penny_menu")])
+    await send_or_edit(message_or_callback, response, keyboard)
+
+async def send_penny_history_page(message_or_callback, page: int = 0) -> None:
+    from agents.shared.python.db import get_penny_stocks_history
+    history = await asyncio.to_thread(get_penny_stocks_history, 100)
+    
+    if not history:
+        text = "🗄 История пуста. Закрытые рынки появятся здесь позже."
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="penny_menu")]
+        ])
+        await send_or_edit(message_or_callback, text, keyboard)
+        return
+
+    chunk_size = 5
+    total_pages = (len(history) + chunk_size - 1) // chunk_size
+    if page >= total_pages:
+        page = 0
+        
+    start_idx = page * chunk_size
+    chunk = history[start_idx:start_idx + chunk_size]
+    
+    response = f"🗄 <b>История исходов Penny Stocks ({start_idx + 1}-{min(start_idx + chunk_size, len(history))} из {len(history)}):</b>\n\n"
+    
+    for stock in chunk:
+        init_price_cents = int(round(stock['initial_price'] * 100))
+        final_price_cents = int(round(stock['current_price'] * 100))
+        max_price_cents = int(round(stock['max_price_seen'] * 100))
+        
+        pred = stock['predicted_outcome']
+        act = stock['actual_outcome']
+        is_correct = pred and act and pred.upper() == act.upper()
+        result_emoji = "✅" if is_correct else "❌"
+        
+        title_safe = stock['title'].replace('<', '&lt;').replace('>', '&gt;')
+        response += (
+            f"{result_emoji} <b>{title_safe}</b>\n"
+            f"🎯 Прогноз: <b>{pred}</b> | Исход: <b>{act}</b>\n"
+            f"📉 Старт: {init_price_cents}¢ | Финиш: {final_price_cents}¢ (пик: {max_price_cents}¢)\n"
+            f"🔗 <a href='{stock['url']}'>Открыть рынок</a>\n\n"
+        )
+        
+    keyboard = build_paginated_keyboard(page, total_pages, "penny_history")
+    keyboard.inline_keyboard.append([InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="penny_menu")])
+    await send_or_edit(message_or_callback, response, keyboard)
+
 
 @dp.message(Command("ideas"))
 async def command_ideas_handler(message: types.Message) -> None:
