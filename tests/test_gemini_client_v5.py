@@ -636,3 +636,74 @@ def test_collect_gemini_keys_skips_empty_primary():
 
     assert "" not in keys, f"BUG-03: пустой primary_key попал в список: {keys}"
     assert keys == ["key_b", "key_c"]
+
+
+def test_gem_key_rr_uses_active_keys_not_env():
+    """gem_key_rr_index должен считаться по реальным активным ключам, а не по env-списку."""
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, PROVIDERS_CONFIG
+    import requests as req
+
+    saved = {}
+    def mock_save(key, value, *a, **kw): saved[key] = value
+    def mock_get(key, default=None): return saved.get(key, default or 0)
+
+    call_n = [0]
+    def gemini_first_429_second_ok(payload, model, key, timeout):
+        call_n[0] += 1
+        if call_n[0] == 1:
+            r = MagicMock(); r.status_code = 429
+            raise req.exceptions.HTTPError(response=r)
+        return ({"candidates": [{"content": {"parts": [{"text":"ok"}],"role":"model"}}],
+                 "usageMetadata": {"promptTokenCount":1,"candidatesTokenCount":1}}, 1, 1)
+
+    # 3 override-ключа (не из env!)
+    with patch.dict(PROVIDERS_CONFIG, {
+        "cerebras": {"keys": [], "models": [], "send_func": MagicMock()},
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "gemini": {"keys": ["ov_k1", "ov_k2", "ov_k3"],
+                   "models": ["gemini-2.5-flash"], "send_func": gemini_first_429_second_ok},
+    }), patch("agents.shared.python.db.get_memory", side_effect=mock_get), \
+       patch("agents.shared.python.db.save_memory", side_effect=mock_save), \
+       patch("agents.shared.utils.gemini_client.LLMLogger.log_call"), \
+       patch("agents.shared.utils.gemini_client.extract_prompt_from_payload", return_value="t"):
+        generate_content_with_fallback(
+            "unrelated_env_key",
+            {"contents": [{"parts": [{"text":"t"}], "role":"user"}]},
+            agent_name="TEST"
+        )
+
+    # Ожидаем: модуль 3 (3 override-ключа), а не модуль 1 (1 env-ключ)
+    assert saved.get("gem_key_rr_index") == 2, \
+        f"BUG-01: RR считается по env-ключам, а не по active-ключам. Сохранено: {saved.get('gem_key_rr_index')}"
+
+
+def test_timeout_map_applied_only_to_default_model():
+    """TIMEOUT_MAP применяется только к default_model, не к fallback-моделям в PROVIDERS_CONFIG."""
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, PROVIDERS_CONFIG
+
+    used_timeouts = {}
+    def track_timeout(payload, model, key, timeout):
+        used_timeouts[model] = timeout
+        raise ValueError("stop")
+
+    with patch.dict(PROVIDERS_CONFIG, {
+        "cerebras": {"keys": [], "models": [], "send_func": MagicMock()},
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "gemini": {
+            "keys": ["k1"],
+            "models": ["gemini-2.5-flash", "gemini-2.0-flash"],
+            "send_func": track_timeout
+        },
+    }), patch("agents.shared.python.db.get_memory", return_value=0), \
+       patch("agents.shared.python.db.save_memory"), \
+       patch("agents.shared.utils.gemini_client.LLMLogger.log_call"), \
+       patch("agents.shared.utils.gemini_client.extract_prompt_from_payload", return_value="t"):
+        try:
+            generate_content_with_fallback("k1",
+                {"contents": [{"parts": [{"text":"t"}], "role":"user"}]},
+                default_model="gemini-2.5-flash", agent_name="TEST")
+        except Exception:
+            pass
+
+    # Только первая модель (default) получает таймаут из TIMEOUT_MAP
+    assert used_timeouts.get("gemini-2.5-flash") == 45, f"Expected 45s for 2.5-flash, got {used_timeouts}"

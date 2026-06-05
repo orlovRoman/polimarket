@@ -471,6 +471,12 @@ def generate_content_with_fallback(
     """
     from agents.shared.python.db import get_memory, save_memory
     import random
+    
+    # Снимаем один snapshot индексов ротации, чтобы избежать race conditions
+    cer_rr_idx_snapshot = int(get_memory("cer_rr_index") or 0)
+    gem_rr_idx_snapshot = int(get_memory("gem_rr_index") or 0)
+    gem_key_rr_idx_snapshot = int(get_memory("gem_key_rr_index") or 0)
+
     if "PYTEST_CURRENT_TEST" not in os.environ:
         time.sleep(random.uniform(0, 2.0))
 
@@ -496,8 +502,9 @@ def generate_content_with_fallback(
         all_keys = _collect_gemini_keys(api_key)
         
         # RR по ключам: начинаем с текущего
-        key_rr_idx = int(get_memory("gem_key_rr_index") or 0)
-        _gemini_keys = all_keys[key_rr_idx:] + all_keys[:key_rr_idx]
+        _gemini_keys = all_keys[gem_key_rr_idx_snapshot:] + all_keys[:gem_key_rr_idx_snapshot]
+        
+    _active_gemini_keys_for_rr = _gemini_keys
 
     # Разделяем дефолтную модель по провайдерам, чтобы не слать некорректные модели в Gemini API
     is_gemini_model = default_model.startswith("gemini-") or default_model in PROVIDERS_CONFIG["gemini"]["models"]
@@ -543,9 +550,8 @@ def generate_content_with_fallback(
 
     # Cerebras
     if "cerebras" in active_providers:
-        cer_idx = int(get_memory("cer_rr_index") or 0)
         cer_models = providers["cerebras"]["models"]
-        cer_model = cer_models[cer_idx % len(cer_models)]
+        cer_model = cer_models[cer_rr_idx_snapshot % len(cer_models)]
         plans.append(("cerebras", cer_model))
 
     # OpenRouter
@@ -558,11 +564,8 @@ def generate_content_with_fallback(
     if "gemini" in active_providers:
         gem_models = providers["gemini"]["models"]
         
-        # Читаем текущий RR-индекс из памяти
-        gem_rr_idx = int(get_memory("gem_rr_index") or 0)
-        
         # Строим список: начинаем с текущего индекса, идём по кругу
-        rotated = gem_models[gem_rr_idx:] + gem_models[:gem_rr_idx]
+        rotated = gem_models[gem_rr_idx_snapshot:] + gem_models[:gem_rr_idx_snapshot]
         
         seen = set()
         for m in rotated:
@@ -582,9 +585,8 @@ def generate_content_with_fallback(
                         db_model = "gemini_round_robin"
                     
                     if db_model == "gemini_round_robin":
-                        gem_idx = int(get_memory("gem_rr_index") or 0)
                         gem_models_cfg = providers["gemini"]["models"]
-                        resolved_model = gem_models_cfg[gem_idx % len(gem_models_cfg)]
+                        resolved_model = gem_models_cfg[gem_rr_idx_snapshot % len(gem_models_cfg)]
                         gemini_plans = [("gemini", resolved_model)]
                     else:
                         seen = set()
@@ -606,9 +608,8 @@ def generate_content_with_fallback(
                     if not db_model:
                         db_model = "cerebras_round_robin"
                     if db_model == "cerebras_round_robin":
-                        cer_idx = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]
-                        resolved_model = cer_models[cer_idx % len(cer_models)]
+                        resolved_model = cer_models[cer_rr_idx_snapshot % len(cer_models)]
                         plans.insert(0, ("cerebras", resolved_model))
                     else:
                         plans.insert(0, ("cerebras", db_model))
@@ -659,9 +660,8 @@ def generate_content_with_fallback(
                     used_idx = gem_models_list.index(model) if model in gem_models_list else 0
                     save_memory("gem_rr_index", (used_idx + 1) % len(gem_models_list))
                     
-                    all_gem_keys = _collect_gemini_keys(api_key)
                     k_idx = int(get_memory("gem_key_rr_index") or 0)
-                    save_memory("gem_key_rr_index", (k_idx + 1) % max(len(all_gem_keys), 1))
+                    save_memory("gem_key_rr_index", (k_idx + 1) % max(len(_active_gemini_keys_for_rr), 1))
                     
                 save_memory(f"consecutive_failures_{agent_name}", 0)
                 return result, model
@@ -686,9 +686,8 @@ def generate_content_with_fallback(
                         cer_models = providers["cerebras"]["models"]
                         save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
                     elif provider == "gemini":
-                        all_gem_keys = _collect_gemini_keys(api_key)
                         k_idx = int(get_memory("gem_key_rr_index") or 0)
-                        save_memory("gem_key_rr_index", (k_idx + 1) % max(len(all_gem_keys), 1))
+                        save_memory("gem_key_rr_index", (k_idx + 1) % max(len(_active_gemini_keys_for_rr), 1))
                     continue
                 
                 # Если это 404 (Model Not Found) — сразу выходим из попыток и переходим к следующей модели
