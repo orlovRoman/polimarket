@@ -94,7 +94,7 @@ def test_process_consensus_calls_callback_without_markup():
     assert len(calls) == 1
 
 def test_prefilter_respects_volume_config(monkeypatch):
-    monkeypatch.setattr("config.MIN_MARKET_VOLUME_USD", 1000)
+    monkeypatch.setattr("core.workflow.MIN_MARKET_VOLUME_USD", 1000)
     markets = [
         {"id": "a", "price": 0.5, "volume": 1500, "close_time": "2026-12-01T00:00:00Z"},
         {"id": "b", "price": 0.5, "volume": 800,  "close_time": "2026-12-01T00:00:00Z"},

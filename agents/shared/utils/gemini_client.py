@@ -667,11 +667,12 @@ def generate_content_with_fallback(
     # Уведомляем по экспоненциальной шкале (3, 10, 30, 90...), не сбрасывая failures в 0 сразу
     if failures in (3, 10, 30, 90, 270):
         logger.warning(f"[{agent_name}] Достигнут лимит последовательных ошибок ({failures}). Отправка уведомления.")
-        from services.notifications import send_telegram
-        send_telegram(
-            text=f"⚠️ <b>СБОЙ LLM-МОДЕЛЕЙ И КЛЮЧЕЙ</b>\n\nАгент <b>{agent_name}</b> не смог получить ответ ни от одной модели или ключа {failures} раза подряд.\nВыберите другую модель:",
-            reply_markup={"inline_keyboard": [[{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]]}
-        )
+        if agent_name.upper() != "GROUNDING":
+            from services.notifications import send_telegram
+            send_telegram(
+                text=f"⚠️ <b>СБОЙ LLM-МОДЕЛЕЙ И КЛЮЧЕЙ</b>\n\nАгент <b>{agent_name}</b> не смог получить ответ ни от одной модели или ключа {failures} раза подряд.\nВыберите другую модель:",
+                reply_markup={"inline_keyboard": [[{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]]}
+            )
         
     from core.guards import LLMUnavailableError
     raise LLMUnavailableError(f"Все модели и ключи LLM вернули ошибку для агента {agent_name}.", agent_name=agent_name)

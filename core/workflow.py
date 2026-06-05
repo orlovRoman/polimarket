@@ -9,7 +9,10 @@ from core.models import Market, Signal, SwingSignal, AgentOpinion, IdeaDecision
 from core.context import MarketContext
 
 
-from config import logger, SCREENING_INTERVAL_SEC, SCAN_LIMIT_DEFAULT, MIN_EDGE_DEFAULT, MAX_SCREENING_MARKETS
+from config import (
+    logger, SCREENING_INTERVAL_SEC, SCAN_LIMIT_DEFAULT, MIN_EDGE_DEFAULT,
+    MAX_SCREENING_MARKETS, PRICE_RANGE_MIN, PRICE_RANGE_MAX, MIN_MARKET_VOLUME_USD
+)
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import (
     save_market, get_last_analyzed_price, mark_market_analyzed, 
@@ -47,7 +50,6 @@ def _prefilter_markets(markets_compact: list) -> list:
     Уровень 1 (без LLM): базовая фильтрация по объёму, цене и времени.
     Сокращает ~1000 рынков до ~100-150 перед передачей в NEXUS.
     """
-    from config import PRICE_RANGE_MIN, PRICE_RANGE_MAX, MIN_MARKET_VOLUME_USD
     from datetime import datetime, timezone, timedelta
 
     now = datetime.now(timezone.utc)

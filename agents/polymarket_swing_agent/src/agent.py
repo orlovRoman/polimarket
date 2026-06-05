@@ -25,6 +25,7 @@ class SwingAgent:
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         self.api_key = api_key
         self.model = model
+        self.name = "SWING"
         
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
@@ -57,7 +58,7 @@ class SwingAgent:
         )
         rss_hit = {"found": False}
         if resolution_src.resolution_type == "rss_monitorable" and resolution_src.rss_url:
-            rss_hit = check_rss_for_keywords(resolution_src.rss_url, resolution_src.keywords)
+            rss_hit = await check_rss_for_keywords(resolution_src.rss_url, resolution_src.keywords)
         resolution_block = _build_resolution_block(resolution_src, rss_hit)
 
         price_history_str = "История цен недоступна."

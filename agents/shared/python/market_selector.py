@@ -160,16 +160,8 @@ class MarketSelector:
                 
             # Рынок на cooldown
             if m.id in cooldown_ids:
-                last_price = last_prices.get(m.id)
-                if last_price is not None:
-                    price_diff = abs(last_price - m.price)
-                    if price_diff < 0.03:
-                        # Цена стабильна, оставляем в кулдауне (пропускаем)
-                        continue
-                    else:
-                        # Цена изменилась >= 3%, ИГНОРИРУЕМ кулдаун и пропускаем дальше!
-                        pass
-                        
+                continue
+            
             filtered.append(m)
         
         return filtered

@@ -580,10 +580,11 @@ async def command_health_handler(message: types.Message) -> None:
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:
     from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats, get_memory
+    from config import SCAN_LIMIT_DEFAULT
     
     # Получаем настройки и метрики из БД
     last_scan_str = "Неизвестно"
-    scan_limit = 10
+    scan_limit = SCAN_LIMIT_DEFAULT
     trend_hunter_enabled = True
     trend_hunter_alerts = True
     trend_hunter_last_run = "Никогда"

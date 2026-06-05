@@ -19,6 +19,7 @@ class ShadowAgent:
         """
         self.api_key = api_key
         self.model = model
+        self.name = "SHADOW"
         
         # Загружаем детальные системные инструкции из файла конфигурации агента
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

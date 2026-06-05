@@ -246,12 +246,13 @@ class TestExtractKeywords:
 
 class TestCheckRssForKeywords:
     @patch("agents.shared.utils.resolution_extractor.feedparser.parse")
-    def test_match_found_two_keywords(self, mock_parse):
+    @pytest.mark.asyncio
+    async def test_match_found_two_keywords(self, mock_parse):
         mock_parse.return_value = _make_feed([
             _feed_entry("Trump signs executive order on tariffs"),
             _feed_entry("Sports results from yesterday"),
         ])
-        result = check_rss_for_keywords(
+        result = await check_rss_for_keywords(
             "https://feeds.reuters.com/reuters/topNews",
             ["Trump", "executive", "tariffs"]
         )
@@ -261,75 +262,100 @@ class TestCheckRssForKeywords:
         assert "link" in result
 
     @patch("agents.shared.utils.resolution_extractor.feedparser.parse")
-    def test_no_match(self, mock_parse):
+    @pytest.mark.asyncio
+    async def test_no_match(self, mock_parse):
         mock_parse.return_value = _make_feed([
             _feed_entry("Completely unrelated sports story"),
             _feed_entry("Weather update for midwest region"),
         ])
-        result = check_rss_for_keywords(
+        result = await check_rss_for_keywords(
             "https://feeds.reuters.com/reuters/topNews",
             ["Bitcoin", "crypto", "halving"]
         )
         assert result["found"] is False
 
     @patch("agents.shared.utils.resolution_extractor.feedparser.parse")
-    def test_one_keyword_match_not_enough(self, mock_parse):
+    @pytest.mark.asyncio
+    async def test_one_keyword_match_not_enough(self, mock_parse):
         mock_parse.return_value = _make_feed([
             _feed_entry("Bitcoin price update today"),
         ])
-        result = check_rss_for_keywords(
+        result = await check_rss_for_keywords(
             "https://coindesk.com/rss",
             ["Bitcoin", "halving", "miners"]
         )
         assert result["found"] is False
 
     @patch("agents.shared.utils.resolution_extractor.feedparser.parse")
-    def test_empty_feed(self, mock_parse):
+    @pytest.mark.asyncio
+    async def test_empty_feed(self, mock_parse):
         mock_parse.return_value = _make_feed([])
-        result = check_rss_for_keywords("https://example.com/rss", ["keyword"])
+        result = await check_rss_for_keywords("https://example.com/rss", ["keyword"])
         assert result["found"] is False
 
-    @patch("agents.shared.utils.resolution_extractor.feedparser.parse")
-    def test_feedparser_exception_handled(self, mock_parse):
-        mock_parse.side_effect = Exception("Network error")
-        result = check_rss_for_keywords("https://bad.url/rss", ["test"])
-        assert result["found"] is False
-        assert "error" in result
+    @pytest.mark.asyncio
+    async def test_check_rss_for_keywords_exception(self):
+        """Тест перехвата исключений при парсинге."""
+        with patch("agents.shared.utils.resolution_extractor.feedparser.parse") as mock_parse:
+            mock_parse.side_effect = Exception("Network error")
+            result = await check_rss_for_keywords("https://example.com/rss", ["keyword"])
+            assert result["found"] is False
+            assert "error" in result
 
     @patch("agents.shared.utils.resolution_extractor.feedparser.parse")
-    def test_case_insensitive_matching(self, mock_parse):
+    @pytest.mark.asyncio
+    async def test_case_insensitive_matching(self, mock_parse):
         mock_parse.return_value = _make_feed([
             _feed_entry("BITCOIN HALVING confirmed by MINERS today"),
         ])
-        result = check_rss_for_keywords(
+        result = await check_rss_for_keywords(
             "https://coindesk.com/rss",
             ["bitcoin", "halving", "miners"]
         )
         assert result["found"] is True
 
     @patch("agents.shared.utils.resolution_extractor.feedparser.parse")
-    def test_checks_max_30_entries(self, mock_parse):
+    @pytest.mark.asyncio
+    async def test_checks_max_30_entries(self, mock_parse):
         entries = [_feed_entry(f"Unrelated story {i}") for i in range(50)]
         entries[34] = _feed_entry("Bitcoin halving miners confirm date")
         mock_parse.return_value = _make_feed(entries)
-        result = check_rss_for_keywords(
+        result = await check_rss_for_keywords(
             "https://coindesk.com/rss",
             ["Bitcoin", "halving", "miners"]
         )
         assert result["found"] is False
 
     @patch("agents.shared.utils.resolution_extractor.feedparser.parse")
-    def test_match_in_summary_also_counts(self, mock_parse):
+    @pytest.mark.asyncio
+    async def test_match_in_summary_also_counts(self, mock_parse):
         entry = _feed_entry(
             title="Market update",
             summary="Bitcoin halving event confirmed by major miners"
         )
         mock_parse.return_value = _make_feed([entry])
-        result = check_rss_for_keywords(
+        result = await check_rss_for_keywords(
             "https://coindesk.com/rss",
             ["Bitcoin", "halving", "miners"]
         )
         assert result["found"] is True
+
+    @pytest.mark.asyncio
+    async def test_check_rss_for_keywords_success(self):
+        """Тест успешного нахождения ключевых слов в заголовке или summary."""
+        with patch("agents.shared.utils.resolution_extractor.feedparser.parse") as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.entries = [
+                {"title": "Some boring news", "summary": "Nothing to see here", "published": "today", "link": "link1"},
+                {"title": "Important Keyword1 found", "summary": "Also Keyword2 is here", "published": "yesterday", "link": "link2"}
+            ]
+            mock_parse.return_value = mock_feed
+
+            result = await check_rss_for_keywords(
+                "https://coindesk.com/rss",
+                ["Keyword1", "Keyword2"]
+            )
+            assert result["found"] is True
 
 class TestExtractResolutionSourceLlm:
     @patch("agents.shared.utils.resolution_extractor.httpx.AsyncClient")

@@ -247,39 +247,55 @@ Description:
 import json
 import asyncio
 import os
-from config import VAULT_PATH
 
 _runtime_rss_cache: dict[str, str] = {}
-_RSS_CACHE_FILE = VAULT_PATH / "rss_cache.json"
 _cache_loaded = False
-_rss_lock = asyncio.Lock()
+_rss_lock = None
+
+def _get_rss_cache_file():
+    """Lazy-инициализация пути — не падает при импорте без .env."""
+    from config import VAULT_PATH
+    return VAULT_PATH / "rss_cache.json"
+
+def _get_rss_lock() -> asyncio.Lock:
+    global _rss_lock
+    if _rss_lock is None:
+        _rss_lock = asyncio.Lock()
+    return _rss_lock
 
 async def _load_rss_cache():
     global _runtime_rss_cache, _cache_loaded
     if _cache_loaded:
         return
-    if _RSS_CACHE_FILE.exists():
-        try:
-            with open(_RSS_CACHE_FILE, "r", encoding="utf-8") as f:
-                _runtime_rss_cache = json.load(f)
-        except Exception as e:
-            logger.error(f"[autodiscover_rss] Ошибка загрузки кэша: {e}")
-    _cache_loaded = True
+    async with _get_rss_lock():
+        if _cache_loaded:   # double-checked locking
+            return
+        cache_file = _get_rss_cache_file()
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    _runtime_rss_cache = json.load(f)
+            except Exception as e:
+                logger.error(f"[autodiscover_rss] Ошибка загрузки кэша: {e}")
+        _cache_loaded = True
 
 async def _save_rss_cache():
-    try:
-        tmp_file = _RSS_CACHE_FILE.with_suffix(".json.tmp")
-        with open(tmp_file, "w", encoding="utf-8") as f:
-            json.dump(_runtime_rss_cache, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_file, _RSS_CACHE_FILE)
-    except Exception as e:
-        logger.error(f"[autodiscover_rss] Ошибка сохранения кэша: {e}")
+    async with _get_rss_lock():
+        try:
+            cache_file = _get_rss_cache_file()
+            tmp_file = cache_file.with_suffix(".json.tmp")
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(_runtime_rss_cache, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, cache_file)
+        except Exception as e:
+            logger.error(f"[autodiscover_rss] Ошибка сохранения кэша: {e}")
 
 AUTODISCOVER_PATHS = ["/feed", "/rss", "/feed.xml", "/rss.xml", "/feeds/posts/default", "/news/rss"]
 
 async def autodiscover_rss(domain: str) -> Optional[str]:
-    async with _rss_lock:
-        await _load_rss_cache()
+    await _load_rss_cache()
+
+    async with _get_rss_lock():
         if domain in _runtime_rss_cache:
             val = _runtime_rss_cache[domain]
             return None if val == "NONE" else val
@@ -290,17 +306,18 @@ async def autodiscover_rss(domain: str) -> Optional[str]:
                 url = f"https://{domain}{path}"
                 r = await client.get(url, headers={"Accept": "application/rss+xml"})
                 if r.status_code == 200 and "xml" in r.headers.get("content-type", ""):
-                    async with _rss_lock:
+                    async with _get_rss_lock():
                         _runtime_rss_cache[domain] = url
-                        await _save_rss_cache()
+                    await _save_rss_cache()
                     logger.info(f"[autodiscover_rss] Найдена лента: {domain} -> {url}")
                     return url
             except Exception:
                 continue
                 
-    async with _rss_lock:
+    # Кэшируем miss как "NONE" — следующий вызов не пойдёт в сеть
+    async with _get_rss_lock():
         _runtime_rss_cache[domain] = "NONE"
-        await _save_rss_cache()
+    await _save_rss_cache()
     return None
 
 # ─────────────────────────────────────────────
@@ -347,7 +364,8 @@ def _extract_keywords(title: str) -> list[str]:
     keywords = [t for t in tokens if t.lower() not in stop_words and len(t) > 3]
     return keywords[:5]
 
-def check_rss_for_keywords(rss_url: str, keywords: list[str]) -> dict:
+def _check_rss_sync(rss_url: str, keywords: list[str]) -> dict:
+    """Синхронная реализация — вызывать только через asyncio.to_thread."""
     try:
         feed = feedparser.parse(rss_url)
         for entry in feed.entries[:30]:
@@ -366,6 +384,10 @@ def check_rss_for_keywords(rss_url: str, keywords: list[str]) -> dict:
         return {"found": False, "checked_entries": len(feed.entries)}
     except Exception as e:
         return {"found": False, "error": str(e)}
+
+async def check_rss_for_keywords(rss_url: str, keywords: list[str]) -> dict:
+    """Async-обёртка — не блокирует event loop."""
+    return await asyncio.to_thread(_check_rss_sync, rss_url, keywords)
 
 def _build_resolution_block(src: ResolutionSource, hit: dict) -> str:
     if src.resolution_type == "oracle":
