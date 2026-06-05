@@ -554,3 +554,85 @@ def test_attempt_loop_does_not_retry_on_generic_error():
             pass
 
     assert call_count[0] == 1, f"Ожидалась 1 попытка, сделано {call_count[0]}. Мёртвый retry-loop не должен вызывать send_func несколько раз."
+
+
+def test_gemini_429_advances_key_rr_index():
+    """При 429 от Gemini gem_key_rr_index должен инкрементироваться."""
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, PROVIDERS_CONFIG
+    import requests as req
+
+    saved = {}
+    def mock_save(key, value, *a, **kw):
+        saved[key] = value
+
+    call_count = [0]
+    def gemini_first_fails_second_ok(payload, model, key, timeout):
+        call_count[0] += 1
+        if key == "key_1":
+            r = MagicMock(); r.status_code = 429
+            raise req.exceptions.HTTPError(response=r)
+        return ({"candidates": [{"content": {"parts": [{"text": "ok"}], "role": "model"}}],
+                 "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1}}, 1, 1)
+
+    with patch.dict(PROVIDERS_CONFIG, {
+        "cerebras": {"keys": [], "models": [], "send_func": MagicMock()},
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "gemini": {"keys": ["key_1", "key_2"], "models": ["gemini-2.5-flash"],
+                   "send_func": gemini_first_fails_second_ok},
+    }), patch("agents.shared.python.db.get_memory", return_value=0), \
+       patch("agents.shared.python.db.save_memory", side_effect=mock_save), \
+       patch("agents.shared.utils.gemini_client.LLMLogger.log_call"), \
+       patch("agents.shared.utils.gemini_client.extract_prompt_from_payload", return_value="t"):
+        result, model = generate_content_with_fallback(
+            "key_1", {"contents": [{"parts": [{"text": "t"}], "role": "user"}]}, agent_name="SCOUT")
+
+    assert "gem_key_rr_index" in saved, \
+        "BUG-01: gem_key_rr_index не обновлён при 429 от Gemini. Следующий вызов снова попадёт на rate-limited ключ."
+
+
+def test_db_model_override_is_tried_first():
+    """Модель из БД должна быть первой в списке планов."""
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, PROVIDERS_CONFIG
+
+    tried_models = []
+
+    def gemini_track(payload, model, key, timeout):
+        tried_models.append(model)
+        raise ValueError("always fail")
+
+    def mock_get_memory(key, default=None):
+        if key == "agent_config_SCOUT":
+            return {"provider": "gemini", "model": "gemini-2.0-flash-lite"}
+        return default or 0
+
+    with patch.dict(PROVIDERS_CONFIG, {
+        "cerebras": {"keys": [], "models": [], "send_func": MagicMock()},
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "gemini": {"keys": ["k1"], "models": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
+                   "send_func": gemini_track},
+    }), patch("agents.shared.python.db.get_memory", side_effect=mock_get_memory), \
+       patch("agents.shared.python.db.save_memory"), \
+       patch("agents.shared.utils.gemini_client.LLMLogger.log_call"), \
+       patch("agents.shared.utils.gemini_client.extract_prompt_from_payload", return_value="t"):
+        try:
+            generate_content_with_fallback("k1", {"contents": [{"parts": [{"text": "t"}], "role": "user"}]},
+                                            agent_name="SCOUT")
+        except Exception:
+            pass
+
+    assert tried_models[0] == "gemini-2.0-flash-lite", \
+        f"BUG-02: db_model должна быть первой. Реальный порядок: {tried_models}"
+
+
+def test_collect_gemini_keys_skips_empty_primary():
+    from agents.shared.utils.gemini_client import _collect_gemini_keys
+    import os
+
+    with patch.dict(os.environ, {
+        "GOOGLE_API_KEY_SECONDARY": "key_b",
+        "GOOGLE_API_KEY_THIRD": "key_c",
+    }):
+        keys = _collect_gemini_keys("")  # пустой первичный ключ
+
+    assert "" not in keys, f"BUG-03: пустой primary_key попал в список: {keys}"
+    assert keys == ["key_b", "key_c"]

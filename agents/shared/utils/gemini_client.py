@@ -447,7 +447,9 @@ _GEMINI_KEY_ENV_NAMES = [
 
 def _collect_gemini_keys(primary_key: str) -> list[str]:
     """Собирает все Gemini ключи в детерминированном порядке."""
-    keys = [primary_key]
+    keys = []
+    if primary_key and primary_key.strip():
+        keys.append(primary_key)
     for name in _GEMINI_KEY_ENV_NAMES[1:]:
         val = os.getenv(name, "")
         if val and val.strip() and val not in keys:
@@ -576,7 +578,6 @@ def generate_content_with_fallback(
             db_model = config_db.get("model")
             if prov_override in active_providers:
                 if prov_override == "gemini":
-                    plans = [p for p in plans if p[0] != "gemini"]
                     if not db_model:
                         db_model = "gemini_round_robin"
                     
@@ -584,13 +585,16 @@ def generate_content_with_fallback(
                         gem_idx = int(get_memory("gem_rr_index") or 0)
                         gem_models_cfg = providers["gemini"]["models"]
                         resolved_model = gem_models_cfg[gem_idx % len(gem_models_cfg)]
-                        plans.insert(0, ("gemini", resolved_model))
+                        gemini_plans = [("gemini", resolved_model)]
                     else:
                         seen = set()
+                        gemini_plans = []
                         for m in [db_model] + providers["gemini"]["models"]:
                             if m not in seen:
                                 seen.add(m)
-                                plans.insert(0, ("gemini", m))
+                                gemini_plans.append(("gemini", m))
+                    
+                    plans = gemini_plans + [p for p in plans if p[0] != "gemini"]
                 elif prov_override == "openrouter":
                     if db_model and db_model.lower().startswith("gemini-"):
                         logger.warning(f"[{agent_name}] Модель {db_model} несовместима с OpenRouter, сброс на дефолт")
@@ -651,9 +655,9 @@ def generate_content_with_fallback(
                     save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
                     
                 if provider == "gemini":
-                    gem_idx = int(get_memory("gem_rr_index") or 0)
                     gem_models_list = providers["gemini"]["models"]
-                    save_memory("gem_rr_index", (gem_idx + 1) % len(gem_models_list))
+                    used_idx = gem_models_list.index(model) if model in gem_models_list else 0
+                    save_memory("gem_rr_index", (used_idx + 1) % len(gem_models_list))
                     
                     all_gem_keys = _collect_gemini_keys(api_key)
                     k_idx = int(get_memory("gem_key_rr_index") or 0)
@@ -681,6 +685,10 @@ def generate_content_with_fallback(
                         _cer_idx_now = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]
                         save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
+                    elif provider == "gemini":
+                        all_gem_keys = _collect_gemini_keys(api_key)
+                        k_idx = int(get_memory("gem_key_rr_index") or 0)
+                        save_memory("gem_key_rr_index", (k_idx + 1) % max(len(all_gem_keys), 1))
                     continue
                 
                 # Если это 404 (Model Not Found) — сразу выходим из попыток и переходим к следующей модели
