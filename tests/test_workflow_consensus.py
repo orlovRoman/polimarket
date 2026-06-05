@@ -217,3 +217,22 @@ def test_arbitrage_block_hidden_when_no_arbitrage(mock_make, mock_save_signal):
     
     text = callback.call_args[0][0]
     assert "Арбитраж" not in text
+
+
+@patch("core.workflow.save_signal", create=True)
+@patch("core.workflow.make_consensus")
+def test_swing_skipped_reason_shown(mock_make, mock_save_signal):
+    mock_make.return_value = MagicMock(status='saved')
+    m = _make_market()
+    ctx = _make_context(m)
+    ctx.swing_skipped = True
+    ctx.swing_skip_reason = "Test Skip Reason"
+    
+    callback = MagicMock()
+    process_consensus(ctx, _make_signal(), None, _make_shadow(),
+                      state={}, update_state=MagicMock(), summary_callback=callback)
+    
+    text = callback.call_args[0][0]
+    assert "SWING (Хайп):" in text
+    assert "Test Skip Reason" in text
+    assert "Ошибка оценки рынка" not in text

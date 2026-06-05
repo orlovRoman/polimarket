@@ -548,6 +548,8 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         has_enough_history = len(price_history or []) >= 3
         if is_flat_or_noise and has_enough_history and not has_strong_scout:
             logger.info(f"  SWING: пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)")
+            context.swing_skipped = True
+            context.swing_skip_reason = "Пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)"
             swing_signal = None
         else:
             swing_signal = await swing.estimate_market(context, price_history=price_history)
@@ -708,6 +710,9 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             if verdict:
                 summary_text += f"📝 <b>Вердикт:</b> {verdict}\n"
             summary_text += "\n"
+        elif getattr(context, 'swing_skipped', False):
+            reason = getattr(context, 'swing_skip_reason', 'пропущен (flat price/noise)')
+            summary_text += f"🏄 <b>SWING (Хайп):</b>\n💤 {reason}\n\n"
         else:
             summary_text += "🏄 <b>SWING (Хайп):</b>\n⚠️ Ошибка оценки рынка или превышение лимитов запросов к API.\n\n"
             

@@ -56,3 +56,5 @@ class MarketContext(BaseModel):
     grounded_context: str = ""
     velocity_annotation: str = ""
     orderbook_shape_annotation: str = ""
+    swing_skipped: bool = False
+    swing_skip_reason: Optional[str] = None
