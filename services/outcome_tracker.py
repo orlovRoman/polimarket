@@ -58,6 +58,7 @@ def _get_pending_with_closed_market() -> list[dict]:
         rows = conn.execute("""
             SELECT s.id, s.market_id, s.target_outcome, s.strategy_type,
                    s.edge, s.confidence, s.created_at, s.estimated_probability,
+                   s.market_price_at_signal,
                    m.title as market_title, m.close_time, m.outcome as market_resolved_outcome
             FROM signals s
             JOIN markets m ON s.market_id = m.id
@@ -101,6 +102,38 @@ def _resolve_signal(row: dict, resolution: str) -> None:
     was_correct = (row["target_outcome"] or "YES").upper() == resolution.upper()
     now = datetime.now(timezone.utc).isoformat()
 
+    # Вычисляем PnL
+    try:
+        from core.config_provider import config_provider
+        virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
+    except Exception:
+        virtual_stake = 10.0
+
+    pnl_realized = 0.0
+    if resolution != "N/A":
+        strategy = (row["strategy_type"] or "").lower()
+        if strategy in ('synthetic_corridor', 'temporal_corridor', 'cross_platform'):
+            pnl_realized = virtual_stake * 0.15 if was_correct else -virtual_stake
+        else:
+            # Для scout и whale
+            price_safe = row.get("market_price_at_signal")
+            if price_safe is None and row.get("estimated_probability") is not None and row.get("edge") is not None:
+                price_safe = row["estimated_probability"] - row["edge"]
+            if price_safe is None:
+                price_safe = 0.5
+
+            buy_price = price_safe if (row["target_outcome"] or "YES").upper() == 'YES' else (1.0 - price_safe)
+            if not (0.001 < buy_price < 0.999):
+                buy_price = 0.5
+
+            contracts = virtual_stake / buy_price
+            if was_correct:
+                pnl_realized = contracts * (1.0 - buy_price)
+            else:
+                pnl_realized = -virtual_stake
+
+    pnl_realized = round(pnl_realized, 2)
+
     with get_connection() as conn:
         conn.execute("""
             UPDATE signals
@@ -108,9 +141,10 @@ def _resolve_signal(row: dict, resolution: str) -> None:
                 resolved_at     = ?,
                 resolution_outcome = ?,
                 was_profitable  = ?,
+                pnl_realized    = ?,
                 strategy_type   = COALESCE(strategy_type, 'SCOUT')
             WHERE id = ?
-        """, (now, resolution, int(was_correct), row["id"]))
+        """, (now, resolution, int(was_correct), pnl_realized, row["id"]))
 
         conn.execute("""
             UPDATE markets
@@ -120,7 +154,7 @@ def _resolve_signal(row: dict, resolution: str) -> None:
 
     logger.info(
         f"[OutcomeTracker] {row['id'][:8]}… → {resolution} "
-        f"({'WIN' if was_correct else 'LOSS'}) strategy={row['strategy_type']}"
+        f"({'WIN' if was_correct else 'LOSS'}) strategy={row['strategy_type']} PnL=${pnl_realized}"
     )
 
 
@@ -138,6 +172,7 @@ def _update_all_strategy_metrics() -> None:
 def _upsert_strategy_metrics(strategy_type: str) -> None:
     """Вычисляет и сохраняет метрики одной стратегии за период rolling-30d."""
     from datetime import timedelta
+    import math
     now = datetime.now(timezone.utc)
     period_start = (now - timedelta(days=30)).isoformat()
     period_end = now.isoformat()
@@ -167,19 +202,39 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
         if not row or (row["total"] or 0) == 0:
             return
 
+        # Рассчитываем sharpe_ratio
+        pnl_rows = conn.execute("""
+            SELECT pnl_realized
+            FROM signals
+            WHERE strategy_type = ?
+              AND created_at >= ?
+              AND pnl_realized IS NOT NULL
+        """, (strategy_type, period_start)).fetchall()
+        
+        pnl_vals = [r["pnl_realized"] for r in pnl_rows]
+        sharpe_ratio = None
+        if len(pnl_vals) > 1:
+            avg_pnl = sum(pnl_vals) / len(pnl_vals)
+            variance = sum((x - avg_pnl) ** 2 for x in pnl_vals) / (len(pnl_vals) - 1)
+            std_pnl = math.sqrt(variance)
+            if std_pnl > 0.0001:
+                sharpe_ratio = (avg_pnl / std_pnl) * math.sqrt(len(pnl_vals))
+                sharpe_ratio = round(sharpe_ratio, 4)
+
         conn.execute("""
             INSERT INTO strategy_metrics
               (strategy_type, period_start, period_end,
                total_signals, resolved_signals, profitable_signals,
-               win_rate, avg_edge, brier_score, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               win_rate, avg_edge, brier_score, sharpe_ratio, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(strategy_type, period_start, period_end) DO UPDATE SET
               total_signals      = excluded.total_signals,
               resolved_signals   = excluded.resolved_signals,
               profitable_signals = excluded.profitable_signals,
               win_rate           = excluded.win_rate,
               avg_edge           = excluded.avg_edge,
-              brier_score        = excluded.brier_score
+              brier_score        = excluded.brier_score,
+              sharpe_ratio       = excluded.sharpe_ratio
         """, (
             strategy_type, period_start, period_end,
             row["total"] or 0,
@@ -188,6 +243,7 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
             row["win_rate"],
             row["avg_edge"],
             row["brier_score"],
+            sharpe_ratio,
         ))
 
 

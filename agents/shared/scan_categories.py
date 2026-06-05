@@ -14,5 +14,5 @@ SCAN_CATEGORIES: dict[str, dict] = {
     "entertainment": {"label": "🎮 Игры/Кино",        "tags": ["gaming", "movies", "tv", "esports"]},
     "geopolitics":   {"label": "🌍 Геополитика",      "tags": ["geopolitics", "war", "international", "nato"]},
     "health":        {"label": "🏥 Здоровье",         "tags": ["health", "medicine", "pandemic"]},
-    "penny_stocks":  {"label": "🪙 Penny Stocks",     "tags": []},
+    "penny_stocks":  {"label": "🪙 Penny Stocks",     "tags": ["penny", "low_price"]},
 }

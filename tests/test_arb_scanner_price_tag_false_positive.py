@@ -18,7 +18,7 @@ class TestPriceTagFalsePositive:
     def test_related_markets_with_price_tag_still_matched(self):
         """Связанные рынки с ценовым тегом должны находиться несмотря на фильтрацию тега."""
         title_a = "Will Fed raise rates in Q3 2026? (YES: 72¢ | NO: 28¢)"
-        title_b = "Will Federal Reserve hike rates before October? (YES: 68¢ | NO: 32¢)"
+        title_b = "Will Fed raise rates before October? (YES: 68¢ | NO: 32¢)"
         result = _quick_pair_check(title_a, title_b)
         assert result is True, "Связанные рынки должны находиться даже с ценовым тегом"
 

@@ -123,16 +123,16 @@ def test_onchain_scorer():
     )
     
     with patch("core.onchain_scorer.get_known_whales") as mock_whales:
-        # Допустим, кит в БД имеет win_rate = 75%
+        # Допустим, кит в БД имеет win_rate = 75% и является подтвержденным инсайдером
         mock_whales.return_value = {
-            "0xAddr123abc": {"alias": "0xAddr123...", "win_rate": 0.75, "total_profit": 50000.0}
+            "0xAddr123abc": {"alias": "0xAddr123...", "win_rate": 0.75, "total_profit": 50000.0, "is_insider": True}
         }
         score = compute_onchain_score(sm_high, "YES")
         
         # dom=0.9 -> raw_score = (0.9 - 0.5)*2 = 0.8
-        # whale_boost: 0.1 (wr > 0.6)
-        # final = 0.8 + 0.1 = 0.9
-        assert pytest.approx(score.score, 0.01) == 0.9
+        # whale_boost: 0.15 (wr > 0.6)
+        # final = 0.8 + 0.15 = 0.95
+        assert pytest.approx(score.score, 0.01) == 0.95
         assert score.direction == "CONFIRM"
         assert score.whale_count == 1
         assert "SmartMoney: YES dom=90%" in score.annotation
