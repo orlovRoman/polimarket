@@ -189,7 +189,6 @@ def startup_check():
             if key_name == "GOOGLE_API_KEY":
                 raise RuntimeError(f"Первичный GOOGLE_API_KEY недействителен, истек или недоступен: {e}")
             else:
-                logger = setup_logger()
                 logger.warning(f"⚠️ {key_name} недействителен или недоступен: {e}")
         
     # Убеждаемся, что системные папки существуют

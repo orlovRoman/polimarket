@@ -439,6 +439,22 @@ def _is_model_not_found_error(e: Exception) -> bool:
     return False
 
 
+_GEMINI_KEY_ENV_NAMES = [
+    "GOOGLE_API_KEY",
+    "GOOGLE_API_KEY_SECONDARY",
+    "GOOGLE_API_KEY_THIRD",
+]
+
+def _collect_gemini_keys(primary_key: str) -> list[str]:
+    """Собирает все Gemini ключи в детерминированном порядке."""
+    keys = [primary_key]
+    for name in _GEMINI_KEY_ENV_NAMES[1:]:
+        val = os.getenv(name, "")
+        if val and val.strip() and val not in keys:
+            keys.append(val)
+    return keys
+
+
 def generate_content_with_fallback(
     api_key: str,
     payload: dict,
@@ -475,12 +491,7 @@ def generate_content_with_fallback(
         _gemini_keys = list(_gemini_keys_override)
     else:
         # Собираем все Gemini ключи: первичный + все вторичные из переменных окружения динамически
-        all_keys = [api_key]
-        for name in sorted(os.environ.keys()):
-            if name.startswith("GOOGLE_API_KEY_"):
-                value = os.getenv(name, "")
-                if value and value.strip() and value not in all_keys:
-                    all_keys.append(value)
+        all_keys = _collect_gemini_keys(api_key)
         
         # RR по ключам: начинаем с текущего
         key_rr_idx = int(get_memory("gem_key_rr_index") or 0)
@@ -616,91 +627,79 @@ def generate_content_with_fallback(
         for key_idx, key in enumerate(keys):
             if skip_model:
                 break
-            rate_limited_on_this_key = False
-            for attempt in range(3):
-                _rate_limit_wait(provider, num_keys=len(keys))
-                start_time = time.time()
-                logger.info(f"[{agent_name}] Отправка запроса в {provider} (модель {model}, ключ {key_idx+1}/{len(keys)}, попытка {attempt+1}/3)...")
-                try:
-                    result, in_tokens, out_tokens = send_func(payload, model, key, timeout)
+            _rate_limit_wait(provider, num_keys=len(keys))
+            start_time = time.time()
+            logger.info(f"[{agent_name}] Отправка запроса в {provider} (модель {model}, ключ {key_idx+1}/{len(keys)})...")
+            try:
+                result, in_tokens, out_tokens = send_func(payload, model, key, timeout)
+                
+                # Успешный запрос!
+                latency_ms = int((time.time() - start_time) * 1000)
+                total_tokens = in_tokens + out_tokens
+                response_text = extract_response_text(result)
+                
+                LLMLogger.log_call(
+                    agent_name, model, prompt_text, response=response_text,
+                    input_tokens=in_tokens, output_tokens=out_tokens, total_tokens=total_tokens,
+                    latency_ms=latency_ms, market_id=market_id
+                )
+                
+                # Обновляем round-robin для Cerebras при успехе
+                if provider == "cerebras":
+                    cer_idx = int(get_memory("cer_rr_index") or 0)
+                    cer_models = providers["cerebras"]["models"]
+                    save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
                     
-                    # Успешный запрос!
-                    latency_ms = int((time.time() - start_time) * 1000)
-                    total_tokens = in_tokens + out_tokens
-                    response_text = extract_response_text(result)
+                if provider == "gemini":
+                    gem_idx = int(get_memory("gem_rr_index") or 0)
+                    gem_models_list = providers["gemini"]["models"]
+                    save_memory("gem_rr_index", (gem_idx + 1) % len(gem_models_list))
                     
-                    LLMLogger.log_call(
-                        agent_name, model, prompt_text, response=response_text,
-                        input_tokens=in_tokens, output_tokens=out_tokens, total_tokens=total_tokens,
-                        latency_ms=latency_ms, market_id=market_id
+                    all_gem_keys = _collect_gemini_keys(api_key)
+                    k_idx = int(get_memory("gem_key_rr_index") or 0)
+                    save_memory("gem_key_rr_index", (k_idx + 1) % max(len(all_gem_keys), 1))
+                    
+                save_memory(f"consecutive_failures_{agent_name}", 0)
+                return result, model
+                
+            except Exception as e:
+                latency_ms = int((time.time() - start_time) * 1000)
+                error_msg = _sanitize_error(e)
+                
+                # Логируем вызов с ошибкой
+                LLMLogger.log_call(
+                    agent_name, model, prompt_text, error=f"Key {key_idx+1} Error: {error_msg}",
+                    latency_ms=latency_ms, market_id=market_id
+                )
+                
+                # Проверяем тип ошибки
+                if _is_rate_limit_error(e):
+                    logger.warning(
+                        f"[{agent_name}] 429 Rate Limit на {provider} ({model}) ключ {key_idx+1}. Переходим к следующему ключу."
                     )
-                    
-                    # Обновляем round-robin для Cerebras при успехе
                     if provider == "cerebras":
-                        cer_idx = int(get_memory("cer_rr_index") or 0)
+                        _cer_idx_now = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]
-                        save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
-                        
-                    if provider == "gemini":
-                        gem_idx = int(get_memory("gem_rr_index") or 0)
-                        gem_models_list = providers["gemini"]["models"]
-                        save_memory("gem_rr_index", (gem_idx + 1) % len(gem_models_list))
-                        
-                        all_gem_keys = [api_key]
-                        for name in sorted(os.environ.keys()):
-                            if name.startswith("GOOGLE_API_KEY_"):
-                                val = os.getenv(name, "")
-                                if val and val.strip() and val not in all_gem_keys:
-                                    all_gem_keys.append(val)
-                        k_idx = int(get_memory("gem_key_rr_index") or 0)
-                        save_memory("gem_key_rr_index", (k_idx + 1) % max(len(all_gem_keys), 1))
-                        
-                    save_memory(f"consecutive_failures_{agent_name}", 0)
-                    return result, model
-                    
-                except Exception as e:
-                    latency_ms = int((time.time() - start_time) * 1000)
-                    error_msg = _sanitize_error(e)
-                    
-                    # Логируем вызов с ошибкой
-                    LLMLogger.log_call(
-                        agent_name, model, prompt_text, error=f"Key {key_idx+1} Error: {error_msg}",
-                        latency_ms=latency_ms, market_id=market_id
-                    )
-                    
-                    # Проверяем тип ошибки
-                    if _is_rate_limit_error(e):
-                        logger.warning(
-                            f"[{agent_name}] 429 Rate Limit на {provider} ({model}) ключ {key_idx+1}. Переходим к следующему ключу."
-                        )
-                        if provider == "cerebras":
-                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
-                            cer_models = providers["cerebras"]["models"]
-                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
-                        rate_limited_on_this_key = True
-                        break
-                    
-                    # Если это 404 (Model Not Found) — сразу выходим из попыток и переходим к следующей модели
-                    if _is_model_not_found_error(e):
-                        logger.error(f"[{agent_name}] 404: модель {model} на {provider} не существует или удалена. Пропускаем.")
-                        if provider == "cerebras":  # двигаем RR при 404 тоже
-                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
-                            cer_models = providers["cerebras"]["models"]
-                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
-                        skip_model = True
-                        break
-                    
-                    # Для других ошибок (или при исчерпании попыток 429) - не делаем retry, переходим к следующему ключу
-                    logger.warning(f"[{agent_name}] Ошибка вызова {provider} ({model}) с ключом {key_idx+1}: {error_msg}")
-                    if provider == "cerebras":
-                        if isinstance(e, requests.exceptions.HTTPError):
-                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
-                            cer_models = providers["cerebras"]["models"]
-                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
-                    break  # прерываем цикл попыток attempt для текущего ключа
-            
-            if rate_limited_on_this_key:
-                continue
+                        save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
+                    continue
+                
+                # Если это 404 (Model Not Found) — сразу выходим из попыток и переходим к следующей модели
+                if _is_model_not_found_error(e):
+                    logger.error(f"[{agent_name}] 404: модель {model} на {provider} не существует или удалена. Пропускаем.")
+                    if provider == "cerebras":  # двигаем RR при 404 тоже
+                        _cer_idx_now = int(get_memory("cer_rr_index") or 0)
+                        cer_models = providers["cerebras"]["models"]
+                        save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
+                    skip_model = True
+                    break
+                
+                # Для других ошибок - не делаем retry, переходим к следующему ключу
+                logger.warning(f"[{agent_name}] Ошибка вызова {provider} ({model}) с ключом {key_idx+1}: {error_msg}")
+                if provider == "cerebras":
+                    if isinstance(e, requests.exceptions.HTTPError):
+                        _cer_idx_now = int(get_memory("cer_rr_index") or 0)
+                        cer_models = providers["cerebras"]["models"]
+                        save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
                 
             
             

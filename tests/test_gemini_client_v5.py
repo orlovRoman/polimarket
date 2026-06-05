@@ -441,6 +441,7 @@ def test_startup_check_validates_secondary_keys():
     import config
     from unittest.mock import patch, MagicMock
 
+    mock_logger = MagicMock()
     with patch("config.GOOGLE_API_KEY", "primary_val"), \
          patch("config.GOOGLE_API_KEY_SECONDARY", "secondary_val"), \
          patch("config.GOOGLE_API_KEY_THIRD", "third_val"), \
@@ -448,10 +449,7 @@ def test_startup_check_validates_secondary_keys():
          patch("config.TELEGRAM_CHAT_ID", "chat_id"), \
          patch("config.TG_API_ID", "api_id"), \
          patch("config.TG_API_HASH", "api_hash"), \
-         patch("config.setup_logger") as mock_setup_logger:
-
-        mock_logger = MagicMock()
-        mock_setup_logger.return_value = mock_logger
+         patch("config.logger", mock_logger):
 
         # 1. Все ключи валидны
         def mock_get_success(url, timeout=5):
@@ -490,3 +488,69 @@ def test_startup_check_validates_secondary_keys():
             with pytest.raises(RuntimeError) as exc_info:
                 config.startup_check()
             assert "Первичный GOOGLE_API_KEY недействителен" in str(exc_info.value)
+
+
+def test_cerebras_rpm_independent_of_num_keys():
+    """RPM Cerebras не зависит от числа ключей — у них нет per-key лимитов."""
+    from agents.shared.utils.gemini_client import _rate_limit_wait, _request_times
+    import os
+
+    old_env = os.environ.pop("PYTEST_CURRENT_TEST", None)
+    try:
+        _request_times["cerebras"] = []
+        sleep_calls = []
+        with patch("time.sleep", side_effect=lambda s: sleep_calls.append(s)):
+            for _ in range(60):
+                _rate_limit_wait(provider="cerebras", num_keys=3)  # 3 ключа, не меняет RPM
+        assert not sleep_calls, "Cerebras RPM не должен зависеть от num_keys"
+    finally:
+        if old_env:
+            os.environ["PYTEST_CURRENT_TEST"] = old_env
+
+
+def test_gemini_keys_order_is_deterministic():
+    """Порядок ключей Gemini должен быть стабильным, не зависеть от порядка env vars."""
+    from agents.shared.utils import gemini_client as gc
+    import os
+
+    with patch.dict(os.environ, {
+        "GOOGLE_API_KEY_THIRD": "key_c",
+        "GOOGLE_API_KEY_SECONDARY": "key_b",
+        "GOOGLE_API_KEY_EXTRA": "key_x",  # неизвестная переменная
+    }):
+        keys = gc._collect_gemini_keys("key_a")
+
+    assert keys[0] == "key_a"          # первичный всегда первый
+    assert keys[1] == "key_b"          # SECONDARY второй
+    assert keys[2] == "key_c"          # THIRD третий
+    assert "key_x" not in keys         # EXTRA игнорируется
+
+
+def test_attempt_loop_does_not_retry_on_generic_error():
+    """При ValueError цикл attempt не делает повторных попыток."""
+    from agents.shared.utils.gemini_client import generate_content_with_fallback, PROVIDERS_CONFIG
+
+    call_count = [0]
+
+    def gemini_value_error(payload, model, key, timeout):
+        call_count[0] += 1
+        raise ValueError("generic error")
+
+    with patch.dict(PROVIDERS_CONFIG, {
+        "cerebras": {"keys": [], "models": [], "send_func": MagicMock()},
+        "openrouter": {"keys": [], "models": [], "send_func": MagicMock()},
+        "gemini": {
+            "keys": ["k1"],
+            "models": ["gemini-2.5-flash"],
+            "send_func": gemini_value_error,
+        }
+    }), patch("agents.shared.python.db.get_memory", return_value=0), \
+       patch("agents.shared.python.db.save_memory"), \
+       patch("agents.shared.utils.gemini_client.LLMLogger.log_call"), \
+       patch("agents.shared.utils.gemini_client.extract_prompt_from_payload", return_value="t"):
+        try:
+            generate_content_with_fallback("k1", {"contents": [{"parts": [{"text": "t"}], "role": "user"}]}, agent_name="SCOUT")
+        except Exception:
+            pass
+
+    assert call_count[0] == 1, f"Ожидалась 1 попытка, сделано {call_count[0]}. Мёртвый retry-loop не должен вызывать send_func несколько раз."
