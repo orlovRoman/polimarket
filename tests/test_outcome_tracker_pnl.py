@@ -152,3 +152,89 @@ def test_cleanup_stale_signals_exists():
     with mpatch("agents.shared.python.db.get_connection", return_value=FakeConn()):
         result = cleanup_stale_signals(days=90)
     assert isinstance(result, int), f"Должен вернуть int, вернул {type(result)}"
+
+
+# ── Баг #1: compound resolution ищет по market_id, а не opp["id"] ──────────
+class TestResolveCompoundByMarketId:
+    @patch("services.outcome_tracker._fetch_resolution", return_value="YES")
+    @patch("services.outcome_tracker._resolve_signal")
+    @patch("agents.shared.python.db.resolve_compound_opportunity")
+    @patch("agents.shared.python.db.get_compound_settings",
+           return_value={"virtual_stake": 50.0})
+    @patch("agents.shared.python.db.get_active_compound_opportunities")
+    @patch("agents.shared.python.db.get_connection")
+    def test_signal_found_by_market_id_not_opp_id(
+        self, mock_conn, mock_opps, mock_cfg,
+        mock_resolve_opp, mock_resolve_sig, mock_fetch
+    ):
+        opp = {
+            "id": "0xabc123_2026-06-05",  # opp_id, НЕ signal.id
+            "market_id": "0xabc123",
+            "status": "BOUGHT",
+            "price": 0.97,
+        }
+        mock_opps.return_value = [opp]
+        # Сигнал найден по market_id
+        fake_sig = {"id": "scout-uuid-0xabc123", "market_id": "0xabc123",
+                    "strategy_type": "FAVOURITE_COMPOUND", "target_outcome": "YES",
+                    "edge": 0.03, "confidence": 0.8, "created_at": "2026-06-05",
+                    "estimated_probability": 0.97, "market_price_at_signal": 0.97,
+                    "market_title": "Test market"}
+        mock_conn.return_value.__enter__.return_value.execute \
+            .return_value.fetchone.return_value = fake_sig
+
+        from services.outcome_tracker import _resolve_compound_outcomes
+        count = _resolve_compound_outcomes()
+
+        assert count == 1
+        mock_resolve_sig.assert_called_once()
+        # Должен искать по market_id, не по opp["id"]
+        call_args = mock_conn.return_value.__enter__.return_value.execute.call_args
+        assert "market_id" in call_args[0][0]
+
+
+# ── Баг #2: avg_realized_pnl пишется в strategy_metrics ─────────────────────
+class TestStrategyMetricsAvgPnl:
+    @patch("services.outcome_tracker.get_connection")
+    def test_avg_realized_pnl_not_null(self, mock_conn):
+        """avg_realized_pnl должен записываться, а не быть NULL"""
+        from services.outcome_tracker import _upsert_strategy_metrics
+
+        mock_row = {
+            "total": 5, "resolved": 5, "wins": 4,
+            "avg_edge": 0.05, "win_rate": 0.8,
+            "brier_score": 0.1, "avg_realized_pnl": 2.5,
+        }
+        mock_pnl_rows = [{"pnl_realized": 2.0}, {"pnl_realized": 3.0}]
+        conn_mock = mock_conn.return_value.__enter__.return_value
+        conn_mock.execute.return_value.fetchone.return_value = mock_row
+        conn_mock.execute.return_value.fetchall.return_value = mock_pnl_rows
+
+        _upsert_strategy_metrics("FAVOURITE_COMPOUND")
+
+        # Проверяем что в INSERT переданы параметры включая avg_realized_pnl
+        insert_call = [
+            c for c in conn_mock.execute.call_args_list
+            if "INSERT INTO strategy_metrics" in str(c)
+        ]
+        assert len(insert_call) >= 1
+        params = insert_call[0][0][1]
+        assert 2.5 in params, "avg_realized_pnl должен быть в параметрах INSERT"
+
+
+# ── Баг #3: _send_telegram_summary находит метрики при окне 1h ───────────────
+class TestTelegramSummaryMetricsWindow:
+    @patch("services.notifications.send_telegram")
+    @patch("services.outcome_tracker.get_connection")
+    def test_metrics_window_is_1_hour_not_5_minutes(self, mock_conn, mock_tg):
+        conn_mock = mock_conn.return_value.__enter__.return_value
+        conn_mock.execute.return_value.fetchall.return_value = []
+
+        from services.outcome_tracker import _send_telegram_summary
+        _send_telegram_summary([])
+
+        query_call = conn_mock.execute.call_args
+        query_str = query_call[0][0]
+        # Убедиться что используется 1 hour, а не 5 minutes
+        assert "1 hour" in query_str or "-1 hour" in query_str, \
+            f"Слишком узкое окно в запросе: {query_str}"

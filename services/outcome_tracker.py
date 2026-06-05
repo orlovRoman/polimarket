@@ -132,6 +132,8 @@ def _resolve_signal(row: dict, resolution: str) -> None:
         elif strategy == 'favourite_compound':
             # Для Favourite Compounding с учетом комиссии 2%
             price_safe = row.get("market_price_at_signal") or 0.95
+            if price_safe <= 0 or price_safe >= 1.0:
+                price_safe = 0.95
             contracts = virtual_stake / price_safe
             if was_correct:
                 pnl_realized = contracts * (1.0 - price_safe) * 0.98
@@ -257,6 +259,7 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
                 AVG(edge)                                                  AS avg_edge,
                 AVG(CASE WHEN was_profitable IS NOT NULL
                          THEN CAST(was_profitable AS REAL) END)            AS win_rate,
+                AVG(pnl_realized)                                          AS avg_realized_pnl,
                 -- Brier score: среднее (predicted_prob - outcome)^2
                 AVG(
                     CASE WHEN estimated_probability IS NOT NULL
@@ -296,14 +299,15 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
             INSERT INTO strategy_metrics
               (strategy_type, period_start, period_end,
                total_signals, resolved_signals, profitable_signals,
-               win_rate, avg_edge, brier_score, sharpe_ratio, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               win_rate, avg_edge, avg_realized_pnl, brier_score, sharpe_ratio, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(strategy_type, period_start, period_end) DO UPDATE SET
               total_signals      = excluded.total_signals,
               resolved_signals   = excluded.resolved_signals,
               profitable_signals = excluded.profitable_signals,
               win_rate           = excluded.win_rate,
               avg_edge           = excluded.avg_edge,
+              avg_realized_pnl   = excluded.avg_realized_pnl,
               brier_score        = excluded.brier_score,
               sharpe_ratio       = excluded.sharpe_ratio
         """, (
@@ -313,6 +317,7 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
             row["wins"] or 0,
             row["win_rate"],
             row["avg_edge"],
+            row["avg_realized_pnl"],
             row["brier_score"],
             sharpe_ratio,
         ))
@@ -339,7 +344,7 @@ def _send_telegram_summary(resolved_items: list[tuple[dict, str]]) -> None:
             metrics = conn.execute("""
                 SELECT strategy_type, win_rate, total_signals
                 FROM strategy_metrics
-                WHERE period_end >= datetime('now', '-5 minutes')
+                WHERE created_at >= datetime('now', '-1 hour')
             """).fetchall()
             for m in metrics:
                 wr = m['win_rate']
@@ -389,7 +394,11 @@ def _resolve_compound_outcomes() -> int:
         
         # Разрешаем соответствующий сигнал в signals (чтобы обновились strategy_metrics)
         with get_connection() as conn:
-            sig_row = conn.execute("SELECT * FROM signals WHERE id = ?", (opp["id"],)).fetchone()
+            sig_row = conn.execute(
+                "SELECT * FROM signals WHERE market_id = ? AND strategy_type = 'FAVOURITE_COMPOUND' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (opp["market_id"],)
+            ).fetchone()
             if sig_row:
                 _resolve_signal(dict(sig_row), res)
                 

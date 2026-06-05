@@ -307,12 +307,18 @@ def run_favourite_scan(
         if roi_data["roi_net_pct"] < 0.3:
             continue
 
+        volume_raw = getattr(market, "volume", 0) or 0
+        try:
+            volume_usd = float(volume_raw)
+        except Exception:
+            volume_usd = 0.0
+
         opp = FavouriteOpportunity(
             market_id=market.id,
             title=market.title,
             url=market.url,
             price=price,
-            volume_usd=float(getattr(market, "volume", 0) or 0),
+            volume_usd=volume_usd,
             close_time=market.close_time,
             hours_left=round(hours_left, 1),
             spread_pct=spread_pct,
