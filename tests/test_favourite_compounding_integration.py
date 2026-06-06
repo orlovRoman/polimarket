@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime, timezone, timedelta
 import asyncio
 
@@ -29,7 +29,7 @@ async def test_scheduled_favourite_compounding_success():
          patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5), \
          patch("services.favourite_compounder.ObviousnessValidator.validate", return_value=(0.8, "Test reason")), \
          patch("agents.shared.python.db.upsert_compound_opportunity", return_value=True) as mock_upsert, \
-         patch("services.notifications.send_compound_alert", new_callable=MagicMock) as mock_send_alert, \
+         patch("services.notifications.send_compound_alert", new_callable=AsyncMock) as mock_send_alert, \
          patch("agents.shared.python.db.mark_compound_alerted") as mock_mark_alerted:
 
         engine = MagicMock()
@@ -43,11 +43,16 @@ async def test_scheduled_favourite_compounding_success():
         engine.adapter.list_all_markets_compact.assert_called_once()
         engine.adapter.get_market.assert_called_once_with("mkt-1")
         
-        # Проверяем, что upsert был вызван для mkt-1
+        # Проверяем, что upsert был вызван для mkt-1 со всеми обязательными полями
         mock_upsert.assert_called_once()
         args = mock_upsert.call_args[0][0]
         assert args["market_id"] == "mkt-1"
         assert args["price"] == 0.96
+        assert args["volume_usd"] == 15000.0
+        assert args["confidence"] == 0.8
+        assert args["obviousness_reason"] == "Test reason"
+        assert args["roi_net_pct"] > 0
+        assert args["hours_left"] == 24.0
 
 def test_get_stats_creates_table():
     with patch("agents.shared.python.db.get_connection") as mock_get_conn:
