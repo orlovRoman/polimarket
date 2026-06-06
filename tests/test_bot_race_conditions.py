@@ -86,7 +86,7 @@ async def test_stale_bypass_for_market_actions():
     # Сообщение создано 1 час назад (устаревшее)
     old_date = datetime.now(timezone.utc) - timedelta(hours=1)
     
-    for action in ("ignore_mkt_123", "watch_mkt_123", "add_idea_123", "compound_buy:123"):
+    for action in ("ignore_mkt_123", "analyze_mkt_123", "add_idea_123", "compound_buy:123"):
         event = AsyncMock(spec=CallbackQuery)
         event.from_user = MagicMock(id=12345678)  # авторизованный
         event.chat = MagicMock(id=12345678)

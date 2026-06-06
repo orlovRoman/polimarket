@@ -272,6 +272,92 @@ class TestCorrelationAlerts:
 
         fake_db.mark_correlations_notified.assert_called_once_with([20])
 
+    def test_correlation_alert_none_arbitrage_type_skipped(self, fake_db):
+        """Если тип арбитража 'none', алерт не отправляется, даже если спред >= 5.0%."""
+        import services.notifications as n
+        from core.models import Market, CrossArbitrageSignal
+
+        fake_corrs = [
+            {"id": 30, "market_id_a": "mkt-a", "market_id_b": "mkt-b",
+             "correlation_type": "thematic", "confidence": 0.8},
+        ]
+        fake_db.get_new_correlations.return_value = fake_corrs
+
+        # Настраиваем рынки
+        mkt_a = Market(
+            id="mkt-a", platform="polymarket", title="Gold hit $4200", price=0.56,
+            url="http://a", close_time=datetime(2026, 6, 30), description="desc a", outcome="YES"
+        )
+        mkt_b = Market(
+            id="mkt-b", platform="polymarket", title="Crude Oil hit $115", price=0.12,
+            url="http://b", close_time=datetime(2026, 6, 30), description="desc b", outcome="YES"
+        )
+        
+        # Настраиваем мок адаптера
+        adapter_instance = sys.modules["agents.shared.adapters.polymarket"].PolymarketAdapter.return_value
+        adapter_instance.get_market.side_effect = lambda m_id: mkt_a if m_id == "mkt-a" else mkt_b
+
+        # Настраиваем возвращаемый сигнал от ArbitrageAgent
+        signal = CrossArbitrageSignal(
+            market_a_id="mkt-a", market_a_platform="polymarket", market_a_title="Gold hit $4200", market_a_price=0.56, market_a_url="http://a",
+            market_b_id="mkt-b", market_b_platform="polymarket", market_b_title="Crude Oil hit $115", market_b_price=0.12, market_b_url="http://b",
+            has_arbitrage=False, arbitrage_type="none", spread_percent=44.0, reasoning="No relation", trade_instruction="SKIP",
+            match_score=0.8
+        )
+        
+        mock_agent_instance = MagicMock()
+        mock_agent_instance.analyze_correlation.return_value = signal
+        sys.modules["agents.polymarket_arbitrage_agent.src.agent"].ArbitrageAgent.return_value = mock_agent_instance
+
+        mock_notify = MagicMock()
+        n.send_correlation_alerts(summary_callback=mock_notify)
+
+        mock_notify.assert_not_called()
+        fake_db.mark_correlations_notified.assert_called_once_with([30])
+
+    def test_correlation_alert_valid_arbitrage_type_sent(self, fake_db):
+        """Если тип арбитража не 'none' (например, 'pair_trade'), алерт отправляется при спреде >= 5.0%."""
+        import services.notifications as n
+        from core.models import Market, CrossArbitrageSignal
+
+        fake_corrs = [
+            {"id": 40, "market_id_a": "mkt-a", "market_id_b": "mkt-b",
+             "correlation_type": "thematic", "confidence": 0.8},
+        ]
+        fake_db.get_new_correlations.return_value = fake_corrs
+
+        # Настраиваем рынки
+        mkt_a = Market(
+            id="mkt-a", platform="polymarket", title="Gold hit $4200", price=0.56,
+            url="http://a", close_time=datetime(2026, 6, 30), description="desc a", outcome="YES"
+        )
+        mkt_b = Market(
+            id="mkt-b", platform="polymarket", title="Crude Oil hit $115", price=0.12,
+            url="http://b", close_time=datetime(2026, 6, 30), description="desc b", outcome="YES"
+        )
+        
+        # Настраиваем мок адаптера
+        adapter_instance = sys.modules["agents.shared.adapters.polymarket"].PolymarketAdapter.return_value
+        adapter_instance.get_market.side_effect = lambda m_id: mkt_a if m_id == "mkt-a" else mkt_b
+
+        # Настраиваем возвращаемый сигнал от ArbitrageAgent
+        signal = CrossArbitrageSignal(
+            market_a_id="mkt-a", market_a_platform="polymarket", market_a_title="Gold hit $4200", market_a_price=0.56, market_a_url="http://a",
+            market_b_id="mkt-b", market_b_platform="polymarket", market_b_title="Crude Oil hit $115", market_b_price=0.12, market_b_url="http://b",
+            has_arbitrage=False, arbitrage_type="pair_trade", spread_percent=44.0, reasoning="No relation", trade_instruction="SKIP",
+            match_score=0.8
+        )
+        
+        mock_agent_instance = MagicMock()
+        mock_agent_instance.analyze_correlation.return_value = signal
+        sys.modules["agents.polymarket_arbitrage_agent.src.agent"].ArbitrageAgent.return_value = mock_agent_instance
+
+        mock_notify = MagicMock()
+        n.send_correlation_alerts(summary_callback=mock_notify)
+
+        mock_notify.assert_called_once()
+        fake_db.mark_correlations_notified.assert_called_once_with([40])
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Баг #4 — pnl=0.0 показывается как "+0.0%", не "N/A"

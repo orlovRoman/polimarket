@@ -125,7 +125,7 @@ def send_correlation_alerts(summary_callback=None) -> None:
 
                 if signal.has_arbitrage:
                     header = f"🚨 <b>ПОДТВЕРЖДЁННЫЙ АРБИТРАЖ ({platform_a} ↔ {platform_b})</b> 🚨"
-                elif spread is not None and spread >= 5.0:
+                elif spread is not None and spread >= 5.0 and getattr(signal, 'arbitrage_type', 'none') != 'none':
                     header = f"⚠️ <b>ПОТЕНЦИАЛЬНАЯ ВОЗМОЖНОСТЬ ({platform_a} ↔ {platform_b})</b>"
                 else:
                     logger.info(

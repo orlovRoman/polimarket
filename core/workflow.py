@@ -308,7 +308,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     last_analysis_key = f"last_analysis:{m.id}"
 
-    if not has_anomaly:
+    if not has_anomaly and trigger_type != "manual":
         # In-session дедупликация (быстрая проверка без БД)
         dedup_key = f"{m.id}:{trigger_type}"
         with _dedup_lock:
@@ -832,7 +832,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         market_action_markup = {
             "inline_keyboard": [[
                 {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
-                {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"},
+                {"text": "🔍 Проанализировать", "callback_data": f"analyze_mkt_{mid}"},
                 {"text": "📥 В идеи", "callback_data": f"add_idea_{mid}"}
             ]]
         }

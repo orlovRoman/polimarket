@@ -302,14 +302,14 @@ def build_paginated_keyboard(page: int, total_pages: int, prefix: str) -> Inline
 
 def build_market_action_keyboard(market_id: str, market_title: str) -> InlineKeyboardMarkup:
     """
-    Клавиатура с кнопками 'Игнорировать', 'Следить' и 'В идеи', а также 'Блокировать теги'.
+    Клавиатура с кнопками 'Игнорировать', 'Проанализировать' и 'В идеи', а также 'Блокировать теги'.
     market_id обрезается до 40 символов для соблюдения лимита callback_data = 64 байта aiogram.
     """
-    mid = market_id[:40]  # UUID = 36 символов, вписывается с префиксами 11 симв (ignore_mkt_ / watch_mkt_)
+    mid = market_id[:40]  # UUID = 36 символов
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
-            InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{mid}"),
+            InlineKeyboardButton(text="🔍 Проанализировать", callback_data=f"analyze_mkt_{mid}"),
             InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{mid}"),
         ],
         [
@@ -1942,8 +1942,8 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                                     if not mid:
                                         if cb.startswith("ignore_mkt_"):
                                             mid = cb[len("ignore_mkt_"):]
-                                        elif cb.startswith("watch_mkt_"):
-                                            mid = cb[len("watch_mkt_"):]
+                                        elif cb.startswith("analyze_mkt_"):
+                                            mid = cb[len("analyze_mkt_"):]
                                         elif cb.startswith("add_idea_"):
                                             mid = cb[len("add_idea_"):]
                                     keyboard_row.append(InlineKeyboardButton(text=btn["text"], callback_data=cb))
@@ -2449,7 +2449,7 @@ async def callback_analyze_market_handler(callback: CallbackQuery) -> None:
         market_action_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
-                InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{mid}"),
+                InlineKeyboardButton(text="🔍 Проанализировать", callback_data=f"analyze_mkt_{mid}"),
                 InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{mid}")
             ],
             [
@@ -2538,6 +2538,195 @@ async def callback_watch_market(callback: CallbackQuery) -> None:
     )
 
 
+@dp.callback_query(F.data.startswith("analyze_mkt_"))
+async def callback_analyze_market(callback: CallbackQuery) -> None:
+    """'Проанализировать' — запускает ручной точечный анализ рынка агентами."""
+    # Дедупликация: игнорируем повторно доставленные callback'и
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+
+    market_id = callback.data[len("analyze_mkt_"):]
+    
+    from agents.shared.python.db import get_connection
+    from core.singleton import get_core_engine
+    from core.workflow import run_agent_evaluation, process_consensus
+    
+    db_market = None
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, title, price, url FROM markets WHERE id = ? OR id LIKE ?",
+            (market_id, f"{market_id}%")
+        )
+        row = cursor.fetchone()
+        if row:
+            db_market = dict(row)
+            
+    if not db_market:
+        await callback.answer("⚠️ Ошибка: Рынок не найден в базе данных.", show_alert=True)
+        return
+        
+    full_market_id = db_market["id"]
+    market_title = db_market["title"]
+    
+    await callback.answer("🔍 Запуск анализа рынка агентами...", show_alert=False)
+    
+    # Отправляем сообщение о старте анализа
+    status_msg = await callback.message.answer(
+        f"🕵️‍♂️ <b>Запуск ручного анализа рынка</b>\n"
+        f"<b>Рынок:</b> <a href='{db_market['url']}'>{market_title}</a>\n\n"
+        f"🕵️‍♂️ <b>SCOUT:</b> ⏳ Ожидает\n"
+        f"🚀 <b>SWING:</b> ⏳ Ожидает\n"
+        f"👤 <b>SHADOW:</b> ⏳ Ожидает",
+        parse_mode="HTML",
+        link_preview_options=LinkPreviewOptions(is_disabled=True)
+    )
+    
+    async def run_analysis_task():
+        engine = get_core_engine()
+        
+        current_status = {
+            "scout": "⏳ Ожидает",
+            "swing": "⏳ Ожидает",
+            "shadow": "⏳ Ожидает"
+        }
+        
+        async def update_tg_status(scout_status=None, swing_status=None, shadow_status=None):
+            updated = False
+            if scout_status:
+                current_status["scout"] = scout_status
+                updated = True
+            if swing_status:
+                current_status["swing"] = swing_status
+                updated = True
+            if shadow_status:
+                current_status["shadow"] = shadow_status
+                updated = True
+            if updated:
+                text = (
+                    f"🕵️‍♂️ <b>Ручной анализ рынка</b>\n"
+                    f"<b>Рынок:</b> <a href='{db_market['url']}'>{market_title}</a>\n\n"
+                    f"🕵️‍♂️ <b>SCOUT:</b> {current_status['scout']}\n"
+                    f"🚀 <b>SWING:</b> {current_status['swing']}\n"
+                    f"👤 <b>SHADOW:</b> {current_status['shadow']}"
+                )
+                try:
+                    await status_msg.edit_text(text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
+                except Exception:
+                    pass
+
+        def sync_update_state(**kwargs):
+            loop = asyncio.get_running_loop()
+            scout_status = kwargs.get("scout_status")
+            swing_status = kwargs.get("swing_status")
+            shadow_status = kwargs.get("shadow_status")
+            loop.create_task(update_tg_status(scout_status, swing_status, shadow_status))
+        
+        try:
+            # Получаем свежие данные рынка через адаптер
+            market = await asyncio.to_thread(engine.adapter.get_market, full_market_id)
+            if not market:
+                # Фоллбек на данные из БД
+                from core.models import Market
+                from datetime import datetime
+                market = Market(
+                    id=full_market_id,
+                    platform="polymarket",
+                    title=market_title,
+                    price=db_market["price"],
+                    url=db_market["url"],
+                    outcome="YES",
+                    close_time=datetime.now()
+                )
+            
+            logger.info(f"[Manual Analysis] Старт анализа для {full_market_id}")
+            await update_tg_status(scout_status="⚙️ Анализирует...", swing_status="⚙️ Анализирует...")
+            
+            price_hist = []
+            try:
+                from agents.shared.python.db import get_price_history
+                price_hist = get_price_history(market.id, hours=24)
+            except Exception:
+                pass
+                
+            pre_orderbook = engine._fetch_pre_orderbook(market)
+            
+            # Запуск SCOUT / SWING
+            signal, swing_signal, context = await run_agent_evaluation(
+                market,
+                scout=engine.scout,
+                swing=engine.swing,
+                update_state=sync_update_state,
+                adapter=engine.adapter,
+                trigger_type="manual",
+                price_history=price_hist,
+                pre_orderbook=pre_orderbook
+            )
+            
+            if context is None:
+                await update_tg_status(scout_status="⚪️ Пропущен", swing_status="⚪️ Пропущен", shadow_status="⚪️ Пропущен")
+                await status_msg.reply("ℹ️ Анализ рынка был пропущен (дедупликация или сбой).")
+                return
+                
+            active_signal = signal or swing_signal
+            
+            # Запуск SHADOW
+            await update_tg_status(shadow_status="⚙️ Анализирует...")
+            
+            opinion_shadow = engine._run_shadow_analysis(
+                m=market,
+                active_signal=active_signal,
+                signal=signal,
+                swing_signal=swing_signal,
+                context=context,
+                price_hist=price_hist,
+                _update_state=sync_update_state,
+                log=logger.info
+            )
+            
+            if opinion_shadow:
+                status_sh = "✅ Согласен" if opinion_shadow.agree else "❌ Против"
+                await update_tg_status(shadow_status=f"{status_sh} (Увер: {opinion_shadow.confidence})")
+            else:
+                await update_tg_status(shadow_status="⚪️ Нет мнения")
+                
+            # Консенсус
+            if active_signal:
+                results = []
+                def manual_summary_callback(text, reply_markup=None):
+                    results.append((text, reply_markup))
+                    
+                process_consensus(
+                    context, signal, swing_signal, opinion_shadow, 
+                    engine.state, sync_update_state, manual_summary_callback, 
+                    api_key=engine.api_key
+                )
+                
+                if results:
+                    for text, kb in results:
+                        # Текст алертов
+                        await status_msg.reply(text, parse_mode="HTML", reply_markup=kb, link_preview_options=LinkPreviewOptions(is_disabled=True))
+                else:
+                    await status_msg.reply("ℹ️ Консенсус не достигнут или идея отклонена фильтрами.")
+            else:
+                await status_msg.reply("ℹ️ Ни один из агентов (SCOUT, SWING) не сформировал торговый сигнал.")
+                
+            from agents.shared.python.db import mark_market_analyzed
+            mark_market_analyzed(market.id, market.price)
+            
+        except Exception as e:
+            logger.error(f"[Manual Analysis] Ошибка ручного анализа: {e}", exc_info=True)
+            await status_msg.reply(f"🔴 Ошибка во время ручного анализа: <code>{e}</code>", parse_mode="HTML")
+            
+    asyncio.create_task(run_analysis_task())
+
+
 @dp.callback_query(F.data.startswith("unlist_mkt_"))
 async def callback_unlist_market(callback: CallbackQuery) -> None:
     """'Убрать' — удаляет рынок из обоих списков."""
@@ -2548,7 +2737,7 @@ async def callback_unlist_market(callback: CallbackQuery) -> None:
     new_kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{market_id[:40]}"),
-            InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{market_id[:40]}"),
+            InlineKeyboardButton(text="🔍 Проанализировать", callback_data=f"analyze_mkt_{market_id[:40]}"),
             InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{market_id[:40]}"),
         ],
         [
@@ -2648,7 +2837,7 @@ async def callback_add_idea(callback: CallbackQuery) -> None:
     new_kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{full_market_id[:40]}"),
-            InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{full_market_id[:40]}"),
+            InlineKeyboardButton(text="🔍 Проанализировать", callback_data=f"analyze_mkt_{full_market_id[:40]}"),
         ],
         [
             InlineKeyboardButton(text="✅ Добавлено в /ideas", callback_data="noop"),

@@ -786,7 +786,7 @@ class CoreEngine:
         market_action_markup = {
             "inline_keyboard": [[
                 {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
-                {"text": "👁 Следить", "callback_data": f"watch_mkt_{mid}"},
+                {"text": "🔍 Проанализировать", "callback_data": f"analyze_mkt_{mid}"},
                 {"text": "📥 В идеи", "callback_data": f"add_idea_{mid}"}
             ]]
         }
