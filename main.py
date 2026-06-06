@@ -407,7 +407,17 @@ async def scheduled_penny_monitor():
                         f"📈 Цена: {int(round(init_price*100))}¢ -> <b>{int(round(current_price*100))}¢</b> (рост на {price_growth*100:.0f}%!)\n"
                         f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
                     )
-                    await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔍 Проанализировать рынок", callback_data=f"analyze_mkt_{m_id}")]
+                    ])
+                    await bot.send_message(
+                        AUTHORIZED_CHAT_ID, 
+                        msg, 
+                        parse_mode="HTML", 
+                        disable_web_page_preview=True,
+                        reply_markup=keyboard
+                    )
                     await asyncio.sleep(1)
             
             close_time_passed = False

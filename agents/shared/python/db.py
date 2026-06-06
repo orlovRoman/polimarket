@@ -1153,6 +1153,21 @@ def save_market(market: Market):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (market.id, market.platform, market.title, market.description, market.url, market.outcome, market.price, market.close_time.isoformat(), tokens_json, market.volume, market.condition_id))
 
+def get_market_from_db(market_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT * FROM markets WHERE id = ?", (market_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        res = dict(row)
+        if res.get("tokens"):
+            try:
+                res["tokens"] = json.loads(res["tokens"])
+            except Exception:
+                pass
+        return res
+
+
 def save_signal(signal: Signal, details_obj=None, or_ignore: bool = False) -> bool:
     with get_connection() as conn:
         cursor = conn.cursor()

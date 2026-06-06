@@ -26,7 +26,8 @@ from agents.shared.python.db import (
     save_chat_message, get_chat_history, init_db, get_db_stats, get_signals,
     cleanup_chat_history, cleanup_stale_signals,
     add_to_market_list, remove_from_market_list, is_in_market_list,
-    get_market_list, is_alert_already_sent, archive_signal_by_id
+    get_market_list, is_alert_already_sent, archive_signal_by_id,
+    get_market_from_db, get_market_discussions
 )
 from agents.orchestrator.src.agent import NexusAgent
 
@@ -2378,6 +2379,64 @@ async def callback_analyze_market_handler(callback: CallbackQuery) -> None:
 
     market_id = callback.data.replace("analyze_mkt_", "")
     engine = get_core_engine()
+    
+    # Проверяем, есть ли уже сохраненные мнения в базе данных
+    opinions = await asyncio.to_thread(get_market_discussions, market_id)
+    if opinions:
+        await callback.answer("📦 Восстанавливаю анализ из памяти...", show_alert=False)
+        
+        # Получаем данные о рынке из БД (если есть) или с Polymarket (как fallback)
+        market_info = await asyncio.to_thread(get_market_from_db, market_id)
+        if not market_info:
+            try:
+                m = await asyncio.to_thread(engine.adapter.get_market, market_id)
+                if m:
+                    market_info = {
+                        "title": m.title,
+                        "url": m.url,
+                        "price": m.price
+                    }
+            except Exception:
+                pass
+                
+        title = market_info.get("title", f"Рынок {market_id}") if market_info else f"Рынок {market_id}"
+        url = market_info.get("url", f"https://polymarket.com/event/{market_id}") if market_info else f"https://polymarket.com/event/{market_id}"
+        price = market_info.get("price", 0.5) if market_info else 0.5
+        
+        price_yes = int(price * 100)
+        price_no = 100 - price_yes
+        
+        summary_text = (
+            f"🗣️ <b>Архивное обсуждение рынка (из памяти):</b>\n"
+            f"<a href='{url}'>{title}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n\n"
+        )
+        
+        scout_op = next((o for o in opinions if o["agent_name"] == "SCOUT"), None)
+        swing_op = next((o for o in opinions if o["agent_name"] == "SWING"), None)
+        shadow_op = next((o for o in opinions if o["agent_name"] == "SHADOW"), None)
+        
+        if scout_op:
+            summary_text += f"🧠 <b>SCOUT (Фундаментал):</b>\n{scout_op['opinion']}\n\n"
+        if swing_op:
+            summary_text += f"🏄 <b>SWING (Хайп):</b>\n{swing_op['opinion']}\n\n"
+        if shadow_op:
+            shadow_status = "✅ СОГЛАСЕН" if shadow_op["agree"] else "❌ ПРОТИВ"
+            summary_text += (
+                f"🛡️ <b>SHADOW (Инфраструктура):</b> {shadow_status}\n"
+                f"{shadow_op['opinion']}\n\n"
+            )
+            
+        summary_text += "✨ <b>ИТОГ: Восстановлено из памяти (LLM не вызывался).</b>"
+        
+        mid = market_id[:40]
+        market_action_markup = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
+            InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{mid}"),
+            InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{mid}")
+        ]])
+        
+        await callback.message.answer(summary_text, reply_markup=market_action_markup, parse_mode="HTML", disable_web_page_preview=True)
+        return
     
     if _scan_lock.locked() or engine._scan_lock.locked():
         await callback.answer("⚠️ Сканирование уже выполняется. Пожалуйста, подождите.", show_alert=True)

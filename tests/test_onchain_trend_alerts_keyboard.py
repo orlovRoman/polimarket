@@ -37,9 +37,10 @@ def test_job_onchain_alerts_attaches_keyboard(mock_mark, mock_thread, mock_send_
     assert "Проанализировать рынок" in kwargs["reply_markup"].inline_keyboard[0][0].text
 
 # ── 2. Проверяем, что callback_analyze_market_handler запускает обсуждение ─────────
+@patch("telegram.bot.get_market_discussions", return_value=[])
 @patch("telegram.bot.get_core_engine")
 @patch("telegram.bot._scan_lock.locked", return_value=False)
-def test_callback_analyze_market_handler_triggers_scan(mock_lock, mock_get_engine):
+def test_callback_analyze_market_handler_triggers_scan(mock_lock, mock_get_engine, mock_get_discussions):
     mock_engine = MagicMock()
     mock_engine._scan_lock.locked.return_value = False
     mock_get_engine.return_value = mock_engine
@@ -51,30 +52,29 @@ def test_callback_analyze_market_handler_triggers_scan(mock_lock, mock_get_engin
     mock_callback.data = "analyze_mkt_test_mkt_123"
 
     async def run_test():
-        with patch("telegram.bot.asyncio.to_thread", new_callable=AsyncMock) as mock_run:
-            await callback_analyze_market_handler(mock_callback)
-            # Ждём завершения созданной фоновой задачи
-            await asyncio.sleep(0.1)
-            mock_run.assert_called_once()
-            args, kwargs = mock_run.call_args
-            assert args[0] == mock_engine.run_team_discussion
-            assert kwargs["market_id"] == "test_mkt_123"
+        await callback_analyze_market_handler(mock_callback)
+        # Ждём завершения созданной фоновой задачи
+        await asyncio.sleep(0.1)
+        mock_engine.run_team_discussion.assert_called_once()
+        args, kwargs = mock_engine.run_team_discussion.call_args
+        assert kwargs["market_id"] == "test_mkt_123"
 
     asyncio.run(run_test())
-    mock_callback.answer.assert_called_once()
-    mock_callback.message.answer.assert_called_once()
+    mock_callback.answer.assert_called_once_with("🔍 Запуск анализа рынка NEXUS...", show_alert=False)
+    mock_callback.message.answer.assert_called_once_with("🔍 <b>Запуск ручного анализа рынка:</b> <code>test_mkt_123</code>")
 
 # ── 3. Проверяем, что при занятом сканировании выводится предупреждение ───────────
+@patch("telegram.bot.get_market_discussions", return_value=[])
 @patch("telegram.bot.get_core_engine")
 @patch("telegram.bot._scan_lock.locked", return_value=True)
-def test_callback_analyze_market_handler_locked(mock_lock, mock_get_engine):
+def test_callback_analyze_market_handler_locked(mock_lock, mock_get_engine, mock_get_discussions):
     mock_engine = MagicMock()
     mock_engine._scan_lock.locked.return_value = True
     mock_get_engine.return_value = mock_engine
 
     mock_callback = AsyncMock()
     mock_callback.answer = AsyncMock()
-    mock_callback.id = "callback_id_123"
+    mock_callback.id = "callback_id_locked"
     mock_callback.data = "analyze_mkt_test_mkt_123"
 
     async def run_test():
