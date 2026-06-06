@@ -198,10 +198,16 @@ class AuthMiddleware(BaseMiddleware):
 
         # Stale check for CallbackQuery — игнорируем кнопки из сообщений старше 10 минут
         if isinstance(event, types.CallbackQuery) and event.message:
-            # ignore_mkt_ пропускает только stale-check (UX),
-            # но авторизационная проверка ниже всё равно применяется
-            is_ignore_click = event.data and event.data.startswith("ignore_mkt_")
-            if not is_ignore_click:
+            # Кнопки взаимодействия с сигналами (игнорирование, слежение, добавление в идеи, действия с compound)
+            # пропускают stale-check, так как пользователь может разобрать алерты позже.
+            # Авторизационная проверка ниже всё равно применяется ко всем запросам.
+            is_stale_bypass = event.data and any(
+                event.data.startswith(prefix) for prefix in (
+                    "ignore_mkt_", "watch_mkt_", "add_idea_", 
+                    "compound_buy:", "compound_skip:", "compound_sell:"
+                )
+            )
+            if not is_stale_bypass:
                 msg_date = event.message.date
                 if msg_date:
                     try:

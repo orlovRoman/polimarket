@@ -71,3 +71,33 @@ async def test_auth_middleware_blocks_unauthorized():
     # handler НЕ должен быть вызван
     handler.assert_not_called()
     assert result is None
+
+
+# ── Тест #5: Кнопки действий на рынках обходят stale-check ────────────────────
+@pytest.mark.asyncio
+async def test_stale_bypass_for_market_actions():
+    """Кнопки ignore_mkt_, watch_mkt_, add_idea_ и compound_buy не должны выдавать 'Сессия устарела'."""
+    from telegram.bot import AuthMiddleware
+    from datetime import datetime, timedelta
+    middleware = AuthMiddleware()
+
+    # Сообщение создано 1 час назад (устаревшее)
+    old_date = datetime.now() - timedelta(hours=1)
+    
+    for action in ("ignore_mkt_123", "watch_mkt_123", "add_idea_123", "compound_buy:123"):
+        event = AsyncMock()
+        event.from_user = MagicMock(id=12345678)  # авторизованный
+        event.chat = MagicMock(id=12345678)
+        event.data = action
+        event.message = MagicMock()
+        event.message.date = old_date
+
+        handler = AsyncMock(return_value="success")
+        data = {}
+
+        with patch("telegram.bot.AUTHORIZED_CHAT_ID", "12345678"):
+            result = await middleware(handler, event, data)
+
+        # Обработчик должен быть вызван успешно (stale-check пропущен)
+        handler.assert_called_once()
+        assert result == "success"
