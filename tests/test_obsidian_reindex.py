@@ -142,13 +142,37 @@ def test_reindex_unchanged_files_not_double_counted(temp_vault):
     # Оба запуска должны видеть 1 файл (сумма actually_indexed + unchanged)
     assert first_run == second_run == 1
 
-def test_promote_to_memory_logs_index_error(temp_vault, caplog):
+def test_promote_to_memory_logs_index_error(temp_vault):
     """promote_to_memory логирует ошибку индексации, а не скрывает."""
     adapter = ObsidianAdapter(vault_path=str(temp_vault))
 
-    with patch("agents.shared.python.db.update_vault_index", side_effect=RuntimeError("DB locked")):
-        with caplog.at_level(logging.WARNING, logger="NexusPolyBot.ObsidianAdapter"):
+    from agents.shared.utils.obsidian_adapter import logger as adapter_logger
+
+    with patch.object(adapter_logger, "warning") as mock_warning:
+        with patch("agents.shared.python.db.update_vault_index", side_effect=RuntimeError("DB locked")):
             adapter.promote_to_memory("durable", "test.md", "Test content")
 
-    assert any("Ошибка индексации" in r.message for r in caplog.records), \
+    mock_warning.assert_called_once()
+    assert "Ошибка индексации" in mock_warning.call_args[0][0], \
         "Ошибка индексации должна попасть в WARNING лог, а не быть проглочена"
+
+def test_promote_to_memory_path_normalized(temp_vault):
+    """rel_path в vault_index всегда должен использовать прямые слэши."""
+    adapter = ObsidianAdapter(vault_path=str(temp_vault))
+
+    captured_paths = []
+    original_update = __import__(
+        "agents.shared.python.db", fromlist=["update_vault_index"]
+    ).update_vault_index
+
+    def capture_path(path, *args, **kwargs):
+        captured_paths.append(path)
+        return original_update(path, *args, **kwargs)
+
+    with patch("agents.shared.python.db.update_vault_index", side_effect=capture_path):
+        adapter.promote_to_memory("durable", "test-note.md", "Content")
+
+    assert len(captured_paths) == 1
+    assert "\\" not in captured_paths[0], \
+        f"rel_path содержит обратные слэши (Windows-путь): {captured_paths[0]}"
+    assert captured_paths[0] == "memory/durable/test-note.md"

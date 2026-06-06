@@ -51,7 +51,7 @@ def test_auth_middleware_stale_callback_queries():
                 
                 # 2. Test clicking a different button on an old message (should be rejected as stale)
                 mock_handler.reset_mock()
-                event_other = MockCallbackQuery("watch_mkt_market123", old_time)
+                event_other = MockCallbackQuery("other_btn_market123", old_time)
                 
                 res = await middleware(mock_handler, event_other, {})
                 assert res is None

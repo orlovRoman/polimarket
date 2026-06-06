@@ -112,7 +112,7 @@ class ObsidianAdapter:
             import hashlib
             content_hash = hashlib.md5(full_content.encode()).hexdigest()
             from agents.shared.python.db import update_vault_index
-            rel_path = str(filepath.relative_to(self.vault_path))
+            rel_path = str(filepath.relative_to(self.vault_path)).replace("\\", "/")
             update_vault_index(rel_path, category, filename.replace(".md", ""), tags, content_hash)
         except Exception as e:
             logger.warning(f"[ObsidianAdapter] Ошибка индексации при promote_to_memory: {e}")

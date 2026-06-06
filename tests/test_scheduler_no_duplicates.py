@@ -21,15 +21,21 @@ def test_only_one_resolution_job_registered():
          patch("telegram.bot.set_commands", new_callable=AsyncMock), \
          patch("main.asyncio.wait", side_effect=Exception("Stop wait")):
         
-        # Импортируем start_system и запускаем, чтобы сработала регистрация джобов
-        from main import start_system
+        # Сохраняем исходный планировщик бота для восстановления
+        import telegram.bot
+        orig_scheduler = getattr(telegram.bot, "_scheduler", None)
         try:
-            # Запускаем в mock-окружении
-            import asyncio
-            asyncio.run(start_system())
-        except Exception:
-            # Игнорируем ошибки запуска после настройки планировщика
-            pass
+            # Импортируем start_system и запускаем, чтобы сработала регистрация джобов
+            from main import start_system
+            try:
+                # Запускаем в mock-окружении
+                import asyncio
+                asyncio.run(start_system())
+            except Exception:
+                # Игнорируем ошибки запуска после настройки планировщика
+                pass
+        finally:
+            telegram.bot._scheduler = orig_scheduler
 
     # Проверяем, что планировщик вообще настраивался и задачи были добавлены
     assert len(jobs_added) > 0, "Список jobs_added пуст! Планировщик не зарегистрировал ни одной задачи."

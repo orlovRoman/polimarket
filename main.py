@@ -199,12 +199,22 @@ async def job_onchain_alerts():
     try:
         from services.onchain_trend_alert import scan_volume_spikes, build_spike_message
         from agents.shared.python.db import mark_alert_sent
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         
         spikes = await asyncio.to_thread(scan_volume_spikes)
         for spike in spikes:
             msg = build_spike_message(spike)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Проанализировать рынок", callback_data=f"analyze_mkt_{spike['market_id']}")]
+            ])
             # Отправляем сообщение в авторизованный чат
-            await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+            await bot.send_message(
+                AUTHORIZED_CHAT_ID, 
+                msg, 
+                parse_mode="HTML", 
+                disable_web_page_preview=True,
+                reply_markup=keyboard
+            )
             mark_alert_sent(f"onchain_spike_{spike['market_id']}", "onchain_spike")
             logger.info(f"Отправлен ончейн-алерт по рынку: {spike['title']}")
         logger.info("<<< Сканирование ончейн-всплесков завершено.")

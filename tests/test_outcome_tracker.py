@@ -205,7 +205,7 @@ def test_upsert_strategy_metrics_inserts_row(mock_conn):
                 def fetchone(_):
                     return {
                         "total": 10, "resolved": 8, "wins": 6,
-                        "avg_edge": 0.11, "win_rate": 0.75, "brier_score": 0.18
+                        "avg_edge": 0.11, "win_rate": 0.75, "avg_realized_pnl": 0.25, "brier_score": 0.18
                     }
                 def fetchall(_):
                     return [{"pnl_realized": 1.5}, {"pnl_realized": -1.0}]

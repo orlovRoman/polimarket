@@ -207,7 +207,7 @@ class AuthMiddleware(BaseMiddleware):
                 event.data.startswith(prefix) for prefix in (
                     "ignore_mkt_", "watch_mkt_", "add_idea_", 
                     "compound_buy:", "compound_skip:", "compound_sell:",
-                    "reindex_rag"
+                    "reindex_rag", "analyze_mkt_"
                 )
             )
             if not is_stale_bypass:
@@ -773,7 +773,7 @@ async def command_health_handler(message: types.Message) -> None:
 
 def get_job_status_indicator(job_id: str) -> str:
     """Возвращает 🟢 и интервал, если задача активна в планировщике, иначе 🔴 Отключен."""
-    if _scheduler is None:
+    if _scheduler is None or not hasattr(_scheduler, "get_job"):
         return "🔴 Выключен"
     job = _scheduler.get_job(job_id)
     if job:
@@ -2362,6 +2362,46 @@ async def callback_close_message_handler(callback: CallbackQuery) -> None:
 async def callback_penny_page_handler(callback: CallbackQuery) -> None:
     page = int(callback.data.split("_")[2])
     await send_penny_page(callback, page=page)
+
+
+@dp.callback_query(F.data.startswith("analyze_mkt_"))
+async def callback_analyze_market_handler(callback: CallbackQuery) -> None:
+    # Stale/duplicate checks
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+
+    market_id = callback.data.replace("analyze_mkt_", "")
+    engine = get_core_engine()
+    
+    if _scan_lock.locked() or engine._scan_lock.locked():
+        await callback.answer("⚠️ Сканирование уже выполняется. Пожалуйста, подождите.", show_alert=True)
+        return
+
+    await callback.answer("🔍 Запуск анализа рынка NEXUS...", show_alert=False)
+    
+    # Отправляем сообщение о начале
+    await callback.message.answer(f"🔍 <b>Запуск ручного анализа рынка:</b> <code>{market_id}</code>")
+    
+    async def _run_manual_scan():
+        try:
+            # Запускаем в фоновой задаче через asyncio.to_thread
+            await asyncio.to_thread(
+                engine.run_team_discussion,
+                market_id=market_id,
+                trigger_type="event_driven",
+                source_url="",
+                source_text="Manual trigger from volume alert"
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при ручном анализе рынка {market_id}: {e}", exc_info=True)
+            
+    asyncio.create_task(_run_manual_scan())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
