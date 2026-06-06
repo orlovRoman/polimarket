@@ -54,9 +54,10 @@ async def test_reply_compound_calls_cmd_compound():
 async def test_auth_middleware_blocks_unauthorized():
     """ignore_mkt_ кнопка НЕ должна обходить авторизацию."""
     from telegram.bot import AuthMiddleware
+    from aiogram.types import CallbackQuery
     middleware = AuthMiddleware()
 
-    event = AsyncMock()
+    event = AsyncMock(spec=CallbackQuery)
     event.from_user = MagicMock(id=99999999)  # чужой ID
     event.chat = MagicMock(id=99999999)
     event.data = "ignore_mkt_0xabc123"
@@ -78,14 +79,15 @@ async def test_auth_middleware_blocks_unauthorized():
 async def test_stale_bypass_for_market_actions():
     """Кнопки ignore_mkt_, watch_mkt_, add_idea_ и compound_buy не должны выдавать 'Сессия устарела'."""
     from telegram.bot import AuthMiddleware
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
+    from aiogram.types import CallbackQuery
     middleware = AuthMiddleware()
 
     # Сообщение создано 1 час назад (устаревшее)
-    old_date = datetime.now() - timedelta(hours=1)
+    old_date = datetime.now(timezone.utc) - timedelta(hours=1)
     
     for action in ("ignore_mkt_123", "watch_mkt_123", "add_idea_123", "compound_buy:123"):
-        event = AsyncMock()
+        event = AsyncMock(spec=CallbackQuery)
         event.from_user = MagicMock(id=12345678)  # авторизованный
         event.chat = MagicMock(id=12345678)
         event.data = action
@@ -101,3 +103,57 @@ async def test_stale_bypass_for_market_actions():
         # Обработчик должен быть вызван успешно (stale-check пропущен)
         handler.assert_called_once()
         assert result == "success"
+
+
+# ── Тест #6: get_scout_accuracy_live возвращает корректный тип ───────────────
+def test_scout_accuracy_returns_correct_types():
+    """get_scout_accuracy_live должна вернуть (float|None, int)."""
+    from telegram.bot import get_scout_accuracy_live
+    from unittest.mock import patch, MagicMock
+
+    mock_row = MagicMock()
+    mock_row.__getitem__ = lambda self, key: {"win_rate": 75.0, "resolved": 10}[key]
+
+    with patch("agents.shared.python.db.get_connection") as mock_conn:
+        mock_conn.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = mock_row
+        acc, cnt = get_scout_accuracy_live()
+        assert isinstance(acc, float), f"Ожидался float, получен {type(acc)}"
+        assert isinstance(cnt, int)
+
+
+# ── Тест #7: Stale-check блокирует обычные кнопки старше 10 минут ──────────
+@pytest.mark.asyncio
+async def test_stale_check_blocks_normal_old_callback():
+    """Обычный callback (не market action) старше 10 минут — должен быть заблокирован."""
+    from telegram.bot import AuthMiddleware
+    from datetime import datetime, timedelta, timezone
+    from aiogram import types
+
+    middleware = AuthMiddleware()
+    old_date = datetime.now(timezone.utc) - timedelta(minutes=15)
+
+    event = AsyncMock(spec=types.CallbackQuery)
+    event.from_user = MagicMock(id=12345678)
+    event.chat = MagicMock(id=12345678)
+    event.data = "monitor_refresh"  # НЕ market action
+    event.message = MagicMock(spec=types.Message)
+    event.message.date = old_date
+    event.answer = AsyncMock()
+
+    handler = AsyncMock()
+
+    with patch("telegram.bot.AUTHORIZED_CHAT_ID", "12345678"):
+        result = await middleware(handler, event, data={})
+
+    handler.assert_not_called()
+    event.answer.assert_called_once()
+
+
+# ── Тест #8: Optional импортирован (регрессионный) ──────────────────────────
+def test_optional_imported_in_bot():
+    """Проверяет, что Optional из typing доступен в bot.py (нет NameError)."""
+    import inspect
+    import telegram.bot as bot_module
+    src = inspect.getsource(bot_module)
+    assert "Optional" not in src or "from typing import" in src, \
+        "Optional используется, но не импортирован!"

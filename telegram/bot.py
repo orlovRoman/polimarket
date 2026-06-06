@@ -17,6 +17,7 @@ from aiogram.exceptions import TelegramRetryAfter
 from dotenv import load_dotenv
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Optional
 
 # Импортируем функции БД
 import sys
@@ -801,10 +802,11 @@ def get_scout_accuracy_live() -> tuple[Optional[float], int]:
             row = conn.execute("""
                 SELECT 
                     AVG(CASE WHEN was_profitable IS NOT NULL THEN CAST(was_profitable AS REAL) END) * 100 AS win_rate,
-                    SUM(CASE WHEN resolved_at IS NOT NULL THEN 1 ELSE 0 END) AS resolved
+                    COUNT(*) AS resolved
                 FROM signals
-                WHERE (strategy_type = 'scout' OR strategy_type IS NULL)
+                WHERE strategy_type = 'scout'
                   AND status IN ('WIN', 'LOSS')
+                  AND resolved_at IS NOT NULL
             """).fetchone()
             if row and row["resolved"] and row["resolved"] > 0:
                 return float(row["win_rate"]), int(row["resolved"])
@@ -888,7 +890,7 @@ async def command_status_handler(message: types.Message) -> None:
     )
 
     # Точность SCOUT
-    accuracy, evaluated = get_scout_accuracy_live()
+    accuracy, evaluated = await asyncio.to_thread(get_scout_accuracy_live)
     accuracy_line = "\n\n🎯 <b>Точность SCOUT:</b> "
     if accuracy is not None and evaluated > 0:
         accuracy_line += f"<b>{accuracy:.1f}%</b> (по {evaluated} решенным сигналам)"
