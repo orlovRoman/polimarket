@@ -52,12 +52,20 @@ def _prefilter_markets(markets_compact: list) -> list:
     Сокращает ~1000 рынков до ~100-150 перед передачей в NEXUS.
     """
     from datetime import datetime, timezone, timedelta
+    from agents.shared.python.db import get_blacklist_tags
 
     now = datetime.now(timezone.utc)
     min_close = now + timedelta(days=3)
     filtered = []
+    
+    blacklisted = [t.lower() for t in get_blacklist_tags()]
 
     for m in markets_compact:
+        # Фильтр черного списка тегов
+        tags = [t.lower() for t in m.get('tags', [])]
+        if any(tag in blacklisted for tag in tags):
+            continue
+
         price = m.get('price', m.get('p', 0.5))
         v_val = m.get('volume')
         if v_val is None:

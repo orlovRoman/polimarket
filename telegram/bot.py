@@ -27,7 +27,8 @@ from agents.shared.python.db import (
     cleanup_chat_history, cleanup_stale_signals,
     add_to_market_list, remove_from_market_list, is_in_market_list,
     get_market_list, is_alert_already_sent, archive_signal_by_id,
-    get_market_from_db, get_market_discussions
+    get_market_from_db, get_market_discussions,
+    get_blacklist_tags, add_blacklist_tag, remove_blacklist_tag
 )
 from agents.orchestrator.src.agent import NexusAgent
 
@@ -134,6 +135,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="gate_stats", description="Статистика On-chain Gatekeeper (экономия)"),
         BotCommand(command="penny", description="Меню Penny Stocks (дешевые рынки)"),
         BotCommand(command="compound", description="Favourite Compounding (≥95¢)"),
+        BotCommand(command="blacklist", description="Черный список тегов"),
         BotCommand(command="reindex", description="Переиндексировать базу знаний Obsidian RAG"),
     ]
     await bot.set_my_commands(commands)
@@ -300,7 +302,7 @@ def build_paginated_keyboard(page: int, total_pages: int, prefix: str) -> Inline
 
 def build_market_action_keyboard(market_id: str, market_title: str) -> InlineKeyboardMarkup:
     """
-    Клавиатура с кнопками 'Игнорировать', 'Следить' и 'В идеи'.
+    Клавиатура с кнопками 'Игнорировать', 'Следить' и 'В идеи', а также 'Блокировать теги'.
     market_id обрезается до 40 символов для соблюдения лимита callback_data = 64 байта aiogram.
     """
     mid = market_id[:40]  # UUID = 36 символов, вписывается с префиксами 11 симв (ignore_mkt_ / watch_mkt_)
@@ -309,6 +311,9 @@ def build_market_action_keyboard(market_id: str, market_title: str) -> InlineKey
             InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
             InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{mid}"),
             InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{mid}"),
+        ],
+        [
+            InlineKeyboardButton(text="🏷 Блокировать теги", callback_data=f"block_tags_select_{mid}")
         ]
     ])
 
@@ -1929,11 +1934,23 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
                         if isinstance(reply_markup, dict) and "inline_keyboard" in reply_markup:
                             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                             keyboard_rows = []
+                            mid = None
                             for row in reply_markup["inline_keyboard"]:
                                 keyboard_row = []
                                 for btn in row:
-                                    keyboard_row.append(InlineKeyboardButton(text=btn["text"], callback_data=btn["callback_data"]))
+                                    cb = btn["callback_data"]
+                                    if not mid:
+                                        if cb.startswith("ignore_mkt_"):
+                                            mid = cb[len("ignore_mkt_"):]
+                                        elif cb.startswith("watch_mkt_"):
+                                            mid = cb[len("watch_mkt_"):]
+                                        elif cb.startswith("add_idea_"):
+                                            mid = cb[len("add_idea_"):]
+                                    keyboard_row.append(InlineKeyboardButton(text=btn["text"], callback_data=cb))
                                 keyboard_rows.append(keyboard_row)
+                            if mid:
+                                # Добавляем кнопку блокировки тегов во второй ряд
+                                keyboard_rows.append([InlineKeyboardButton(text="🏷 Блокировать теги", callback_data=f"block_tags_select_{mid}")])
                             actual_markup = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
                         else:
                             actual_markup = reply_markup
@@ -2429,11 +2446,16 @@ async def callback_analyze_market_handler(callback: CallbackQuery) -> None:
         summary_text += "✨ <b>ИТОГ: Восстановлено из памяти (LLM не вызывался).</b>"
         
         mid = market_id[:40]
-        market_action_markup = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
-            InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{mid}"),
-            InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{mid}")
-        ]])
+        market_action_markup = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
+                InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{mid}"),
+                InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{mid}")
+            ],
+            [
+                InlineKeyboardButton(text="🏷 Блокировать теги", callback_data=f"block_tags_select_{mid}")
+            ]
+        ])
         
         await callback.message.answer(summary_text, reply_markup=market_action_markup, parse_mode="HTML", disable_web_page_preview=True)
         return
@@ -2528,6 +2550,9 @@ async def callback_unlist_market(callback: CallbackQuery) -> None:
             InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{market_id[:40]}"),
             InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{market_id[:40]}"),
             InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{market_id[:40]}"),
+        ],
+        [
+            InlineKeyboardButton(text="🏷 Блокировать теги", callback_data=f"block_tags_select_{market_id[:40]}")
         ]
     ])
     try:
@@ -2626,7 +2651,8 @@ async def callback_add_idea(callback: CallbackQuery) -> None:
             InlineKeyboardButton(text="👁 Следить", callback_data=f"watch_mkt_{full_market_id[:40]}"),
         ],
         [
-            InlineKeyboardButton(text="✅ Добавлено в /ideas", callback_data="noop")
+            InlineKeyboardButton(text="✅ Добавлено в /ideas", callback_data="noop"),
+            InlineKeyboardButton(text="🏷 Блокировать теги", callback_data=f"block_tags_select_{full_market_id[:40]}")
         ]
     ])
     
@@ -2641,6 +2667,125 @@ async def callback_add_idea(callback: CallbackQuery) -> None:
 @dp.callback_query(F.data == "noop")
 async def callback_noop(callback: CallbackQuery) -> None:
     await callback.answer()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Управление черным списком тегов
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dp.callback_query(F.data.startswith("block_tags_select_"))
+async def callback_block_tags_select(callback: CallbackQuery) -> None:
+    """Показывает Inline-кнопки для выбора тега для блокировки."""
+    market_id = callback.data[len("block_tags_select_"):]
+    
+    from agents.shared.adapters.polymarket import PolymarketAdapter
+    adapter = PolymarketAdapter()
+    tags = await asyncio.to_thread(adapter.get_market_tags, market_id)
+    
+    if not tags:
+        # Пытаемся по LIKE в локальной базе
+        from agents.shared.python.db import get_connection
+        db_market = None
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id FROM markets WHERE id = ? OR id LIKE ?",
+                (market_id, f"{market_id}%")
+            )
+            row = cursor.fetchone()
+            if row:
+                db_market = dict(row)
+        if db_market:
+            tags = await asyncio.to_thread(adapter.get_market_tags, db_market["id"])
+            
+    if not tags:
+        await callback.answer("⚠️ Не удалось получить теги этого рынка.", show_alert=True)
+        return
+        
+    buttons = []
+    # aiogram callback_data ограничена 64 байтами
+    for tag in tags:
+        tag_truncated = tag[:40]
+        buttons.append([
+            InlineKeyboardButton(text=f"🚫 Блокировать \"{tag[:25]}\"", callback_data=f"block_tag_add_{tag_truncated}")
+        ])
+        
+    buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="close_message")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    await callback.message.reply(
+        "🏷 <b>Выберите тег или слаг для блокировки:</b>\n"
+        "<i>Рынки с этим тегом/слагом больше не будут попадать в /ideas. На Penny Stocks и Compound это не влияет.</i>",
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("block_tag_add_"))
+async def callback_block_tag_add(callback: CallbackQuery) -> None:
+    """Добавляет выбранный тег в черный список и удаляет меню выбора."""
+    tag = callback.data[len("block_tag_add_"):]
+    await asyncio.to_thread(add_blacklist_tag, tag)
+    await callback.answer(f"✅ Тег \"{tag}\" добавлен в черный список!", show_alert=True)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+
+@dp.message(Command("blacklist"))
+async def command_blacklist_handler(message: types.Message) -> None:
+    """Показывает черный список тегов."""
+    await _send_blacklist_page(message)
+
+
+async def _send_blacklist_page(message_or_target, edit: bool = False) -> None:
+    """Формирует и отправляет/редактирует страницу /blacklist."""
+    tags = await asyncio.to_thread(get_blacklist_tags)
+    
+    text = "📋 <b>Черный список тегов Polymarket</b>\n\n"
+    buttons = []
+    
+    if tags:
+        for tag in tags:
+            tag_safe = tag.replace('<', '&lt;').replace('>', '&gt;')
+            text += f"  • {tag_safe}\n"
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"❌ {tag[:30]}",
+                    callback_data=f"unblock_tag_{tag[:40]}"
+                )
+            ])
+    else:
+        text += "  <i>Черный список тегов пуст. Вы можете добавлять теги через кнопки блокировки под рынками.</i>\n"
+        
+    text += "\n<i>Нажмите ❌ рядом с тегом, чтобы удалить его из черного списка.</i>"
+    
+    buttons.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    if edit and isinstance(message_or_target, CallbackQuery):
+        try:
+            await message_or_target.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+            return
+        except Exception:
+            pass
+            
+    if isinstance(message_or_target, types.Message):
+        await message_or_target.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    else:
+        await message_or_target.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        await message_or_target.answer()
+
+
+@dp.callback_query(F.data.startswith("unblock_tag_"))
+async def callback_unblock_tag(callback: CallbackQuery) -> None:
+    """Удаляет тег из черного списка."""
+    tag = callback.data[len("unblock_tag_"):]
+    await asyncio.to_thread(remove_blacklist_tag, tag)
+    await callback.answer(f"✅ Тег \"{tag}\" удален из черного списка.", show_alert=True)
+    await _send_blacklist_page(callback, edit=True)
 
 
 @dp.callback_query(F.data.startswith("lists_remove_"))

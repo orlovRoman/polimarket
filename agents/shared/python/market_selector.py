@@ -136,6 +136,7 @@ class MarketSelector:
         - Убирает абсолютно мертвые цены (< 0.01 или > 0.99)
         - Убирает на cooldown, ЕСЛИ их цена не изменилась значительно (>= 3%)
         - Убирает рынки из списков 'Игнорировать' и 'Следить'
+        - Убирает рынки, содержащие заблокированные теги
         """
         if now is None:
             now = datetime.now(timezone.utc)
@@ -143,8 +144,20 @@ class MarketSelector:
         listed_ids = get_all_listed_market_ids()
         last_prices = get_last_analyzed_prices(cooldown_ids)
         
+        blacklisted = []
+        if scan_category != "penny_stocks":
+            from agents.shared.python.db import get_blacklist_tags
+            blacklisted = [t.lower() for t in get_blacklist_tags()]
+        
         filtered = []
         for m in markets:
+            # Фильтр черного списка тегов (по слагу и заголовку)
+            if blacklisted:
+                slug_lower = (m.event_slug or m.id or "").lower()
+                title_lower = (m.title or "").lower()
+                if any(tag in slug_lower or tag in title_lower for tag in blacklisted):
+                    continue
+
             # Рынок уже закрыт или закроется в течение min_hours часов
             if (m.close_time - now).total_seconds() < min_hours * 3600:
                 continue

@@ -398,6 +398,29 @@ class PolymarketAdapter(BaseMarketAdapter):
             event_slug=item.get("event_slug") or item.get("slug")
         )
 
+    def get_market_tags(self, market_id: str) -> List[str]:
+        """Получает теги и слаги для рынка из Gamma API."""
+        try:
+            response = self.session.get(f"{self.api_url}/markets/{market_id}", timeout=15)
+            response.raise_for_status()
+            item = response.json()
+            tags = item.get("tags", [])
+            slug = item.get("slug")
+            event_slug = item.get("event_slug")
+            
+            result = []
+            for t in tags:
+                if t and isinstance(t, str):
+                    result.append(t.lower())
+            if slug and isinstance(slug, str):
+                result.append(slug.lower())
+            if event_slug and isinstance(event_slug, str) and event_slug.lower() not in result:
+                result.append(event_slug.lower())
+            return list(set(result))
+        except Exception as e:
+            logger.error(f"[PolymarketAdapter] Ошибка при получении тегов для {market_id}: {e}")
+            return []
+
     def get_orderbook(self, token_id: str) -> Optional[dict]:
         """Получает ордербук с CLOB API (без авторизации — read-only)."""
         try:

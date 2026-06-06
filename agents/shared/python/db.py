@@ -742,6 +742,14 @@ def init_db():
             ]:
                 cursor.execute("INSERT OR IGNORE INTO compound_settings (key, value) VALUES (?, ?)", (k, v))
 
+            # Таблица черного списка тегов
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS blacklist_tags (
+                    tag TEXT PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
         _db_initialized = True
         logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
 
@@ -2148,6 +2156,51 @@ def get_compound_stats() -> dict:
             "win_rate": win_rate,
             "total_pnl": round(pnl, 2)
         }
+
+def add_blacklist_tag(tag: str) -> bool:
+    """Добавляет тег в черный список в нижнем регистре. Возвращает True, если добавлен."""
+    tag_clean = str(tag).strip().lower()
+    if not tag_clean:
+        return False
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO blacklist_tags (tag) VALUES (?)",
+                (tag_clean,)
+            )
+        logger.info(f"[Blacklist] Тег {tag_clean!r} добавлен в черный список.")
+        return True
+    except Exception as e:
+        logger.error(f"[Blacklist] Ошибка добавления тега {tag_clean!r}: {e}")
+        return False
+
+def remove_blacklist_tag(tag: str) -> bool:
+    """Удаляет тег из черного списка. Возвращает True, если удален."""
+    tag_clean = str(tag).strip().lower()
+    try:
+        with get_connection() as conn:
+            res = conn.execute(
+                "DELETE FROM blacklist_tags WHERE tag = ?",
+                (tag_clean,)
+            )
+            changes = res.rowcount
+        if changes > 0:
+            logger.info(f"[Blacklist] Тег {tag_clean!r} удален из черного списка.")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"[Blacklist] Ошибка удаления тега {tag_clean!r}: {e}")
+        return False
+
+def get_blacklist_tags() -> list[str]:
+    """Возвращает список всех заблокированных тегов в нижнем регистре."""
+    try:
+        with get_connection() as conn:
+            rows = conn.execute("SELECT tag FROM blacklist_tags").fetchall()
+        return [r["tag"] for r in rows]
+    except Exception as e:
+        logger.error(f"[Blacklist] Ошибка получения черного списка тегов: {e}")
+        return []
 
 if __name__ == "__main__":
     init_db()
