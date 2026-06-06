@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -14,7 +15,7 @@ from config import VAULT_PATH
 class ObsidianAdapter:
     """
     Адаптер для взаимодействия с файловой системой Obsidian (vault).
-    Обеспечивает создание и чтение Markdown файлов в нужных директориями
+    Обеспечивает создание и чтение Markdown файлов в нужных директориях
     в соответствии с 3-уровневой архитектурой памяти проекта.
     """
 
@@ -85,7 +86,6 @@ class ObsidianAdapter:
 
         filepath = self.vault_path / "memory" / category / filename
         
-        import json
         now = datetime.now()
         
         if filepath.exists():
@@ -108,15 +108,14 @@ class ObsidianAdapter:
                 f.write(frontmatter + content)
             full_content = frontmatter + content
         
-        # Индексируем в SQLite для быстрого поиска (Layer 1 ↔ Layer 3 связь)
         try:
             import hashlib
             content_hash = hashlib.md5(full_content.encode()).hexdigest()
             from agents.shared.python.db import update_vault_index
             rel_path = str(filepath.relative_to(self.vault_path))
             update_vault_index(rel_path, category, filename.replace(".md", ""), tags, content_hash)
-        except Exception:
-            pass  # Не блокируем запись, если индексация не удалась
+        except Exception as e:
+            logger.warning(f"[ObsidianAdapter] Ошибка индексации при promote_to_memory: {e}")
             
         return filepath
 
@@ -167,7 +166,6 @@ class ObsidianAdapter:
         Возвращает количество проиндексированных на диске файлов.
         """
         import hashlib
-        import json
         from agents.shared.python.db import get_connection, update_vault_index, delete_vault_index
 
         # 1. Получаем список всех существующих .md файлов на диске
@@ -202,7 +200,8 @@ class ObsidianAdapter:
             logger.info(f"[ObsidianAdapter] Удалено из индекса: {deleted_count} файлов.")
 
         # 4. Сканируем и индексируем новые/изменившиеся файлы
-        indexed_count = 0
+        actually_indexed = 0
+        unchanged = 0
         for rel_path in md_files:
             # Нормализуем путь для записи в БД (слэши в единый стиль)
             db_rel_path = rel_path.replace("\\", "/")
@@ -216,7 +215,7 @@ class ObsidianAdapter:
                 
                 # Если файл уже проиндексирован и не менялся — пропускаем
                 if db_rel_path in db_files and db_files[db_rel_path] == content_hash:
-                    indexed_count += 1
+                    unchanged += 1
                     continue
 
                 # Разбираем frontmatter
@@ -245,12 +244,15 @@ class ObsidianAdapter:
 
                 # Обновляем индекс в БД
                 update_vault_index(db_rel_path, category, title, tags, content_hash)
-                indexed_count += 1
+                actually_indexed += 1
             except Exception as e:
                 logger.error(f"[ObsidianAdapter] Ошибка индексации файла {rel_path}: {e}")
 
-        logger.info(f"[ObsidianAdapter] Синхронизация завершена. Всего проиндексировано: {indexed_count} файлов.")
-        return indexed_count
+        logger.info(
+            f"[ObsidianAdapter] Синхронизация завершена. "
+            f"Новых/измененных: {actually_indexed}, без изменений: {unchanged}, удалено: {deleted_count}"
+        )
+        return actually_indexed + unchanged
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
@@ -265,17 +267,38 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
         if len(parts) >= 3:
             yaml_part = parts[1]
             clean_content = parts[2].strip()
+            
+            try:
+                import yaml
+                meta = yaml.safe_load(yaml_part) or {}
+                if not isinstance(meta, dict):
+                    meta = {}
+                return meta, clean_content
+            except (ImportError, Exception):
+                pass
+                
             for line in yaml_part.splitlines():
                 if ":" in line:
                     k, v = line.split(":", 1)
                     k = k.strip()
                     v = v.strip()
-                    # Парсим теги, если они записаны в виде JSON-массива
+                    
+                    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                        v = v[1:-1]
+                        
                     if v.startswith("[") and v.endswith("]"):
                         try:
                             import json
                             v = json.loads(v)
                         except Exception:
+                            v = [t.strip() for t in v[1:-1].split(",") if t.strip()]
+                    else:
+                        try:
+                            if "." in v:
+                                v = float(v)
+                            else:
+                                v = int(v)
+                        except ValueError:
                             pass
                     meta[k] = v
     return meta, clean_content
