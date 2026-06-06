@@ -132,6 +132,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="gate_stats", description="Статистика On-chain Gatekeeper (экономия)"),
         BotCommand(command="penny", description="Меню Penny Stocks (дешевые рынки)"),
         BotCommand(command="compound", description="Favourite Compounding (≥95¢)"),
+        BotCommand(command="reindex", description="Переиндексировать базу знаний Obsidian RAG"),
     ]
     await bot.set_my_commands(commands)
 
@@ -204,7 +205,8 @@ class AuthMiddleware(BaseMiddleware):
             is_stale_bypass = event.data and any(
                 event.data.startswith(prefix) for prefix in (
                     "ignore_mkt_", "watch_mkt_", "add_idea_", 
-                    "compound_buy:", "compound_skip:", "compound_sell:"
+                    "compound_buy:", "compound_skip:", "compound_sell:",
+                    "reindex_rag"
                 )
             )
             if not is_stale_bypass:
@@ -927,7 +929,36 @@ async def command_status_handler(message: types.Message) -> None:
                 f"● <i>💡 Найдено идей (консенсус): {ideas}</i>"
             )
 
-    await message.answer(status_text)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Переиндексировать RAG", callback_data="reindex_rag")]
+    ])
+    await message.answer(status_text, reply_markup=keyboard)
+
+@dp.message(Command("reindex"))
+async def command_reindex_handler(message: types.Message) -> None:
+    """Обработчик команды /reindex для ручной переиндексации."""
+    status_msg = await message.answer("🔄 Запущена переиндексация файлов базы знаний Obsidian RAG...")
+    try:
+        from agents.shared.utils.obsidian_adapter import ObsidianAdapter
+        adapter = ObsidianAdapter()
+        count = await asyncio.to_thread(adapter.reindex_all_files)
+        await status_msg.edit_text(f"✅ Переиндексация завершена успешно!\nПроиндексировано файлов на диске: <b>{count}</b>", parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка ручной переиндексации: {e}", exc_info=True)
+        await status_msg.edit_text(f"❌ Ошибка переиндексации: <code>{e}</code>", parse_mode="HTML")
+
+@dp.callback_query(F.data == "reindex_rag")
+async def callback_reindex_rag(callback: types.CallbackQuery) -> None:
+    """Callback-обработчик кнопки переиндексации RAG."""
+    try:
+        await callback.answer("🔄 Запущена переиндексация RAG...")
+        from agents.shared.utils.obsidian_adapter import ObsidianAdapter
+        adapter = ObsidianAdapter()
+        count = await asyncio.to_thread(adapter.reindex_all_files)
+        await callback.message.answer(f"✅ Переиндексация завершена успешно!\nПроиндексировано файлов на диске: <b>{count}</b>", parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка переиндексации через callback: {e}", exc_info=True)
+        await callback.message.answer(f"❌ Ошибка переиндексации: <code>{e}</code>", parse_mode="HTML")
 
 @dp.message(Command("performance"))
 async def cmd_performance(message: types.Message):
@@ -1615,7 +1646,7 @@ async def command_cleanup_handler(message: types.Message) -> None:
 @dp.message(Command("correlations"))
 async def command_correlations_handler(message: types.Message) -> None:
     """Анализирует найденные корреляции между рынками с помощью LLM."""
-    from agents.shared.python.db import get_new_correlations, get_market_correlations
+    from agents.shared.python.db import get_new_correlations
     from agents.polymarket_arbitrage_agent.src.agent import ArbitrageAgent
     from agents.shared.adapters.polymarket import PolymarketAdapter
     from services.notifications import format_cross_arbitrage_alert
@@ -1626,44 +1657,81 @@ async def command_correlations_handler(message: types.Message) -> None:
         await message.answer("✅ Новых корреляций нет.")
         return
 
-    await message.answer(f"🔍 Анализирую {len(corrs)} корреляций, ~30 сек...")
+    status_msg = await message.answer("🔍 Загружаю информацию по рынкам для корреляций...")
 
     adapter = PolymarketAdapter()
     agent = ArbitrageAgent(api_key=os.getenv("GOOGLE_API_KEY"))
 
-    def process_correlations(corrs_to_process):
-        found_signals = []
-        for c in corrs_to_process:
-            try:
-                market_a = adapter.get_market(c["market_id_a"])
-                market_b = adapter.get_market(c["market_id_b"])
-            except Exception:
-                continue
-            if not market_a or not market_b:
-                continue
+    # Сначала подготовим заголовки, чтобы сразу вывести красивый список пользователю
+    pairs_info = []
+    valid_corrs = []
+    
+    for i, c in enumerate(corrs, 1):
+        try:
+            market_a = await asyncio.to_thread(adapter.get_market, c["market_id_a"])
+            market_b = await asyncio.to_thread(adapter.get_market, c["market_id_b"])
+            if market_a and market_b:
+                type_icon = {
+                    'causal': '🔄', 'inverse': '↕️',
+                    'arbitrage': '⚡', 'thematic': '🔗'
+                }.get(c['correlation_type'], '❓')
+                
+                pairs_info.append(
+                    f"{type_icon} <b>{c['correlation_type'].upper()}</b> ({c['confidence']:.0%}):\n"
+                    f"  A: <i>{market_a.question}</i>\n"
+                    f"  B: <i>{market_b.question}</i>"
+                )
+                valid_corrs.append((c, market_a, market_b))
+        except Exception as e:
+            logger.error(f"Ошибка загрузки рынков для корреляции {c}: {e}")
 
-            signal = agent.analyze_correlation(
-                market_a=market_a,
-                market_b=market_b,
-                correlation_type=c["correlation_type"],
-                score=int(float(c["confidence"]) * 100),
+    if not valid_corrs:
+        await status_msg.edit_text("✅ Подходящих рынков для анализа корреляций не найдено.")
+        return
+
+    pairs_list_text = "\n\n".join(pairs_info)
+    
+    found_signals = []
+    for i, (c, market_a, market_b) in enumerate(valid_corrs, 1):
+        try:
+            status_text = (
+                f"🔍 <b>Запущен анализ {len(valid_corrs)} корреляций (выполняется {i}/{len(valid_corrs)}):</b>\n\n"
+                f"{pairs_list_text}\n\n"
+                f"⏳ <i>Анализирую пару {i}: {market_a.question} ↔ {market_b.question}...</i>"
             )
-            import time
-            time.sleep(3)  # Избегаем rate-limit
-            
-            if signal and signal.has_arbitrage:
-                found_signals.append(signal)
-        return found_signals
+            await status_msg.edit_text(status_text, parse_mode="HTML")
+        except Exception:
+            pass
 
-    found_signals = await asyncio.to_thread(process_correlations, corrs)
-    found = len(found_signals)
+        signal = await asyncio.to_thread(
+            agent.analyze_correlation,
+            market_a=market_a,
+            market_b=market_b,
+            correlation_type=c["correlation_type"],
+            score=int(float(c["confidence"]) * 100),
+        )
+        
+        await asyncio.sleep(3)  # Избегаем rate-limit
+        
+        if signal and signal.has_arbitrage:
+            found_signals.append(signal)
 
+    try:
+        await status_msg.edit_text(
+            f"✅ <b>Анализ {len(valid_corrs)} корреляций завершен!</b>\n\n{pairs_list_text}",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+    # Отправляем найденные сигналы
     for signal in found_signals:
         text = format_cross_arbitrage_alert(signal)
         await message.answer(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
 
+    found = len(found_signals)
     summary = (
-        f"✅ Найдено торговых идей: <b>{found}</b> из {len(corrs)} корреляций."
+        f"✅ Найдено торговых идей: <b>{found}</b> из {len(valid_corrs)} корреляций."
         if found > 0
         else "✅ Арбитражных возможностей в текущих корреляциях не обнаружено."
     )

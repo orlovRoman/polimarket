@@ -515,6 +515,16 @@ async def start_system():
     
     # Жесткая блокировка повторных запусков
     ensure_single_instance()
+
+    # Запуск фоновой индексации Obsidian Vault для RAG
+    try:
+        from agents.shared.utils.obsidian_adapter import ObsidianAdapter
+        adapter = ObsidianAdapter()
+        logger.info("🤖 Запуск фоновой индексации Obsidian Vault...")
+        loop = asyncio.get_running_loop()
+        loop.create_task(asyncio.to_thread(adapter.reindex_all_files))
+    except Exception as e:
+        logger.error(f"Ошибка при запуске фоновой индексации: {e}")
     
     # Объявляем переменные задач для graceful shutdown
     polling_task = None

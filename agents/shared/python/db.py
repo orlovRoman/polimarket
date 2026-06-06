@@ -1527,6 +1527,11 @@ def update_vault_index(path: str, category: str, title: str, tags: list = None, 
                 content_hash=excluded.content_hash
         """, (path, category, title, _json.dumps(tags or []), content_hash))
 
+def delete_vault_index(path: str):
+    """Удаляет индекс конкретного файла из SQLite vault_index."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM vault_index WHERE path = ?", (path,))
+
 def search_vault_index(query: str, limit: int = 10) -> list:
     """
     Быстрый поиск по индексу vault (по заголовку и тегам).

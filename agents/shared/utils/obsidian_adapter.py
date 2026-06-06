@@ -1,8 +1,11 @@
 import os
 import sys
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger("NexusPolyBot.ObsidianAdapter")
 
 # Импортируем путь из единого конфига
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -156,6 +159,127 @@ class ObsidianAdapter:
                 # Возвращаем относительный путь от корня vault
                 files.append(str(p.relative_to(self.vault_path)))
         return sorted(files)
+
+    def reindex_all_files(self) -> int:
+        """
+        Проводит полную инкрементальную переиндексацию директории vault/.
+        Обнаруживает новые, измененные и удаленные файлы.
+        Возвращает количество проиндексированных на диске файлов.
+        """
+        import hashlib
+        import json
+        from agents.shared.python.db import get_connection, update_vault_index, delete_vault_index
+
+        # 1. Получаем список всех существующих .md файлов на диске
+        all_files = self.list_files()
+        md_files = [f for f in all_files if f.endswith(".md")]
+        md_files_set = set(md_files)
+
+        # 2. Получаем текущее состояние индекса из БД
+        db_files = {}
+        try:
+            with get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT path, content_hash FROM vault_index")
+                db_files = {row["path"]: row["content_hash"] for row in cursor.fetchall()}
+        except Exception as e:
+            logger.error(f"[ObsidianAdapter] Ошибка чтения vault_index: {e}")
+            return 0
+
+        # 3. Удаляем из БД файлы, которых больше нет на диске
+        deleted_count = 0
+        for db_path in list(db_files.keys()):
+            # В Windows пути могут быть с обратным слэшем, нормализуем под системные/относительные разделители
+            normalized_db_path = db_path.replace("\\", "/")
+            normalized_md_files_set = {f.replace("\\", "/") for f in md_files_set}
+            if normalized_db_path not in normalized_md_files_set:
+                try:
+                    delete_vault_index(db_path)
+                    deleted_count += 1
+                except Exception as e:
+                    logger.error(f"[ObsidianAdapter] Ошибка удаления индекса для {db_path}: {e}")
+        if deleted_count > 0:
+            logger.info(f"[ObsidianAdapter] Удалено из индекса: {deleted_count} файлов.")
+
+        # 4. Сканируем и индексируем новые/изменившиеся файлы
+        indexed_count = 0
+        for rel_path in md_files:
+            # Нормализуем путь для записи в БД (слэши в единый стиль)
+            db_rel_path = rel_path.replace("\\", "/")
+            filepath = self.vault_path / rel_path
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                
+                # Вычисляем хеш
+                content_hash = hashlib.md5(content.encode()).hexdigest()
+                
+                # Если файл уже проиндексирован и не менялся — пропускаем
+                if db_rel_path in db_files and db_files[db_rel_path] == content_hash:
+                    indexed_count += 1
+                    continue
+
+                # Разбираем frontmatter
+                meta, _ = parse_frontmatter(content)
+                
+                # Определяем категорию
+                category = meta.get("category")
+                if not category:
+                    parts = Path(rel_path).parts
+                    if len(parts) > 1:
+                        if parts[0] == "memory" and len(parts) > 2:
+                            category = parts[1]  # durable, entities, market-patterns, source-profiles
+                        else:
+                            category = parts[0]  # daily, projects, inbox
+                    category = category or "general"
+
+                # Определяем заголовок
+                title = meta.get("title") or Path(rel_path).stem.replace("-", " ").replace("_", " ").title()
+
+                # Определяем теги
+                tags = meta.get("tags")
+                if isinstance(tags, str):
+                    tags = [t.strip() for t in tags.split(",") if t.strip()]
+                elif not isinstance(tags, list):
+                    tags = []
+
+                # Обновляем индекс в БД
+                update_vault_index(db_rel_path, category, title, tags, content_hash)
+                indexed_count += 1
+            except Exception as e:
+                logger.error(f"[ObsidianAdapter] Ошибка индексации файла {rel_path}: {e}")
+
+        logger.info(f"[ObsidianAdapter] Синхронизация завершена. Всего проиндексировано: {indexed_count} файлов.")
+        return indexed_count
+
+
+def parse_frontmatter(content: str) -> tuple[dict, str]:
+    """
+    Разбирает YAML frontmatter в начале файла.
+    Возвращает словарь метаданных и очищенное содержимое.
+    """
+    meta = {}
+    clean_content = content
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            yaml_part = parts[1]
+            clean_content = parts[2].strip()
+            for line in yaml_part.splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    k = k.strip()
+                    v = v.strip()
+                    # Парсим теги, если они записаны в виде JSON-массива
+                    if v.startswith("[") and v.endswith("]"):
+                        try:
+                            import json
+                            v = json.loads(v)
+                        except Exception:
+                            pass
+                    meta[k] = v
+    return meta, clean_content
+
 
 if __name__ == "__main__":
     # Тестирование адаптера
