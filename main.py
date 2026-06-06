@@ -479,9 +479,11 @@ async def scheduled_favourite_compounding():
                 try:
                     market_obj = await asyncio.to_thread(engine.adapter.get_market, opp["market_id"])
                     if market_obj:
-                        current_price = float(market_obj.price)
-                        if current_price >= 0.995:
-                            await send_compound_exit_alert(bot, AUTHORIZED_CHAT_ID, opp, current_price)
+                        opp_outcome = opp.get("outcome", "YES")
+                        price_yes = float(market_obj.price)
+                        current_fav_price = price_yes if opp_outcome == "YES" else (1.0 - price_yes)
+                        if current_fav_price >= 0.995:
+                            await send_compound_exit_alert(bot, AUTHORIZED_CHAT_ID, opp, current_fav_price)
                             # Меняем статус на ALERTED_EXIT, чтобы не дублировать алерты
                             def mark_exit_alerted():
                                 with get_connection() as conn:
@@ -498,7 +500,8 @@ async def scheduled_favourite_compounding():
             now = datetime.now(timezone.utc)
             for cm in compact_markets:
                 try:
-                    price = float(cm["p"])
+                    price_yes = float(cm["p"])
+                    fav_price = price_yes if price_yes >= 0.5 else (1.0 - price_yes)
                     volume = float(cm["vol"])
                     end_raw = cm["end"]
                     if not end_raw:
@@ -507,7 +510,7 @@ async def scheduled_favourite_compounding():
                     hours_left = (close_time - now).total_seconds() / 3600
                     
                     if (
-                        price >= cfg["min_price"]
+                        fav_price >= cfg["min_price"]
                         and volume >= cfg["min_volume"]
                         and 0 < hours_left <= cfg["max_hours"]
                     ):
@@ -541,6 +544,7 @@ async def scheduled_favourite_compounding():
                         "roi_net_pct": opp.roi_net_pct,
                         "confidence": opp.confidence,
                         "obviousness_reason": opp.obviousness_reason,
+                        "outcome": opp.outcome,
                     }
                 )
                 if is_new:

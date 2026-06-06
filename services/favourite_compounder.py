@@ -21,7 +21,7 @@ class FavouriteOpportunity:
     market_id:   str
     title:       str
     url:         str
-    price:       float        # текущая цена YES
+    price:       float        # текущая цена фаворита (YES или NO)
     volume_usd:  float
     close_time:  datetime
     hours_left:  float
@@ -29,6 +29,7 @@ class FavouriteOpportunity:
     roi_net_pct: float        # чистый ROI с учётом spread
     confidence:  float        # 0.0–1.0
     obviousness_reason: str
+    outcome:     str = "YES"  # целевой исход ("YES" или "NO")
 
     @property
     def opp_id(self) -> str:
@@ -54,13 +55,20 @@ class FavouriteFilter:
     def scan(self, markets: list) -> list:
         """
         markets — список объектов Market из adaptera.
-        Возвращает отфильтрованные кандидаты.
+        Возвращает список кортежей (m, hours_left, fav_outcome, fav_price).
         """
         now = datetime.now(timezone.utc)
         result = []
         for m in markets:
             try:
-                price = float(m.price)
+                price_yes = float(m.price)
+                if price_yes >= 0.5:
+                    fav_price = price_yes
+                    fav_outcome = "YES"
+                else:
+                    fav_price = 1.0 - price_yes
+                    fav_outcome = "NO"
+
                 volume_raw = getattr(m, "volume", 0) or 0
                 if isinstance(volume_raw, (int, float)):
                     volume = float(volume_raw)
@@ -78,11 +86,11 @@ class FavouriteFilter:
                 hours_left = (close_time - now).total_seconds() / 3600
 
                 if (
-                    price >= self.min_price
+                    fav_price >= self.min_price
                     and volume >= self.min_volume_usd
                     and 0 < hours_left <= self.max_hours
                 ):
-                    result.append((m, hours_left))
+                    result.append((m, hours_left, fav_outcome, fav_price))
             except Exception as exc:
                 logger.debug(f"[Filter] Пропуск {getattr(m,'id','?')}: {exc}")
         logger.info(f"[FavouriteFilter] {len(result)}/{len(markets)} прошли фильтр")
@@ -291,9 +299,8 @@ def run_favourite_scan(
     candidates = filt.scan(markets)
     opportunities: list[FavouriteOpportunity] = []
 
-    for market, hours_left in candidates:
-        price = float(market.price)
-        confidence, reason = validator.validate(market, price)
+    for market, hours_left, fav_outcome, fav_price in candidates:
+        confidence, reason = validator.validate(market, fav_price)
 
         if confidence < min_conf:
             logger.debug(f"[Compounder] {market.id}: confidence={confidence:.2f} < {min_conf} — пропуск")
@@ -301,7 +308,7 @@ def run_favourite_scan(
 
         # Spread из orderbook (если доступен)
         spread_pct = _get_spread(market)
-        roi_data = calc.compute(price, hours_left, spread_pct)
+        roi_data = calc.compute(fav_price, hours_left, spread_pct)
 
         # Минимальный net ROI — должен быть > 0.3% чтобы покрыть gas/slippage
         if roi_data["roi_net_pct"] < 0.3:
@@ -317,7 +324,7 @@ def run_favourite_scan(
             market_id=market.id,
             title=market.title,
             url=market.url,
-            price=price,
+            price=fav_price,
             volume_usd=volume_usd,
             close_time=market.close_time,
             hours_left=round(hours_left, 1),
@@ -325,11 +332,12 @@ def run_favourite_scan(
             roi_net_pct=roi_data["roi_net_pct"],
             confidence=confidence,
             obviousness_reason=reason,
+            outcome=fav_outcome,
         )
         opportunities.append(opp)
         logger.info(
             f"[Compounder] ✅ {market.title[:50]} | "
-            f"price={price:.3f} | ROI={roi_data['roi_net_pct']:.2f}% | "
+            f"outcome={fav_outcome} | price={fav_price:.3f} | ROI={roi_data['roi_net_pct']:.2f}% | "
             f"conf={confidence:.2f} | {hours_left:.1f}h left"
         )
 

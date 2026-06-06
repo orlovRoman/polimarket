@@ -192,6 +192,38 @@ class TestResolveCompoundByMarketId:
         call_args = mock_conn.return_value.__enter__.return_value.execute.call_args
         assert "market_id" in call_args[0][0]
 
+    @patch("services.outcome_tracker._fetch_resolution", return_value="NO")
+    @patch("services.outcome_tracker._resolve_signal")
+    @patch("agents.shared.python.db.resolve_compound_opportunity")
+    @patch("agents.shared.python.db.get_compound_settings",
+           return_value={"virtual_stake": 50.0})
+    @patch("agents.shared.python.db.get_active_compound_opportunities")
+    @patch("agents.shared.python.db.get_connection")
+    def test_resolve_compound_no_outcome_correct_pnl(
+        self, mock_conn, mock_opps, mock_cfg,
+        mock_resolve_opp, mock_resolve_sig, mock_fetch
+    ):
+        opp = {
+            "id": "0xabc123_2026-06-05",
+            "market_id": "0xabc123",
+            "status": "BOUGHT",
+            "price": 0.96,
+            "outcome": "NO",
+        }
+        mock_opps.return_value = [opp]
+        mock_conn.return_value.__enter__.return_value.execute \
+            .return_value.fetchone.return_value = None
+
+        from services.outcome_tracker import _resolve_compound_outcomes
+        count = _resolve_compound_outcomes()
+
+        assert count == 1
+        mock_resolve_opp.assert_called_once()
+        args = mock_resolve_opp.call_args[0]
+        assert args[0] == opp["id"]
+        assert args[1] == "NO"
+        assert args[2] == 2.04  # 50.0 / 0.96 * 0.04 * 0.98 = 2.0416 => 2.04
+
 
 # ── Баг #2: avg_realized_pnl пишется в strategy_metrics ─────────────────────
 class TestStrategyMetricsAvgPnl:

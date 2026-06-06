@@ -379,7 +379,8 @@ def _resolve_compound_outcomes() -> int:
             
         # Рассчитываем PnL по правилам оракула
         price = opp["price"]
-        was_correct = res == "YES"  # compound покупает только YES
+        target_outcome = opp.get("outcome", "YES")
+        was_correct = res == target_outcome
         
         if was_correct:
             contracts = virtual_stake / price

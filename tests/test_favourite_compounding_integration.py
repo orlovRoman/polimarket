@@ -68,3 +68,91 @@ def test_get_stats_creates_table():
         calls = [call[0][0] for call in mock_conn_instance.execute.call_args_list]
         assert any("CREATE TABLE IF NOT EXISTS math_filter_log" in c for c in calls)
         assert any("SELECT" in c for c in calls)
+
+@pytest.mark.asyncio
+async def test_scheduled_favourite_compounding_no_outcome_success():
+    # Симулируем рынок, где YES торгуется по 0.04 (NO по 0.96)
+    mock_compact = [
+        {"id": "mkt-no-1", "p": 0.04, "vol": 15000.0, "end": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(), "tags": []},
+    ]
+    
+    mock_m1 = MagicMock()
+    mock_m1.id = "mkt-no-1"
+    mock_m1.price = 0.04
+    mock_m1.volume = 15000.0
+    mock_m1.title = "Test Market NO 1"
+    mock_m1.url = "https://polymarket.com/test-no-1"
+    mock_m1.close_time = datetime.now(timezone.utc) + timedelta(hours=24)
+    mock_m1._orderbook = None
+
+    with patch("core.singleton.get_core_engine") as mock_engine_getter, \
+         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("agents.shared.python.db.get_active_compound_opportunities", return_value=[]), \
+         patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5), \
+         patch("services.favourite_compounder.ObviousnessValidator.validate", return_value=(0.8, "Test reason")), \
+         patch("agents.shared.python.db.upsert_compound_opportunity", return_value=True) as mock_upsert, \
+         patch("services.notifications.send_compound_alert", new_callable=AsyncMock) as mock_send_alert, \
+         patch("agents.shared.python.db.mark_compound_alerted") as mock_mark_alerted:
+
+        engine = MagicMock()
+        engine.adapter.list_all_markets_compact.return_value = mock_compact
+        engine.adapter.get_market.side_effect = lambda m_id: mock_m1 if m_id == "mkt-no-1" else None
+        mock_engine_getter.return_value = engine
+
+        await scheduled_favourite_compounding()
+
+        engine.adapter.list_all_markets_compact.assert_called_once()
+        engine.adapter.get_market.assert_called_once_with("mkt-no-1")
+        
+        mock_upsert.assert_called_once()
+        args = mock_upsert.call_args[0][0]
+        assert args["market_id"] == "mkt-no-1"
+        assert args["price"] == 0.96  # Цена фаворита NO = 1.0 - 0.04
+        assert args["volume_usd"] == 15000.0
+        assert args["outcome"] == "NO"
+        assert args["confidence"] == 0.8
+
+def test_mark_compound_bought_creates_signal():
+    from agents.shared.python.db import init_db, get_connection, upsert_compound_opportunity, mark_compound_bought
+    
+    init_db()
+    
+    opp = {
+        "id": "mkt_test_db_bought_2026-06-06",
+        "market_id": "mkt_test_db_bought",
+        "title": "Test Db Title",
+        "url": "https://test.url",
+        "price": 0.96,
+        "volume_usd": 15000.0,
+        "close_time": "2026-06-07 12:00:00",
+        "hours_left": 24.0,
+        "spread_pct": 0.005,
+        "roi_net_pct": 2.5,
+        "confidence": 0.8,
+        "obviousness_reason": "Test reason",
+        "outcome": "NO"
+    }
+    
+    with get_connection() as conn:
+        conn.execute("DELETE FROM compound_opportunities WHERE market_id = ?", ("mkt_test_db_bought",))
+        conn.execute("DELETE FROM signals WHERE market_id = ?", ("mkt_test_db_bought",))
+        
+    inserted = upsert_compound_opportunity(opp)
+    assert inserted is True
+    
+    mark_compound_bought(opp["id"])
+    
+    with get_connection() as conn:
+        row = conn.execute("SELECT status, outcome FROM compound_opportunities WHERE id = ?", (opp["id"],)).fetchone()
+        assert row is not None
+        assert row["status"] == "BOUGHT"
+        assert row["outcome"] == "NO"
+        
+        sig = conn.execute("SELECT * FROM signals WHERE market_id = ?", ("mkt_test_db_bought",)).fetchone()
+        assert sig is not None
+        assert sig["type"] == "FAVOURITE_COMPOUND"
+        assert sig["strategy_type"] == "FAVOURITE_COMPOUND"
+        assert sig["target_outcome"] == "NO"
+        assert sig["estimated_probability"] == 0.8
+        assert sig["market_price_at_signal"] == 0.96
+        assert sig["status"] == "PENDING"

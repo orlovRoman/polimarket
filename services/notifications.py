@@ -413,11 +413,13 @@ async def send_compound_alert(bot, chat_id: int, opp) -> None:
     hours = opp.hours_left
     time_str = f"{hours:.1f}ч" if hours >= 1 else f"{hours*60:.0f}мин"
     price_cents = int(round(opp.price * 100))
+    outcome = getattr(opp, "outcome", "YES")
 
     text = (
         f"💰 <b>FAVOURITE COMPOUNDING</b>\n\n"
         f"📍 <b>{opp.title[:100]}...</b>\n\n"
-        f"💵 Цена: <b>{price_cents}¢</b>  "
+        f"🎯 Исход: <b>{outcome}</b>\n"
+        f"💵 Цена {outcome}: <b>{price_cents}¢</b>  "
         f"📈 ROI: <b>+{opp.roi_net_pct:.2f}%</b>\n"
         f"⏱ До закрытия: <b>{time_str}</b>  "
         f"📊 Объём: <b>${opp.volume_usd:,.0f}</b>\n"
@@ -428,7 +430,7 @@ async def send_compound_alert(bot, chat_id: int, opp) -> None:
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
-            text=f"✅ Купить ({price_cents}¢)",
+            text=f"✅ Купить {outcome} ({price_cents}¢)",
             callback_data=f"compound_buy:{opp.opp_id}"
         ),
         InlineKeyboardButton(
@@ -454,6 +456,7 @@ async def send_compound_exit_alert(bot, chat_id: int, opp, current_price: float)
     
     price_cents = int(round(current_price * 100))
     init_cents = int(round(opp["price"] * 100))
+    outcome = opp.get("outcome", "YES")
     
     # Считаем ROI
     from services.favourite_compounder import ROICalculator
@@ -465,7 +468,8 @@ async def send_compound_exit_alert(bot, chat_id: int, opp, current_price: float)
     text = (
         f"💎 <b>EXIT: ПРОФИ-ПРОДАЖА (Favourite Compounding)</b>\n\n"
         f"📍 <b>{opp['title'][:100]}...</b>\n\n"
-        f"📈 Текущая цена достигла: <b>{price_cents}¢</b> (покупка по {init_cents}¢)\n"
+        f"🎯 Исход: <b>{outcome}</b>\n"
+        f"📈 Текущая цена {outcome} достигла: <b>{price_cents}¢</b> (покупка по {init_cents}¢)\n"
         f"💰 Ожидаемый PnL: <b>+${pnl:.2f}</b>\n"
         f"⚠️ До формальной резолюции UMA осталось совсем немного. Продайте сейчас для высвобождения капитала!"
     )

@@ -718,12 +718,19 @@ def init_db():
                     actual_outcome TEXT,
                     exit_price  REAL,
                     pnl_usd     REAL,
+                    outcome     TEXT DEFAULT 'YES',
                     created_at  TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_compound_status ON compound_opportunities(status, close_time)"
             )
+
+            # Автоматическая миграция: добавляем outcome в compound_opportunities
+            cursor.execute("PRAGMA table_info(compound_opportunities)")
+            cols = [col[1] for col in cursor.fetchall()]
+            if "outcome" not in cols:
+                cursor.execute("ALTER TABLE compound_opportunities ADD COLUMN outcome TEXT DEFAULT 'YES'")
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS compound_settings (
@@ -2072,13 +2079,14 @@ def upsert_compound_opportunity(opp: dict) -> bool:
             INSERT INTO compound_opportunities
               (id, market_id, title, url, price, volume_usd, close_time,
                hours_left, spread_pct, roi_net_pct, confidence,
-               obviousness_reason, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', CURRENT_TIMESTAMP)
+               obviousness_reason, status, outcome, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP)
         """, (
             opp["id"], opp["market_id"], opp["title"], opp["url"],
             opp["price"], opp["volume_usd"], close_time_str,
             opp["hours_left"], opp.get("spread_pct"), opp["roi_net_pct"],
             opp["confidence"], opp.get("obviousness_reason"),
+            opp.get("outcome", "YES"),
         ))
         return True
 
@@ -2105,6 +2113,28 @@ def mark_compound_bought(opp_id: str) -> None:
             "UPDATE compound_opportunities SET status='BOUGHT' WHERE id=?",
             (opp_id,)
         )
+        opp = conn.execute("SELECT * FROM compound_opportunities WHERE id = ?", (opp_id,)).fetchone()
+        if opp:
+            existing = conn.execute(
+                "SELECT id FROM signals WHERE market_id = ? AND strategy_type = 'FAVOURITE_COMPOUND' AND status = 'PENDING'",
+                (opp["market_id"],)
+            ).fetchone()
+            if not existing:
+                opp_dict = dict(opp)
+                conn.execute("""
+                    INSERT INTO signals
+                      (id, type, market_id, platform, edge, confidence, priority, summary, details, status, target_outcome, estimated_probability, strategy_type, market_price_at_signal, created_at)
+                    VALUES (?, 'FAVOURITE_COMPOUND', ?, 'polymarket', 0.15, ?, 'high', ?, ?, 'PENDING', ?, ?, 'FAVOURITE_COMPOUND', ?, CURRENT_TIMESTAMP)
+                """, (
+                    f"fc_{opp_dict['market_id']}_{opp_id.split('_')[-1]}",
+                    opp_dict["market_id"],
+                    opp_dict["confidence"],
+                    f"Favourite Compounding: {opp_dict['title']}",
+                    opp_dict["obviousness_reason"] or "",
+                    opp_dict.get("outcome", "YES"),
+                    opp_dict["confidence"],
+                    opp_dict["price"]
+                ))
 
 def resolve_compound_opportunity(opp_id: str, outcome: str, pnl_usd: float, exit_price: float = None) -> None:
     with get_connection() as conn:

@@ -3170,7 +3170,8 @@ async def handle_compound_sell(callback: types.CallbackQuery):
     pnl = virtual_stake * (exit_price - opp["price"]) / opp["price"] * (1.0 - ROICalculator.POLY_FEE_PCT)
     pnl = round(pnl, 2)
     
-    await asyncio.to_thread(resolve_compound_opportunity, opp_id, "YES", pnl, exit_price)
+    outcome = opp.get("outcome", "YES")
+    await asyncio.to_thread(resolve_compound_opportunity, opp_id, outcome, pnl, exit_price)
     
     await callback.answer("💎 Зафиксировано досрочное закрытие!")
     await callback.message.edit_reply_markup(reply_markup=None)
