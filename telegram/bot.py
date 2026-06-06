@@ -198,7 +198,8 @@ class AuthMiddleware(BaseMiddleware):
 
         # Stale check for CallbackQuery — игнорируем кнопки из сообщений старше 10 минут
         if isinstance(event, types.CallbackQuery) and event.message:
-            # Разрешаем кнопку "Игнорировать" (ignore_mkt_) без проверки времени сообщения
+            # ignore_mkt_ пропускает только stale-check (UX),
+            # но авторизационная проверка ниже всё равно применяется
             is_ignore_click = event.data and event.data.startswith("ignore_mkt_")
             if not is_ignore_click:
                 msg_date = event.message.date
@@ -1705,6 +1706,14 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
     active_lock = _penny_scan_lock if is_penny else _scan_lock
     active_engine_lock = engine._penny_scan_lock if is_penny else engine._scan_lock
 
+    if _favourite_compound_lock.locked():
+        await callback.answer()
+        await callback.message.answer(
+            "⚠️ Сейчас выполняется Favourite Compounding скан. Подождите.",
+            parse_mode="HTML"
+        )
+        return
+
     if active_lock.locked() or active_engine_lock.locked():
         await callback.answer()
         scan_type_str = "Penny Stocks " if is_penny else ""
@@ -2839,6 +2848,12 @@ async def callback_scan_favourite_compound(callback: CallbackQuery) -> None:
             
     if is_processed:
         await callback.answer()
+        return
+
+    engine = get_core_engine()
+    if _scan_lock.locked() or _penny_scan_lock.locked() or engine._scan_lock.locked() or engine._penny_scan_lock.locked():
+        await callback.answer()
+        await callback.message.answer("⚠️ Сейчас выполняется другое сканирование рынков. Пожалуйста, подождите.")
         return
 
     if _favourite_compound_lock.locked():

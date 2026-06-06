@@ -427,8 +427,8 @@ async def scheduled_penny_monitor():
 
 async def scheduled_favourite_compounding():
     """Сканирует рынки на Favourite Compounding и проверяет Exit-сигналы каждые 15 минут."""
-    from telegram.bot import _favourite_compound_lock
-    if _favourite_compound_lock.locked():
+    from telegram.bot import _favourite_compound_lock, _scan_lock, _penny_scan_lock
+    if _favourite_compound_lock.locked() or _scan_lock.locked() or _penny_scan_lock.locked():
         logger.info("Favourite Compounding: плановое сканирование пропущено, так как активен другой скан.")
         return
 
