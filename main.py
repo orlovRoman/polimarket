@@ -491,10 +491,38 @@ async def scheduled_favourite_compounding():
                     logger.error(f"Ошибка при мониторинге BOUGHT-позиции {opp['id']}: {exc}")
 
             # 2. Сканирование новых возможностей
-            markets = await asyncio.to_thread(
-                engine.adapter.get_markets,
-                limit=500, active_only=True
-            )
+            from datetime import timezone
+            compact_markets = await asyncio.to_thread(engine.adapter.list_all_markets_compact)
+            
+            candidates_ids = []
+            now = datetime.now(timezone.utc)
+            for cm in compact_markets:
+                try:
+                    price = float(cm["p"])
+                    volume = float(cm["vol"])
+                    end_raw = cm["end"]
+                    if not end_raw:
+                        continue
+                    close_time = datetime.fromisoformat(str(end_raw).replace("Z", "+00:00"))
+                    hours_left = (close_time - now).total_seconds() / 3600
+                    
+                    if (
+                        price >= cfg["min_price"]
+                        and volume >= cfg["min_volume"]
+                        and 0 < hours_left <= cfg["max_hours"]
+                    ):
+                        candidates_ids.append(cm["id"])
+                except Exception:
+                    continue
+            
+            markets = []
+            for m_id in candidates_ids:
+                try:
+                    m_obj = await asyncio.to_thread(engine.adapter.get_market, m_id)
+                    if m_obj:
+                        markets.append(m_obj)
+                except Exception as exc:
+                    logger.warning(f"Ошибка загрузки рынка {m_id} для Favourite Compounding: {exc}")
 
             opps = await asyncio.to_thread(run_favourite_scan, markets)
             sent = 0

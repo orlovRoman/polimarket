@@ -1,0 +1,65 @@
+import pytest
+from unittest.mock import patch, MagicMock
+from datetime import datetime, timezone, timedelta
+import asyncio
+
+from main import scheduled_favourite_compounding
+from core.math_filter_metrics import get_stats
+
+@pytest.mark.asyncio
+async def test_scheduled_favourite_compounding_success():
+    # Замокаем adapter.list_all_markets_compact и adapter.get_market
+    mock_compact = [
+        {"id": "mkt-1", "p": 0.96, "vol": 15000.0, "end": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(), "tags": []},
+        {"id": "mkt-2", "p": 0.94, "vol": 15000.0, "end": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(), "tags": []}, # отфильтруется по цене
+    ]
+    
+    mock_m1 = MagicMock()
+    mock_m1.id = "mkt-1"
+    mock_m1.price = 0.96
+    mock_m1.volume = 15000.0
+    mock_m1.title = "Test Market 1"
+    mock_m1.url = "https://polymarket.com/test-1"
+    mock_m1.close_time = datetime.now(timezone.utc) + timedelta(hours=24)
+    mock_m1._orderbook = None
+
+    with patch("core.singleton.get_core_engine") as mock_engine_getter, \
+         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("agents.shared.python.db.get_active_compound_opportunities", return_value=[]), \
+         patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5), \
+         patch("services.favourite_compounder.ObviousnessValidator.validate", return_value=(0.8, "Test reason")), \
+         patch("agents.shared.python.db.upsert_compound_opportunity", return_value=True) as mock_upsert, \
+         patch("services.notifications.send_compound_alert", new_callable=MagicMock) as mock_send_alert, \
+         patch("agents.shared.python.db.mark_compound_alerted") as mock_mark_alerted:
+
+        engine = MagicMock()
+        engine.adapter.list_all_markets_compact.return_value = mock_compact
+        engine.adapter.get_market.side_effect = lambda m_id: mock_m1 if m_id == "mkt-1" else None
+        mock_engine_getter.return_value = engine
+
+        await scheduled_favourite_compounding()
+
+        # Проверяем, что list_all_markets_compact и get_market вызвались корректно
+        engine.adapter.list_all_markets_compact.assert_called_once()
+        engine.adapter.get_market.assert_called_once_with("mkt-1")
+        
+        # Проверяем, что upsert был вызван для mkt-1
+        mock_upsert.assert_called_once()
+        args = mock_upsert.call_args[0][0]
+        assert args["market_id"] == "mkt-1"
+        assert args["price"] == 0.96
+
+def test_get_stats_creates_table():
+    with patch("agents.shared.python.db.get_connection") as mock_get_conn:
+        mock_conn_instance = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn_instance
+        mock_conn_instance.execute.return_value.fetchall.return_value = []
+        
+        stats = get_stats()
+        
+        assert stats == {"rows": []}
+        # Должно быть как минимум 2 вызова execute (CREATE TABLE и SELECT)
+        assert mock_conn_instance.execute.call_count >= 2
+        calls = [call[0][0] for call in mock_conn_instance.execute.call_args_list]
+        assert any("CREATE TABLE IF NOT EXISTS math_filter_log" in c for c in calls)
+        assert any("SELECT" in c for c in calls)

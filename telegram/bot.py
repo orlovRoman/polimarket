@@ -1681,8 +1681,8 @@ async def command_correlations_handler(message: types.Message) -> None:
                 
                 pairs_info.append(
                     f"{type_icon} <b>{c['correlation_type'].upper()}</b> ({c['confidence']:.0%}):\n"
-                    f"  A: <i>{market_a.question}</i>\n"
-                    f"  B: <i>{market_b.question}</i>"
+                    f"  A: <i>{market_a.title}</i>\n"
+                    f"  B: <i>{market_b.title}</i>"
                 )
                 valid_corrs.append((c, market_a, market_b))
         except Exception as e:
@@ -1700,7 +1700,7 @@ async def command_correlations_handler(message: types.Message) -> None:
             status_text = (
                 f"🔍 <b>Запущен анализ {len(valid_corrs)} корреляций (выполняется {i}/{len(valid_corrs)}):</b>\n\n"
                 f"{pairs_list_text}\n\n"
-                f"⏳ <i>Анализирую пару {i}: {market_a.question} ↔ {market_b.question}...</i>"
+                f"⏳ <i>Анализирую пару {i}: {market_a.title} ↔ {market_b.title}...</i>"
             )
             await status_msg.edit_text(status_text, parse_mode="HTML")
         except Exception:

@@ -56,6 +56,19 @@ def get_stats() -> dict:
     try:
         from agents.shared.python.db import get_connection
         with get_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS math_filter_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    market_a_id TEXT,
+                    market_b_id TEXT,
+                    decision TEXT,
+                    arbitrage_type TEXT,
+                    spread_pct REAL,
+                    has_arbitrage INTEGER,
+                    outcome TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             rows = conn.execute("""
                 SELECT
                     decision,
