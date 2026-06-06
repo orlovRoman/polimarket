@@ -768,6 +768,49 @@ async def command_health_handler(message: types.Message) -> None:
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
+def get_job_status_indicator(job_id: str) -> str:
+    """Возвращает 🟢 и интервал, если задача активна в планировщике, иначе 🔴 Отключен."""
+    if _scheduler is None:
+        return "🔴 Выключен"
+    job = _scheduler.get_job(job_id)
+    if job:
+        trigger = job.trigger
+        from apscheduler.triggers.interval import IntervalTrigger
+        from apscheduler.triggers.cron import CronTrigger
+        if isinstance(trigger, IntervalTrigger):
+            interval_seconds = trigger.interval.total_seconds()
+            if interval_seconds >= 3600:
+                hours = int(interval_seconds / 3600)
+                return f"🟢 Активен ({hours} ч)"
+            else:
+                minutes = int(interval_seconds / 60)
+                return f"🟢 Активен ({minutes} м)"
+        elif isinstance(trigger, CronTrigger):
+            return "🟢 Активен (cron)"
+        return "🟢 Активен"
+    return "🔴 Отключен"
+
+
+def get_scout_accuracy_live() -> tuple[Optional[float], int]:
+    """Вычисляет точность SCOUT (Win Rate в %) и общее количество решенных сигналов напрямую из БД."""
+    try:
+        from agents.shared.python.db import get_connection
+        with get_connection() as conn:
+            row = conn.execute("""
+                SELECT 
+                    AVG(CASE WHEN was_profitable IS NOT NULL THEN CAST(was_profitable AS REAL) END) * 100 AS win_rate,
+                    SUM(CASE WHEN resolved_at IS NOT NULL THEN 1 ELSE 0 END) AS resolved
+                FROM signals
+                WHERE (strategy_type = 'scout' OR strategy_type IS NULL)
+                  AND status IN ('WIN', 'LOSS')
+            """).fetchone()
+            if row and row["resolved"] and row["resolved"] > 0:
+                return float(row["win_rate"]), int(row["resolved"])
+    except Exception as e:
+        logger.error(f"Ошибка при расчете live-точности SCOUT: {e}")
+    return None, 0
+
+
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:
     from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats, get_memory
@@ -807,6 +850,13 @@ async def command_status_handler(message: types.Message) -> None:
     monitoring_status = "🟢 Активен" if is_monitoring else "🔴 Остановлен"
     schedule_status = "🟢 Вкл (15 мин)" if _auto_schedule_enabled else "🔴 Выкл"
 
+    # Проверяем статусы легких сканеров
+    fav_comp_status = get_job_status_indicator("favourite_compounding")
+    penny_status = get_job_status_indicator("penny_monitor_job")
+    synth_status = get_job_status_indicator("scheduled_synthetic_corridors")
+    temp_status = get_job_status_indicator("scheduled_temporal_corridors")
+    onchain_status = get_job_status_indicator("job_onchain_alerts")
+
     status_text = (
         "📊 <b>Статус системы:</b>\n\n"
         f"● <b>Мониторинг:</b> {monitoring_status}\n"
@@ -815,6 +865,11 @@ async def command_status_handler(message: types.Message) -> None:
         "● <b>Агенты (SCOUT, SWING, SHADOW, ARBITRAGE):</b> 🟢 Готовы\n"
         f"● <b>Trend Hunter:</b> {'🟢 Активен (2 ч)' if trend_hunter_enabled else '🔴 Отключен'}\n"
         f"● <b>Тренды-оповещения:</b> {'🟢 Включены' if trend_hunter_alerts else '🔴 Отключены'}\n"
+        f"● <b>Favourite Compounding:</b> {fav_comp_status}\n"
+        f"● <b>Penny Stocks:</b> {penny_status}\n"
+        f"● <b>Синтетические коридоры:</b> {synth_status}\n"
+        f"● <b>Временные коридоры:</b> {temp_status}\n"
+        f"● <b>Ончейн-алерты (киты):</b> {onchain_status}\n"
         f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
         f"● <b>Лимит запросов:</b> <code>{scan_limit} рынков/цикл</code>\n"
         f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning_real else '🟢 Ожидание'}\n\n"
@@ -831,12 +886,10 @@ async def command_status_handler(message: types.Message) -> None:
     )
 
     # Точность SCOUT
-    from agents.shared.python.db import get_memory
-    accuracy = get_memory("scout_accuracy_pct")
-    evaluated = get_memory("scout_evaluated_total") or 0
+    accuracy, evaluated = get_scout_accuracy_live()
     accuracy_line = "\n\n🎯 <b>Точность SCOUT:</b> "
-    if accuracy and evaluated > 0:
-        accuracy_line += f"<b>{accuracy}%</b> (по {evaluated} сигналам)"
+    if accuracy is not None and evaluated > 0:
+        accuracy_line += f"<b>{accuracy:.1f}%</b> (по {evaluated} решенным сигналам)"
     else:
         accuracy_line += "накапливается..."
     status_text += accuracy_line
