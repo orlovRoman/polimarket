@@ -124,6 +124,18 @@ class MarketSelector:
                 penny = [m for m in alive if 0.01 <= m.price <= 0.05 or 0.95 <= m.price <= 0.99]
                 return penny[:limit]
             
+            if category in ("favourite_compound", "favourite_compounding"):
+                # Для Favourite Compounding отбираем рынки с ценой >= 0.95 и закрытием в пределах 48 часов
+                all_markets = self.adapter.list_markets_paged(limit=500, offset=0, order="volume")
+                compounds = []
+                for m in all_markets:
+                    hours_left = (m.close_time - now).total_seconds() / 3600
+                    volume = getattr(m, "volume", 0) or 0
+                    # min_hours <= hours_left <= 48
+                    if 0.95 <= m.price <= 0.99 and volume >= 10000 and min_hours <= hours_left <= 48:
+                        compounds.append(m)
+                return compounds[:limit]
+            
             return self.adapter.list_markets(limit=limit, category=category)
         except Exception as e:
             print(f"[MarketSelector] Ошибка загрузки категории '{category}': {e}")

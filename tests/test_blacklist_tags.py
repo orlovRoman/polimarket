@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from agents.shared.python.db import init_db, get_connection, add_blacklist_tag, remove_blacklist_tag, get_blacklist_tags
 from core.models import Market
 from agents.shared.python.market_selector import MarketSelector
@@ -88,3 +88,40 @@ def test_market_selector_filter():
         ids_penny = [m.id for m in filtered_penny]
         assert "m1" in ids_penny
         assert "m2" in ids_penny
+
+
+def test_market_selector_favourite_compound():
+    # Мокаем адаптер
+    mock_adapter = MagicMock()
+    
+    now = datetime.now(timezone.utc)
+    # m1 подходит под Favourite Compounding: цена 0.96, объем 15000, закрывается через 24 часа
+    m1 = Market(
+        id="m1", platform="polymarket", title="US election",
+        url="https://polymarket.com/event/us-election",
+        outcome="YES", price=0.96, close_time=now + timedelta(hours=24),
+        volume=15000
+    )
+    # m2 не подходит: низкая цена
+    m2 = Market(
+        id="m2", platform="polymarket", title="Dota tournament",
+        url="https://polymarket.com/event/dota",
+        outcome="YES", price=0.5, close_time=now + timedelta(hours=24),
+        volume=15000
+    )
+    # m3 не подходит: слишком далекое закрытие (72 часа > 48 часов)
+    m3 = Market(
+        id="m3", platform="polymarket", title="Football match",
+        url="https://polymarket.com/event/football",
+        outcome="YES", price=0.98, close_time=now + timedelta(hours=72),
+        volume=15000
+    )
+    
+    mock_adapter.list_markets_paged.return_value = [m1, m2, m3]
+    
+    selector = MarketSelector(mock_adapter)
+    res = selector._fetch_category("favourite_compound", limit=10, now=now, min_hours=12)
+    
+    # Должен вернуться только m1
+    assert len(res) == 1
+    assert res[0].id == "m1"
