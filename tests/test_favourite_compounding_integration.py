@@ -25,6 +25,7 @@ async def test_scheduled_favourite_compounding_success():
 
     with patch("core.singleton.get_core_engine") as mock_engine_getter, \
          patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
          patch("agents.shared.python.db.get_active_compound_opportunities", return_value=[]), \
          patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5), \
          patch("services.favourite_compounder.ObviousnessValidator.validate", return_value=(0.8, "Test reason")), \
@@ -87,6 +88,7 @@ async def test_scheduled_favourite_compounding_no_outcome_success():
 
     with patch("core.singleton.get_core_engine") as mock_engine_getter, \
          patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
          patch("agents.shared.python.db.get_active_compound_opportunities", return_value=[]), \
          patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5), \
          patch("services.favourite_compounder.ObviousnessValidator.validate", return_value=(0.8, "Test reason")), \
@@ -114,12 +116,17 @@ async def test_scheduled_favourite_compounding_no_outcome_success():
 
 def test_mark_compound_bought_creates_signal():
     from agents.shared.python.db import init_db, get_connection, upsert_compound_opportunity, mark_compound_bought
+    import uuid
     
     init_db()
     
+    unique_suffix = uuid.uuid4().hex[:8]
+    market_id = f"mkt_test_db_bought_{unique_suffix}"
+    opp_id = f"{market_id}_2026-06-06"
+    
     opp = {
-        "id": "mkt_test_db_bought_2026-06-06",
-        "market_id": "mkt_test_db_bought",
+        "id": opp_id,
+        "market_id": market_id,
         "title": "Test Db Title",
         "url": "https://test.url",
         "price": 0.96,
@@ -134,8 +141,8 @@ def test_mark_compound_bought_creates_signal():
     }
     
     with get_connection() as conn:
-        conn.execute("DELETE FROM compound_opportunities WHERE market_id = ?", ("mkt_test_db_bought",))
-        conn.execute("DELETE FROM signals WHERE market_id = ?", ("mkt_test_db_bought",))
+        conn.execute("DELETE FROM compound_opportunities WHERE market_id = ?", (market_id,))
+        conn.execute("DELETE FROM signals WHERE market_id = ?", (market_id,))
         
     inserted = upsert_compound_opportunity(opp)
     assert inserted is True
@@ -148,7 +155,7 @@ def test_mark_compound_bought_creates_signal():
         assert row["status"] == "BOUGHT"
         assert row["outcome"] == "NO"
         
-        sig = conn.execute("SELECT * FROM signals WHERE market_id = ?", ("mkt_test_db_bought",)).fetchone()
+        sig = conn.execute("SELECT * FROM signals WHERE market_id = ?", (market_id,)).fetchone()
         assert sig is not None
         assert sig["type"] == "FAVOURITE_COMPOUND"
         assert sig["strategy_type"] == "FAVOURITE_COMPOUND"

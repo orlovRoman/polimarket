@@ -12,6 +12,8 @@ from typing import Optional
 
 logger = logging.getLogger("NexusPolyBot.FavouriteCompounder")
 
+from agents.shared.python.db import get_compound_settings
+
 # ════════════════════════════════════════════════════
 # 1. DATA MODEL
 # ════════════════════════════════════════════════════
@@ -61,6 +63,8 @@ class FavouriteFilter:
         result = []
         for m in markets:
             try:
+                if m.price is None:
+                    continue
                 price_yes = float(m.price)
                 if price_yes >= 0.5:
                     fav_price = price_yes
@@ -152,20 +156,41 @@ class ObviousnessValidator:
     def _check_google(self, title: str) -> tuple[float, str]:
         """Google Grounding через существующий механизм в проекте."""
         try:
-            from core.workflow import _fetch_grounded_context
-        except ImportError:
-            logger.warning("[Validator] core.workflow недоступен, Google Grounding отключён")
-            return 0.0, ""
-            
-        try:
-            snippet = _fetch_grounded_context(
-                f"Has this happened already? {title}",
-                max_tokens=200
+            from agents.shared.utils.gemini_client import (
+                generate_content_with_fallback, extract_response_text
             )
+            from agents.shared.python.db import get_memory
+        except ImportError:
+            logger.warning("[Validator] gemini_client недоступен, Google Grounding отключён")
+            return 0.0, ""
+
+        try:
+            # Получаем API-ключ и модель из конфига агентов
+            grounding_config = get_memory("agent_config_GROUNDING") or {}
+            nexus_config = get_memory("agent_config_NEXUS") or {}
+            api_key = grounding_config.get("api_key") or nexus_config.get("api_key")
+            model = grounding_config.get("model") or "gemini-2.5-flash"
+
+            if not api_key:
+                return 0.0, ""
+
+            payload = {
+                "contents": [{"role": "user", "parts": [{"text": (
+                    f"Has this prediction market event already happened? "
+                    f"Answer yes or no with evidence: '{title}'"
+                )}]}],
+                "tools": [{"google_search": {}}]
+            }
+            result, _ = generate_content_with_fallback(
+                api_key=api_key, payload=payload,
+                default_model=model, agent_name="GROUNDING_FAV",
+                market_id=title[:40]
+            )
+            snippet = extract_response_text(result) if result else ""
             if not snippet:
                 return 0.0, ""
+
             snippet_lower = snippet.lower()
-            # Детерминированный парсинг: ищем подтверждающие слова
             confirm = ["yes", "confirmed", "happened", "occurred", "won", "passed",
                        "approved", "signed", "elected", "announced"]
             hits = [w for w in confirm if w in snippet_lower]
@@ -230,7 +255,7 @@ class ROICalculator:
 
 def calibrate_confidence_threshold() -> float:
     """Динамически калибрует порог уверенности на основе Rolling 30d Win Rate."""
-    from agents.shared.python.db import get_connection, get_compound_settings, save_compound_setting
+    from agents.shared.python.db import get_connection, save_compound_setting
     cfg = get_compound_settings()
     current_threshold = cfg.get("min_confidence", 0.5)
     
@@ -281,7 +306,6 @@ def run_favourite_scan(
     Главная точка входа.
     Принимает список Market, возвращает список FavouriteOpportunity.
     """
-    from agents.shared.python.db import get_compound_settings
     cfg = get_compound_settings()
 
     # Запускаем авто-калибровку

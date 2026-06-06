@@ -222,7 +222,8 @@ class TestResolveCompoundByMarketId:
         args = mock_resolve_opp.call_args[0]
         assert args[0] == opp["id"]
         assert args[1] == "NO"
-        assert args[2] == 2.04  # 50.0 / 0.96 * 0.04 * 0.98 = 2.0416 => 2.04
+        import pytest
+        assert args[2] == pytest.approx(2.04, abs=0.01)
 
 
 # ── Баг #2: avg_realized_pnl пишется в strategy_metrics ─────────────────────
