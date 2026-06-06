@@ -50,9 +50,15 @@ def guard_orderbook(orderbook: Optional[dict]) -> str:
     ask_d = orderbook.get("ask_depth_5", 0)
     ratio = (bid_d / ask_d) if ask_d > 0 else 0.0
     direction = "бычий сигнал" if ratio > 2 else ("медвежий сигнал" if ratio < 0.5 else "нейтрально")
+    spread_val = orderbook.get("spread")
+    if isinstance(spread_val, (int, float)):
+        spread_str = f"{spread_val * 100:.2f}%"
+    else:
+        spread_str = str(spread_val or "N/A")
+
     return (
         "=== ДАННЫЕ ОРДЕРБУКА (CLOB API) ===\n"
-        f"Спред: {orderbook.get('spread', 'N/A')}\n"
+        f"Спред: {spread_str}\n"
         f"Top Bid: {orderbook.get('top_bid', 'N/A')} | Top Ask: {orderbook.get('top_ask', 'N/A')}\n"
         f"Глубина Bid (5 lvl): ${bid_d:,.0f} | Ask: ${ask_d:,.0f}\n"
         f"Асимметрия Bid/Ask: {ratio:.1f}x → {direction}\n"

@@ -621,6 +621,59 @@ def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signa
 
 def process_consensus(context: MarketContext, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion], state: dict, update_state: Callable, summary_callback: Optional[Callable], api_key: Optional[str] = None):
     m = context.market
+    
+    # Записываем мнения SCOUT и SWING в базу данных обсуждений (agent_opinions)
+    if signal:
+        scout_parts = []
+        cause = getattr(signal, 'signal_cause', '') or getattr(signal, 'summary', '')
+        if cause:
+            scout_parts.append(f"🎯 <b>Причина:</b> {cause}")
+        risk = getattr(signal, 'signal_risk', '') or getattr(signal, 'details', '')
+        if risk:
+            scout_parts.append(f"⚖️ <b>Риск:</b> {risk}")
+        oracle_risk = getattr(signal, 'oracle_risk', '')
+        if oracle_risk:
+            scout_parts.append(f"👁️ <b>Оракул-риск:</b> {oracle_risk}")
+        verdict = getattr(signal, 'signal_verdict', '') or getattr(signal, 'trade_action', '')
+        if verdict:
+            scout_parts.append(f"📝 <b>Вердикт:</b> {verdict}")
+        scout_opinion_text = "\n".join(scout_parts)
+        
+        try:
+            add_discussion_message(m.id, "SCOUT", scout_opinion_text, getattr(signal, 'confidence', 0.5), True)
+        except Exception as e:
+            logger.error(f"Ошибка сохранения мнения SCOUT в БД: {e}")
+            
+    if swing_signal:
+        swing_parts = []
+        catalyst = getattr(swing_signal, 'catalyst', '')
+        if catalyst:
+            swing_parts.append(f"🚀 <b>Катализатор:</b> {catalyst}")
+        else:
+            quiet_reason = getattr(swing_signal, 'catalyst_absence_reason', '')
+            if quiet_reason:
+                swing_parts.append(f"💤 <b>Почему тихо:</b> {quiet_reason}")
+        risk = getattr(swing_signal, 'swing_risk', '') or getattr(swing_signal, 'details', '')
+        if risk:
+            swing_parts.append(f"⚖️ <b>Риск:</b> {risk}")
+        verdict = getattr(swing_signal, 'swing_verdict', '') or getattr(swing_signal, 'recommendation', '')
+        if verdict:
+            swing_parts.append(f"📝 <b>Вердикт:</b> {verdict}")
+        swing_opinion_text = "\n".join(swing_parts)
+        
+        try:
+            agree_swing = getattr(swing_signal, 'recommendation', '').lower() == 'buy'
+            add_discussion_message(m.id, "SWING", swing_opinion_text, getattr(swing_signal, 'confidence', 0.5), agree_swing)
+        except Exception as e:
+            logger.error(f"Ошибка сохранения мнения SWING в БД: {e}")
+    elif getattr(context, 'swing_skipped', False):
+        reason = getattr(context, 'swing_skip_reason', 'пропущен (flat price/noise)')
+        swing_opinion_text = f"💤 {reason}"
+        try:
+            add_discussion_message(m.id, "SWING", swing_opinion_text, 0.0, False)
+        except Exception as e:
+            logger.error(f"Ошибка сохранения мнения SWING (skipped) в БД: {e}")
+
     decision = make_consensus(context, signal, swing_signal, opinion_shadow)
     
     if decision.status == 'saved':
