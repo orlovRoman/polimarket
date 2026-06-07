@@ -44,7 +44,7 @@ class NexusAgent:
 
     def _get_current_system_prompt(self) -> str:
         """Формирует актуальный системный промпт с текущей датой и фактами из Layer 1."""
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         
         # Извлекаем приоритетные факты из Layer 1 (с учётом TTL и лимита)
         try:
@@ -67,7 +67,7 @@ class NexusAgent:
 
         prompt = (
             f"ТЕКУЩЕЕ ВРЕМЯ СИСТЕМЫ: {now}\n"
-            f"ВНИМАНИЕ: Все рынки на {datetime.now().year - 1} год и ранее считаются ИСТЕКШИМИ. Не анализируй их.\n\n"
+            f"ВНИМАНИЕ: Все рынки на {datetime.now(timezone.utc).year - 1} год и ранее считаются ИСТЕКШИМИ. Не анализируй их.\n\n"
             f"ТЫ — NEXUS, главный ИИ-координатор команды (SCOUT, SWING, SHADOW).\n"
             f"Твоя цель — живой диалог, управление системой и глубокая аналитика.\n\n"
             f"ЯДРО ПАМЯТИ (Layer 1 - Durable Facts):\n{facts_str}\n\n"

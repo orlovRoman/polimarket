@@ -361,7 +361,7 @@ def init_db():
             cursor.execute("""
                 CREATE TRIGGER IF NOT EXISTS agent_episodes_ai_v2 AFTER INSERT ON agent_episodes BEGIN
                     INSERT INTO agent_episodes_fts(episode_id, agent_name, summary, context) 
-                    VALUES (new.id, new.agent_name, new.summary, new.context);
+                    VALUES (new.id, new.agent_name, new.summary, COALESCE(new.context, '{}'));
                 END;
             """)
             
@@ -375,7 +375,7 @@ def init_db():
                 CREATE TRIGGER IF NOT EXISTS agent_episodes_au_v2 AFTER UPDATE ON agent_episodes BEGIN
                     DELETE FROM agent_episodes_fts WHERE episode_id = old.id;
                     INSERT INTO agent_episodes_fts(episode_id, agent_name, summary, context) 
-                    VALUES (new.id, new.agent_name, new.summary, new.context);
+                    VALUES (new.id, new.agent_name, new.summary, COALESCE(new.context, '{}'));
                 END;
             """)
             
@@ -1084,6 +1084,7 @@ def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summari
     summary_to_save = None
 
     with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM chat_history WHERE chat_id = ?", (chat_id,))
         count = cursor.fetchone()[0]
@@ -1383,11 +1384,12 @@ def save_memory(key: str, value: Any, category: str = 'general', ttl: int = None
     :param ttl: Время жизни в секундах (None = бессрочно)
     :param priority: Приоритет для ранжирования (0-10, выше = важнее)
     """
-    now = datetime.now(timezone.utc)
-    expires_at = None
+    now_dt = datetime.now(timezone.utc)
+    now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+    expires_at_str = None
     if ttl is not None:
         from datetime import timedelta
-        expires_at = (now + timedelta(seconds=ttl)).isoformat()
+        expires_at_str = (now_dt + timedelta(seconds=ttl)).strftime("%Y-%m-%d %H:%M:%S")
     
     with get_connection() as conn:
         conn.execute(
@@ -1397,7 +1399,7 @@ def save_memory(key: str, value: Any, category: str = 'general', ttl: int = None
                    value=excluded.value, updated_at=excluded.updated_at,
                    category=excluded.category, ttl=excluded.ttl, 
                    priority=excluded.priority, expires_at=excluded.expires_at""",
-            (key, json.dumps(value), now, category, ttl, priority, expires_at)
+            (key, json.dumps(value), now_str, category, ttl, priority, expires_at_str)
         )
 
 def get_memory(key: str, default: Any = None) -> Any:
@@ -1694,6 +1696,17 @@ def cleanup_old_price_history(days: int = 7) -> int:
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM price_history WHERE recorded_at < datetime('now', '-' || ? || ' days')",
+            (days,)
+        )
+        count = cursor.rowcount
+    return count
+
+def cleanup_old_episodes(days: int = 90) -> int:
+    """Удаляет старые эпизоды из таблицы agent_episodes."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM agent_episodes WHERE created_at < datetime('now', '-' || ? || ' days')",
             (days,)
         )
         count = cursor.rowcount

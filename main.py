@@ -12,7 +12,7 @@ sys.path.append(os.getcwd())
 
 from core.engine import CoreEngine, NoMarketsFoundError
 from telegram.bot import dp, bot, init_nexus_agent, get_nexus_agent, AUTHORIZED_CHAT_ID
-from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history
+from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history, cleanup_old_episodes
 import uvicorn
 from core.api import app as fastapi_app
 from config import logger  # Единый логгер из config.py — не дублируем basicConfig
@@ -46,6 +46,10 @@ async def scheduled_job():
         old_prices = cleanup_old_price_history(days=7)
         if old_prices > 0:
             logger.info(f"Очищено старых записей истории цен: {old_prices}")
+
+        old_episodes = cleanup_old_episodes(days=90)
+        if old_episodes > 0:
+            logger.info(f"Очищено старых эпизодов агентов: {old_episodes}")
 
         logger.info("<<< Сканирование завершено успешно.")
     except asyncio.CancelledError:
