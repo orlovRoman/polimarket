@@ -3422,38 +3422,104 @@ async def handle_compound_sell(callback: types.CallbackQuery):
     await callback.message.reply(f"🟢 <b>Позиция досрочно закрыта (Профи-продажа).</b>\n💰 PnL: <b>+${pnl:.2f}</b> (выход по {int(exit_price*100)}¢)", parse_mode="HTML")
 
 @dp.message(Command("compound"))
-async def cmd_compound(message: types.Message):
-    """Показывает активные Favourite Compounding возможности."""
-    from agents.shared.python.db import get_active_compound_opportunities, get_compound_stats
-    opps = await asyncio.to_thread(get_active_compound_opportunities)
-    stats = await asyncio.to_thread(get_compound_stats)
-    
-    lines = ["💰 <b>FAVOURITE COMPOUNDING</b>\n"]
-    lines.append(
-        f"📊 <b>Статистика:</b>\n"
-        f"• Всего возможностей: <b>{stats['total']}</b>\n"
-        f"• Открыто позиций: <b>{stats['bought']}</b>\n"
-        f"• Закрыто позиций: <b>{stats['resolved']}</b>\n"
-        f"• Win Rate: <b>{stats['win_rate']*100:.1f}%</b>\n"
-        f"• Общий PnL: <b>${stats['total_pnl']:.2f}</b>\n\n"
-        f"📈 <b>Активные сигналы:</b>"
-    )
-    
-    if not opps:
-        lines.append("<i>Активных Favourite Compounding возможностей нет.</i>")
-    else:
-        for o in opps[:10]:
-            status_label = "🆕" if o["status"] == "NEW" else ("⏳" if o["status"] == "ALERTED" else "🟢 КУПЛЕНО")
-            lines.append(
-                f"• {o['title'][:40]}...\n"
-                f"  {status_label} | {int(o['price']*100)}¢ | ROI <b>+{o['roi_net_pct']:.2f}%</b> | "
-                f"{o['hours_left']:.1f}ч"
+async def cmd_compound(message: types.Message) -> None:
+    """Compound: сканирует и сразу показывает результаты без /ideas."""
+    async with _favourite_compound_lock:
+        status_msg = await message.answer(
+            "💰 <b>Сканирую Favourite Compounding...</b>\n"
+            "<i>Ищу рынки ≥95¢ с закрытием до 14 дней</i>",
+            parse_mode="HTML"
+        )
+        try:
+            from services.favourite_compounder import run_favourite_scan
+            from agents.shared.adapters.polymarket import PolymarketAdapter
+
+            adapter = PolymarketAdapter()
+            # Берём больше рынков — у favourite_compound узкая воронка
+            markets = await asyncio.to_thread(
+                adapter.list_markets_paged, limit=500, offset=0, order="volume"
             )
-            
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Запустить сканирование", callback_data="scan_favourite_compound")]
-    ])
-    await message.answer("\n".join(lines), reply_markup=keyboard, parse_mode="HTML")
+            opportunities = await asyncio.to_thread(run_favourite_scan, markets)
+
+            if not opportunities:
+                await status_msg.edit_text(
+                    "💰 <b>Favourite Compounding</b>\n\n"
+                    "🤷 Рынков ≥95¢ с подходящими условиями не найдено.\n\n"
+                    "<i>Попробуйте позже или снизьте пороги в настройках.</i>",
+                    parse_mode="HTML"
+                )
+                return
+
+            # Сохраняем в БД и сразу показываем
+            await _show_compound_results(message, opportunities, status_msg)
+
+        except Exception as e:
+            logger.error(f"[Compound] Ошибка: {e}", exc_info=True)
+            await status_msg.edit_text(f"❌ Ошибка: {e}")
+
+
+async def _show_compound_results(
+    message: types.Message,
+    opportunities: list,
+    status_msg=None,
+) -> None:
+    """Отображает compound-возможности прямо в чат без /ideas."""
+    from agents.shared.python.db import save_compound_opportunity
+
+    text_header = f"💰 <b>Favourite Compounding — найдено {len(opportunities)}</b>\n\n"
+    
+    if status_msg:
+        try:
+            await status_msg.edit_text(
+                text_header + "<i>Сохраняю и формирую карточки...</i>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    for i, opp in enumerate(opportunities[:10], 1):
+        # Сохраняем в БД
+        try:
+            await asyncio.to_thread(save_compound_opportunity, opp)
+        except Exception as e:
+            logger.warning(f"[Compound] Ошибка сохранения {opp.market_id}: {e}")
+
+        # Время до закрытия
+        if opp.hours_left < 24:
+            time_str = f"{opp.hours_left:.1f}ч"
+            urgency = "🔴"
+        elif opp.hours_left < 72:
+            time_str = f"{opp.hours_left/24:.1f}д"
+            urgency = "🟡"
+        else:
+            time_str = f"{opp.hours_left/24:.0f}д"
+            urgency = "🟢"
+
+        card = (
+            f"<b>{i}. <a href='{opp.url}'>{opp.title[:60]}</a></b>\n"
+            f"📊 Цена: <b>{opp.price*100:.1f}¢</b> {opp.outcome} | "
+            f"ROI: <b>+{opp.roi_net_pct:.2f}%</b>\n"
+            f"⏳ Закрытие: {urgency} через <b>{time_str}</b>\n"
+            f"💎 Уверенность: <b>{opp.confidence*100:.0f}%</b> — {opp.obviousness_reason}\n"
+            f"💵 Объём: ${opp.volume_usd:,.0f}\n"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="✅ Купил", callback_data=f"compound_buy:{opp.opp_id}"
+            ),
+            InlineKeyboardButton(
+                text="⏭ Пропустить", callback_data=f"compound_skip:{opp.opp_id}"
+            ),
+        ]])
+
+        await message.answer(
+            card,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+            link_preview_options=LinkPreviewOptions(is_disabled=True)
+        )
+        await asyncio.sleep(0.3)  # flood control
 
 
 @dp.callback_query(F.data == "scan_favourite_compound")
@@ -3468,25 +3534,8 @@ async def callback_scan_favourite_compound(callback: CallbackQuery) -> None:
         await callback.answer()
         return
 
-    engine = get_core_engine()
-    if _scan_lock.locked() or _penny_scan_lock.locked() or engine._scan_lock.locked() or engine._penny_scan_lock.locked():
-        await callback.answer()
-        await callback.message.answer("⚠️ Сейчас выполняется другое сканирование рынков. Пожалуйста, подождите.")
-        return
-
-    if _favourite_compound_lock.locked():
-        await callback.answer()
-        await callback.message.answer("⚠️ Сканирование Favourite Compounding уже выполняется. Пожалуйста, подождите.")
-        return
-
-    await callback.message.answer("🚀 Запущено сканирование Favourite Compounding...")
-    await callback.answer("🔄 Запуск...")
-    try:
-        from main import scheduled_favourite_compounding
-        await scheduled_favourite_compounding()
-        await callback.message.answer("✅ Сканирование Favourite Compounding завершено!")
-    except Exception as e:
-        await callback.message.answer(f"❌ Ошибка при сканировании: {e}")
+    await callback.answer("🔄 Запуск сканирования...")
+    await cmd_compound(callback.message)
 
 
 @dp.message(F.text)

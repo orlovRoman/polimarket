@@ -109,7 +109,7 @@ class TestObviousnessValidator:
 # ── run_favourite_scan ───────────────────────────────────────
 
 class TestRunFavouriteScan:
-    @patch("agents.shared.python.db.get_compound_settings", return_value={
+    @patch("services.favourite_compounder.get_compound_settings", return_value={
         "min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50
     })
     def test_returns_opportunities(self, mock_cfg):
@@ -121,7 +121,7 @@ class TestRunFavouriteScan:
         assert len(opps) >= 1
         assert isinstance(opps[0], FavouriteOpportunity)
 
-    @patch("agents.shared.python.db.get_compound_settings", return_value={
+    @patch("services.favourite_compounder.get_compound_settings", return_value={
         "min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50
     })
     def test_sorted_by_roi_desc(self, mock_cfg):
@@ -134,7 +134,7 @@ class TestRunFavouriteScan:
         if len(opps) >= 2:
             assert opps[0].roi_net_pct >= opps[1].roi_net_pct
 
-    @patch("agents.shared.python.db.get_compound_settings", return_value={
+    @patch("services.favourite_compounder.get_compound_settings", return_value={
         "min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50
     })
     def test_low_confidence_filtered_out(self, mock_cfg):
@@ -148,7 +148,7 @@ class TestRunFavouriteScan:
 # ── calibrate_confidence_threshold ────────────────────────────
 
 class TestCalibrateConfidenceThreshold:
-    @patch("agents.shared.python.db.get_compound_settings", return_value={"min_confidence": 0.5})
+    @patch("services.favourite_compounder.get_compound_settings", return_value={"min_confidence": 0.5})
     @patch("agents.shared.python.db.save_compound_setting")
     @patch("agents.shared.python.db.get_connection")
     def test_calibrate_no_data(self, mock_get_conn, mock_save, mock_cfg):
@@ -158,7 +158,7 @@ class TestCalibrateConfidenceThreshold:
         assert threshold == 0.5
         mock_save.assert_not_called()
 
-    @patch("agents.shared.python.db.get_compound_settings", return_value={"min_confidence": 0.5})
+    @patch("services.favourite_compounder.get_compound_settings", return_value={"min_confidence": 0.5})
     @patch("agents.shared.python.db.save_compound_setting")
     @patch("agents.shared.python.db.get_connection")
     def test_calibrate_high_win_rate(self, mock_get_conn, mock_save, mock_cfg):
@@ -170,7 +170,7 @@ class TestCalibrateConfidenceThreshold:
         assert threshold == 0.45
         mock_save.assert_called_with("min_confidence", "0.45")
 
-    @patch("agents.shared.python.db.get_compound_settings", return_value={"min_confidence": 0.5})
+    @patch("services.favourite_compounder.get_compound_settings", return_value={"min_confidence": 0.5})
     @patch("agents.shared.python.db.save_compound_setting")
     @patch("agents.shared.python.db.get_connection")
     def test_calibrate_low_win_rate(self, mock_get_conn, mock_save, mock_cfg):
@@ -201,7 +201,7 @@ class TestROICalculatorSpreadBug:
 
 # ── Тест бага: calibrate при NULL win_rate ────────────────────
 class TestCalibrateNullWinRate:
-    @patch("agents.shared.python.db.get_compound_settings",
+    @patch("services.favourite_compounder.get_compound_settings",
            return_value={"min_confidence": 0.5})
     @patch("agents.shared.python.db.save_compound_setting")
     @patch("agents.shared.python.db.get_connection")

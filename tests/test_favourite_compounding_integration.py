@@ -24,8 +24,8 @@ async def test_scheduled_favourite_compounding_success():
     mock_m1._orderbook = None
 
     with patch("core.singleton.get_core_engine") as mock_engine_getter, \
-         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
-         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 500, "max_hours": 336, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.35}), \
+         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 500, "max_hours": 336, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.35}), \
          patch("agents.shared.python.db.get_active_compound_opportunities", return_value=[]), \
          patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5), \
          patch("services.favourite_compounder.ObviousnessValidator.validate", return_value=(0.8, "Test reason")), \
@@ -87,8 +87,8 @@ async def test_scheduled_favourite_compounding_no_outcome_success():
     mock_m1._orderbook = None
 
     with patch("core.singleton.get_core_engine") as mock_engine_getter, \
-         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
-         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 500, "max_hours": 336, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.35}), \
+         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 500, "max_hours": 336, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.35}), \
          patch("agents.shared.python.db.get_active_compound_opportunities", return_value=[]), \
          patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5), \
          patch("services.favourite_compounder.ObviousnessValidator.validate", return_value=(0.8, "Test reason")), \
@@ -163,3 +163,48 @@ def test_mark_compound_bought_creates_signal():
         assert sig["estimated_probability"] == 0.8
         assert sig["market_price_at_signal"] == 0.96
         assert sig["status"] == "PENDING"
+
+
+def test_save_and_get_compound_opportunity():
+    from agents.shared.python.db import init_db, get_connection, save_compound_opportunity, get_compound_opportunities
+    from services.favourite_compounder import FavouriteOpportunity
+    import uuid
+
+    init_db()
+
+    unique_suffix = uuid.uuid4().hex[:8]
+    market_id = f"mkt_test_save_get_{unique_suffix}"
+    
+    opp = FavouriteOpportunity(
+        market_id=market_id,
+        title="Test Opportunity Title",
+        url="https://test.opportunity.url",
+        price=0.96,
+        volume_usd=12000.0,
+        close_time=datetime.now(timezone.utc) + timedelta(hours=48),
+        hours_left=48.0,
+        spread_pct=0.005,
+        roi_net_pct=3.5,
+        confidence=0.8,
+        obviousness_reason="Grounding confirmed",
+        outcome="YES"
+    )
+
+    with get_connection() as conn:
+        conn.execute("DELETE FROM compound_opportunities WHERE market_id = ?", (market_id,))
+
+    save_compound_opportunity(opp)
+
+    active_opps = get_compound_opportunities(limit=5)
+    matched = [o for o in active_opps if o["market_id"] == market_id]
+    
+    assert len(matched) == 1
+    assert matched[0]["title"] == "Test Opportunity Title"
+    assert matched[0]["price"] == 0.96
+    assert matched[0]["volume_usd"] == 12000.0
+    assert matched[0]["confidence"] == 0.8
+    assert matched[0]["outcome"] == "YES"
+    assert matched[0]["status"] == "NEW"
+
+    # Save again should do nothing
+    save_compound_opportunity(opp)

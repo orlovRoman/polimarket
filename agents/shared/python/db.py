@@ -13,6 +13,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from config import DB_PATH
 import logging
 
+COMPOUND_DEFAULTS = {
+    "min_price": "0.95",
+    "min_volume": "500",
+    "max_hours": "336",
+    "virtual_stake": "50",
+    "enabled": "1",
+    "min_confidence": "0.35"
+}
+
 logger = logging.getLogger("NexusPolyBot.DB")
 
 _db_initializing = False
@@ -741,18 +750,14 @@ def init_db():
                 )
             """)
             # Дефолтные настройки
-            for k, v in [
-                ("min_price", "0.95"),
-                ("min_volume", "1000"),
-                ("max_hours", "48"),
-                ("virtual_stake", "50"),
-                ("enabled", "1"),
-                ("min_confidence", "0.5")
-            ]:
+            for k, v in COMPOUND_DEFAULTS.items():
                 cursor.execute("INSERT OR IGNORE INTO compound_settings (key, value) VALUES (?, ?)", (k, v))
             
-            # Миграция: обновляем старый дефолт 10000 до нового дефолта 1000
-            cursor.execute("UPDATE compound_settings SET value = '1000' WHERE key = 'min_volume' AND value = '10000'")
+            # Миграция: обновляем старые дефолты до новых
+            cursor.execute("UPDATE compound_settings SET value = '500' WHERE key = 'min_volume' AND value = '1000'")
+            cursor.execute("UPDATE compound_settings SET value = '336' WHERE key = 'max_hours' AND value = '48'")
+            cursor.execute("UPDATE compound_settings SET value = '0.35' WHERE key = 'min_confidence' AND value = '0.5'")
+            cursor.execute("UPDATE compound_settings SET value = '500' WHERE key = 'min_volume' AND value = '10000'")
 
             # Таблица черного списка тегов
             cursor.execute("""
@@ -2153,6 +2158,40 @@ def upsert_compound_opportunity(opp: dict) -> bool:
         ))
         return True
 
+def save_compound_opportunity(opp) -> None:
+    """Сохраняет FavouriteOpportunity в таблицу compound_opportunities."""
+    close_time_str = opp.close_time.isoformat() if hasattr(opp.close_time, 'isoformat') else str(opp.close_time)
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM compound_opportunities WHERE id = ?", (opp.opp_id,)
+        ).fetchone()
+        if existing:
+            return
+        conn.execute("""
+            INSERT INTO compound_opportunities 
+              (id, market_id, title, url, price, volume_usd, close_time,
+               hours_left, spread_pct, roi_net_pct, confidence, obviousness_reason,
+               status, outcome, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP)
+        """, (
+            opp.opp_id, opp.market_id, opp.title, opp.url,
+            opp.price, opp.volume_usd, close_time_str,
+            opp.hours_left, opp.spread_pct, opp.roi_net_pct,
+            opp.confidence, opp.obviousness_reason, opp.outcome
+        ))
+
+def get_compound_opportunities(limit: int = 20) -> list[dict]:
+    """Возвращает актуальные compound-возможности (не старше 24 часов)."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT * FROM compound_opportunities
+            WHERE created_at >= datetime('now', '-24 hours')
+              AND status = 'NEW'
+            ORDER BY roi_net_pct DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
 def get_active_compound_opportunities() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("""
@@ -2211,12 +2250,7 @@ def resolve_compound_opportunity(opp_id: str, outcome: str, pnl_usd: float, exit
 def get_compound_settings() -> dict:
     with get_connection() as conn:
         rows = conn.execute("SELECT key, value FROM compound_settings").fetchall()
-    defaults = {
-        "min_price": "0.95", "min_volume": "1000",
-        "max_hours": "48", "virtual_stake": "50", "enabled": "1",
-        "min_confidence": "0.5"
-    }
-    result = dict(defaults)
+    result = dict(COMPOUND_DEFAULTS)
     result.update({r["key"]: r["value"] for r in rows})
     return {k: float(v) if k not in ("enabled",) else int(v) for k, v in result.items()}
 
