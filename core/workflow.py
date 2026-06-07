@@ -519,7 +519,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     gate = check_onchain_gate(oc_score, m.id, total_vol, market_tag)
 
-    if not gate.allow:
+    if trigger_type != "manual" and not gate.allow:
         logger.info(f"[SwingGate] ⛔ {m.title[:60]!r} — {gate.reason}")
         save_gate_metrics(
             run_id=str(uuid.uuid4())[:8],
