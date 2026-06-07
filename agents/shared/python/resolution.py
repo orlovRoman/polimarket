@@ -29,7 +29,7 @@ def resolve_closed_markets():
             FROM signals s
             JOIN markets m ON s.market_id = m.id
             WHERE s.status IN ('PENDING', 'ARCHIVED') 
-              AND m.close_time < datetime('now', '+15 minutes')
+              AND datetime(m.close_time) < datetime('now', '+15 minutes')
               AND s.platform = 'polymarket'
         """)
         pending = cursor.fetchall()

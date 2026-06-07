@@ -1515,7 +1515,7 @@ def cleanup_stale_signals(days: int = 365) -> int:
         cursor.execute("""
             UPDATE signals SET status = 'ARCHIVED'
             WHERE status = 'PENDING' AND market_id IN (
-                SELECT id FROM markets WHERE close_time < datetime('now')
+                SELECT id FROM markets WHERE datetime(close_time) < datetime('now')
             )
         """)
         archived_expired = cursor.rowcount
@@ -2098,7 +2098,7 @@ def get_active_compound_opportunities() -> list[dict]:
         rows = conn.execute("""
             SELECT * FROM compound_opportunities
             WHERE status IN ('NEW', 'ALERTED', 'BOUGHT')
-              AND close_time > datetime('now')
+              AND datetime(close_time) > datetime('now')
             ORDER BY roi_net_pct DESC
         """).fetchall()
     return [dict(r) for r in rows]

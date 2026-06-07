@@ -77,7 +77,7 @@ def _get_pending_with_closed_market() -> list[dict]:
             FROM signals s
             JOIN markets m ON s.market_id = m.id
             WHERE s.status = 'PENDING'
-              AND m.close_time < datetime('now')
+              AND datetime(m.close_time) < datetime('now')
               AND s.resolved_at IS NULL
         """).fetchall()
     return [dict(r) for r in rows]
