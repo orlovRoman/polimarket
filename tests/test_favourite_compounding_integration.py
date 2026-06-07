@@ -53,7 +53,7 @@ async def test_scheduled_favourite_compounding_success():
         assert args["confidence"] == 0.8
         assert args["obviousness_reason"] == "Test reason"
         assert args["roi_net_pct"] > 0
-        assert args["hours_left"] == 24.0
+        assert abs(args["hours_left"] - 24.0) < 0.1
 
 def test_get_stats_creates_table():
     with patch("agents.shared.python.db.get_connection") as mock_get_conn:

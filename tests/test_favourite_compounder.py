@@ -31,13 +31,21 @@ class TestFavouriteFilter:
         assert len(FavouriteFilter().scan([_market(price=0.94)])) == 0
 
     def test_rejects_low_volume(self):
-        assert len(FavouriteFilter().scan([_market(volume=500)])) == 0
+        assert len(FavouriteFilter(min_volume_usd=1000.0).scan([_market(volume=500)])) == 0
+
+    def test_rejects_low_volume_prod_cfg(self):
+        assert len(FavouriteFilter(min_volume_usd=500.0).scan([_market(volume=250)])) == 0
 
     def test_rejects_expired_market(self):
         assert len(FavouriteFilter().scan([_market(hours=-1)])) == 0
 
-    def test_rejects_far_future(self):
-        assert len(FavouriteFilter().scan([_market(hours=72)])) == 0
+    def test_rejects_far_future_with_default_class(self):
+        """Класс с дефолтом 48h — 72h отфильтровывается"""
+        assert len(FavouriteFilter(max_hours=48).scan([_market(hours=72)])) == 0
+
+    def test_passes_72h_with_336_cfg(self):
+        """С prod-cfg max_hours=336 — 72h должны пройти"""
+        assert len(FavouriteFilter(max_hours=336).scan([_market(hours=72)])) == 1
 
     def test_boundary_price_095(self):
         assert len(FavouriteFilter(min_price=0.95).scan([_market(price=0.95)])) == 1
@@ -134,13 +142,20 @@ class TestRunFavouriteScan:
         if len(opps) >= 2:
             assert opps[0].roi_net_pct >= opps[1].roi_net_pct
 
+    def test_run_favourite_scan_db_error_fallback(self):
+        """Проверяем, что при сбое БД скан не падает и использует дефолты"""
+        with patch("services.favourite_compounder.get_compound_settings", side_effect=Exception("DB unavailable")):
+            with patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5):
+                result = run_favourite_scan([])
+                assert result == []
+
 
 # ── calibrate_confidence_threshold ────────────────────────────
 
 class TestCalibrateConfidenceThreshold:
     @patch("services.favourite_compounder.get_compound_settings", return_value={"min_confidence": 0.5})
-    @patch("agents.shared.python.db.save_compound_setting")
-    @patch("agents.shared.python.db.get_connection")
+    @patch("services.favourite_compounder.save_compound_setting")
+    @patch("services.favourite_compounder.get_connection")
     def test_calibrate_no_data(self, mock_get_conn, mock_save, mock_cfg):
         # Если в базе нет записей для FAVOURITE_COMPOUND, порог не меняется
         mock_get_conn.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = None
@@ -149,8 +164,8 @@ class TestCalibrateConfidenceThreshold:
         mock_save.assert_not_called()
 
     @patch("services.favourite_compounder.get_compound_settings", return_value={"min_confidence": 0.5})
-    @patch("agents.shared.python.db.save_compound_setting")
-    @patch("agents.shared.python.db.get_connection")
+    @patch("services.favourite_compounder.save_compound_setting")
+    @patch("services.favourite_compounder.get_connection")
     def test_calibrate_high_win_rate(self, mock_get_conn, mock_save, mock_cfg):
         # Если win_rate > 85%, то порог должен снизиться (т.к. мы слишком уверены)
         mock_get_conn.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = {
@@ -161,8 +176,8 @@ class TestCalibrateConfidenceThreshold:
         mock_save.assert_called_with("min_confidence", "0.45")
 
     @patch("services.favourite_compounder.get_compound_settings", return_value={"min_confidence": 0.5})
-    @patch("agents.shared.python.db.save_compound_setting")
-    @patch("agents.shared.python.db.get_connection")
+    @patch("services.favourite_compounder.save_compound_setting")
+    @patch("services.favourite_compounder.get_connection")
     def test_calibrate_low_win_rate(self, mock_get_conn, mock_save, mock_cfg):
         # Если win_rate < 70%, то порог должен повыситься (чтобы стать более строгим)
         mock_get_conn.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = {
@@ -193,8 +208,8 @@ class TestROICalculatorSpreadBug:
 class TestCalibrateNullWinRate:
     @patch("services.favourite_compounder.get_compound_settings",
            return_value={"min_confidence": 0.5})
-    @patch("agents.shared.python.db.save_compound_setting")
-    @patch("agents.shared.python.db.get_connection")
+    @patch("services.favourite_compounder.save_compound_setting")
+    @patch("services.favourite_compounder.get_connection")
     def test_null_win_rate_returns_current_threshold(self, mock_conn, mock_save, mock_cfg):
         """NULL win_rate в БД не должен вызывать TypeError"""
         mock_conn.return_value.__enter__.return_value \
@@ -209,12 +224,12 @@ class TestCalibrateNullWinRate:
 # ── Тест: ImportError в _check_google ────────────────────────
 class TestObviousnessGoogleImportError:
     def test_check_google_import_error_returns_zero(self):
-        """Если core.workflow не импортируется — graceful fallback"""
+        """Если agents.shared.utils.gemini_client не импортируется — graceful fallback"""
         import builtins
         real_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):
-            if name == "core.workflow":
+            if name == "agents.shared.utils.gemini_client":
                 raise ImportError("модуль недоступен")
             return real_import(name, *args, **kwargs)
 

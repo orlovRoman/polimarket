@@ -12,7 +12,7 @@ from typing import Optional
 
 logger = logging.getLogger("NexusPolyBot.FavouriteCompounder")
 
-from agents.shared.python.db import get_compound_settings
+from agents.shared.python.db import get_compound_settings, get_connection, save_compound_setting
 
 # ════════════════════════════════════════════════════
 # 1. DATA MODEL
@@ -255,9 +255,13 @@ class ROICalculator:
 
 def calibrate_confidence_threshold() -> float:
     """Динамически калибрует порог уверенности на основе Rolling 30d Win Rate."""
-    from agents.shared.python.db import get_connection, save_compound_setting
-    cfg = get_compound_settings()
-    current_threshold = cfg.get("min_confidence", 0.5)
+    try:
+        cfg = get_compound_settings()
+        current_threshold = cfg.get("min_confidence", 0.5)
+    except Exception as exc:
+        logger.error(f"[Compounder] Ошибка получения настроек в калибраторе: {exc}")
+        current_threshold = 0.35
+        return current_threshold
     
     # Получаем win_rate за 30 дней из strategy_metrics
     try:
@@ -288,8 +292,11 @@ def calibrate_confidence_threshold() -> float:
         
     new_threshold = round(new_threshold, 2)
     if new_threshold != current_threshold:
-        save_compound_setting("min_confidence", str(new_threshold))
-        logger.info(f"[Compounder] Автокалибровка порога уверенности: {current_threshold} -> {new_threshold} (win_rate={win_rate:.1%})")
+        try:
+            save_compound_setting("min_confidence", str(new_threshold))
+            logger.info(f"[Compounder] Автокалибровка порога уверенности: {current_threshold} -> {new_threshold} (win_rate={win_rate:.1%})")
+        except Exception as exc:
+            logger.error(f"[Compounder] Ошибка сохранения калибровки: {exc}")
         
     return new_threshold
 
@@ -306,16 +313,20 @@ def run_favourite_scan(
     Главная точка входа.
     Принимает список Market, возвращает список FavouriteOpportunity.
     """
-    cfg = get_compound_settings()
+    try:
+        cfg = get_compound_settings()
+    except Exception as exc:
+        logger.error(f"[Compounder] Ошибка получения настроек: {exc}. Используем дефолты.")
+        cfg = {"min_price": 0.95, "min_volume": 500.0, "max_hours": 336.0, "virtual_stake": 50}
 
     # Запускаем авто-калибровку
     calibrated_conf = calibrate_confidence_threshold()
     min_conf = min_confidence if min_confidence is not None else calibrated_conf
 
     filt = FavouriteFilter(
-        min_price=cfg["min_price"],
-        min_volume_usd=cfg["min_volume"],
-        max_hours=cfg["max_hours"],
+        min_price=float(cfg["min_price"]),
+        min_volume_usd=float(cfg["min_volume"]),
+        max_hours=float(cfg["max_hours"]),
     )
     validator = ObviousnessValidator()
     calc = ROICalculator()

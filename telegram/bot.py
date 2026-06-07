@@ -28,7 +28,11 @@ from agents.shared.python.db import (
     add_to_market_list, remove_from_market_list, is_in_market_list,
     get_market_list, is_alert_already_sent, archive_signal_by_id,
     get_market_from_db, get_market_discussions,
-    get_blacklist_tags, add_blacklist_tag, remove_blacklist_tag
+    get_blacklist_tags, add_blacklist_tag, remove_blacklist_tag,
+    get_active_compound_opportunities, get_compound_stats,
+    get_compound_settings, save_compound_setting,
+    mark_compound_bought, mark_compound_alerted,
+    upsert_compound_opportunity
 )
 from agents.orchestrator.src.agent import NexusAgent
 
@@ -3421,110 +3425,366 @@ async def handle_compound_sell(callback: types.CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.reply(f"🟢 <b>Позиция досрочно закрыта (Профи-продажа).</b>\n💰 PnL: <b>+${pnl:.2f}</b> (выход по {int(exit_price*100)}¢)", parse_mode="HTML")
 
+def _build_compound_menu_text() -> str:
+    from agents.shared.python.db import get_compound_stats, get_compound_settings
+    stats = get_compound_stats()
+    cfg = get_compound_settings()
+    
+    text = (
+        "💰 <b>Favourite Compounding (≥95¢)</b>\n\n"
+        "📈 <b>Настройки фильтрации:</b>\n"
+        f"  • Мин. цена: <b>{cfg['min_price']*100:.1f}¢</b>\n"
+        f"  • Мин. объем: <b>${cfg['min_volume']:,.0f}</b>\n"
+        f"  • Макс. время до закрытия: <b>{cfg['max_hours']:.1f} ч</b>\n\n"
+        "📊 <b>Статистика портфеля:</b>\n"
+        f"  • Всего найдено возможностей: <b>{stats['total']}</b>\n"
+        f"  • Куплено позиций: <b>{stats['bought']}</b>\n"
+        f"  • Закрыто сделок: <b>{stats['resolved']}</b>\n"
+        f"  • Точность (Win Rate): <b>{stats['win_rate']:.1%}</b>\n"
+        f"  • Общий профит (PnL): <b>{'+' if stats['total_pnl'] >= 0 else ''}${stats['total_pnl']:.2f}</b>\n"
+    )
+    return text
+
+
+def _build_compound_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Активные возможности", callback_data="compound_list_0")],
+        [
+            InlineKeyboardButton(text="🚀 Запустить скан", callback_data="compound_run_scan"),
+            InlineKeyboardButton(text="⚙️ Настройки", callback_data="compound_settings")
+        ],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_message")]
+    ])
+
+
 @dp.message(Command("compound"))
 async def cmd_compound(message: types.Message) -> None:
-    """Compound: сканирует и сразу показывает результаты без /ideas."""
-    async with _favourite_compound_lock:
-        status_msg = await message.answer(
-            "💰 <b>Сканирую Favourite Compounding...</b>\n"
-            "<i>Ищу рынки ≥95¢ с закрытием до 14 дней</i>",
-            parse_mode="HTML"
-        )
-        try:
-            from services.favourite_compounder import run_favourite_scan
-            from agents.shared.adapters.polymarket import PolymarketAdapter
-
-            adapter = PolymarketAdapter()
-            # Берём больше рынков — у favourite_compound узкая воронка
-            markets = await asyncio.to_thread(
-                adapter.list_markets_paged, limit=500, offset=0, order="volume"
-            )
-            opportunities = await asyncio.to_thread(run_favourite_scan, markets)
-
-            if not opportunities:
-                await status_msg.edit_text(
-                    "💰 <b>Favourite Compounding</b>\n\n"
-                    "🤷 Рынков ≥95¢ с подходящими условиями не найдено.\n\n"
-                    "<i>Попробуйте позже или снизьте пороги в настройках.</i>",
-                    parse_mode="HTML"
-                )
-                return
-
-            # Сохраняем в БД и сразу показываем
-            await _show_compound_results(message, opportunities, status_msg)
-
-        except Exception as e:
-            logger.error(f"[Compound] Ошибка: {e}", exc_info=True)
-            await status_msg.edit_text(f"❌ Ошибка: {e}")
+    text = await asyncio.to_thread(_build_compound_menu_text)
+    kb = _build_compound_menu_keyboard()
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
-async def _show_compound_results(
-    message: types.Message,
-    opportunities: list,
-    status_msg=None,
-) -> None:
-    """Отображает compound-возможности прямо в чат без /ideas."""
-    from agents.shared.python.db import save_compound_opportunity
+@dp.callback_query(F.data == "compound_menu")
+async def callback_compound_menu(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+        
+    text = await asyncio.to_thread(_build_compound_menu_text)
+    kb = _build_compound_menu_keyboard()
+    await send_or_edit(callback, text, kb)
 
-    text_header = f"💰 <b>Favourite Compounding — найдено {len(opportunities)}</b>\n\n"
+
+async def _send_compound_list(message_or_callback, page: int = 0) -> None:
+    from agents.shared.python.db import get_active_compound_opportunities
+    from datetime import timezone
+    opps = await asyncio.to_thread(get_active_compound_opportunities)
     
-    if status_msg:
-        try:
-            await status_msg.edit_text(
-                text_header + "<i>Сохраняю и формирую карточки...</i>",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
+    # Фильтруем возможности: оставляем только новые (NEW)
+    opps = [o for o in opps if o["status"] == "NEW"]
+    
+    if not opps:
+        text = "🤷‍♂️ Нет новых активных Favourite Compounding возможностей.\nЗапустите сканирование для поиска новых."
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Запустить скан", callback_data="compound_run_scan")],
+            [InlineKeyboardButton(text="⬅️ Меню", callback_data="compound_menu")]
+        ])
+        await send_or_edit(message_or_callback, text, kb)
+        return
 
-    for i, opp in enumerate(opportunities[:10], 1):
-        # Сохраняем в БД
-        try:
-            await asyncio.to_thread(save_compound_opportunity, opp)
-        except Exception as e:
-            logger.warning(f"[Compound] Ошибка сохранения {opp.market_id}: {e}")
-
-        # Время до закрытия
-        if opp.hours_left < 24:
-            time_str = f"{opp.hours_left:.1f}ч"
-            urgency = "🔴"
-        elif opp.hours_left < 72:
-            time_str = f"{opp.hours_left/24:.1f}д"
-            urgency = "🟡"
+    total_pages = len(opps)
+    if page >= total_pages:
+        page = 0
+    if page < 0:
+        page = total_pages - 1
+        
+    opp = opps[page]
+    
+    try:
+        ct_str = opp["close_time"]
+        if " " in ct_str:
+            ct = datetime.strptime(ct_str.split(".")[0], "%Y-%m-%d %H:%M:%S")
         else:
-            time_str = f"{opp.hours_left/24:.0f}д"
-            urgency = "🟢"
+            ct = datetime.fromisoformat(ct_str.replace("Z", "+00:00").split(".")[0])
+        ct = ct.replace(tzinfo=timezone.utc) if ct.tzinfo is None else ct
+        hours_left = (ct - datetime.now(timezone.utc)).total_seconds() / 3600
+    except Exception:
+        hours_left = opp["hours_left"] or 0.0
 
-        card = (
-            f"<b>{i}. <a href='{opp.url}'>{opp.title[:60]}</a></b>\n"
-            f"📊 Цена: <b>{opp.price*100:.1f}¢</b> {opp.outcome} | "
-            f"ROI: <b>+{opp.roi_net_pct:.2f}%</b>\n"
-            f"⏳ Закрытие: {urgency} через <b>{time_str}</b>\n"
-            f"💎 Уверенность: <b>{opp.confidence*100:.0f}%</b> — {opp.obviousness_reason}\n"
-            f"💵 Объём: ${opp.volume_usd:,.0f}\n"
-        )
+    if hours_left < 24:
+        time_str = f"{hours_left:.1f}ч"
+        urgency = "🔴"
+    elif hours_left < 72:
+        time_str = f"{hours_left/24:.1f}д"
+        urgency = "🟡"
+    else:
+        time_str = f"{hours_left/24:.0f}д"
+        urgency = "🟢"
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="✅ Купил", callback_data=f"compound_buy:{opp.opp_id}"
-            ),
-            InlineKeyboardButton(
-                text="⏭ Пропустить", callback_data=f"compound_skip:{opp.opp_id}"
-            ),
-        ]])
+    title_safe = opp["title"].replace("<", "&lt;").replace(">", "&gt;")
+    card = (
+        f"💰 <b>Активная возможность {page + 1} из {total_pages}</b>\n\n"
+        f"<b><a href='{opp['url']}'>{title_safe}</a></b>\n"
+        f"📊 Цена: <b>{opp['price']*100:.1f}¢</b> {opp['outcome']} | "
+        f"ROI: <b>+{opp['roi_net_pct']:.2f}%</b>\n"
+        f"⏳ Закрытие: {urgency} через <b>{time_str}</b>\n"
+        f"💎 Уверенность: <b>{opp['confidence']*100:.0f}%</b>\n"
+        f"📝 Причина: {opp['obviousness_reason']}\n"
+        f"💵 Объём: ${opp['volume_usd']:,.0f}\n"
+    )
+    
+    # Кнопки навигации
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"compound_list_{page - 1}"))
+    if page + 1 < total_pages:
+        nav_row.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"compound_list_{page + 1}"))
+        
+    action_row = [
+        InlineKeyboardButton(text="✅ Купил", callback_data=f"compound_buy:{opp['id']}:{page}"),
+        InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"compound_skip:{opp['id']}:{page}")
+    ]
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        action_row,
+        nav_row,
+        [InlineKeyboardButton(text="⬅️ Меню", callback_data="compound_menu")]
+    ])
+    
+    await send_or_edit(message_or_callback, card, kb)
 
-        await message.answer(
-            card,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            link_preview_options=LinkPreviewOptions(is_disabled=True)
-        )
-        await asyncio.sleep(0.3)  # flood control
+
+@dp.callback_query(F.data.startswith("compound_list_"))
+async def callback_compound_list(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+        
+    page = int(callback.data.split("_")[2])
+    await _send_compound_list(callback, page)
+
+
+@dp.callback_query(F.data == "compound_run_scan")
+async def callback_compound_run_scan(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+        
+    if _favourite_compound_lock.locked():
+        await callback.answer("⚠️ Сканирование уже выполняется!", show_alert=True)
+        return
+        
+    await callback.answer("🔄 Запускаю сканирование...")
+    await callback.message.edit_text(
+        "💰 <b>Запущено сканирование Favourite Compounding...</b>\n"
+        "<i>Запрос рынков на Polymarket и фильтрация (10-30 сек)</i>",
+        parse_mode="HTML"
+    )
+    
+    async def run_scan_task():
+        async with _favourite_compound_lock:
+            try:
+                from services.favourite_compounder import run_favourite_scan
+                from agents.shared.adapters.polymarket import PolymarketAdapter
+                from agents.shared.python.db import save_compound_opportunity, get_active_compound_opportunities
+                
+                adapter = PolymarketAdapter()
+                # Получаем 500 рынков
+                markets = await asyncio.to_thread(
+                    adapter.list_markets_paged, limit=500, offset=0, order="volume"
+                )
+                opportunities = await asyncio.to_thread(run_favourite_scan, markets)
+                
+                for opp in opportunities:
+                    try:
+                        await asyncio.to_thread(save_compound_opportunity, opp)
+                    except Exception as e:
+                        logger.warning(f"[Compound Scan] Ошибка сохранения {opp.market_id}: {e}")
+                
+                active_opps = await asyncio.to_thread(get_active_compound_opportunities)
+                new_active = [o for o in active_opps if o["status"] == "NEW"]
+                
+                text = (
+                    "💰 <b>Сканирование завершено!</b>\n\n"
+                    f"Найдено подходящих рынков: <b>{len(opportunities)}</b>\n"
+                    f"Новых активных возможностей в списке: <b>{len(new_active)}</b>\n"
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📋 Активные возможности", callback_data="compound_list_0")],
+                    [InlineKeyboardButton(text="⬅️ Меню", callback_data="compound_menu")]
+                ])
+                await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"[Compound Scan] Ошибка: {e}", exc_info=True)
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⬅️ Назад", callback_data="compound_menu")]
+                ])
+                await callback.message.edit_text(f"❌ Ошибка при сканировании: {e}", reply_markup=kb, parse_mode="HTML")
+                
+    asyncio.create_task(run_scan_task())
+
+
+@dp.callback_query(F.data.startswith("compound_buy:"))
+async def callback_compound_buy(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+        
+    parts = callback.data.split(":")
+    opp_id = parts[1]
+    page = int(parts[2]) if len(parts) > 2 else 0
+    
+    from agents.shared.python.db import mark_compound_bought
+    await asyncio.to_thread(mark_compound_bought, opp_id)
+    await callback.answer("✅ Отмечено как куплено!")
+    
+    await _send_compound_list(callback, page)
+
+
+@dp.callback_query(F.data.startswith("compound_skip:"))
+async def callback_compound_skip(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+        
+    parts = callback.data.split(":")
+    opp_id = parts[1]
+    page = int(parts[2]) if len(parts) > 2 else 0
+    
+    from agents.shared.python.db import mark_compound_alerted
+    await asyncio.to_thread(mark_compound_alerted, opp_id)
+    await callback.answer("⏭ Возможность пропущена")
+    
+    await _send_compound_list(callback, page)
+
+
+def _build_compound_settings_text() -> str:
+    from agents.shared.python.db import get_compound_settings
+    cfg = get_compound_settings()
+    text = (
+        "⚙️ <b>Настройки Favourite Compounding</b>\n\n"
+        "Здесь вы можете изменить параметры фильтрации рынков:\n"
+        f"  • <b>Максимальное время до закрытия (max_hours):</b> {cfg['max_hours']:.1f} ч\n"
+        f"  • <b>Минимальный объем торгов (min_volume):</b> ${cfg['min_volume']:,.0f}\n"
+    )
+    return text
+
+
+def _build_compound_settings_keyboard() -> InlineKeyboardMarkup:
+    from agents.shared.python.db import get_compound_settings
+    cfg = get_compound_settings()
+    
+    h = int(cfg['max_hours'])
+    vol = int(cfg['min_volume'])
+    
+    hours_buttons = []
+    for val in [48, 72, 168, 336]:
+        label = f"{val}ч"
+        if h == val:
+            label += " ✅"
+        hours_buttons.append(InlineKeyboardButton(text=label, callback_data=f"cset_hours_{val}"))
+        
+    vol_buttons = []
+    for val in [250, 500, 1000, 2500]:
+        label = f"${val}"
+        if vol == val:
+            label += " ✅"
+        vol_buttons.append(InlineKeyboardButton(text=label, callback_data=f"cset_vol_{val}"))
+        
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏳ Макс. время до закрытия:", callback_data="noop")],
+        hours_buttons,
+        [InlineKeyboardButton(text="💵 Мин. объем торгов:", callback_data="noop")],
+        vol_buttons,
+        [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="compound_menu")]
+    ])
+
+
+@dp.callback_query(F.data == "compound_settings")
+async def callback_compound_settings(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+        
+    text = await asyncio.to_thread(_build_compound_settings_text)
+    kb = await asyncio.to_thread(_build_compound_settings_keyboard)
+    await send_or_edit(callback, text, kb)
+
+
+@dp.callback_query(F.data.startswith("cset_hours_"))
+async def callback_cset_hours(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+        
+    val = callback.data.split("_")[2]
+    from agents.shared.python.db import save_compound_setting
+    await asyncio.to_thread(save_compound_setting, "max_hours", val)
+    await callback.answer(f"✅ max_hours = {val}ч")
+    
+    text = await asyncio.to_thread(_build_compound_settings_text)
+    kb = await asyncio.to_thread(_build_compound_settings_keyboard)
+    await send_or_edit(callback, text, kb)
+
+
+@dp.callback_query(F.data.startswith("cset_vol_"))
+async def callback_cset_vol(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+        
+    val = callback.data.split("_")[2]
+    from agents.shared.python.db import save_compound_setting
+    await asyncio.to_thread(save_compound_setting, "min_volume", val)
+    await callback.answer(f"✅ min_volume = ${val}")
+    
+    text = await asyncio.to_thread(_build_compound_settings_text)
+    kb = await asyncio.to_thread(_build_compound_settings_keyboard)
+    await send_or_edit(callback, text, kb)
 
 
 @dp.callback_query(F.data == "scan_favourite_compound")
 async def callback_scan_favourite_compound(callback: CallbackQuery) -> None:
-    # Дедупликация: игнорируем повторно доставленные callback'и
     async with _callback_dedup_lock:
         is_processed = callback.id in _processed_callback_ids
         if not is_processed:
@@ -3535,7 +3795,9 @@ async def callback_scan_favourite_compound(callback: CallbackQuery) -> None:
         return
 
     await callback.answer("🔄 Запуск сканирования...")
-    await cmd_compound(callback.message)
+    await callback.message.edit_text("💰 Запуск сканирования...")
+    # Имитируем вызов меню с запуском сканнера
+    await callback_compound_run_scan(callback)
 
 
 @dp.message(F.text)
