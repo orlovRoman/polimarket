@@ -2066,21 +2066,24 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
         
     keyboard = build_paginated_keyboard(page, total_pages, "ideas_page")
     
-    # Добавляем кнопки для удаления (архивирования) каждого сигнала на текущей странице
-    delete_buttons = []
+    # Добавляем кнопки для анализа и удаления каждого сигнала на текущей странице
+    action_buttons = []
     for idx, s in enumerate(chunk, 1):
         truncated_id = s['id'][:30]
         global_idx = start_idx + idx
-        # Делаем короткий заголовок, чтобы кнопка помещалась и выглядела эстетично
-        short_title = s['title'][:20] + "..." if len(s['title']) > 20 else s['title']
-        delete_buttons.append([
+        row = [
             InlineKeyboardButton(
-                text=f"🗑️ Удалить {global_idx}: {short_title}",
+                text=f"🔍 Анализ {global_idx}",
+                callback_data=f"show_analysis_{truncated_id}"
+            ),
+            InlineKeyboardButton(
+                text=f"🗑️ Удалить {global_idx}",
                 callback_data=f"del_sig_{page}_{truncated_id}"
             )
-        ])
+        ]
+        action_buttons.append(row)
         
-    keyboard = InlineKeyboardMarkup(inline_keyboard=delete_buttons + keyboard.inline_keyboard)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=action_buttons + keyboard.inline_keyboard)
     
     await send_or_edit(message_or_callback, response, keyboard)
 
@@ -2334,7 +2337,6 @@ async def callback_delete_signal(callback: CallbackQuery) -> None:
     """Удаляет (архивирует) сигнал из списка идей."""
     parts = callback.data.split("_")
     # callback.data format: del_sig_{page}_{truncated_id}
-    # parts looks like: ['del', 'sig', '{page}', '{truncated_id_part1}', ...]
     if len(parts) < 4:
         await callback.answer("⚠️ Неверный формат ID.", show_alert=True)
         return
@@ -2356,6 +2358,59 @@ async def callback_delete_signal(callback: CallbackQuery) -> None:
         
     # Перерисовываем страницу
     await send_ideas_page(callback, page=page)
+
+@dp.callback_query(F.data.startswith("show_analysis_"))
+async def callback_show_analysis(callback: CallbackQuery) -> None:
+    """Показывает подробный отчет консенсуса агентов для сигнала."""
+    parts = callback.data.split("_")
+    # callback.data format: show_analysis_{truncated_id}
+    if len(parts) < 3:
+        await callback.answer("⚠️ Неверный формат ID.", show_alert=True)
+        return
+        
+    truncated_id = "_".join(parts[2:])
+    
+    # Считываем отчет в фоновом пуле
+    from agents.shared.python.db import get_signal_analysis_report, get_signal_by_id
+    report = await asyncio.to_thread(get_signal_analysis_report, truncated_id)
+    
+    if not report:
+        # Пытаемся получить детали сигнала для фоллбека
+        sig_data = await asyncio.to_thread(get_signal_by_id, truncated_id)
+        if sig_data:
+            edge_pct = (sig_data.get('edge') or 0) * 100
+            target = sig_data.get('target_outcome', 'YES')
+            price = sig_data.get('market_price') or 0.5
+            if target.upper() == 'NO':
+                price = 1.0 - price
+            report = (
+                f"🧠 <b>Анализ сигнала (Фоллбек):</b>\n"
+                f"<a href='{sig_data['url']}'>{sig_data['title']}</a> (по цене ~{price:.3f})\n\n"
+                f"🎯 <b>Рекомендация: Покупать {target}</b>\n"
+                f"📈 Edge: <b>+{edge_pct:.1f}%</b> | Уверенность: {sig_data.get('confidence', 0.5)}\n\n"
+                f"📝 <b>Описание:</b>\n{sig_data['details']}"
+            )
+        else:
+            report = "⚠️ Сигнал или отчет анализа не найдены в БД."
+            
+    # Отправляем новым сообщением-ответом (reply) на исходное сообщение со списком идей
+    try:
+        await callback.message.reply(report, parse_mode="HTML", disable_web_page_preview=True)
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка отправки HTML отчета: {e}")
+        try:
+            # Чистим теги и пробуем отправить plain text
+            clean_text = report
+            for tag in ["<b>", "</b>", "<i>", "</i>", "<u>", "</u>", "<a>", "</a>"]:
+                clean_text = clean_text.replace(tag, "")
+            if len(clean_text) > 4000:
+                clean_text = clean_text[:4000] + "..."
+            await callback.message.reply(clean_text)
+            await callback.answer()
+        except Exception as e2:
+            logger.error(f"Экстренная ошибка отправки: {e2}")
+            await callback.answer("⚠️ Ошибка вывода отчета.", show_alert=True)
 
 @dp.message(Command("history"))
 async def command_history_handler(message: types.Message) -> None:

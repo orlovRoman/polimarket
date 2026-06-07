@@ -824,6 +824,14 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         # Итоговое решение консенсуса
         if decision.status == 'saved':
             summary_text += "✨ <b>ИТОГ: Идея подтверждена консенсусом и добавлена в список торговых идей /ideas.</b>\n\n"
+            try:
+                from agents.shared.python.db import update_signal_analysis_report
+                if signal:
+                    update_signal_analysis_report(signal.id, summary_text)
+                if swing_signal and getattr(swing_signal, 'recommendation', '').lower() == 'buy':
+                    update_signal_analysis_report(swing_signal.id, summary_text)
+            except Exception as db_err:
+                logger.error(f"Ошибка сохранения отчета анализа в БД для сигналов: {db_err}")
         else:
             summary_text += "🛑 <b>ИТОГ: Консенсус не достигнут (SHADOW отклонил). Идея НЕ добавляется в список /ideas.</b>\n\n"
 

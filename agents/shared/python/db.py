@@ -149,6 +149,7 @@ def init_db():
                     details TEXT NOT NULL,
                     status TEXT DEFAULT 'PENDING',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    analysis_report TEXT,
                     FOREIGN KEY (market_id) REFERENCES markets (id)
                 )
             """)
@@ -609,7 +610,8 @@ def init_db():
                 ("resolution_outcome", "TEXT"),
                 ("resolution_price", "REAL"),
                 ("was_profitable", "INTEGER"),
-                ("pnl_realized", "REAL")
+                ("pnl_realized", "REAL"),
+                ("analysis_report", "TEXT")
             ]
             for col, col_type in eval_cols:
                 if col not in signal_cols:
@@ -1162,6 +1164,61 @@ def archive_signal_by_id(signal_id: str) -> bool:
             (query_id,)
         )
         return cursor.rowcount > 0
+
+def update_signal_analysis_report(signal_id: str, report: str) -> bool:
+    """Обновляет колонку analysis_report для сигнала по его ID (или по началу ID)."""
+    use_like = len(signal_id) < 36
+    if use_like:
+        query_id = f"{_escape_like(signal_id)}%"
+        op = "LIKE ? ESCAPE '\\'"
+    else:
+        query_id = signal_id
+        op = "= ?"
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"UPDATE signals SET analysis_report = ? WHERE id {op}",
+            (report, query_id)
+        )
+        return cursor.rowcount > 0
+
+def get_signal_analysis_report(signal_id: str) -> Optional[str]:
+    """Получает analysis_report для сигнала по его ID (или по началу ID)."""
+    use_like = len(signal_id) < 36
+    if use_like:
+        query_id = f"{_escape_like(signal_id)}%"
+        op = "LIKE ? ESCAPE '\\'"
+    else:
+        query_id = signal_id
+        op = "= ?"
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"SELECT analysis_report FROM signals WHERE id {op}",
+            (query_id,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+def get_signal_by_id(signal_id: str) -> Optional[dict]:
+    """Получает сигнал по его ID (или по началу ID)."""
+    use_like = len(signal_id) < 36
+    if use_like:
+        query_id = f"{_escape_like(signal_id)}%"
+        op = "LIKE ? ESCAPE '\\'"
+    else:
+        query_id = signal_id
+        op = "= ?"
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"""
+            SELECT s.*, m.title, m.url, m.price as market_price 
+            FROM signals s 
+            JOIN markets m ON s.market_id = m.id 
+            WHERE s.id {op}
+            """,
+            (query_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 def save_market(market: Market):
     with get_connection() as conn:
