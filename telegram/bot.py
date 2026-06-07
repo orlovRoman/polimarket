@@ -2335,7 +2335,7 @@ async def callback_ideas_page_handler(callback: CallbackQuery) -> None:
 @dp.callback_query(F.data.startswith("del_sig_"))
 async def callback_delete_signal(callback: CallbackQuery) -> None:
     """Удаляет (архивирует) сигнал из списка идей."""
-    parts = callback.data.split("_")
+    parts = callback.data.split("_", 3)
     # callback.data format: del_sig_{page}_{truncated_id}
     if len(parts) < 4:
         await callback.answer("⚠️ Неверный формат ID.", show_alert=True)
@@ -2346,7 +2346,7 @@ async def callback_delete_signal(callback: CallbackQuery) -> None:
     except ValueError:
         page = 0
         
-    truncated_id = "_".join(parts[3:])
+    truncated_id = parts[3]
     
     # Архивируем в фоновом пуле
     success = await asyncio.to_thread(archive_signal_by_id, truncated_id)
@@ -2362,13 +2362,13 @@ async def callback_delete_signal(callback: CallbackQuery) -> None:
 @dp.callback_query(F.data.startswith("show_analysis_"))
 async def callback_show_analysis(callback: CallbackQuery) -> None:
     """Показывает подробный отчет консенсуса агентов для сигнала."""
-    parts = callback.data.split("_")
+    parts = callback.data.split("_", 2)
     # callback.data format: show_analysis_{truncated_id}
     if len(parts) < 3:
         await callback.answer("⚠️ Неверный формат ID.", show_alert=True)
         return
         
-    truncated_id = "_".join(parts[2:])
+    truncated_id = parts[2]
     
     # Считываем отчет в фоновом пуле
     from agents.shared.python.db import get_signal_analysis_report, get_signal_by_id
@@ -2401,9 +2401,8 @@ async def callback_show_analysis(callback: CallbackQuery) -> None:
         logger.error(f"Ошибка отправки HTML отчета: {e}")
         try:
             # Чистим теги и пробуем отправить plain text
-            clean_text = report
-            for tag in ["<b>", "</b>", "<i>", "</i>", "<u>", "</u>", "<a>", "</a>"]:
-                clean_text = clean_text.replace(tag, "")
+            import re
+            clean_text = re.sub(r'<[^>]+>', '', report)
             if len(clean_text) > 4000:
                 clean_text = clean_text[:4000] + "..."
             await callback.message.reply(clean_text)
@@ -2525,17 +2524,18 @@ async def callback_analyze_market_handler(callback: CallbackQuery) -> None:
     await callback.message.answer(f"🔍 <b>Запуск ручного анализа рынка:</b> <code>{market_id}</code>")
     
     async def _run_manual_scan():
-        try:
-            # Запускаем в фоновой задаче через asyncio.to_thread
-            await asyncio.to_thread(
-                engine.run_team_discussion,
-                market_id=market_id,
-                trigger_type="event_driven",
-                source_url="",
-                source_text="Manual trigger from volume alert"
-            )
-        except Exception as e:
-            logger.error(f"Ошибка при ручном анализе рынка {market_id}: {e}", exc_info=True)
+        async with _scan_lock:
+            try:
+                # Запускаем в фоновой задаче через asyncio.to_thread
+                await asyncio.to_thread(
+                    engine.run_team_discussion,
+                    market_id=market_id,
+                    trigger_type="event_driven",
+                    source_url="",
+                    source_text="Manual trigger from volume alert"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при ручном анализе рынка {market_id}: {e}", exc_info=True)
             
     asyncio.create_task(_run_manual_scan())
 

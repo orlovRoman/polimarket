@@ -1167,59 +1167,48 @@ def archive_signal_by_id(signal_id: str) -> bool:
         return cursor.rowcount > 0
 
 def update_signal_analysis_report(signal_id: str, report: str) -> bool:
-    """Обновляет колонку analysis_report для сигнала по его ID (или по началу ID)."""
-    use_like = len(signal_id) < 36
-    if use_like:
-        query_id = f"{_escape_like(signal_id)}%"
-        op = "LIKE ? ESCAPE '\\'"
-    else:
-        query_id = signal_id
-        op = "= ?"
-    with get_connection() as conn:
-        cursor = conn.execute(
-            f"UPDATE signals SET analysis_report = ? WHERE id {op}",
-            (report, query_id)
-        )
-        return cursor.rowcount > 0
+    """Сохраняет HTML-отчет консенсуса агентов для сигнала в memory по ключу consensus_report_{signal_id}."""
+    save_memory(f"consensus_report_{signal_id}", report, category="cache")
+    return True
 
 def get_signal_analysis_report(signal_id: str) -> Optional[str]:
-    """Получает analysis_report для сигнала по его ID (или по началу ID)."""
+    """
+    Возвращает сохранённый HTML-отчет консенсуса агентов для сигнала.
+    Ищет в memory по ключу consensus_report_{signal_id} (поддерживает усеченный ID).
+    """
     use_like = len(signal_id) < 36
-    if use_like:
-        query_id = f"{_escape_like(signal_id)}%"
-        op = "LIKE ? ESCAPE '\\'"
-    else:
-        query_id = signal_id
-        op = "= ?"
     with get_connection() as conn:
-        cursor = conn.execute(
-            f"SELECT analysis_report FROM signals WHERE id {op}",
-            (query_id,)
-        )
-        row = cursor.fetchone()
-        return row[0] if row else None
+        if use_like:
+            row = conn.execute(
+                r"SELECT value FROM memory WHERE key LIKE ? ESCAPE '\' LIMIT 1",
+                (f"consensus_report_{_escape_like(signal_id)}%",)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT value FROM memory WHERE key = ? LIMIT 1",
+                (f"consensus_report_{signal_id}",)
+            ).fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row["value"])
+    except (json.JSONDecodeError, TypeError):
+        return row["value"]
 
 def get_signal_by_id(signal_id: str) -> Optional[dict]:
-    """Получает сигнал по его ID (или по началу ID)."""
+    """Возвращает сигнал по полному или усечённому ID."""
     use_like = len(signal_id) < 36
-    if use_like:
-        query_id = f"{_escape_like(signal_id)}%"
-        op = "LIKE ? ESCAPE '\\'"
-    else:
-        query_id = signal_id
-        op = "= ?"
+    op = f"LIKE ? ESCAPE '\\'" if use_like else "= ?"
+    query_id = f"{_escape_like(signal_id)}%" if use_like else signal_id
     with get_connection() as conn:
-        cursor = conn.execute(
-            f"""
-            SELECT s.*, m.title, m.url, m.price as market_price 
-            FROM signals s 
-            JOIN markets m ON s.market_id = m.id 
-            WHERE s.id {op}
-            """,
+        row = conn.execute(
+            f"""SELECT s.*, m.title, m.url, m.price as market_price 
+                FROM signals s 
+                JOIN markets m ON s.market_id = m.id 
+                WHERE s.id {op} LIMIT 1""",
             (query_id,)
-        )
-        row = cursor.fetchone()
-        return dict(row) if row else None
+        ).fetchone()
+    return dict(row) if row else None
 
 def save_market(market: Market):
     with get_connection() as conn:

@@ -57,6 +57,17 @@ def temp_db():
             added_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS memory (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            category TEXT DEFAULT 'general',
+            ttl INTEGER DEFAULT NULL,
+            priority INTEGER DEFAULT 0,
+            expires_at DATETIME DEFAULT NULL
+        )
+    """)
     
     # Заполняем тестовыми данными
     conn.execute("INSERT INTO markets (id, platform, title, url, price) VALUES ('mkt_1', 'polymarket', 'Test Market 1', 'http://url1', 0.55)")
