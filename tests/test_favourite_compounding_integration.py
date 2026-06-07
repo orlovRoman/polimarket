@@ -191,11 +191,11 @@ def test_save_and_get_compound_opportunity():
     )
 
     with get_connection() as conn:
-        conn.execute("DELETE FROM compound_opportunities WHERE market_id = ?", (market_id,))
+        conn.execute("DELETE FROM compound_opportunities WHERE market_id LIKE 'mkt_test_save_get_%'")
 
     save_compound_opportunity(opp)
 
-    active_opps = get_compound_opportunities(limit=5)
+    active_opps = get_compound_opportunities(limit=100)
     matched = [o for o in active_opps if o["market_id"] == market_id]
     
     assert len(matched) == 1
