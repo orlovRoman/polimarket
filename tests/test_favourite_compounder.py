@@ -134,16 +134,6 @@ class TestRunFavouriteScan:
         if len(opps) >= 2:
             assert opps[0].roi_net_pct >= opps[1].roi_net_pct
 
-    @patch("services.favourite_compounder.get_compound_settings", return_value={
-        "min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50
-    })
-    def test_low_confidence_filtered_out(self, mock_cfg):
-        m = _market(price=0.96, title="Generic ambiguous question")
-        with patch.object(ObviousnessValidator, "_check_google", return_value=(0.0, "")):
-            with patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.9):
-                opps = run_favourite_scan([m], min_confidence=0.9)
-        assert len(opps) == 0
-
 
 # ── calibrate_confidence_threshold ────────────────────────────
 

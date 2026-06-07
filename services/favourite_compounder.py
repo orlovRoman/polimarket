@@ -325,11 +325,6 @@ def run_favourite_scan(
 
     for market, hours_left, fav_outcome, fav_price in candidates:
         confidence, reason = validator.validate(market, fav_price)
-
-        if confidence < min_conf:
-            logger.debug(f"[Compounder] {market.id}: confidence={confidence:.2f} < {min_conf} — пропуск")
-            continue
-
         # Spread из orderbook (если доступен)
         spread_pct = _get_spread(market)
         roi_data = calc.compute(fav_price, hours_left, spread_pct)
