@@ -31,7 +31,7 @@ class TestFavouriteFilter:
         assert len(FavouriteFilter().scan([_market(price=0.94)])) == 0
 
     def test_rejects_low_volume(self):
-        assert len(FavouriteFilter().scan([_market(volume=5000)])) == 0
+        assert len(FavouriteFilter().scan([_market(volume=500)])) == 0
 
     def test_rejects_expired_market(self):
         assert len(FavouriteFilter().scan([_market(hours=-1)])) == 0
@@ -110,7 +110,7 @@ class TestObviousnessValidator:
 
 class TestRunFavouriteScan:
     @patch("agents.shared.python.db.get_compound_settings", return_value={
-        "min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50
+        "min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50
     })
     def test_returns_opportunities(self, mock_cfg):
         markets = [_market(price=0.97, title="Team A won the championship")]
@@ -122,7 +122,7 @@ class TestRunFavouriteScan:
         assert isinstance(opps[0], FavouriteOpportunity)
 
     @patch("agents.shared.python.db.get_compound_settings", return_value={
-        "min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50
+        "min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50
     })
     def test_sorted_by_roi_desc(self, mock_cfg):
         m1 = _market(price=0.97, title="Won the championship")
@@ -135,7 +135,7 @@ class TestRunFavouriteScan:
             assert opps[0].roi_net_pct >= opps[1].roi_net_pct
 
     @patch("agents.shared.python.db.get_compound_settings", return_value={
-        "min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50
+        "min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50
     })
     def test_low_confidence_filtered_out(self, mock_cfg):
         m = _market(price=0.96, title="Generic ambiguous question")

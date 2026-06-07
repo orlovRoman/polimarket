@@ -125,16 +125,40 @@ class MarketSelector:
                 return penny[:limit]
             
             if category in ("favourite_compound", "favourite_compounding"):
-                # Для Favourite Compounding отбираем рынки с ценой >= 0.95 и закрытием в пределах 48 часов
-                all_markets = self.adapter.list_markets_paged(limit=500, offset=0, order="volume")
+                # Для Favourite Compounding сканируем компактные рынки, как в main.py
+                from agents.shared.python.db import get_compound_settings
+                cfg = get_compound_settings()
+                min_vol = cfg.get("min_volume", 1000.0)
+                min_p = cfg.get("min_price", 0.95)
+                max_h = cfg.get("max_hours", 48.0)
+
+                all_compact = self.adapter.list_all_markets_compact()
+                candidates_ids = []
+                for cm in all_compact:
+                    try:
+                        price_yes = float(cm["p"])
+                        fav_price = price_yes if price_yes >= 0.5 else (1.0 - price_yes)
+                        volume = float(cm["vol"])
+                        end_raw = cm["end"]
+                        if not end_raw:
+                            continue
+                        close_time = datetime.fromisoformat(str(end_raw).replace("Z", "+00:00"))
+                        hours_left = (close_time - now).total_seconds() / 3600
+                        
+                        if min_p <= fav_price <= 0.99 and volume >= min_vol and min_hours <= hours_left <= max_h:
+                            candidates_ids.append(cm["id"])
+                    except Exception:
+                        continue
+                
                 compounds = []
-                for m in all_markets:
-                    hours_left = (m.close_time - now).total_seconds() / 3600
-                    volume = getattr(m, "volume", 0) or 0
-                    # min_hours <= hours_left <= 48
-                    if 0.95 <= m.price <= 0.99 and volume >= 10000 and min_hours <= hours_left <= 48:
-                        compounds.append(m)
-                return compounds[:limit]
+                for m_id in candidates_ids[:limit]:
+                    try:
+                        m_obj = self.adapter.get_market(m_id)
+                        if m_obj:
+                            compounds.append(m_obj)
+                    except Exception as exc:
+                        print(f"[MarketSelector] Ошибка загрузки рынка {m_id} для Favourite Compounding: {exc}")
+                return compounds
             
             return self.adapter.list_markets(limit=limit, category=category)
         except Exception as e:

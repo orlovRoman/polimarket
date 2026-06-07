@@ -741,13 +741,16 @@ def init_db():
             # Дефолтные настройки
             for k, v in [
                 ("min_price", "0.95"),
-                ("min_volume", "10000"),
+                ("min_volume", "1000"),
                 ("max_hours", "48"),
                 ("virtual_stake", "50"),
                 ("enabled", "1"),
                 ("min_confidence", "0.5")
             ]:
                 cursor.execute("INSERT OR IGNORE INTO compound_settings (key, value) VALUES (?, ?)", (k, v))
+            
+            # Миграция: обновляем старый дефолт 10000 до нового дефолта 1000
+            cursor.execute("UPDATE compound_settings SET value = '1000' WHERE key = 'min_volume' AND value = '10000'")
 
             # Таблица черного списка тегов
             cursor.execute("""
@@ -2149,7 +2152,7 @@ def get_compound_settings() -> dict:
     with get_connection() as conn:
         rows = conn.execute("SELECT key, value FROM compound_settings").fetchall()
     defaults = {
-        "min_price": "0.95", "min_volume": "10000",
+        "min_price": "0.95", "min_volume": "1000",
         "max_hours": "48", "virtual_stake": "50", "enabled": "1",
         "min_confidence": "0.5"
     }

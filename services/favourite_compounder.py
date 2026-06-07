@@ -47,7 +47,7 @@ class FavouriteFilter:
     def __init__(
         self,
         min_price: float = 0.95,
-        min_volume_usd: float = 10_000.0,
+        min_volume_usd: float = 1000.0,
         max_hours: float = 48.0,
     ):
         self.min_price = min_price

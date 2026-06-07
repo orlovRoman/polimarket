@@ -24,8 +24,8 @@ async def test_scheduled_favourite_compounding_success():
     mock_m1._orderbook = None
 
     with patch("core.singleton.get_core_engine") as mock_engine_getter, \
-         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
-         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
          patch("agents.shared.python.db.get_active_compound_opportunities", return_value=[]), \
          patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5), \
          patch("services.favourite_compounder.ObviousnessValidator.validate", return_value=(0.8, "Test reason")), \
@@ -87,8 +87,8 @@ async def test_scheduled_favourite_compounding_no_outcome_success():
     mock_m1._orderbook = None
 
     with patch("core.singleton.get_core_engine") as mock_engine_getter, \
-         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
-         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 10000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("agents.shared.python.db.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
+         patch("services.favourite_compounder.get_compound_settings", return_value={"min_price": 0.95, "min_volume": 1000, "max_hours": 48, "virtual_stake": 50, "enabled": 1, "min_confidence": 0.5}), \
          patch("agents.shared.python.db.get_active_compound_opportunities", return_value=[]), \
          patch("services.favourite_compounder.calibrate_confidence_threshold", return_value=0.5), \
          patch("services.favourite_compounder.ObviousnessValidator.validate", return_value=(0.8, "Test reason")), \
