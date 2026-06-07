@@ -422,15 +422,16 @@ async def scheduled_penny_monitor():
             
             close_time_passed = False
             resolution_result = None
-            if market_obj and market_obj.close_time:
-                close_time_passed = market_obj.close_time < datetime.now(timezone.utc)
-                
-            if not close_time_passed:
+            if market_obj:
+                if market_obj.close_time:
+                    close_time_passed = market_obj.close_time < datetime.now(timezone.utc)
+            else:
+                # Нет данных о close_time — пробуем resolution как fallback
                 try:
                     res = await asyncio.to_thread(_fetch_resolution, m_id)
                     if res in ("YES", "NO"):
-                        close_time_passed = True
                         resolution_result = res
+                        close_time_passed = True
                 except Exception:
                     pass
 

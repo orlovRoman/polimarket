@@ -268,3 +268,33 @@ def test_was_profitable_is_int_not_bool(mock_conn):
                 assert not isinstance(p, bool), (
                     f"bool найден в SQL-параметрах: {params}. Используй int()."
                 )
+
+
+@patch("services.outcome_tracker.get_connection")
+def test_strategy_metrics_period_format(mock_conn):
+    """Проверяет, что период rolling-30d имеет правильный формат даты SQLite (без 'T')."""
+    captured_params = []
+
+    class FakeConn:
+        def execute(self, query, params=()):
+            captured_params.append((query, params))
+            class R:
+                def fetchone(_):
+                    return {"total": 0, "resolved": 0, "wins": 0,
+                            "avg_edge": None, "win_rate": None, "brier_score": None}
+                def fetchall(_):
+                    return []
+            return R()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    mock_conn.return_value = FakeConn()
+    _upsert_strategy_metrics("SCOUT")
+
+    # Проверяем переданные параметры времени
+    for query, params in captured_params:
+        if params:
+            for p in params:
+                if isinstance(p, str) and "-" in p and ":" in p:
+                    # Проверяем, что дата не содержит 'T'
+                    assert "T" not in p, f"Формат даты содержит букву 'T': {p}"

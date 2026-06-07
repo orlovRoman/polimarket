@@ -318,3 +318,23 @@ class TestSaveIdeaAudit:
             ).fetchone()
         assert row is not None
         assert row["final_outcome"] == "unknown"
+
+
+# ─────────────────────────────────────────────
+# Тест бага парсинга даты из SQLite в is_alert_already_sent
+# ─────────────────────────────────────────────
+
+class TestAlertSentDatetimeBug:
+    def test_is_alert_sent_sqlite_format(self, db_module):
+        """is_alert_already_sent корректно парсит даты с пробелом (формат SQLite CURRENT_TIMESTAMP) без ValueError."""
+        alert_key = "test_alert_key_format"
+        # Напрямую вставляем в sent_alerts дату с пробелом
+        with db_module.get_connection() as conn:
+            conn.execute(
+                """INSERT INTO sent_alerts (alert_key, alert_type, sent_at)
+                   VALUES (?, 'test_type', '2020-06-07 14:51:22')""",
+                (alert_key,)
+            )
+        # Этот вызов не должен бросать ValueError
+        res = db_module.is_alert_already_sent(alert_key, ttl_hours=12)
+        assert res is False

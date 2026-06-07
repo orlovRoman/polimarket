@@ -979,7 +979,8 @@ def is_alert_already_sent(alert_key: str, ttl_hours: int = 12) -> bool:
         row = cursor.fetchone()
         if not row:
             return False
-        sent_at = datetime.fromisoformat(str(row["sent_at"]).replace("Z", "+00:00"))
+        sent_at_str = str(row["sent_at"]).replace(" ", "T").replace("Z", "+00:00")
+        sent_at = datetime.fromisoformat(sent_at_str)
         # Учитываем, что sent_at сохраняется в UTC
         if sent_at.tzinfo is None:
             sent_at = sent_at.replace(tzinfo=timezone.utc)

@@ -247,8 +247,8 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
     from datetime import timedelta
     import math
     now = datetime.now(timezone.utc)
-    period_start = (now - timedelta(days=30)).isoformat()
-    period_end = now.isoformat()
+    period_start = (now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+    period_end = now.strftime("%Y-%m-%d %H:%M:%S")
 
     with get_connection() as conn:
         row = conn.execute("""
