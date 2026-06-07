@@ -421,20 +421,31 @@ async def scheduled_penny_monitor():
                     await asyncio.sleep(1)
             
             close_time_passed = False
+            resolution_result = None
             if market_obj and market_obj.close_time:
                 close_time_passed = market_obj.close_time < datetime.now(timezone.utc)
                 
+            if not close_time_passed:
+                try:
+                    res = await asyncio.to_thread(_fetch_resolution, m_id)
+                    if res in ("YES", "NO"):
+                        close_time_passed = True
+                        resolution_result = res
+                except Exception:
+                    pass
+
             if close_time_passed:
-                res = await asyncio.to_thread(_fetch_resolution, m_id)
-                if res in ("YES", "NO"):
-                    resolve_penny_stock(m_id, res)
+                if not resolution_result:
+                    resolution_result = await asyncio.to_thread(_fetch_resolution, m_id)
+                if resolution_result in ("YES", "NO"):
+                    resolve_penny_stock(m_id, resolution_result)
                     pred = stock["predicted_outcome"]
-                    result_str = "УСПЕШНО 🎉" if pred and pred.upper() == res else "НЕ СОВПАЛО ❌"
+                    result_str = "УСПЕШНО 🎉" if pred and pred.upper() == resolution_result else "НЕ СОВПАЛО ❌"
                     msg = (
                         f"🔔 <b>Закрытие рынка Penny Stocks!</b>\n\n"
                         f"📍 <b>{stock['title']}</b>\n"
                         f"🎯 Прогноз бота: <b>{pred}</b>\n"
-                        f"✅ Исход Polymarket: <b>{res}</b>\n"
+                        f"✅ Исход Polymarket: <b>{resolution_result}</b>\n"
                         f"🏆 Результат: <b>{result_str}</b>\n"
                         f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
                     )

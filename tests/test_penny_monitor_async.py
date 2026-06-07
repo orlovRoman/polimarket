@@ -39,3 +39,37 @@ async def test_penny_monitor_uses_asyncio_to_thread():
         # Проверяем, что _fetch_resolution была вызвана через to_thread
         assert "_fetch_resolution" in called_via_thread, \
                "_fetch_resolution НЕ была вызвана через asyncio.to_thread в async контексте"
+
+@pytest.mark.asyncio
+async def test_penny_monitor_fallback_when_market_obj_none():
+    """scheduled_penny_monitor должен резолвить рынок через _fetch_resolution, даже если get_market вернул None."""
+    called_via_thread = []
+
+    async def fake_to_thread(fn, *args):
+        called_via_thread.append(fn.__name__)
+        return "YES"
+
+    with patch("agents.shared.python.db.get_active_penny_stocks", return_value=[{
+        "market_id": "p1", "title": "Test", "url": "http://x",
+        "initial_price": 0.03, "current_price": 0.03,
+        "spike_alert_sent": 0, "predicted_outcome": "YES"
+    }]), \
+    patch("asyncio.to_thread", side_effect=fake_to_thread), \
+    patch("core.singleton.get_core_engine") as mock_eng, \
+    patch("agents.shared.python.db.update_penny_stock_price") as mock_update, \
+    patch("agents.shared.python.db.resolve_penny_stock") as mock_resolve, \
+    patch("telegram.bot.bot.send_message", new_callable=AsyncMock) as mock_send:
+        
+        # get_market возвращает None (имитация закрытого рынка)
+        mock_eng.return_value.adapter.get_market.return_value = None
+
+        from main import scheduled_penny_monitor
+        await scheduled_penny_monitor()
+
+        # Должен быть вызван resolve_penny_stock с результатом "YES"
+        mock_resolve.assert_called_once_with("p1", "YES")
+        # Должно быть отправлено сообщение о закрытии рынка
+        mock_send.assert_called_once()
+        # Проверка вызова _fetch_resolution
+        assert "_fetch_resolution" in called_via_thread
+
