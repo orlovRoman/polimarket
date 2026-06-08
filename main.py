@@ -714,7 +714,7 @@ async def start_system():
     scheduler.add_job(
         scheduled_penny_discovery,
         trigger="interval",
-        hours=4,
+        hours=1,
         id="penny_discovery_job",
         replace_existing=True,
         misfire_grace_time=3600

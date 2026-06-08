@@ -110,14 +110,13 @@ def get_penny_stocks_dashboard() -> dict:
     """
     from agents.shared.python.db import get_connection
     with get_connection() as conn:
-        # Активные позиции
+        # Активные позиции (с прогнозом)
         active_rows = conn.execute("""
             SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, volume_2h, predicted_outcome, edge, confidence, added_at, virtual_bought_price
             FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE' AND (
+            WHERE status = 'ACTIVE' AND predicted_outcome IS NOT NULL AND (
                 (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
-                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
-                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+                (predicted_outcome = 'NO' AND initial_price >= 0.90)
             )
             ORDER BY added_at DESC
         """).fetchall()
@@ -142,6 +141,40 @@ def get_penny_stocks_dashboard() -> dict:
                 row_dict['max_price_seen_outcome'] = mx
                 row_dict['min_price_seen_outcome'] = mn
             active.append(row_dict)
+
+        # Самые дешевые рынки (без прогноза)
+        cheapest_rows = conn.execute("""
+            SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, volume_2h, predicted_outcome, edge, confidence, added_at, virtual_bought_price
+            FROM penny_stocks_monitoring
+            WHERE status = 'ACTIVE' AND predicted_outcome IS NULL AND (
+                initial_price <= 0.10 OR initial_price >= 0.90
+            )
+            ORDER BY added_at DESC
+        """).fetchall()
+        
+        cheapest = []
+        for r in cheapest_rows:
+            row_dict = dict(r)
+            init = row_dict['initial_price']
+            curr = row_dict['current_price']
+            mx = row_dict['max_price_seen']
+            mn = row_dict['min_price_seen']
+            
+            # Определяем дешевый исход (YES/NO) на основе цены входа
+            cheap_outcome = 'NO' if (init is not None and init >= 0.50) else 'YES'
+            row_dict['cheap_outcome'] = cheap_outcome
+            
+            if cheap_outcome == 'NO':
+                row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
+                row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
+                row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
+                row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4) if mx is not None else None
+            else:
+                row_dict['initial_price_outcome'] = init
+                row_dict['current_price_outcome'] = curr
+                row_dict['max_price_seen_outcome'] = mx
+                row_dict['min_price_seen_outcome'] = mn
+            cheapest.append(row_dict)
 
         # Завершенные позиции (с PnL из сигналов)
         resolved_rows = conn.execute("""
@@ -304,6 +337,7 @@ def get_penny_stocks_dashboard() -> dict:
         'active': active,
         'resolved': resolved,
         'portfolio': portfolio,
+        'cheapest': cheapest,
         'stats': stats,
         'price_distribution': bins
     }

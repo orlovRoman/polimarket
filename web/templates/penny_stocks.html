@@ -103,6 +103,33 @@
     </div>
 </div>
 
+<div class="table-card">
+    <div class="table-title">Самые дешевые рынки</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th onclick="toggleSort('cheapest', 'title')" style="cursor:pointer; user-select:none;">Рынок<span id="sort-cheapest-title"></span></th>
+                    <th onclick="toggleSort('cheapest', 'initial_price_outcome')" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-cheapest-initial_price_outcome"></span></th>
+                    <th onclick="toggleSort('cheapest', 'current_price_outcome')" style="cursor:pointer; user-select:none;">Текущая<span id="sort-cheapest-current_price_outcome"></span></th>
+                    <th onclick="toggleSort('cheapest', 'max_price_seen_outcome')" style="cursor:pointer; user-select:none;">Максимум<span id="sort-cheapest-max_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('cheapest', 'min_price_seen_outcome')" style="cursor:pointer; user-select:none;">Минимум<span id="sort-cheapest-min_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('cheapest', 'volume_2h')" style="cursor:pointer; user-select:none;">Объем (2ч)<span id="sort-cheapest-volume_2h"></span></th>
+                    <th onclick="toggleSort('cheapest', 'cheap_outcome')" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-cheapest-cheap_outcome"></span></th>
+                    <th onclick="toggleSort('cheapest', 'edge')" style="cursor:pointer; user-select:none;">Edge<span id="sort-cheapest-edge"></span></th>
+                    <th onclick="toggleSort('cheapest', 'added_at')" style="cursor:pointer; user-select:none;">Добавлен<span id="sort-cheapest-added_at"></span></th>
+                    <th>Действие</th>
+                </tr>
+            </thead>
+            <tbody id="cheapest-positions-tbody">
+                <tr>
+                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <style>
     .modal-overlay {
         position: fixed;
@@ -531,7 +558,8 @@
 
     let sortState = {
         active: { col: 'added_at', dir: 'desc' },
-        resolved: { col: 'resolved_at', dir: 'desc' }
+        resolved: { col: 'resolved_at', dir: 'desc' },
+        cheapest: { col: 'added_at', dir: 'desc' }
     };
     let lastFetchedData = null;
 
@@ -567,7 +595,9 @@
     function updateSortIndicators(tableType) {
         const columns = tableType === 'active' 
             ? ['title', 'initial_price_outcome', 'current_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'volume_2h', 'predicted_outcome', 'edge', 'added_at']
-            : ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_realized', 'edge', 'was_correct', 'resolved_at'];
+            : tableType === 'resolved'
+            ? ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_realized', 'edge', 'was_correct', 'resolved_at']
+            : ['title', 'initial_price_outcome', 'current_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'volume_2h', 'cheap_outcome', 'edge', 'added_at'];
             
         columns.forEach(col => {
             const el = document.getElementById(`sort-${tableType}-${col}`);
@@ -600,6 +630,11 @@
         });
         sortDataArray(resolvedData, sortState.resolved.col, sortState.resolved.dir);
         renderResolvedTable(resolvedData);
+
+        // 3. Сортировка и рендер Дешевых без прогноза
+        let cheapestData = [...(lastFetchedData.cheapest || [])];
+        sortDataArray(cheapestData, sortState.cheapest.col, sortState.cheapest.dir);
+        renderCheapestTable(cheapestData);
     }
 
     function renderActiveTable(activeList) {
@@ -664,6 +699,42 @@
         }
     }
 
+    function renderCheapestTable(cheapestList) {
+        const cheapestTbody = document.getElementById('cheapest-positions-tbody');
+        if (cheapestList.length === 0) {
+            cheapestTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет дешевых рынков без прогноза</td></tr>`;
+        } else {
+            cheapestTbody.innerHTML = cheapestList.map(row => {
+                const changePct = row.initial_price_outcome > 0 ? ((row.current_price_outcome - row.initial_price_outcome) / row.initial_price_outcome * 100) : 0;
+                const changeClass = changePct > 0 ? 'text-green' : changePct < 0 ? 'text-red' : '';
+                const changeSign = changePct > 0 ? '+' : '';
+                
+                const actionBtn = row.virtual_bought_price !== null
+                    ? `<span class="badge badge-blue">В портфеле</span>`
+                    : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${row.current_price})">Купить</button>`;
+
+                const analyzeBtn = `<button class="badge badge-purple" style="border:none; cursor:pointer; font-weight:600; margin-left:4px;" onclick="showAnalysis('${row.market_id}')">Анализ</button>`;
+
+                const outcomeBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.cheap_outcome} (деш.)</span>`;
+
+                return `
+                    <tr>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${formatPriceCents(row.initial_price_outcome)}</td>
+                        <td>${formatPriceCents(row.current_price_outcome)} <span class="${changeClass}" style="font-size:0.8rem; margin-left:4px;">(${changeSign}${changePct.toFixed(1)}%)</span></td>
+                        <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
+                        <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
+                        <td>$${Math.round(row.volume_2h)}</td>
+                        <td>${outcomeBadge}</td>
+                        <td class="text-muted">—</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.added_at)}</td>
+                        <td><div style="display: flex; gap: 6px; align-items: center; white-space: nowrap;">${actionBtn}${analyzeBtn}</div></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
     async function loadPennyStocksData() {
         const data = await fetchJSON('/api/penny-stocks');
         const equityData = await fetchJSON('/api/equity-curve?strategy=penny_stocks&days=30');
@@ -705,6 +776,7 @@
         renderTablesOnly();
         updateSortIndicators('active');
         updateSortIndicators('resolved');
+        updateSortIndicators('cheapest');
 
         // 4. Обновляем графики
         if (equityData) {
