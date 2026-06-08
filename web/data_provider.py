@@ -150,6 +150,7 @@ def get_penny_stocks_dashboard() -> dict:
                 initial_price <= 0.10 OR initial_price >= 0.90
             )
             ORDER BY added_at DESC
+            LIMIT 100
         """).fetchall()
         
         cheapest = []
@@ -161,7 +162,7 @@ def get_penny_stocks_dashboard() -> dict:
             mn = row_dict['min_price_seen']
             
             # Определяем дешевый исход (YES/NO) на основе цены входа
-            cheap_outcome = 'NO' if (init is not None and init >= 0.50) else 'YES'
+            cheap_outcome = 'NO' if (init is not None and init >= 0.90) else 'YES'
             row_dict['cheap_outcome'] = cheap_outcome
             
             if cheap_outcome == 'NO':

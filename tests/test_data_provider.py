@@ -10,10 +10,9 @@ from datetime import datetime, timezone
 def isolated_db(tmp_path, monkeypatch):
     """Изолированная база данных для теста."""
     db_path = tmp_path / "test_data_provider.db"
-    db_path_str = str(db_path)
     
     # Патчим DB_PATH в config и db_module
-    monkeypatch.setattr(config, "DB_PATH", db_path_str)
+    monkeypatch.setattr(config, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_db_initialized", False)
     
@@ -229,7 +228,7 @@ def test_virtual_portfolio_operations(isolated_db):
     data = data_provider.get_penny_stocks_dashboard()
     assert len(data['portfolio']) == 0
 
-def test_virtual_portfolio_no_outcome(isolated_db):
+def test_virtual_portfolio_no_outcome_approx(isolated_db):
     # Позиция со ставкой на NO
     with db_module.get_connection() as conn:
         conn.execute("""
@@ -242,10 +241,59 @@ def test_virtual_portfolio_no_outcome(isolated_db):
     
     data = data_provider.get_penny_stocks_dashboard()
     assert len(data['portfolio']) == 1
-    # Цена входа для NO: 1.0 - 0.04 = 0.96
-    # Текущая цена для NO: 1.0 - 0.03 = 0.97
-    # PnL: 0.97 - 0.96 = 0.01¢
-    assert data['portfolio'][0]['bought_outcome_price'] == 0.96
-    assert data['portfolio'][0]['current_outcome_price'] == 0.97
-    assert data['portfolio'][0]['pnl_cents'] == 0.01
-    assert data['portfolio'][0]['pnl_percent'] == 1.04
+    p = data['portfolio'][0]
+    assert p['bought_outcome_price'] == pytest.approx(0.96, abs=1e-4)
+    assert p['current_outcome_price'] == pytest.approx(0.97, abs=1e-4)
+    assert p['pnl_cents'] == pytest.approx(0.01, abs=1e-4)
+    assert p['pnl_percent'] == pytest.approx(1.04, abs=0.01)
+
+def test_cheapest_price_outcome_no_direction(isolated_db):
+    """cheapest с init >= 0.90 должен считать цену исхода как 1.0 - init (NO-направление)."""
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring
+              (market_id, title, url, initial_price, current_price,
+               max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES
+              ('c_no', 'Cheap NO Market', 'http://cno', 0.93, 0.92, 0.93, 0.91, 'ACTIVE', NULL)
+        """)
+
+    data = data_provider.get_penny_stocks_dashboard()
+    cheapest = {x['market_id']: x for x in data['cheapest']}
+
+    assert 'c_no' in cheapest
+    c = cheapest['c_no']
+    assert c['cheap_outcome'] == 'NO'
+    assert c['initial_price_outcome'] == pytest.approx(0.07, abs=1e-4)   # 1.0 - 0.93
+    assert c['current_price_outcome'] == pytest.approx(0.08, abs=1e-4)   # 1.0 - 0.92
+    assert c['max_price_seen_outcome'] == pytest.approx(0.09, abs=1e-4)  # 1.0 - 0.91
+    assert c['min_price_seen_outcome'] == pytest.approx(0.07, abs=1e-4)  # 1.0 - 0.93
+
+def test_cheapest_limit_100(isolated_db):
+    """cheapest не должен возвращать больше 100 строк."""
+    with db_module.get_connection() as conn:
+        conn.executemany("""
+            INSERT INTO penny_stocks_monitoring
+              (market_id, title, url, initial_price, current_price,
+               max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES (?, ?, 'http://x', 0.03, 0.03, 0.03, 0.03, 'ACTIVE', NULL)
+        """, [(f"bulk_{i}", f"Bulk {i}") for i in range(150)])
+
+    data = data_provider.get_penny_stocks_dashboard()
+    assert len(data['cheapest']) <= 100
+
+def test_cheapest_not_in_active(isolated_db):
+    """Рынок без прогноза (NULL) не должен попадать в active."""
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring
+              (market_id, title, url, initial_price, current_price,
+               max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('null_mkt', 'Null Market', 'http://nm', 0.05, 0.05, 0.05, 0.05, 'ACTIVE', NULL)
+        """)
+
+    data = data_provider.get_penny_stocks_dashboard()
+    active_ids = [x['market_id'] for x in data['active']]
+    cheapest_ids = [x['market_id'] for x in data['cheapest']]
+    assert 'null_mkt' not in active_ids
+    assert 'null_mkt' in cheapest_ids
