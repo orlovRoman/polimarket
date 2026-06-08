@@ -278,3 +278,51 @@ async def test_handle_compound_sell_handler():
         cb.answer.assert_called_once_with("💎 Зафиксировано досрочное закрытие!")
         cb.message.edit_reply_markup.assert_called_once_with(reply_markup=None)
         cb.message.reply.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_send_compound_exit_alert_safety():
+    from services.notifications import send_compound_exit_alert
+    from unittest.mock import AsyncMock, patch
+
+    bot = AsyncMock()
+    chat_id = 123456
+    
+    # Сценарий 1: Длинный opp_id и длинная текущая цена
+    opp_long = {
+        "id": "very-long-uuid-that-exceeds-thirty-six-characters-long-and-should-be-truncated-properly",
+        "price": 0.95,
+        "title": "A very long market title that will exceed 100 characters in notifications formatting test code",
+        "url": "https://polymarket.com/test-long",
+        "outcome": "YES"
+    }
+    
+    with patch("agents.shared.python.db.get_compound_settings", return_value={"virtual_stake": 50.0}):
+        await send_compound_exit_alert(bot, chat_id, opp_long, 0.97123456789)
+        
+        bot.send_message.assert_called_once()
+        args, kwargs = bot.send_message.call_args
+        assert args[0] == chat_id
+        assert kwargs["parse_mode"] == "HTML"
+        
+        # Проверим, что callback_data в reply_markup усекается и форматируется правильно
+        keyboard = kwargs["reply_markup"]
+        button = keyboard.inline_keyboard[0][0]
+        callback_data = button.callback_data
+        
+        assert len(callback_data) <= 64
+        assert callback_data == "compound_sell:very-long-uuid-that-exceeds-thirty-s:0.9712"
+
+    # Сценарий 2: Защита от деления на ноль и None
+    bot.reset_mock()
+    opp_zero_and_none = [
+        {"id": "test-1", "price": 0.0, "title": "Zero Price Test", "url": "https://test.url", "outcome": "YES"},
+        {"id": "test-2", "price": None, "title": "None Price Test", "url": "https://test.url", "outcome": "YES"},
+    ]
+    
+    for opp in opp_zero_and_none:
+        with patch("agents.shared.python.db.get_compound_settings", return_value={"virtual_stake": 50.0}):
+            # Должно отработать без исключений (TypeError или ZeroDivisionError)
+            await send_compound_exit_alert(bot, chat_id, opp, 0.95)
+            
+    assert bot.send_message.call_count == 2

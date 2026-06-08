@@ -10,13 +10,16 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, logger
 def _convert_reply_markup(reply_markup):
     if not reply_markup:
         return None
+    # aiogram 3 / Pydantic v2
     if hasattr(reply_markup, "model_dump"):
         return reply_markup.model_dump(exclude_none=True)
-    elif hasattr(reply_markup, "to_python"):
-        return reply_markup.to_python()
-    elif hasattr(reply_markup, "dict"):
+    # aiogram 3 / Pydantic v1 fallback
+    if hasattr(reply_markup, "dict"):
         return reply_markup.dict(exclude_none=True)
-    return reply_markup
+    # Уже готовый словарь
+    if isinstance(reply_markup, dict):
+        return reply_markup
+    return None
 
 
 def send_telegram(text: str, parse_mode: str = "HTML", reply_markup = None) -> bool:
@@ -100,7 +103,8 @@ def send_correlation_alerts(summary_callback=None) -> None:
     import os
 
     notify = summary_callback or send_telegram
-    new_corrs = []  # Баг #3: объявляем до try, чтобы finally мог обратиться к переменной
+    new_corrs = []
+    processed_ids = []
     try:
         new_corrs = get_new_correlations()
         logger.info(f"[Notifier] Корреляций для обработки: {len(new_corrs)}")
@@ -116,58 +120,63 @@ def send_correlation_alerts(summary_callback=None) -> None:
         arbitrage_agent = ArbitrageAgent(api_key=api_key, model="gemini-2.5-flash")
 
         for c in new_corrs[:5]:
-            # Получаем свежие данные о рынках
-            market_a = adapter.get_market(c['market_id_a'])
-            market_b = adapter.get_market(c['market_id_b'])
+            try:
+                # Получаем свежие данные о рынках
+                market_a = adapter.get_market(c['market_id_a'])
+                market_b = adapter.get_market(c['market_id_b'])
 
-            if not market_a or not market_b:
-                continue
-
-            signal = arbitrage_agent.analyze_correlation(
-                market_a=market_a,
-                market_b=market_b,
-                correlation_type=c.get('correlation_type', 'thematic'),
-                score=int(c.get('confidence', 0) * 100)
-            )
-
-            logger.debug(f"[Notifier] signal={signal}, has_arbitrage={getattr(signal,'has_arbitrage',None)}, spread={getattr(signal,'spread_percent',None)}")
-
-            if signal:
-                spread = getattr(signal, 'spread_percent', 0.0)
-                platform_a = getattr(market_a, "platform", "Polymarket").upper()
-                platform_b = getattr(market_b, "platform", "Polymarket").upper()
-
-                if signal.has_arbitrage:
-                    header = f"🚨 <b>ПОДТВЕРЖДЁННЫЙ АРБИТРАЖ ({platform_a} ↔ {platform_b})</b> 🚨"
-                elif spread is not None and spread >= 5.0 and getattr(signal, 'arbitrage_type', 'none') != 'none':
-                    header = f"⚠️ <b>ПОТЕНЦИАЛЬНАЯ ВОЗМОЖНОСТЬ ({platform_a} ↔ {platform_b})</b>"
-                else:
-                    logger.info(
-                        f"[Notifier] Корреляция {c['id']}: пропущена (has_arbitrage=False, "
-                        f"spread={spread:.1f}%, "
-                        f"reason={getattr(signal,'reasoning','')[:80]})"
-                    )
+                if not market_a or not market_b:
+                    processed_ids.append(c['id'])
                     continue
 
-                alert_text = (
-                    f"{header}\n\n"
-                    f"📍 <b>Рынок A ({platform_a}):</b> <a href='{market_a.url}'>{market_a.title}</a> (Цена: {market_a.price})\n"
-                    f"📍 <b>Рынок B ({platform_b}):</b> <a href='{market_b.url}'>{market_b.title}</a> (Цена: {market_b.price})\n\n"
-                    f"💡 <b>Тип:</b> {signal.arbitrage_type}\n"
-                    f"📈 <b>Разрыв (Spread):</b> {spread}%\n\n"
-                    f"🧠 <b>Логика:</b> {signal.reasoning}\n\n"
-                    f"⚡ <b>Трейд:</b> {signal.trade_instruction}\n"
+                signal = arbitrage_agent.analyze_correlation(
+                    market_a=market_a,
+                    market_b=market_b,
+                    correlation_type=c.get('correlation_type', 'thematic'),
+                    score=int(c.get('confidence', 0) * 100)
                 )
-                notify(alert_text)
-            else:
-                logger.info(f"[Notifier] Корреляция {c['id']}: агент вернул None")
+
+                logger.debug(f"[Notifier] signal={signal}, has_arbitrage={getattr(signal,'has_arbitrage',None)}, spread={getattr(signal,'spread_percent',None)}")
+
+                if signal:
+                    spread = getattr(signal, 'spread_percent', 0.0)
+                    platform_a = getattr(market_a, "platform", "Polymarket").upper()
+                    platform_b = getattr(market_b, "platform", "Polymarket").upper()
+
+                    if signal.has_arbitrage:
+                        header = f"🚨 <b>ПОДТВЕРЖДЁННЫЙ АРБИТРАЖ ({platform_a} ↔ {platform_b})</b> 🚨"
+                    elif spread is not None and spread >= 5.0 and getattr(signal, 'arbitrage_type', 'none') != 'none':
+                        header = f"⚠️ <b>ПОТЕНЦИАЛЬНАЯ ВОЗМОЖНОСТЬ ({platform_a} ↔ {platform_b})</b>"
+                    else:
+                        logger.info(
+                            f"[Notifier] Корреляция {c['id']}: пропущена (has_arbitrage=False, "
+                            f"spread={spread:.1f}%, "
+                            f"reason={getattr(signal,'reasoning','')[:80]})"
+                        )
+                        processed_ids.append(c['id'])
+                        continue
+
+                    alert_text = (
+                        f"{header}\n\n"
+                        f"📍 <b>Рынок A ({platform_a}):</b> <a href='{market_a.url}'>{market_a.title}</a> (Цена: {market_a.price})\n"
+                        f"📍 <b>Рынок B ({platform_b}):</b> <a href='{market_b.url}'>{market_b.title}</a> (Цена: {market_b.price})\n\n"
+                        f"💡 <b>Тип:</b> {signal.arbitrage_type}\n"
+                        f"📈 <b>Разрыв (Spread):</b> {spread}%\n\n"
+                        f"🧠 <b>Логика:</b> {signal.reasoning}\n\n"
+                        f"⚡ <b>Трейд:</b> {signal.trade_instruction}\n"
+                    )
+                    notify(alert_text)
+                else:
+                    logger.info(f"[Notifier] Корреляция {c['id']}: агент вернул None")
+                processed_ids.append(c['id'])
+            except Exception as item_err:
+                logger.error(f"[Notifier] Ошибка обработки корреляции {c['id']}: {item_err}", exc_info=True)
+                continue
     except Exception as e:
         logger.error(f"[Notifier] Ошибка отправки корреляций: {e}")
     finally:
-        # Баг #3: помечаем как прочитанные даже при исключении — иначе следующий
-        # запуск снова попытается обработать те же корреляции.
-        if new_corrs:
-            mark_correlations_notified([c['id'] for c in new_corrs[:5]])
+        if processed_ids:
+            mark_correlations_notified(processed_ids)
 
 
 # ─── Кросс-платформенный арбитраж (Polymarket ↔ Kalshi и др.) ──────────────
@@ -429,6 +438,11 @@ async def send_compound_alert(bot, chat_id: int, opp) -> None:
     price_cents = int(round(opp.price * 100))
     outcome = getattr(opp, "outcome", "YES")
 
+    try:
+        spread_val = float(opp.spread_pct or 0.0)
+    except (TypeError, ValueError):
+        spread_val = 0.0
+
     text = (
         f"💰 <b>FAVOURITE COMPOUNDING</b>\n\n"
         f"📍 <b>{opp.title[:100]}...</b>\n\n"
@@ -439,7 +453,7 @@ async def send_compound_alert(bot, chat_id: int, opp) -> None:
         f"📊 Объём: <b>${opp.volume_usd:,.0f}</b>\n"
         f"🎯 Уверенность: <b>{opp.confidence*100:.0f}%</b>\n"
         f"🔍 <i>{opp.obviousness_reason}</i>\n\n"
-        f"📌 Spread: {(opp.spread_pct or 0)*100:.2f}%"
+        f"📌 Spread: {spread_val*100:.2f}%"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
@@ -468,8 +482,16 @@ async def send_compound_exit_alert(bot, chat_id: int, opp, current_price: float)
     """Отправляет алерт о возможности досрочного закрытия Favourite Compounding позиции (профи-продажа)."""
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     
+    # Безопасное приведение цены покупки
+    try:
+        entry_price = float(opp.get("price") or 0.0)
+    except (TypeError, ValueError):
+        entry_price = 0.0
+    if entry_price <= 0.0:
+        entry_price = 0.01
+
     price_cents = int(round(current_price * 100))
-    init_cents = int(round(opp["price"] * 100))
+    init_cents = int(round(entry_price * 100))
     outcome = opp.get("outcome", "YES")
     
     # Считаем ROI
@@ -477,7 +499,7 @@ async def send_compound_exit_alert(bot, chat_id: int, opp, current_price: float)
     from agents.shared.python.db import get_compound_settings
     cfg = get_compound_settings()
     virtual_stake = cfg.get("virtual_stake", 50.0)
-    pnl = virtual_stake * (current_price - opp["price"]) / opp["price"] * (1.0 - ROICalculator.POLY_FEE_PCT)
+    pnl = virtual_stake * (current_price - entry_price) / entry_price * (1.0 - ROICalculator.POLY_FEE_PCT)
 
     text = (
         f"💎 <b>EXIT: ПРОФИ-ПРОДАЖА (Favourite Compounding)</b>\n\n"
@@ -491,7 +513,7 @@ async def send_compound_exit_alert(bot, chat_id: int, opp, current_price: float)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
             text=f"✅ Продано по {price_cents}¢",
-            callback_data=f"compound_sell:{opp['id']}:{current_price}"
+            callback_data=f"compound_sell:{opp['id'][:36]}:{current_price:.4f}"
         ),
         InlineKeyboardButton(
             text="🔗 Открыть",
