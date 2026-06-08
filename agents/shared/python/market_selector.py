@@ -116,9 +116,18 @@ class MarketSelector:
             now = datetime.now(timezone.utc)
         try:
             if category == "penny_stocks":
-                # Ищем среди топ-1000 рынков по объему, так как дешевые редко в топе
-                all_markets = self.adapter.list_markets_paged(limit=500, offset=0, order="volume")
-                all_markets += self.adapter.list_markets_paged(limit=500, offset=500, order="volume")
+                # Ищем среди топ-1000 рынков по объему.
+                # Используем честную пагинацию по 100 элементов из-за ограничений Gamma API
+                all_markets = []
+                for offset in range(0, 1000, 100):
+                    try:
+                        chunk = self.adapter.list_markets_paged(limit=100, offset=offset, order="volume")
+                        if not chunk:
+                            break
+                        all_markets.extend(chunk)
+                    except Exception as e:
+                        print(f"[MarketSelector] Ошибка загрузки страницы {offset // 100} для penny_stocks: {e}")
+                        break
                 # Предфильтр: убираем уже закрытые до price-фильтра
                 alive = [m for m in all_markets if (m.close_time - now).total_seconds() > min_hours * 3600]
                 penny = [m for m in alive if (0.01 <= m.price <= 0.10) or (0.90 <= m.price <= 0.99)]
