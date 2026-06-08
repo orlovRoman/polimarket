@@ -171,9 +171,8 @@ def run_cross_platform_scan(
         save_cross_arbitrage(signal)
 
         # Логируем в Eval Engine всегда, если есть спред
-        from unittest.mock import Mock
-        spread_val = getattr(signal, "spread_percent", 0)
-        if not isinstance(spread_val, Mock) and spread_val > 0:
+        spread_val = getattr(signal, "spread_percent", 0) or 0
+        if type(spread_val).__name__ not in ('Mock', 'MagicMock') and spread_val > 0:
             try:
                 from core.eval.signal_logger import SignalLogger, StrategyType
                 logger_eval = SignalLogger()
@@ -199,57 +198,57 @@ def run_cross_platform_scan(
                 logger.error(f"[SCAN] Ошибка логирования арбитража в Evaluation Engine: {e}", exc_info=True)
 
         if signal.has_arbitrage and signal.spread_percent >= min_spread_alert:
-                from core.models import ArbitrageSignal
-                from core.workflow import process_arbitrage_signal
-                from services.notifications import send_telegram
+            from core.models import ArbitrageSignal
+            from core.workflow import process_arbitrage_signal
+            from services.notifications import send_telegram
+            
+            callback = summary_callback or send_telegram
+            
+            # Конвертируем CrossArbitrageSignal в универсальный ArbitrageSignal
+            arb_sig = ArbitrageSignal(
+                id=f"sig-arb-cross-{signal.market_a_id}-{int(time.time())}",
+                type="CROSS_PLATFORM",
+                market_id_a=signal.market_a_id,
+                market_id_b=signal.market_b_id,
+                platform_a=signal.market_a_platform,
+                platform_b=signal.market_b_platform,
+                spread_pct=signal.spread_percent,
+                target_outcome="YES_A" if signal.market_a_price < signal.market_b_price else "YES_B",
+                max_safe_size=100.0,  # Безопасный дефолт для бюджета
+                edge=signal.spread_percent / 100.0,
+                confidence=signal.match_score,
+                summary=f"Арбитраж {signal.market_a_platform} ↔ {signal.market_b_platform} ({signal.spread_percent:.1f}%)",
+                details=signal.trade_instruction + "\n\n" + signal.reasoning,
+                status="PENDING"
+            )
+            
+            # Загружаем стаканы для проверки ликвидности SHADOW
+            poly_adapter = PolymarketAdapter()
+            token_a = None
+            try:
+                m_a_full = poly_adapter.get_market(signal.market_a_id)
+                if m_a_full and m_a_full.tokens:
+                    token_a = m_a_full.tokens[0]
+            except Exception:
+                pass
                 
-                callback = summary_callback or send_telegram
-                
-                # Конвертируем CrossArbitrageSignal в универсальный ArbitrageSignal
-                arb_sig = ArbitrageSignal(
-                    id=f"sig-arb-cross-{signal.market_a_id}-{int(time.time())}",
-                    type="CROSS_PLATFORM",
-                    market_id_a=signal.market_a_id,
-                    market_id_b=signal.market_b_id,
-                    platform_a=signal.market_a_platform,
-                    platform_b=signal.market_b_platform,
-                    spread_pct=signal.spread_percent,
-                    target_outcome="YES_A" if signal.market_a_price < signal.market_b_price else "YES_B",
-                    max_safe_size=100.0,  # Безопасный дефолт для бюджета
-                    edge=signal.spread_percent / 100.0,
-                    confidence=signal.match_score,
-                    summary=f"Арбитраж {signal.market_a_platform} ↔ {signal.market_b_platform} ({signal.spread_percent:.1f}%)",
-                    details=signal.trade_instruction + "\n\n" + signal.reasoning,
-                    status="PENDING"
-                )
-                
-                # Загружаем стаканы для проверки ликвидности SHADOW
-                poly_adapter = PolymarketAdapter()
-                token_a = None
+            orderbook_a = {}
+            if token_a:
                 try:
-                    m_a_full = poly_adapter.get_market(signal.market_a_id)
-                    if m_a_full and m_a_full.tokens:
-                        token_a = m_a_full.tokens[0]
+                    orderbook_a = poly_adapter.get_orderbook(token_a) or {}
                 except Exception:
                     pass
-                    
-                orderbook_a = {}
-                if token_a:
-                    try:
-                        orderbook_a = poly_adapter.get_orderbook(token_a) or {}
-                    except Exception:
-                        pass
-                
-                process_arbitrage_signal(arb_sig, orderbook_a, kalshi_book or {}, callback)
-                found.append(signal)
-                
-                # BUG-02: mark alerted
-                signal_id = f"{signal.market_a_id}__{signal.market_b_id}"
-                mark_cross_arbitrage_alerted(signal_id)
-                
-                logger.info(f"[SCAN] 🔥 АРБИТРАЖ: {signal.arbitrage_type} "
-                      f"спред={signal.spread_percent:.1f}%  "
-                      f"POLY: {signal.market_a_title[:35]} / KALSHI: {signal.market_b_title[:35]}")
+            
+            process_arbitrage_signal(arb_sig, orderbook_a, kalshi_book or {}, callback)
+            found.append(signal)
+            
+            # BUG-02: mark alerted
+            signal_id = f"{signal.market_a_id}__{signal.market_b_id}"
+            mark_cross_arbitrage_alerted(signal_id)
+            
+            logger.info(f"[SCAN] 🔥 АРБИТРАЖ: {signal.arbitrage_type} "
+                  f"спред={signal.spread_percent:.1f}%  "
+                  f"POLY: {signal.market_a_title[:35]} / KALSHI: {signal.market_b_title[:35]}")
 
     logger.info(f"[SCAN] Итого арбитражей: {len(found)}")
     return found

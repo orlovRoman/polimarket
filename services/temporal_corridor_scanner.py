@@ -53,7 +53,8 @@ def run_temporal_corridor_scan(
     logger.info(f"[TC] Теоретических кандидатов: {len(candidates)}")
 
     if not candidates:
-        logger.info("[TC] Воронка: {'no_orderbook': 0, 'low_spread': 0, 'low_size': 0, 'low_quality': 0, 'passed': 0}")
+        stats = {"no_orderbook": 0, "low_spread": 0, "low_size": 0, "low_quality": 0, "passed": 0}
+        logger.info(f"[TC] Воронка: {stats}")
         return []
 
     session = make_session_with_timeout()
