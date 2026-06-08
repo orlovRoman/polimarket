@@ -1,4 +1,21 @@
 <!-- penny_stocks.html -->
+<style>
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+
+<div class="table-card" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px;">
+    <div>
+        <h3 style="margin: 0 0 4px 0; font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">Поиск дешевых рынков</h3>
+        <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">Принудительно сканировать Polymarket для поиска до 100 новых penny-рынков (до 10¢) без LLM-анализа</p>
+    </div>
+    <button id="btn-discover" onclick="discoverPennyMarkets()" class="badge badge-blue" style="border: none; cursor: pointer; font-weight: 600; padding: 10px 20px; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; border-radius: 6px; transition: all 0.2s;">
+        <span id="btn-discover-spinner" style="display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s linear infinite;"></span>
+        <span id="btn-discover-text">Импортировать до 100 рынков</span>
+    </button>
+</div>
+
 <div class="kpi-row">
     <div class="kpi-card">
         <div class="kpi-title">Всего в мониторинге</div>
@@ -540,7 +557,60 @@
         return `${cents.toFixed(2)}¢`;
     }
 
+    function formatPnLCents(val) {
+        if (val === null || val === undefined) return "0¢";
+        const cents = val * 100;
+        const sign = cents > 0 ? "+" : "";
+        const color = cents > 0 ? "text-green" : cents < 0 ? "text-red" : "";
+        
+        let centsStr = cents.toFixed(2);
+        if (centsStr.endsWith('.00')) {
+            centsStr = cents.toFixed(0);
+        } else if (centsStr.endsWith('0')) {
+            centsStr = cents.toFixed(1);
+        }
+        return `<span class="${color}">${sign}${centsStr}¢</span>`;
+    }
+
     let equityChart = null;
+
+    async function discoverPennyMarkets() {
+        const btn = document.getElementById('btn-discover');
+        const spinner = document.getElementById('btn-discover-spinner');
+        const text = document.getElementById('btn-discover-text');
+        
+        if (btn.disabled) return;
+        
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+        btn.style.cursor = 'not-allowed';
+        spinner.style.display = 'inline-block';
+        text.textContent = 'Импортируем...';
+        
+        try {
+            const res = await fetch('/api/penny-stocks/discover', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                alert(`Импорт завершен успешно! Добавлено новых рынков: ${data.discovered}`);
+                triggerRefresh();
+            } else {
+                const err = await res.json();
+                alert(`Ошибка импорта: ${err.error || 'Unknown error'}`);
+            }
+        } catch (e) {
+            console.error("Ошибка сети при импорте:", e);
+            alert("Ошибка сети при импорте");
+        } finally {
+            btn.disabled = false;
+            btn.style.opacity = '';
+            btn.style.cursor = 'pointer';
+            spinner.style.display = 'none';
+            text.textContent = 'Импортировать до 100 рынков';
+        }
+    }
 
     async function buyVirtual(marketId, price) {
         const res = await fetch('/api/penny-stocks/buy', {
@@ -773,7 +843,7 @@
         document.getElementById('kpi-active-predicted').textContent = data.stats.active_predicted_count || 0;
         document.getElementById('kpi-winrate').textContent = data.stats.win_rate !== null ? formatPercent(data.stats.win_rate) : '—';
         document.getElementById('kpi-avgentry').textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : '—';
-        document.getElementById('kpi-besttrade').innerHTML = formatPnL(data.stats.best_trade_pnl);
+        document.getElementById('kpi-besttrade').innerHTML = formatPnLCents(data.stats.best_trade_pnl);
 
         // 2. Рендерим таблицу Виртуального портфеля
         const portfolioTbody = document.getElementById('portfolio-tbody');
@@ -831,7 +901,7 @@
                     data: {
                         labels: dates,
                         datasets: [{
-                            label: 'Кумулятивный PnL ($)',
+                            label: 'Кумулятивный PnL (¢)',
                             data: pnlVals,
                             borderColor: '#10b981',
                             backgroundColor: 'rgba(16, 185, 129, 0.05)',
@@ -850,7 +920,21 @@
                             x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
                         },
                         plugins: {
-                            legend: { display: false }
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        if (context.parsed.y !== null) {
+                                            label += context.parsed.y.toFixed(2) + '¢';
+                                        }
+                                        return label;
+                                    }
+                                }
+                            }
                         }
                     }
                 });

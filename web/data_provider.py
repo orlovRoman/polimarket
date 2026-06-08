@@ -60,6 +60,19 @@ def get_overview_stats() -> dict:
                 stats[stype]['pnl_30d'] = round(r['pnl_30d'] or 0.0, 2)
                 stats[stype]['signals_count'] = r['total']
 
+        # 2.5 Отдельно догружаем статистику для penny_stocks из виртуальной истории сделок
+        penny_pnl = conn.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_cents ELSE 0.0 END) as pnl_7d,
+                SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_cents ELSE 0.0 END) as pnl_30d
+            FROM penny_virtual_trades_history
+        """).fetchone()
+        if penny_pnl:
+            stats['penny_stocks']['pnl_7d'] = round(penny_pnl['pnl_7d'] or 0.0, 2)
+            stats['penny_stocks']['pnl_30d'] = round(penny_pnl['pnl_30d'] or 0.0, 2)
+            stats['penny_stocks']['signals_count'] = penny_pnl['total']
+
         # 3. Обновляем статус-эмодзи
         for stype, sdata in stats.items():
             sdata['status_emoji'] = get_status_emoji(sdata['sharpe'], sdata['win_rate'])
@@ -84,7 +97,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
     def get_curve_for_strategy(conn, stype):
         if stype == 'penny_stocks':
             rows = conn.execute("""
-                SELECT date(sold_at) as date, SUM(pnl_cents) as daily_pnl
+                SELECT date(sold_at) as date, SUM(pnl_cents * 100) as daily_pnl
                 FROM penny_virtual_trades_history
                 WHERE sold_at >= ?
                 GROUP BY date(sold_at)
@@ -172,7 +185,12 @@ def get_penny_stocks_dashboard() -> dict:
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
                    s.pnl_realized
             FROM penny_stocks_monitoring p
-            LEFT JOIN signals s ON p.market_id = s.market_id AND s.strategy_type = 'penny_stocks'
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_realized) as pnl_realized
+                FROM signals
+                WHERE strategy_type = 'penny_stocks'
+                GROUP BY market_id
+            ) s ON p.market_id = s.market_id
             WHERE p.status = 'RESOLVED' AND (
                 (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
                 (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR

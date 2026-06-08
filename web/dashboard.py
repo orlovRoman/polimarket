@@ -121,6 +121,63 @@ async def api_sell_penny_stock(request):
     await asyncio.to_thread(sell_virtual_penny_stock, market_id)
     return web.json_response({"status": "ok"})
 
+async def api_discover_penny_stocks(request):
+    try:
+        from core.singleton import get_core_engine
+        from agents.shared.python.market_selector import MarketSelector
+        from agents.shared.python.db import (
+            add_penny_stock_to_monitoring,
+            get_active_penny_stocks
+        )
+        from telegram.bot import bot, AUTHORIZED_CHAT_ID
+        
+        engine = get_core_engine()
+        selector = MarketSelector(engine.adapter)
+        
+        # Загружаем до 100 дешевых рынков
+        markets = await asyncio.to_thread(
+            selector.select, total_limit=100, category="penny_stocks"
+        )
+        
+        if not markets:
+            return web.json_response({"status": "ok", "discovered": 0})
+            
+        active_stocks = await asyncio.to_thread(get_active_penny_stocks)
+        active_ids = {m["market_id"] for m in active_stocks}
+        
+        new_discovered = 0
+        for m in markets:
+            if m.id in active_ids:
+                continue
+                
+            # Добавляем в мониторинг как неанализированный
+            await asyncio.to_thread(
+                add_penny_stock_to_monitoring,
+                market_id=m.id,
+                title=m.title,
+                url=m.url,
+                initial_price=m.price,
+                predicted_outcome=None
+            )
+            new_discovered += 1
+            
+        if new_discovered > 0:
+            msg = (
+                f"📥 <b>Принудительный импорт Penny Stocks</b>\n\n"
+                f"С дашборда запрошен принудительный поиск дешевых рынков.\n"
+                f"Обнаружено и добавлено в мониторинг: <b>{new_discovered}</b> новых рынков."
+            )
+            try:
+                await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+            except Exception as tg_err:
+                logger.error(f"Failed to send Telegram notification: {tg_err}")
+                
+        return web.json_response({"status": "ok", "discovered": new_discovered})
+        
+    except Exception as e:
+        logger.error(f"Error in api_discover_penny_stocks: {e}", exc_info=True)
+        return web.json_response({"error": str(e)}, status=500)
+
 # === Фоновый запуск анализа ===
 
 analysis_jobs = {}
@@ -406,6 +463,7 @@ def create_dashboard_app() -> web.Application:
     app.router.add_post("/api/penny-stocks/sell", api_sell_penny_stock)
     app.router.add_post("/api/penny-stocks/analyze", api_analyze_penny_stock)
     app.router.add_get("/api/penny-stocks/analyze-status", api_analyze_status)
+    app.router.add_post("/api/penny-stocks/discover", api_discover_penny_stocks)
     
     logger.info("Application routes successfully registered.")
     return app
