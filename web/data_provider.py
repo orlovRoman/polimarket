@@ -185,14 +185,13 @@ def get_penny_stocks_dashboard() -> dict:
         # Завершенные позиции (все дешевые, с прогнозом и без)
         resolved_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   s.pnl_realized
+                   h.pnl_cents as pnl_realized
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_realized) as pnl_realized
-                FROM signals
-                WHERE strategy_type = 'penny_stocks'
+                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                FROM penny_virtual_trades_history
                 GROUP BY market_id
-            ) s ON p.market_id = s.market_id
+            ) h ON p.market_id = h.market_id
             WHERE p.status = 'RESOLVED' AND (
                 (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
                 (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR

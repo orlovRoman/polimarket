@@ -111,8 +111,8 @@ def test_get_penny_stocks_dashboard(isolated_db):
             ('penny_c', 'Penny C', 'http://c', 0.02, 0.02, 0.02, 0.02, 'ACTIVE', NULL)
         """)
         conn.execute("""
-            INSERT INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, strategy_type, pnl_realized, was_profitable, resolved_at, market_price_at_signal, target_outcome)
-            VALUES ('sig_penny', 'penny', 'penny_b', 'poly', 0.1, 0.8, 'HIGH', 's', 'd', 'LOSS', 'penny_stocks', -10.0, 0, datetime('now'), 0.08, 'YES')
+            INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at)
+            VALUES ('penny_b', 'Penny B', 'http://b', 'YES', 0.08, 0.08, 0.02, 0.02, -10.0, -125.0, datetime('now'), datetime('now'))
         """)
 
     data = data_provider.get_penny_stocks_dashboard()
