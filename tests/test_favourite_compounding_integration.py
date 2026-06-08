@@ -208,3 +208,73 @@ def test_save_and_get_compound_opportunity():
 
     # Save again should do nothing
     save_compound_opportunity(opp)
+
+
+@pytest.mark.asyncio
+async def test_callback_compound_buy_handler():
+    from telegram.bot import callback_compound_buy
+    from unittest.mock import AsyncMock, patch
+
+    cb = AsyncMock()
+    cb.data = "compound_buy:test_opp_001:2"
+    cb.message = AsyncMock()
+    
+    with patch("agents.shared.python.db.mark_compound_bought") as mock_mark, \
+         patch("telegram.bot._send_compound_list", new_callable=AsyncMock) as mock_send_list:
+         
+        await callback_compound_buy(cb)
+        
+        mock_mark.assert_called_once_with("test_opp_001")
+        cb.answer.assert_called_once_with("✅ Отмечено как куплено!", show_alert=True)
+        mock_send_list.assert_called_once_with(cb, 2)
+
+
+@pytest.mark.asyncio
+async def test_callback_compound_skip_handler():
+    from telegram.bot import callback_compound_skip
+    from unittest.mock import AsyncMock, patch
+
+    cb = AsyncMock()
+    cb.data = "compound_skip:test_opp_002:1"
+    cb.message = AsyncMock()
+    
+    with patch("agents.shared.python.db.mark_compound_alerted") as mock_mark, \
+         patch("telegram.bot._send_compound_list", new_callable=AsyncMock) as mock_send_list:
+         
+        await callback_compound_skip(cb)
+        
+        mock_mark.assert_called_once_with("test_opp_002")
+        cb.answer.assert_called_once_with("⏭ Возможность пропущена", show_alert=True)
+        mock_send_list.assert_called_once_with(cb, 1)
+
+
+@pytest.mark.asyncio
+async def test_handle_compound_sell_handler():
+    from telegram.bot import handle_compound_sell
+    from unittest.mock import AsyncMock, patch, MagicMock
+
+    cb = AsyncMock()
+    cb.data = "compound_sell:test_opp_003:0.98"
+    cb.message = AsyncMock()
+    
+    opp_dict = {
+        "id": "test_opp_003",
+        "status": "BOUGHT",
+        "price": 0.95,
+        "outcome": "YES"
+    }
+    
+    with patch("agents.shared.python.db.get_connection") as mock_get_conn, \
+         patch("agents.shared.python.db.get_compound_settings", return_value={"virtual_stake": 100.0}), \
+         patch("agents.shared.python.db.resolve_compound_opportunity") as mock_resolve:
+         
+        mock_conn = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchone.return_value = opp_dict
+        
+        await handle_compound_sell(cb)
+        
+        mock_resolve.assert_called_once()
+        cb.answer.assert_called_once_with("💎 Зафиксировано досрочное закрытие!")
+        cb.message.edit_reply_markup.assert_called_once_with(reply_markup=None)
+        cb.message.reply.assert_called_once()

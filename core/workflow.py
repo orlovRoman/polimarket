@@ -116,6 +116,9 @@ def _fetch_markets_parallel(adapter, market_ids: list, max_workers: int = 8) -> 
                     logger.debug(f"get_market failed for {futures[fut]}: {e}")
         except cf.TimeoutError:
             logger.warning("Timeout in _fetch_markets_parallel after 30s")
+            for f in futures:
+                if not f.done():
+                    f.cancel()
     return results
 
 def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, market_id: str, summary_callback=None) -> list:
@@ -294,7 +297,7 @@ def _fetch_grounded_context(market: Market, api_key: str, model: str) -> str:
 
 
 
-async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None, scan_category: Optional[str] = None):
+async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None, scan_category: Optional[str] = None, run_id: Optional[str] = None):
     import config
     if getattr(config, "shutdown_requested", False):
         logger.info("[workflow] Прерывание оценки: запрошена остановка системы.")
@@ -307,8 +310,9 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     has_anomaly = getattr(velocity, 'has_anomaly', False)
 
     last_analysis_key = f"last_analysis:{m.id}"
+    bypass_dedup = (trigger_type == "manual") or has_anomaly
 
-    if not has_anomaly and trigger_type != "manual":
+    if not bypass_dedup:
         # In-session дедупликация (быстрая проверка без БД)
         dedup_key = f"{m.id}:{trigger_type}"
         with _dedup_lock:
@@ -335,7 +339,8 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
             except (ValueError, TypeError):
                 pass
     else:
-        logger.info(f"[workflow] Обход дедупликации для рынка {m.id} из-за аномальной скорости изменения цены.")
+        reason = "ручной запуск" if trigger_type == "manual" else "аномальная скорость изменения цены"
+        logger.info(f"[workflow] Обход дедупликации для рынка {m.id} ({reason}).")
 
 
     # Guard: проверяем доступность LLM перед запуском
@@ -519,10 +524,12 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     gate = check_onchain_gate(oc_score, m.id, total_vol, market_tag)
 
+    actual_run_id = run_id or str(uuid.uuid4())[:8]
+
     if trigger_type != "manual" and not gate.allow:
         logger.info(f"[SwingGate] ⛔ {m.title[:60]!r} — {gate.reason}")
         save_gate_metrics(
-            run_id=str(uuid.uuid4())[:8],
+            run_id=actual_run_id,
             total=1, passed=0,
             blocked_no_volume=int(gate.blocked_by == "volume"),
             blocked_no_whales=int(gate.blocked_by == "whales")
@@ -530,7 +537,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         return None, None, None
     else:
         save_gate_metrics(
-            run_id=str(uuid.uuid4())[:8],
+            run_id=actual_run_id,
             total=1, passed=1,
             blocked_no_volume=0,
             blocked_no_whales=0
@@ -837,13 +844,17 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
 
         # Кнопки Игнорировать / Следить (market_id трункируется до 40 симв — лимит callback_data 64 байта)
         mid = m.id[:40]
-        market_action_markup = {
-            "inline_keyboard": [[
-                {"text": "🚫 Игнорировать", "callback_data": f"ignore_mkt_{mid}"},
-                {"text": "🔍 Проанализировать", "callback_data": f"analyze_mkt_{mid}"},
-                {"text": "📥 В идеи", "callback_data": f"add_idea_{mid}"}
-            ]]
-        }
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        market_action_markup = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
+                InlineKeyboardButton(text="🔍 Проанализировать", callback_data=f"analyze_mkt_{mid}"),
+                InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{mid}"),
+            ],
+            [
+                InlineKeyboardButton(text="🏷 Блокировать теги", callback_data=f"block_tags_select_{mid}")
+            ]
+        ])
 
         try:
             from core.utils import _callback_accepts_reply_markup

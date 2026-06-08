@@ -292,6 +292,9 @@ class CoreEngine:
         
         processed_ids = self._run_math_gate_sync(markets, summary_callback)
 
+        import uuid
+        run_id = str(uuid.uuid4())[:8]
+
         remaining_markets = [m for m in markets if m.id not in processed_ids]
         _update_state(
             total_markets=len(remaining_markets),
@@ -304,7 +307,7 @@ class CoreEngine:
             if getattr(config, "shutdown_requested", False):
                 log("🛑 Прерывание сканирования: запрошена остановка системы.")
                 break
-            self._process_single_market(m, i, summary_callback, _update_state, log, market_id=market_id, category=category, **kwargs)
+            self._process_single_market(m, i, summary_callback, _update_state, log, market_id=market_id, category=category, run_id=run_id, **kwargs)
                 
         _update_state(
             stage="Завершено",
@@ -575,7 +578,8 @@ class CoreEngine:
                     source_url=source_url, source_text=source_text,
                     triggered_at=triggered_at, price_history=price_hist,
                     pre_orderbook=pre_orderbook,
-                    scan_category=kwargs.get("category")
+                    scan_category=kwargs.get("category"),
+                    run_id=kwargs.get("run_id")
                 ))
             finally:
                 loop.close()

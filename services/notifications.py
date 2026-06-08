@@ -7,21 +7,34 @@ import requests
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, logger
 
 
-def send_telegram(text: str, parse_mode: str = "HTML", reply_markup: dict = None) -> bool:
+def _convert_reply_markup(reply_markup):
+    if not reply_markup:
+        return None
+    if hasattr(reply_markup, "model_dump"):
+        return reply_markup.model_dump(exclude_none=True)
+    elif hasattr(reply_markup, "to_python"):
+        return reply_markup.to_python()
+    elif hasattr(reply_markup, "dict"):
+        return reply_markup.dict(exclude_none=True)
+    return reply_markup
+
+
+def send_telegram(text: str, parse_mode: str = "HTML", reply_markup = None) -> bool:
     """Базовая отправка сообщения. Возвращает True при успехе."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.warning("[Notifier] TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID не задан.")
         return False
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        converted_markup = _convert_reply_markup(reply_markup)
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
             "text": text,
             "parse_mode": parse_mode,
             "disable_web_page_preview": True
         }
-        if reply_markup:
-            payload["reply_markup"] = reply_markup
+        if converted_markup:
+            payload["reply_markup"] = converted_markup
             
         resp = requests.post(url, json=payload, timeout=10)
         
@@ -32,8 +45,8 @@ def send_telegram(text: str, parse_mode: str = "HTML", reply_markup: dict = None
                 "text": text,
                 "disable_web_page_preview": True
             }
-            if reply_markup:
-                fallback_payload["reply_markup"] = reply_markup
+            if converted_markup:
+                fallback_payload["reply_markup"] = converted_markup
             resp = requests.post(url, json=fallback_payload, timeout=10)
             
         resp.raise_for_status()
@@ -43,21 +56,22 @@ def send_telegram(text: str, parse_mode: str = "HTML", reply_markup: dict = None
         return False
 
 
-def send_telegram_to_chat(text: str, chat_id: str, parse_mode: str = "HTML", reply_markup: dict = None) -> bool:
+def send_telegram_to_chat(text: str, chat_id: str, parse_mode: str = "HTML", reply_markup = None) -> bool:
     """Отправка сообщения в конкретный чат (используется для event-driven). Возвращает True при успехе."""
     if not TELEGRAM_BOT_TOKEN or not chat_id:
         logger.warning(f"[Notifier] TELEGRAM_BOT_TOKEN или chat_id ({chat_id}) не задан.")
         return False
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        converted_markup = _convert_reply_markup(reply_markup)
         payload = {
             "chat_id": chat_id,
             "text": text,
             "parse_mode": parse_mode,
             "disable_web_page_preview": True
         }
-        if reply_markup:
-            payload["reply_markup"] = reply_markup
+        if converted_markup:
+            payload["reply_markup"] = converted_markup
             
         resp = requests.post(url, json=payload, timeout=10)
         
@@ -68,8 +82,8 @@ def send_telegram_to_chat(text: str, chat_id: str, parse_mode: str = "HTML", rep
                 "text": text,
                 "disable_web_page_preview": True
             }
-            if reply_markup:
-                fallback_payload["reply_markup"] = reply_markup
+            if converted_markup:
+                fallback_payload["reply_markup"] = converted_markup
             resp = requests.post(url, json=fallback_payload, timeout=10)
             
         resp.raise_for_status()
