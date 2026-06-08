@@ -629,7 +629,7 @@
                         <td><span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span></td>
                         <td class="${row.edge > 0 ? 'text-green' : ''}">${formatPercent(row.edge)}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.added_at)}</td>
-                        <td>${actionBtn} ${analyzeBtn}</td>
+                        <td><div style="display: flex; gap: 6px; align-items: center; white-space: nowrap;">${actionBtn}${analyzeBtn}</div></td>
                     </tr>
                 `;
             }).join('');
