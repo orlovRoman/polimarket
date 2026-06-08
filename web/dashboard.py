@@ -95,33 +95,54 @@ async def api_corridors(request):
 
 async def api_buy_penny_stock(request):
     try:
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception as json_err:
+            return web.json_response({"error": f"Invalid JSON body: {json_err}"}, status=400)
+
         market_id = body.get("market_id")
-        price_str = body.get("price")
-        if not market_id or price_str is None:
-            return web.json_response({"error": "market_id and price are required"}, status=400)
-        price = float(price_str)
+        price_val = body.get("price")
         
+        if not market_id or price_val is None:
+            return web.json_response({"error": "market_id and price are required"}, status=400)
+            
+        try:
+            price = float(price_val)
+        except (ValueError, TypeError) as num_err:
+            return web.json_response({"error": f"Invalid price format: {num_err}"}, status=400)
+            
+    except (KeyError, TypeError) as req_err:
+        return web.json_response({"error": f"Malformed request parameters: {req_err}"}, status=400)
+
+    try:
         from agents.shared.python.db import buy_virtual_penny_stock
         await asyncio.to_thread(buy_virtual_penny_stock, market_id, price)
         return web.json_response({"status": "ok"})
     except Exception as e:
         logger.error(f"Error in api_buy_penny_stock: {e}", exc_info=True)
-        return web.json_response({"error": str(e)}, status=500 if "Invalid request body" not in str(e) else 400)
+        return web.json_response({"error": f"Internal server error: {e}"}, status=500)
 
 async def api_sell_penny_stock(request):
     try:
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception as json_err:
+            return web.json_response({"error": f"Invalid JSON body: {json_err}"}, status=400)
+
         market_id = body.get("market_id")
         if not market_id:
             return web.json_response({"error": "market_id is required"}, status=400)
             
+    except (KeyError, TypeError) as req_err:
+        return web.json_response({"error": f"Malformed request parameters: {req_err}"}, status=400)
+
+    try:
         from agents.shared.python.db import sell_virtual_penny_stock
         await asyncio.to_thread(sell_virtual_penny_stock, market_id)
         return web.json_response({"status": "ok"})
     except Exception as e:
         logger.error(f"Error in api_sell_penny_stock: {e}", exc_info=True)
-        return web.json_response({"error": str(e)}, status=500 if "Invalid request body" not in str(e) else 400)
+        return web.json_response({"error": f"Internal server error: {e}"}, status=500)
 
 async def api_discover_penny_stocks(request):
     try:

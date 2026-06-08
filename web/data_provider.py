@@ -428,14 +428,24 @@ def get_corridors_dashboard() -> dict:
         """).fetchall()
         temporal = [dict(r) for r in temp_rows]
 
-        # Кросс-платформа
+        # Кросс-платформа (только с подтвержденным арбитражем)
         cross_rows = conn.execute("""
             SELECT id, market_a_title, market_a_platform, market_a_price, market_b_title, market_b_platform, market_b_price, spread_percent, arbitrage_type, reasoning, status, created_at, action_a, action_b, entry_price_a_cents, entry_price_b_cents, expected_pnl_pct, risk_level, has_arbitrage, trade_instruction
             FROM cross_arbitrage_signals
+            WHERE has_arbitrage = 1
             ORDER BY created_at DESC
             LIMIT 50
         """).fetchall()
         cross = [dict(r) for r in cross_rows]
+
+        # Диагностическая выборка (последние 10 записей без фильтрации для отладки)
+        diag_rows = conn.execute("""
+            SELECT id, market_a_title, market_a_platform, market_a_price, market_b_title, market_b_platform, market_b_price, spread_percent, arbitrage_type, reasoning, status, created_at, action_a, action_b, entry_price_a_cents, entry_price_b_cents, expected_pnl_pct, risk_level, has_arbitrage, trade_instruction
+            FROM cross_arbitrage_signals
+            ORDER BY created_at DESC
+            LIMIT 10
+        """).fetchall()
+        cross_diagnostics = [dict(r) for r in diag_rows]
 
         # KPI по стратегиям коридоров
         kpi_rows = conn.execute("""
@@ -474,5 +484,6 @@ def get_corridors_dashboard() -> dict:
         'synthetic': synthetic,
         'temporal': temporal,
         'cross': cross,
+        'cross_diagnostics': cross_diagnostics,
         'kpis': kpis
     }

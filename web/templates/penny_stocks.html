@@ -731,7 +731,7 @@
                 const changeClass = changePct > 0 ? 'text-green' : changePct < 0 ? 'text-red' : '';
                 const changeSign = changePct > 0 ? '+' : '';
                 
-                const buyPrice = row.current_price ?? row.initial_price;
+                const buyPrice = Math.round((row.current_price ?? row.initial_price) * 100) / 100;
                 const actionBtn = row.virtual_bought_price !== null
                     ? `<span class="badge badge-blue">В портфеле</span>`
                     : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;

@@ -118,6 +118,7 @@ class MarketSelector:
             if category == "penny_stocks":
                 # Ищем среди топ-1000 рынков по объему.
                 # Используем честную пагинацию по 100 элементов из-за ограничений Gamma API
+                from config import logger
                 all_markets = []
                 for offset in range(0, 1000, 100):
                     try:
@@ -126,8 +127,10 @@ class MarketSelector:
                             break
                         all_markets.extend(chunk)
                     except Exception as e:
-                        print(f"[MarketSelector] Ошибка загрузки страницы {offset // 100} для penny_stocks: {e}")
-                        break
+                        logger.warning(f"[MarketSelector] Ошибка загрузки страницы {offset // 100} для penny_stocks: {e}")
+                        continue
+                if len(all_markets) < 300:
+                    logger.warning(f"[MarketSelector] Загружено мало рынков для penny_stocks ({len(all_markets)} < 300). Возможна потеря данных.")
                 # Предфильтр: убираем уже закрытые до price-фильтра
                 alive = [m for m in all_markets if (m.close_time - now).total_seconds() > min_hours * 3600]
                 penny = [m for m in alive if (0.01 <= m.price <= 0.10) or (0.90 <= m.price <= 0.99)]

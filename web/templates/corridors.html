@@ -251,7 +251,7 @@
             crossTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
         } else {
             crossTbody.innerHTML = rawData.cross.map(row => {
-                const hasArb = row.has_arbitrage !== undefined ? row.has_arbitrage : 1;
+                const hasArb = row.has_arbitrage ? 1 : 0;
                 const spreadClass = hasArb ? 'text-green' : 'text-muted';
                 const statusText = hasArb ? row.status : 'Нет арбитража';
                 const statusClass = hasArb ? (row.status === 'new' ? 'badge-blue' : 'badge-green') : 'badge-gray';

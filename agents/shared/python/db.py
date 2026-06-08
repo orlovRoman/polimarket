@@ -62,23 +62,29 @@ def _escape_like(pattern: str) -> str:
     return pattern.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
 _db_initialized = False
+_db_init_failed = False
 _db_init_lock = threading.Lock()
 
 def init_db():
     """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
-    global _db_initialized
+    global _db_initialized, _db_init_failed
     if _db_initialized:
         return
+    if _db_init_failed:
+        raise RuntimeError(f"Предыдущая попытка инициализации БД по адресу {DB_PATH} завершилась ошибкой. Повторная инициализация заблокирована.")
             
     with _db_init_lock:
         if _db_initialized:  # double-check после получения лока
             return
+        if _db_init_failed:
+            raise RuntimeError(f"Предыдущая попытка инициализации БД по адресу {DB_PATH} завершилась ошибкой. Повторная инициализация заблокирована.")
                 
         try:
             _init_db_impl()
             _db_initialized = True
             logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
         except Exception as e:
+            _db_init_failed = True
             logger.error(f"init_db failed: {e}", exc_info=True)
             raise
 
@@ -2168,8 +2174,8 @@ def sell_virtual_penny_stock(market_id: str) -> None:
                 bought_outcome = v_bought
                 curr_outcome = v_curr
                 
-            pnl_cents = curr_outcome - bought_outcome
-            pnl_percent = (pnl_cents / bought_outcome * 100) if bought_outcome > 0 else 0.0
+            pnl_cents = round(curr_outcome - bought_outcome, 2)
+            pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
             
             # Записываем сделку в историю
             conn.execute("""
@@ -2227,8 +2233,8 @@ def resolve_penny_stock(market_id: str, actual_outcome: str) -> None:
             else:
                 v_sold = sold_outcome        # т.е. если sold_outcome=1.0 (YES выиграл), то YES-цена = 1.0
                 
-            pnl_cents = sold_outcome - bought_outcome
-            pnl_percent = (pnl_cents / bought_outcome * 100) if bought_outcome > 0 else 0.0
+            pnl_cents = round(sold_outcome - bought_outcome, 2)
+            pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
             
             # Записываем сделку в историю
             conn.execute("""
