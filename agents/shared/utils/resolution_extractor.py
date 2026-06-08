@@ -408,8 +408,14 @@ def _build_resolution_block(src: ResolutionSource, hit: dict) -> str:
     else:
         status = f"⚠️ {src.domain} — нет RSS, только scraping (не реализован)"
 
+    conf_val = src.confidence
+    try:
+        conf_str = f"{float(conf_val):.2f}"
+    except (ValueError, TypeError):
+        conf_str = str(conf_val)
+
     return (f"[RESOLUTION SOURCE: {src.domain}]\n"
-            f"Метод извлечения: {src.extraction_method} (confidence: {src.confidence:.2f})\n"
+            f"Метод извлечения: {src.extraction_method} (confidence: {conf_str})\n"
             f"URL: {src.raw_url or 'не найден'}\n"
             f"Ключевые слова: {src.keywords}\n"
             f"{status}\n")

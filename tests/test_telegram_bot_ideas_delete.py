@@ -291,9 +291,10 @@ def test_callback_show_analysis_success():
         with patch("agents.shared.python.db.get_signal_analysis_report", return_value=report_val) as mock_get_report:
             await callback_show_analysis(mock_callback)
             
+            from aiogram.types import LinkPreviewOptions
             expected_truncated_id = "scout_mkt_1_1780000000"[:30]
             mock_get_report.assert_called_once_with(expected_truncated_id)
-            mock_callback.message.reply.assert_called_once_with(report_val, parse_mode="HTML", disable_web_page_preview=True)
+            mock_callback.message.reply.assert_called_once_with(report_val, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
             mock_callback.answer.assert_called_once()
             
     asyncio.run(run_test())

@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
+from contextlib import contextmanager
 from pydantic import BaseModel, Field, field_validator
 
 from config import DB_PATH
@@ -49,12 +50,11 @@ class SignalLogger:
     Не содержит логики принятия решений.
     """
 
-    def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(DB_PATH, timeout=5.0)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.row_factory = sqlite3.Row
-        return conn
+    @contextmanager
+    def _get_connection(self):
+        from agents.shared.python.db import get_connection
+        with get_connection() as conn:
+            yield conn
 
     def log_signal(
         self,

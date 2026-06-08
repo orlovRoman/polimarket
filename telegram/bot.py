@@ -2399,7 +2399,7 @@ async def callback_show_analysis(callback: CallbackQuery) -> None:
             
     # Отправляем новым сообщением-ответом (reply) на исходное сообщение со списком идей
     try:
-        await callback.message.reply(report, parse_mode="HTML", disable_web_page_preview=True)
+        await callback.message.reply(report, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка отправки HTML отчета: {e}")
@@ -2514,7 +2514,7 @@ async def callback_analyze_market(callback: CallbackQuery) -> None:
             ]
         ])
         
-        await callback.message.answer(summary_text, reply_markup=market_action_markup, parse_mode="HTML", disable_web_page_preview=True)
+        await callback.message.answer(summary_text, reply_markup=market_action_markup, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
         return
 
     # 2. Если архивных мнений нет, запускаем интерактивный анализ

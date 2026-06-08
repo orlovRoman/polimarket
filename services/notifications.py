@@ -117,8 +117,6 @@ def send_correlation_alerts(summary_callback=None) -> None:
             logger.error("[Notifier] Нет API ключа для Арбитражника.")
             return
 
-        arbitrage_agent = ArbitrageAgent(api_key=api_key, model="gemini-2.5-flash")
-
         for c in new_corrs[:5]:
             try:
                 # Получаем свежие данные о рынках
@@ -129,6 +127,7 @@ def send_correlation_alerts(summary_callback=None) -> None:
                     processed_ids.append(c['id'])
                     continue
 
+                arbitrage_agent = ArbitrageAgent(api_key=api_key, model="gemini-2.5-flash")
                 signal = arbitrage_agent.analyze_correlation(
                     market_a=market_a,
                     market_b=market_b,
@@ -171,6 +170,7 @@ def send_correlation_alerts(summary_callback=None) -> None:
                 processed_ids.append(c['id'])
             except Exception as item_err:
                 logger.error(f"[Notifier] Ошибка обработки корреляции {c['id']}: {item_err}", exc_info=True)
+                processed_ids.append(c['id'])
                 continue
     except Exception as e:
         logger.error(f"[Notifier] Ошибка отправки корреляций: {e}")

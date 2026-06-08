@@ -117,10 +117,25 @@ def test_market_selector_favourite_compound():
         volume=15000
     )
     
-    mock_adapter.list_markets_paged.return_value = [m1, m2, m3]
+    mock_adapter.list_all_markets_compact.return_value = [
+        {"id": "m1", "p": "0.96", "vol": "15000", "end": (now + timedelta(hours=24)).isoformat()},
+        {"id": "m2", "p": "0.5", "vol": "15000", "end": (now + timedelta(hours=24)).isoformat()},
+        {"id": "m3", "p": "0.98", "vol": "15000", "end": (now + timedelta(hours=72)).isoformat()},
+    ]
     
-    selector = MarketSelector(mock_adapter)
-    res = selector._fetch_category("favourite_compound", limit=10, now=now, min_hours=12)
+    def mock_get_market(m_id):
+        if m_id == "m1":
+            return m1
+        if m_id == "m2":
+            return m2
+        if m_id == "m3":
+            return m3
+        return None
+    mock_adapter.get_market.side_effect = mock_get_market
+    
+    with patch("agents.shared.python.db.get_compound_settings", return_value={"min_volume": 1000.0, "min_price": 0.95, "max_hours": 48.0}):
+        selector = MarketSelector(mock_adapter)
+        res = selector._fetch_category("favourite_compound", limit=10, now=now, min_hours=12)
     
     # Должен вернуться только m1
     assert len(res) == 1

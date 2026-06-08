@@ -5,7 +5,7 @@ import asyncio
 from unittest.mock import MagicMock, patch, AsyncMock
 from aiogram.types import InlineKeyboardMarkup
 
-from telegram.bot import callback_analyze_market_handler
+from telegram.bot import callback_analyze_market
 from main import scheduled_penny_monitor
 
 
@@ -47,7 +47,7 @@ async def test_scheduled_penny_monitor_attaches_keyboard(
 @patch("telegram.bot.get_market_discussions")
 @patch("telegram.bot.get_market_from_db")
 @patch("telegram.bot.get_core_engine")
-async def test_callback_analyze_market_handler_uses_cache(
+async def test_callback_analyze_market_uses_cache(
     mock_get_engine, mock_get_mkt_db, mock_get_discussions
 ):
     mock_get_discussions.return_value = [
@@ -64,7 +64,7 @@ async def test_callback_analyze_market_handler_uses_cache(
     mock_callback.data = "analyze_mkt_penny_123"
     mock_callback.id = "cb_cached_123"
 
-    await callback_analyze_market_handler(mock_callback)
+    await callback_analyze_market(mock_callback)
 
     mock_callback.answer.assert_called_once_with("📦 Восстанавливаю анализ из памяти...", show_alert=False)
     args, kwargs = mock_callback.message.answer.call_args
@@ -77,22 +77,43 @@ async def test_callback_analyze_market_handler_uses_cache(
 @patch("telegram.bot.get_market_discussions", return_value=[])
 @patch("telegram.bot.get_core_engine")
 @patch("telegram.bot._scan_lock.locked", return_value=False)
-async def test_callback_analyze_market_handler_no_cache_triggers_scan(
+async def test_callback_analyze_market_no_cache_triggers_scan(
     mock_lock, mock_get_engine, mock_get_discussions
 ):
     mock_engine = MagicMock()
     mock_engine._scan_lock.locked.return_value = False
+    mock_engine._fetch_pre_orderbook.return_value = None
+    
+    from core.models import Market
+    from datetime import datetime, timezone
+    mock_market = Market(
+        id="penny_123",
+        platform="polymarket",
+        title="Will doge reach 1$?",
+        url="https://polymarket.com/doge",
+        outcome="YES",
+        price=0.02,
+        close_time=datetime.now(timezone.utc),
+        volume=15000.0,
+        description="Test description"
+    )
+    mock_engine.adapter.get_market.return_value = mock_market
     mock_get_engine.return_value = mock_engine
 
-    mock_callback = AsyncMock()
+    mock_callback = MagicMock()
     mock_callback.id = "cb_nocache_123"
     mock_callback.data = "analyze_mkt_penny_123"
+    mock_callback.answer = AsyncMock()
+    mock_callback.message = AsyncMock()
 
-    await callback_analyze_market_handler(mock_callback)
+    await callback_analyze_market(mock_callback)
     await asyncio.sleep(0.1)  # Даем отработать фоновой задаче
 
-    mock_callback.answer.assert_called_once_with("🔍 Запуск анализа рынка NEXUS...", show_alert=False)
-    mock_callback.message.answer.assert_called_once_with("🔍 <b>Запуск ручного анализа рынка:</b> <code>penny_123</code>")
-    mock_engine.run_team_discussion.assert_called_once()
-    _, kwargs = mock_engine.run_team_discussion.call_args
-    assert kwargs["market_id"] == "penny_123"
+    mock_callback.answer.assert_called_once_with("🔍 Запуск анализа рынка агентами...", show_alert=False)
+    assert mock_callback.message.answer.called
+    ans_args, _ = mock_callback.message.answer.call_args
+    assert "Запуск ручного анализа рынка" in ans_args[0]
+    assert "Will doge reach 1$?" in ans_args[0]
+    mock_engine._run_shadow_analysis.assert_called_once()
+    _, kwargs = mock_engine._run_shadow_analysis.call_args
+    assert kwargs["m"].id == "penny_123"
