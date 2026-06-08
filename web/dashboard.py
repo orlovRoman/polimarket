@@ -3,6 +3,7 @@ import asyncio
 import logging
 import functools
 import time
+import threading
 from pathlib import Path
 from aiohttp import web
 from web import data_provider
@@ -123,12 +124,14 @@ async def api_sell_penny_stock(request):
 
 analysis_jobs = {}
 _background_tasks = set()
+_jobs_lock = threading.Lock()
 
 def _cleanup_stale_jobs():
     _now = time.time()
-    stale = [k for k, v in analysis_jobs.items() if _now - v.get("_ts", _now) > 3600]
-    for k in stale:
-        del analysis_jobs[k]
+    with _jobs_lock:
+        stale = [k for k, v in analysis_jobs.items() if _now - v.get("_ts", _now) > 3600]
+        for k in stale:
+            del analysis_jobs[k]
 
 async def run_analysis_in_background(market_id: str):
     from core.singleton import get_core_engine
@@ -153,11 +156,12 @@ async def run_analysis_in_background(market_id: str):
             logger.error(f"Failed to fetch market {market_id} from adapter: {e}")
             
     if not db_market:
-        analysis_jobs[market_id] = {
-            "status": "failed",
-            "error": "Рынок не найден ни в локальной БД, ни в адаптере Polymarket.",
-            "_ts": time.time()
-        }
+        with _jobs_lock:
+            analysis_jobs[market_id] = {
+                "status": "failed",
+                "error": "Рынок не найден ни в локальной БД, ни в адаптере Polymarket.",
+                "_ts": time.time()
+            }
         return
         
     full_market_id = db_market["id"]
@@ -165,15 +169,16 @@ async def run_analysis_in_background(market_id: str):
     
     try:
         # Инициализируем статус
-        analysis_jobs[market_id] = {
-            "status": "running",
-            "progress": {
-                "scout": "⚙️ Анализирует...",
-                "swing": "⏳ Ожидает",
-                "shadow": "⏳ Ожидает"
-            },
-            "_ts": time.time()
-        }
+        with _jobs_lock:
+            analysis_jobs[market_id] = {
+                "status": "running",
+                "progress": {
+                    "scout": "⚙️ Анализирует...",
+                    "swing": "⏳ Ожидает",
+                    "shadow": "⏳ Ожидает"
+                },
+                "_ts": time.time()
+            }
         
         # Подгружаем полноценный объект рынка из адаптера
         market = await asyncio.to_thread(engine.adapter.get_market, full_market_id)
@@ -204,16 +209,17 @@ async def run_analysis_in_background(market_id: str):
             swing_status = kwargs.get("swing_status")
             shadow_status = kwargs.get("shadow_status")
             
-            job = analysis_jobs.get(market_id)
-            if job and job.get("status") == "running":
-                progress = job.setdefault("progress", {})
-                if scout_status:
-                    progress["scout"] = scout_status
-                if swing_status:
-                    progress["swing"] = swing_status
-                if shadow_status:
-                    progress["shadow"] = shadow_status
-                job["_ts"] = time.time()
+            with _jobs_lock:
+                job = analysis_jobs.get(market_id)
+                if job and job.get("status") == "running":
+                    progress = job.setdefault("progress", {})
+                    if scout_status:
+                        progress["scout"] = scout_status
+                    if swing_status:
+                        progress["swing"] = swing_status
+                    if shadow_status:
+                        progress["shadow"] = shadow_status
+                    job["_ts"] = time.time()
                     
         signal, swing_signal, context = await run_agent_evaluation(
             market,
@@ -227,11 +233,12 @@ async def run_analysis_in_background(market_id: str):
         )
         
         if context is None:
-            analysis_jobs[market_id] = {
-                "status": "failed",
-                "error": "Анализ рынка пропущен (дедупликация или сбой).",
-                "_ts": time.time()
-            }
+            with _jobs_lock:
+                analysis_jobs[market_id] = {
+                    "status": "failed",
+                    "error": "Анализ рынка пропущен (дедупликация или сбой).",
+                    "_ts": time.time()
+                }
             return
             
         sync_update_state(shadow_status="⚙️ Анализирует...")
@@ -264,19 +271,21 @@ async def run_analysis_in_background(market_id: str):
         
         opinions = await asyncio.to_thread(get_market_discussions, market.id)
         
-        analysis_jobs[market_id] = {
-            "status": "completed",
-            "opinions": opinions,
-            "_ts": time.time()
-        }
+        with _jobs_lock:
+            analysis_jobs[market_id] = {
+                "status": "completed",
+                "opinions": opinions,
+                "_ts": time.time()
+            }
         
     except Exception as e:
         logger.error(f"Error in background dashboard analysis for {market_id}: {e}", exc_info=True)
-        analysis_jobs[market_id] = {
-            "status": "failed",
-            "error": str(e),
-            "_ts": time.time()
-        }
+        with _jobs_lock:
+            analysis_jobs[market_id] = {
+                "status": "failed",
+                "error": str(e),
+                "_ts": time.time()
+            }
 
 async def api_analyze_penny_stock(request):
     _cleanup_stale_jobs()
@@ -298,26 +307,29 @@ async def api_analyze_penny_stock(request):
                 conn.execute("DELETE FROM agent_opinions WHERE market_id = ?", (market_id,))
                 conn.execute("DELETE FROM analyzed_markets WHERE market_id = ?", (market_id,))
         await asyncio.to_thread(clear_db)
-        if market_id in analysis_jobs:
-            del analysis_jobs[market_id]
+        with _jobs_lock:
+            if market_id in analysis_jobs:
+                del analysis_jobs[market_id]
             
-    job = analysis_jobs.get(market_id)
-    if job:
-        if job["status"] == "completed":
-            job["_ts"] = time.time()
-            return web.json_response({"status": "completed", "opinions": job["opinions"]})
-        elif job["status"] == "failed":
-            del analysis_jobs[market_id]
-        else:
-            return web.json_response({"status": "running", "progress": job.get("progress")})
+    with _jobs_lock:
+        job = analysis_jobs.get(market_id)
+        if job:
+            if job["status"] == "completed":
+                job["_ts"] = time.time()
+                return web.json_response({"status": "completed", "opinions": job["opinions"]})
+            elif job["status"] == "failed":
+                del analysis_jobs[market_id]
+            else:
+                return web.json_response({"status": "running", "progress": job.get("progress")})
             
     opinions = await asyncio.to_thread(get_market_discussions, market_id)
     if opinions and len(opinions) > 0:
-        analysis_jobs[market_id] = {
-            "status": "completed",
-            "opinions": opinions,
-            "_ts": time.time()
-        }
+        with _jobs_lock:
+            analysis_jobs[market_id] = {
+                "status": "completed",
+                "opinions": opinions,
+                "_ts": time.time()
+            }
         return web.json_response({"status": "completed", "opinions": opinions})
         
     task = asyncio.create_task(run_analysis_in_background(market_id))
@@ -336,24 +348,28 @@ async def api_analyze_status(request):
     if not market_id:
         return web.json_response({"error": "market_id is required"}, status=400)
         
-    job = analysis_jobs.get(market_id)
-    if job:
-        if job["status"] == "completed":
-            job["_ts"] = time.time()
-            return web.json_response({"status": "completed", "opinions": job["opinions"]})
-        elif job["status"] == "failed":
-            return web.json_response({"status": "failed", "error": job.get("error")})
-        else:
-            return web.json_response({"status": "running", "progress": job.get("progress")})
+    with _jobs_lock:
+        job = analysis_jobs.get(market_id)
+        if job:
+            if job["status"] == "completed":
+                job["_ts"] = time.time()
+                return web.json_response({"status": "completed", "opinions": job["opinions"]})
+            elif job["status"] == "failed":
+                err = job.get("error")
+                del analysis_jobs[market_id]
+                return web.json_response({"status": "failed", "error": err})
+            else:
+                return web.json_response({"status": "running", "progress": job.get("progress")})
             
     from agents.shared.python.db import get_market_discussions
     opinions = await asyncio.to_thread(get_market_discussions, market_id)
     if opinions and len(opinions) > 0:
-        analysis_jobs[market_id] = {
-            "status": "completed",
-            "opinions": opinions,
-            "_ts": time.time()
-        }
+        with _jobs_lock:
+            analysis_jobs[market_id] = {
+                "status": "completed",
+                "opinions": opinions,
+                "_ts": time.time()
+            }
         return web.json_response({"status": "completed", "opinions": opinions})
         
     return web.json_response({"status": "not_found"})

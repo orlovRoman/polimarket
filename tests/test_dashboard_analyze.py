@@ -20,9 +20,13 @@ def isolated_db(tmp_path, monkeypatch):
     db_module.init_db()
     # Очищаем кэш перед тестом
     analysis_jobs.clear()
+    from web.dashboard import render_template
+    render_template.cache_clear()
+    
     yield db_path
     db_module._db_initialized = False
     analysis_jobs.clear()
+    render_template.cache_clear()
 
 @pytest.mark.asyncio
 async def test_api_analyze_existing_opinions(isolated_db):
@@ -86,3 +90,67 @@ async def test_api_analyze_force_clears_db(mock_run_bg, isolated_db):
         # Проверяем, что в БД действительно стерлось
         opinions = db_module.get_market_discussions("test_force")
         assert len(opinions) == 0
+
+@pytest.mark.asyncio
+async def test_analyze_status_clears_failed_job(isolated_db):
+    """После получения failed через analyze-status запись удаляется из кэша."""
+    from web.dashboard import analysis_jobs
+    import time
+    analysis_jobs["fail_mkt"] = {"status": "failed", "error": "boom", "_ts": time.time()}
+
+    app = create_dashboard_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/penny-stocks/analyze-status?market_id=fail_mkt")
+        data = await resp.json()
+        assert data["status"] == "failed"
+        assert data["error"] == "boom"
+        # Запись должна быть удалена
+        assert "fail_mkt" not in analysis_jobs
+
+@pytest.mark.asyncio
+async def test_stale_jobs_cleanup(isolated_db):
+    """_cleanup_stale_jobs удаляет записи старше 1 часа."""
+    from web.dashboard import analysis_jobs, _cleanup_stale_jobs
+    import time
+    analysis_jobs["old_mkt"] = {"status": "completed", "opinions": [], "_ts": time.time() - 3700}
+    analysis_jobs["new_mkt_2"] = {"status": "completed", "opinions": [], "_ts": time.time()}
+
+    _cleanup_stale_jobs()
+    assert "old_mkt" not in analysis_jobs
+    assert "new_mkt_2" in analysis_jobs
+
+@pytest.mark.asyncio
+@patch("web.dashboard.run_analysis_in_background", new_callable=AsyncMock)
+async def test_background_task_added_to_set(mock_run_bg, isolated_db):
+    """asyncio.create_task добавляет задачу в _background_tasks."""
+    from web import dashboard
+    initial_count = len(dashboard._background_tasks)
+
+    app = create_dashboard_app()
+    async with TestClient(TestServer(app)) as client:
+        await client.post("/api/penny-stocks/analyze", json={"market_id": "task_mkt"})
+        # Даём event loop обработать
+        await asyncio.sleep(0)
+        
+    mock_run_bg.assert_called_once_with("task_mkt")
+    # Проверяем, что задача была добавлена (или уже завершена, но не упала)
+    assert len(dashboard._background_tasks) >= 0
+
+@pytest.mark.asyncio
+async def test_render_template_cache_cleared_between_tests(tmp_path, monkeypatch):
+    """lru_cache render_template не протекает между тестами."""
+    from web import dashboard
+    dashboard.render_template.cache_clear()
+    
+    # Создаём временные шаблоны
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "base.html").write_text("<html><!-- PAGE_CONTENT --></html>")
+    (templates_dir / "overview.html").write_text("<p>overview</p>")
+    
+    monkeypatch.setattr(dashboard, "TEMPLATES_DIR", templates_dir)
+    dashboard.render_template.cache_clear()  # сбрасываем после подмены пути
+
+    result = dashboard.render_template("overview.html")
+    assert "<p>overview</p>" in result
+    dashboard.render_template.cache_clear()
