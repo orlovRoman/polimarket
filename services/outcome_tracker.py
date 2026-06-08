@@ -72,7 +72,7 @@ def _get_pending_with_closed_market() -> list[dict]:
         rows = conn.execute("""
             SELECT s.id, s.market_id, s.target_outcome, s.strategy_type,
                    s.edge, s.confidence, s.created_at, s.estimated_probability,
-                   s.market_price_at_signal,
+                   s.predicted_probability, s.market_price_at_signal,
                    m.title as market_title, m.close_time, m.outcome as market_resolved_outcome
             FROM signals s
             JOIN markets m ON s.market_id = m.id
@@ -146,8 +146,9 @@ def _resolve_signal(row: dict, resolution: str) -> None:
         else:
             # Для scout и whale
             price_safe = row.get("market_price_at_signal")
-            if price_safe is None and row.get("estimated_probability") is not None and row.get("edge") is not None:
-                price_safe = row["estimated_probability"] - row["edge"]
+            if price_safe is None and (row.get("estimated_probability") is not None or row.get("predicted_probability") is not None) and row.get("edge") is not None:
+                prob_val = row.get("estimated_probability") if row.get("estimated_probability") is not None else row.get("predicted_probability")
+                price_safe = prob_val - row["edge"]
             if price_safe is None:
                 price_safe = 0.5
 
@@ -173,7 +174,7 @@ def _resolve_signal(row: dict, resolution: str) -> None:
 
     # Сохраняем эпизод агента
     agent_name = (row.get("strategy_type") or 'SCOUT').upper()
-    predicted_prob = row.get("estimated_probability") or 0.5
+    predicted_prob = row.get("estimated_probability") or row.get("predicted_probability") or 0.5
     target = (row.get("target_outcome") or "YES").upper()
     try:
         save_agent_episode(
@@ -266,10 +267,10 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
                 AVG(pnl_realized)                                          AS avg_realized_pnl,
                 -- Brier score: среднее (predicted_prob - outcome)^2
                 AVG(
-                    CASE WHEN estimated_probability IS NOT NULL
+                    CASE WHEN COALESCE(estimated_probability, predicted_probability) IS NOT NULL
                               AND was_profitable IS NOT NULL
-                    THEN (estimated_probability - CAST(was_profitable AS REAL)) *
-                         (estimated_probability - CAST(was_profitable AS REAL))
+                    THEN (COALESCE(estimated_probability, predicted_probability) - CAST(was_profitable AS REAL)) *
+                         (COALESCE(estimated_probability, predicted_probability) - CAST(was_profitable AS REAL))
                     END
                 ) AS brier_score
             FROM signals
@@ -336,7 +337,8 @@ def _send_telegram_summary(resolved_items: list[tuple[dict, str]]) -> None:
         for row, res in resolved_items:
             was_correct = (row["target_outcome"] or "YES").upper() == res.upper()
             status_emoji = "🟢 WIN" if was_correct else "🔴 LOSS"
-            prob_str = f" {row['estimated_probability']:.0%}" if row.get("estimated_probability") is not None else ""
+            prob_val = row.get("estimated_probability") if row.get("estimated_probability") is not None else row.get("predicted_probability")
+            prob_str = f" {prob_val:.0%}" if prob_val is not None else ""
             lines.append(
                 f"- <b>{row['market_title'][:40]}...</b>\n"
                 f"  Исход: {res} | Прогноз:{prob_str} → {status_emoji} (<i>{row['strategy_type']}</i>)\n"

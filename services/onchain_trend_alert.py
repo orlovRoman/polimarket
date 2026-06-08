@@ -117,7 +117,8 @@ def scan_large_single_bets() -> list[dict]:
         
         try:
             side = row["outcome"]
-            prob = 0.85  # Дефолтная высокая уверенность для крупных одиночных ставок китов
+            row_price = row["price"] if row["price"] is not None else 0.5
+            prob = min(0.97, row_price + 0.12) if side == "YES" else max(0.03, (1.0 - row_price) + 0.12)
             
             from core.eval.signal_logger import SignalLogger, StrategyType
             logger_eval = SignalLogger()
@@ -126,8 +127,9 @@ def scan_large_single_bets() -> list[dict]:
             summary_msg = f"Whale single bet: ${row['amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
             logger.info(f"[OnchainTrend] {summary_msg}")
             
+            ts = int(datetime.now(timezone.utc).timestamp())
             logger_eval.log_signal(
-                signal_id=f"sig-whale-single-{row['market_id']}-{row['wallet_address']}-{int(row['amount_usd'])}",
+                signal_id=f"sig-whale-single-{row['market_id']}-{row['wallet_address'][:8]}-{int(row['amount_usd'])}-{ts}",
                 strategy_type=StrategyType.WHALE,
                 market_id=row['market_id'],
                 predicted_probability=prob,
@@ -189,7 +191,8 @@ def scan_wallet_series() -> list[dict]:
         
         try:
             side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
-            prob = 0.90  # Более высокая уверенность для серий сделок одного кошелька
+            row_price = row["avg_price"] if row["avg_price"] is not None else 0.5
+            prob = min(0.97, row_price + 0.12) if side == "YES" else max(0.03, (1.0 - row_price) + 0.12)
             
             from core.eval.signal_logger import SignalLogger, StrategyType
             logger_eval = SignalLogger()
@@ -197,8 +200,9 @@ def scan_wallet_series() -> list[dict]:
             summary_msg = f"Whale wallet series: {row['tx_count']} trades, total ${row['total_amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
             logger.info(f"[OnchainTrend] {summary_msg}")
             
+            ts = int(datetime.now(timezone.utc).timestamp())
             logger_eval.log_signal(
-                signal_id=f"sig-whale-series-{row['market_id']}-{row['wallet_address']}",
+                signal_id=f"sig-whale-series-{row['market_id']}-{row['wallet_address'][:8]}-{ts}",
                 strategy_type=StrategyType.WHALE,
                 market_id=row['market_id'],
                 predicted_probability=prob,

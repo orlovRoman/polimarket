@@ -586,6 +586,22 @@ async def scheduled_favourite_compounding():
         except Exception as e:
             logger.error(f"Ошибка Favourite Compounding: {e}", exc_info=True)
 
+_resolution_running = False
+
+async def scheduled_outcome_tracker():
+    global _resolution_running
+    if _resolution_running:
+        logger.warning("Outcome tracker cycle is already running, skipping this interval")
+        return
+    _resolution_running = True
+    try:
+        from services.outcome_tracker import run_resolution_cycle
+        await asyncio.to_thread(run_resolution_cycle)
+    except Exception as e:
+        logger.exception(f"Error in scheduled outcome tracker: {e}")
+    finally:
+        _resolution_running = False
+
 async def start_system():
     load_dotenv()
     from config import startup_check
@@ -685,9 +701,8 @@ async def start_system():
     )
 
     #Outcome Tracker — авторезолюция сигналов каждые 2 часа
-    from services.outcome_tracker import run_resolution_cycle
     scheduler.add_job(
-        run_resolution_cycle,
+        scheduled_outcome_tracker,
         trigger="interval",
         hours=2,
         id="outcome_tracker",
