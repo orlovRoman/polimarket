@@ -260,7 +260,7 @@ async def start_dashboard():
     try:
         while True:
             await asyncio.sleep(3600)
-    except asyncio.CancelledError:
+    finally:
         logger.info("Остановка дашборда...")
         await runner.cleanup()
 

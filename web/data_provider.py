@@ -2,7 +2,6 @@
 import sqlite3
 import math
 from datetime import datetime, timedelta, timezone
-from agents.shared.python.db import get_connection
 
 def get_status_emoji(sharpe: float | None, win_rate: float | None) -> str:
     """Определяет статус-эмодзи стратегии на основе Sharpe и win rate."""
@@ -18,6 +17,7 @@ def get_overview_stats() -> dict:
     - win_rate и sharpe из последнего расчета в strategy_metrics
     - pnl за 7 и 30 дней, а также количество сигналов из signals
     """
+    from agents.shared.python.db import get_connection
     strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks']
     stats = {}
     for s in strategies:
@@ -66,11 +66,12 @@ def get_overview_stats() -> dict:
             
     return stats
 
-def get_equity_curve(strategy: str, days: int = 30) -> any:
+def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, list[dict]]:
     """
     Генерирует кривую доходности (кумулятивный PnL по дням).
     Если strategy='all', возвращает словарь кривых для всех стратегий.
     """
+    from agents.shared.python.db import get_connection
     strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks']
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     
@@ -107,6 +108,7 @@ def get_penny_stocks_dashboard() -> dict:
     """
     Собирает данные для дашборда Penny Stocks (активные, завершенные позиции, статистика, распределение).
     """
+    from agents.shared.python.db import get_connection
     with get_connection() as conn:
         # Активные позиции
         active_rows = conn.execute("""
@@ -199,6 +201,7 @@ def get_penny_stocks_dashboard() -> dict:
 
 def get_strategy_signals(strategy: str, days: int = 30, limit: int = 50) -> list:
     """Возвращает последние сигналы для конкретной стратегии вместе с названием рынков."""
+    from agents.shared.python.db import get_connection
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
         rows = conn.execute("""
@@ -215,6 +218,7 @@ def get_strategy_signals(strategy: str, days: int = 30, limit: int = 50) -> list
 
 def get_auto_disable_candidates() -> list:
     """Возвращает список стратегий, у которых Sharpe Ratio < 0."""
+    from agents.shared.python.db import get_connection
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT strategy_type, win_rate, sharpe_ratio, avg_realized_pnl
@@ -226,6 +230,7 @@ def get_auto_disable_candidates() -> list:
 
 def get_corridors_dashboard() -> dict:
     """Собирает лог коридоров (синтетические, временные, кросс-платформенные) и KPI по ним."""
+    from agents.shared.python.db import get_connection
     with get_connection() as conn:
         # Синтетические коридоры
         synth_rows = conn.execute("""

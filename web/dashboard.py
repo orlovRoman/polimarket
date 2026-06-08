@@ -28,23 +28,23 @@ def render_template(page_name: str) -> str:
 # === HTML хэндлеры ===
 
 async def handle_overview(request):
-    html = render_template("overview.html")
+    html = await asyncio.to_thread(render_template, "overview.html")
     return web.Response(text=html, content_type="text/html")
 
 async def handle_penny_stocks(request):
-    html = render_template("penny_stocks.html")
+    html = await asyncio.to_thread(render_template, "penny_stocks.html")
     return web.Response(text=html, content_type="text/html")
 
 async def handle_scout(request):
-    html = render_template("scout.html")
+    html = await asyncio.to_thread(render_template, "scout.html")
     return web.Response(text=html, content_type="text/html")
 
 async def handle_whale(request):
-    html = render_template("whale.html")
+    html = await asyncio.to_thread(render_template, "whale.html")
     return web.Response(text=html, content_type="text/html")
 
 async def handle_corridors(request):
-    html = render_template("corridors.html")
+    html = await asyncio.to_thread(render_template, "corridors.html")
     return web.Response(text=html, content_type="text/html")
 
 # === JSON API хэндлеры ===
