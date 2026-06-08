@@ -708,6 +708,26 @@ def init_db():
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_penny_status ON penny_stocks_monitoring(status)")
 
+            # Таблица истории виртуальных сделок
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS penny_virtual_trades_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    market_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    bought_price REAL NOT NULL,
+                    bought_outcome_price REAL NOT NULL,
+                    sold_price REAL NOT NULL,
+                    sold_outcome_price REAL NOT NULL,
+                    pnl_cents REAL NOT NULL,
+                    pnl_percent REAL NOT NULL,
+                    bought_at TIMESTAMP,
+                    sold_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (market_id) REFERENCES markets (id)
+                )
+            """)
+
             # Миграция: добавляем поля виртуального портфеля в penny_stocks_monitoring
             penny_cols = {row[1] for row in cursor.execute("PRAGMA table_info(penny_stocks_monitoring)").fetchall()}
             if 'virtual_bought_price' not in penny_cols:
@@ -2115,6 +2135,50 @@ def buy_virtual_penny_stock(market_id: str, price: float) -> None:
 
 def sell_virtual_penny_stock(market_id: str) -> None:
     with get_connection() as conn:
+        # 1. Считываем данные рынка из мониторинга
+        row = conn.execute("""
+            SELECT title, url, initial_price, current_price, predicted_outcome, virtual_bought_price, virtual_bought_at
+            FROM penny_stocks_monitoring
+            WHERE market_id = ?
+        """, (market_id,)).fetchone()
+        
+        if row and row['virtual_bought_price'] is not None:
+            v_bought = row['virtual_bought_price']
+            v_bought_at = row['virtual_bought_at']
+            v_curr = row['current_price']
+            
+            # Определяем направление сделки
+            pred = row['predicted_outcome']
+            init_p = row['initial_price']
+            if pred is not None:
+                outcome_to_track = pred
+            else:
+                outcome_to_track = 'NO' if init_p >= 0.90 else 'YES'
+                
+            # Считаем цены исхода
+            if outcome_to_track == 'NO':
+                bought_outcome = 1.0 - v_bought
+                curr_outcome = 1.0 - v_curr
+            else:
+                bought_outcome = v_bought
+                curr_outcome = v_curr
+                
+            pnl_cents = curr_outcome - bought_outcome
+            pnl_percent = (pnl_cents / bought_outcome * 100) if bought_outcome > 0 else 0.0
+            
+            # Записываем сделку в историю
+            conn.execute("""
+                INSERT INTO penny_virtual_trades_history (
+                    market_id, title, url, outcome, bought_price, bought_outcome_price, 
+                    sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                market_id, row['title'], row['url'], outcome_to_track,
+                v_bought, bought_outcome, v_curr, curr_outcome,
+                pnl_cents, pnl_percent, v_bought_at
+            ))
+            
+        # 2. Очищаем портфель
         conn.execute("""
             UPDATE penny_stocks_monitoring
             SET virtual_bought_price = NULL,
@@ -2124,11 +2188,63 @@ def sell_virtual_penny_stock(market_id: str) -> None:
 
 def resolve_penny_stock(market_id: str, actual_outcome: str) -> None:
     with get_connection() as conn:
+        # 1. Проверяем, был ли рынок в виртуальном портфеле
+        row = conn.execute("""
+            SELECT title, url, initial_price, predicted_outcome, virtual_bought_price, virtual_bought_at
+            FROM penny_stocks_monitoring
+            WHERE market_id = ?
+        """, (market_id,)).fetchone()
+        
+        if row and row['virtual_bought_price'] is not None:
+            v_bought = row['virtual_bought_price']
+            v_bought_at = row['virtual_bought_at']
+            
+            # Определяем направление сделки
+            pred = row['predicted_outcome']
+            init_p = row['initial_price']
+            if pred is not None:
+                outcome_to_track = pred
+            else:
+                outcome_to_track = 'NO' if init_p >= 0.90 else 'YES'
+                
+            # Считаем цену входа целевого исхода
+            bought_outcome = (1.0 - v_bought) if outcome_to_track == 'NO' else v_bought
+            
+            # При разрешении (resolve) цена исхода становится либо 1.0 (выиграли), либо 0.0 (проиграли)
+            if actual_outcome == outcome_to_track:
+                sold_outcome = 1.0
+            else:
+                sold_outcome = 0.0
+                
+            # Вычисляем соответствующую YES-цену при разрешении
+            if outcome_to_track == 'NO':
+                v_sold = 1.0 - sold_outcome  # т.е. если sold_outcome=1.0 (NO выиграл), то YES-цена = 0.0
+            else:
+                v_sold = sold_outcome        # т.е. если sold_outcome=1.0 (YES выиграл), то YES-цена = 1.0
+                
+            pnl_cents = sold_outcome - bought_outcome
+            pnl_percent = (pnl_cents / bought_outcome * 100) if bought_outcome > 0 else 0.0
+            
+            # Записываем сделку в историю
+            conn.execute("""
+                INSERT INTO penny_virtual_trades_history (
+                    market_id, title, url, outcome, bought_price, bought_outcome_price, 
+                    sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                market_id, row['title'], row['url'], outcome_to_track,
+                v_bought, bought_outcome, v_sold, sold_outcome,
+                pnl_cents, pnl_percent, v_bought_at
+            ))
+            
+        # 2. Обновляем статус рынка на RESOLVED и очищаем виртуальную покупку
         conn.execute("""
             UPDATE penny_stocks_monitoring
             SET status = 'RESOLVED',
                 actual_outcome = ?,
-                resolved_at = CURRENT_TIMESTAMP
+                resolved_at = CURRENT_TIMESTAMP,
+                virtual_bought_price = NULL,
+                virtual_bought_at = NULL
             WHERE market_id = ?
         """, (actual_outcome, market_id))
 

@@ -82,15 +82,24 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     
     def get_curve_for_strategy(conn, stype):
-        rows = conn.execute("""
-            SELECT date(resolved_at) as date, SUM(pnl_realized) as daily_pnl
-            FROM signals
-            WHERE strategy_type = ? 
-              AND status IN ('WIN', 'LOSS') 
-              AND resolved_at >= ?
-            GROUP BY date(resolved_at)
-            ORDER BY date(resolved_at) ASC
-        """, (stype, period_start)).fetchall()
+        if stype == 'penny_stocks':
+            rows = conn.execute("""
+                SELECT date(sold_at) as date, SUM(pnl_cents) as daily_pnl
+                FROM penny_virtual_trades_history
+                WHERE sold_at >= ?
+                GROUP BY date(sold_at)
+                ORDER BY date(sold_at) ASC
+            """, (period_start,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT date(resolved_at) as date, SUM(pnl_realized) as daily_pnl
+                FROM signals
+                WHERE strategy_type = ? 
+                  AND status IN ('WIN', 'LOSS') 
+                  AND resolved_at >= ?
+                GROUP BY date(resolved_at)
+                ORDER BY date(resolved_at) ASC
+            """, (stype, period_start)).fetchall()
         
         cumulative = 0.0
         curve = []
@@ -99,8 +108,8 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
             cumulative += pnl
             curve.append({
                 'date': r['date'],
-                'daily_pnl': round(pnl, 2),
-                'cumulative_pnl': round(cumulative, 2)
+                'daily_pnl': round(pnl, 4),
+                'cumulative_pnl': round(cumulative, 4)
             })
         return curve
 
@@ -158,7 +167,7 @@ def get_penny_stocks_dashboard() -> dict:
                 row_dict['min_price_seen_outcome'] = mn
             active.append(row_dict)
 
-        # Завершенные позиции (с PnL из сигналов)
+        # Завершенные позиции (все дешевые, с прогнозом и без)
         resolved_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
                    s.pnl_realized
@@ -170,7 +179,7 @@ def get_penny_stocks_dashboard() -> dict:
                 (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
             )
             ORDER BY p.resolved_at DESC
-            LIMIT 50
+            LIMIT 100
         """).fetchall()
         
         resolved = []
@@ -182,7 +191,15 @@ def get_penny_stocks_dashboard() -> dict:
             mx = row_dict['max_price_seen']
             mn = row_dict['min_price_seen']
             
-            if pred == 'NO':
+            # Определяем направление
+            if pred is not None:
+                outcome_to_track = pred
+            else:
+                outcome_to_track = 'NO' if (init is not None and init >= 0.90) else 'YES'
+                
+            row_dict['cheap_outcome'] = outcome_to_track
+            
+            if outcome_to_track == 'NO':
                 row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
                 row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
                 row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
@@ -240,22 +257,17 @@ def get_penny_stocks_dashboard() -> dict:
         total_active = len(active)
         total_resolved = len(resolved)
         
+        # Статистика по истории виртуальных сделок
         stats_row = conn.execute("""
             SELECT 
                 COUNT(*) as count,
-                SUM(CASE WHEN was_profitable = 1 THEN 1 ELSE 0 END) as wins,
-                MAX(pnl_realized) as best_pnl,
-                AVG(pnl_realized) as avg_pnl
-            FROM signals
-            WHERE strategy_type = 'penny_stocks' 
-              AND status IN ('WIN', 'LOSS') 
-              AND (
-                  market_price_at_signal IS NULL OR
-                  (target_outcome = 'YES' AND market_price_at_signal <= 0.10) OR
-                  (target_outcome = 'NO' AND market_price_at_signal >= 0.90)
-              )
+                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
+                MAX(pnl_cents) as best_pnl,
+                AVG(pnl_cents) as avg_pnl
+            FROM penny_virtual_trades_history
+            WHERE sold_at >= datetime('now', '-30 days')
         """).fetchone()
-
+ 
         win_rate = None
         best_pnl = 0.0
         avg_pnl = 0.0
@@ -328,10 +340,20 @@ def get_penny_stocks_dashboard() -> dict:
             else:
                 bins['20+¢'] += 1
 
+        # История виртуальных сделок
+        history_rows = conn.execute("""
+            SELECT id, market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at
+            FROM penny_virtual_trades_history
+            ORDER BY sold_at DESC
+            LIMIT 100
+        """).fetchall()
+        virtual_history = [dict(r) for r in history_rows]
+ 
     return {
         'active': active,
         'resolved': resolved,
         'portfolio': portfolio,
+        'virtual_history': virtual_history,
         'stats': stats,
         'price_distribution': bins
     }

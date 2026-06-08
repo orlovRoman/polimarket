@@ -317,7 +317,18 @@
 
     function formatPriceCents(val) {
         if (val === null || val === undefined) return "—";
-        return `${(val * 100).toFixed(1)}¢`;
+        const cents = val * 100;
+        if (Math.abs(cents) < 1.0 && cents !== 0) {
+            return `${cents.toFixed(2)}¢`;
+        }
+        const strVal = cents.toFixed(2);
+        if (strVal.endsWith('.00')) {
+            return `${cents.toFixed(0)}¢`;
+        }
+        if (strVal.endsWith('0')) {
+            return `${cents.toFixed(1)}¢`;
+        }
+        return `${cents.toFixed(2)}¢`;
     }
 
     registerRefresh(loadCorridorsData);

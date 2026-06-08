@@ -107,6 +107,30 @@
     </div>
 </div>
 
+<div class="table-card">
+    <div class="table-title">История виртуальных сделок</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Рынок</th>
+                    <th>Направление</th>
+                    <th>Вход</th>
+                    <th>Выход</th>
+                    <th>PnL</th>
+                    <th>Дата покупки</th>
+                    <th>Дата продажи</th>
+                </tr>
+            </thead>
+            <tbody id="virtual-history-tbody">
+                <tr>
+                    <td colspan="7" style="text-align: center;" class="text-muted">История пуста</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <style>
     .modal-overlay {
         position: fixed;
@@ -502,7 +526,18 @@
 
     function formatPriceCents(val) {
         if (val === null || val === undefined) return "—";
-        return `${(val * 100).toFixed(1)}¢`;
+        const cents = val * 100;
+        if (Math.abs(cents) < 1.0 && cents !== 0) {
+            return `${cents.toFixed(2)}¢`;
+        }
+        const strVal = cents.toFixed(2);
+        if (strVal.endsWith('.00')) {
+            return `${cents.toFixed(0)}¢`;
+        }
+        if (strVal.endsWith('0')) {
+            return `${cents.toFixed(1)}¢`;
+        }
+        return `${cents.toFixed(2)}¢`;
     }
 
     let equityChart = null;
@@ -661,22 +696,64 @@
             resolvedTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
         } else {
             resolvedTbody.innerHTML = resolvedList.map(row => {
-                const wasCorrect = row.predicted_outcome === row.actual_outcome;
+                const targetOutcome = row.predicted_outcome !== null ? row.predicted_outcome : row.cheap_outcome;
+                const wasCorrect = targetOutcome === row.actual_outcome;
                 const resultBadge = wasCorrect 
                     ? '<span class="badge badge-green">✅ WIN</span>' 
                     : '<span class="badge badge-red">❌ LOSS</span>';
+                
+                let outcomeBadge = '';
+                if (row.predicted_outcome !== null) {
+                    outcomeBadge = `<span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span>`;
+                } else {
+                    outcomeBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.cheap_outcome} (деш.)</span>`;
+                }
+
                 return `
                     <tr>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-secondary); text-decoration:none;">${row.title}</a></td>
                         <td>${formatPriceCents(row.initial_price_outcome)}</td>
                         <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
-                        <td><span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span></td>
+                        <td>${outcomeBadge}</td>
                         <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
                         <td>${formatPnL(row.pnl_realized)}</td>
                         <td class="${row.edge > 0 ? 'text-green' : ''}">${formatPercent(row.edge)}</td>
                         <td>${resultBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    function renderVirtualHistoryTable(historyList) {
+        const historyTbody = document.getElementById('virtual-history-tbody');
+        if (!historyList || historyList.length === 0) {
+            historyTbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">История пуста</td></tr>`;
+        } else {
+            historyTbody.innerHTML = historyList.map(row => {
+                const pnlClass = row.pnl_cents > 0 ? 'text-green' : row.pnl_cents < 0 ? 'text-red' : '';
+                const pnlSign = row.pnl_cents > 0 ? '+' : '';
+                
+                let directionBadge = '';
+                if (row.outcome === 'YES') {
+                    directionBadge = `<span class="badge badge-green">YES</span>`;
+                } else if (row.outcome === 'NO') {
+                    directionBadge = `<span class="badge badge-red">NO</span>`;
+                } else {
+                    directionBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.outcome} (деш.)</span>`;
+                }
+                
+                return `
+                    <tr>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${directionBadge}</td>
+                        <td>${formatPriceCents(row.bought_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.bought_price)})</span></td>
+                        <td>${formatPriceCents(row.sold_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.sold_price)})</span></td>
+                        <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent.toFixed(2)}%)</span></td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.bought_at)}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.sold_at)}</td>
                     </tr>
                 `;
             }).join('');
@@ -731,6 +808,7 @@
 
         // 3. Рендерим таблицы с сортировкой
         renderTablesOnly();
+        renderVirtualHistoryTable(data.virtual_history);
         updateSortIndicators('active');
         updateSortIndicators('resolved');
 

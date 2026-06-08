@@ -361,3 +361,96 @@ def test_virtual_portfolio_null_prediction_no_outcome(isolated_db):
     assert p['current_outcome_price'] == pytest.approx(0.07, abs=1e-4)
     assert p['pnl_cents'] == pytest.approx(0.01, abs=1e-4)
 
+def test_virtual_sell_saves_to_history(isolated_db):
+    """Продажа виртуальной позиции переносит её в penny_virtual_trades_history с верным PnL."""
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('penny_v2', 'Penny Virtual 2', 'http://v2', 0.04, 0.05, 0.05, 0.04, 'ACTIVE', 'YES')
+        """)
+    
+    from agents.shared.python.db import buy_virtual_penny_stock, sell_virtual_penny_stock
+    buy_virtual_penny_stock('penny_v2', 0.04)
+    
+    # Меняем текущую цену на 0.06
+    with db_module.get_connection() as conn:
+        conn.execute("UPDATE penny_stocks_monitoring SET current_price = 0.06 WHERE market_id = 'penny_v2'")
+        
+    sell_virtual_penny_stock('penny_v2')
+    
+    # Проверяем, что в истории есть запись
+    with db_module.get_connection() as conn:
+        row = conn.execute("SELECT * FROM penny_virtual_trades_history WHERE market_id = 'penny_v2'").fetchone()
+        assert row is not None
+        assert row['outcome'] == 'YES'
+        assert row['bought_price'] == 0.04
+        assert row['bought_outcome_price'] == 0.04
+        assert row['sold_price'] == 0.06
+        assert row['sold_outcome_price'] == 0.06
+        assert row['pnl_cents'] == pytest.approx(0.02, abs=1e-4)
+        assert row['pnl_percent'] == pytest.approx(50.0, abs=1e-4)
+
+def test_resolve_closes_virtual_trade(isolated_db):
+    """Разрешение рынка закрывает виртуальную сделку по цене исхода и переносит в историю."""
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('penny_v3', 'Penny Virtual 3', 'http://v3', 0.95, 0.94, 0.95, 0.94, 'ACTIVE', 'NO')
+        """)
+        
+    from agents.shared.python.db import buy_virtual_penny_stock, resolve_penny_stock
+    buy_virtual_penny_stock('penny_v3', 0.95) # вход NO = 0.05
+    
+    # Рынок разрешается в исход NO (бот выиграл)
+    resolve_penny_stock('penny_v3', 'NO')
+    
+    # Проверяем, что в истории есть запись
+    with db_module.get_connection() as conn:
+        row = conn.execute("SELECT * FROM penny_virtual_trades_history WHERE market_id = 'penny_v3'").fetchone()
+        assert row is not None
+        assert row['outcome'] == 'NO'
+        assert row['bought_price'] == 0.95
+        assert row['bought_outcome_price'] == pytest.approx(0.05, abs=1e-4)
+        assert row['sold_price'] == 0.0  # YES-цена при выигрыше NO равна 0.0
+        assert row['sold_outcome_price'] == 1.0  # выиграли, исход равен 1.0
+        assert row['pnl_cents'] == pytest.approx(0.95, abs=1e-4) # 1.0 - 0.05
+        assert row['pnl_percent'] == pytest.approx(1900.0, abs=1e-4)
+
+def test_virtual_kpis(isolated_db):
+    """Проверяет правильность расчета Win Rate и Лучшего трейда по виртуальной истории."""
+    # Вставляем две сделки в историю
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, sold_at)
+            VALUES 
+            ('m1', 'M1', 'url1', 'YES', 0.04, 0.04, 0.06, 0.06, 0.02, 50.0, datetime('now')),
+            ('m2', 'M2', 'url2', 'NO', 0.95, 0.05, 0.98, 0.02, -0.03, -60.0, datetime('now'))
+        """)
+        
+    data = data_provider.get_penny_stocks_dashboard()
+    assert len(data['virtual_history']) == 2
+    assert data['stats']['win_rate'] == pytest.approx(0.5, abs=1e-4)
+    assert data['stats']['best_trade_pnl'] == pytest.approx(0.02, abs=1e-4)
+    assert data['stats']['avg_pnl'] == pytest.approx(-0.005, abs=1e-4)
+
+def test_penny_resolved_includes_unanalyzed(isolated_db):
+    """Таблица завершенных penny stocks возвращает и неанализированные рынки с cheap_outcome."""
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES 
+            ('res_null_yes', 'Res Null YES', 'http://yes', 0.05, 0.05, 0.05, 0.05, 'RESOLVED', NULL),
+            ('res_null_no', 'Res Null NO', 'http://no', 0.95, 0.95, 0.95, 0.95, 'RESOLVED', NULL)
+        """)
+        
+    data = data_provider.get_penny_stocks_dashboard()
+    assert len(data['resolved']) >= 2
+    
+    r_yes = next(x for x in data['resolved'] if x['market_id'] == 'res_null_yes')
+    assert r_yes['cheap_outcome'] == 'YES'
+    assert r_yes['predicted_outcome'] is None
+    
+    r_no = next(x for x in data['resolved'] if x['market_id'] == 'res_null_no')
+    assert r_no['cheap_outcome'] == 'NO'
+    assert r_no['predicted_outcome'] is None
+
