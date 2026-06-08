@@ -59,3 +59,4 @@ class MarketContext(BaseModel):
     swing_skipped: bool = False
     swing_skip_reason: Optional[str] = None
     oracle_page_text: Optional[str] = None
+    resolution_source: Optional[Any] = None

@@ -50,12 +50,15 @@ class SwingAgent:
             print(f"[SWING] Ошибка загрузки RAG-памяти: {e}")
             rag_context = "В базе знаний Obsidian нет релевантных записей для этого рынка.\n"
 
-        from agents.shared.utils.resolution_extractor import get_resolution_source, check_rss_for_keywords, _build_resolution_block
-        resolution_src = await get_resolution_source(
-            market_description=market.description or "",
-            market_title=market.title,
-            api_key=self.api_key
-        )
+        from agents.shared.utils.resolution_extractor import check_rss_for_keywords, _build_resolution_block
+        resolution_src = getattr(context, 'resolution_source', None)
+        if not resolution_src:
+            from agents.shared.utils.resolution_extractor import get_resolution_source
+            resolution_src = await get_resolution_source(
+                market_description=market.description or "",
+                market_title=market.title,
+                api_key=self.api_key
+            )
         rss_hit = {"found": False}
         if resolution_src.resolution_type == "rss_monitorable" and resolution_src.rss_url:
             rss_hit = await check_rss_for_keywords(resolution_src.rss_url, resolution_src.keywords)

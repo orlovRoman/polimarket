@@ -58,13 +58,15 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
 
             from core.eval.signal_logger import SignalLogger, StrategyType
             logger_eval = SignalLogger()
+            row_price = row["price"] if row["price"] is not None else 0.5
+            ts = int(datetime.now(timezone.utc).timestamp())
             logger_eval.log_signal(
-                signal_id=f"sig-whale-{row['market_id']}",
+                signal_id=f"sig-whale-{row['market_id']}-{ts}",
                 strategy_type=StrategyType.WHALE,
                 market_id=row['market_id'],
                 predicted_probability=prob,
-                market_price_at_signal=row['price'],
-                edge_at_signal=max(-1.0, min(1.0, prob - row['price'])),
+                market_price_at_signal=row_price,
+                edge_at_signal=max(-1.0, min(1.0, prob - row_price)),
                 metadata={
                     "target_outcome": side,
                     "priority": "medium",
@@ -133,8 +135,8 @@ def scan_large_single_bets() -> list[dict]:
                 strategy_type=StrategyType.WHALE,
                 market_id=row['market_id'],
                 predicted_probability=prob,
-                market_price_at_signal=row['price'],
-                edge_at_signal=max(-1.0, min(1.0, prob - row['price'])),
+                market_price_at_signal=row_price,
+                edge_at_signal=max(-1.0, min(1.0, prob - row_price)),
                 metadata={
                     "target_outcome": side,
                     "priority": "medium",
@@ -174,7 +176,7 @@ def scan_wallet_series() -> list[dict]:
                 JOIN markets m ON t.market_id = m.id
                 WHERE t.timestamp > datetime('now', '-1 hour')
                 GROUP BY t.market_id, t.wallet_address
-                HAVING tx_count >= 5 AND total_amount_usd > 2000.0
+                HAVING tx_count >= 2 AND total_amount_usd > 2000.0
             """).fetchall()
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка при SQL-запросе серий сделок: {e}")
@@ -206,8 +208,8 @@ def scan_wallet_series() -> list[dict]:
                 strategy_type=StrategyType.WHALE,
                 market_id=row['market_id'],
                 predicted_probability=prob,
-                market_price_at_signal=row['avg_price'],
-                edge_at_signal=max(-1.0, min(1.0, prob - row['avg_price'])),
+                market_price_at_signal=row_price,
+                edge_at_signal=max(-1.0, min(1.0, prob - row_price)),
                 metadata={
                     "target_outcome": side,
                     "priority": "medium",

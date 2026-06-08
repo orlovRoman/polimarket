@@ -152,6 +152,11 @@ class ScoutAgent:
         # --- STEP 1: Grounding search из контекста ---
         grounded_context = getattr(context, 'grounded_context', 'Grounding не выполнен.')
 
+        oracle_text_val = getattr(context, 'oracle_page_text', None)
+        oracle_text_block = ""
+        if oracle_text_val:
+            oracle_text_block = f"\n[ТЕКСТ СТРАНИЦЫ ОРАКУЛА (ФАКТЫ ДЛЯ РАЗРЕШЕНИЯ)]:\n{oracle_text_val}\n"
+
         from agents.shared.utils.prompt_guards import guard_description
         description_block = guard_description(market.description)
         prompt = f"""
@@ -160,6 +165,8 @@ class ScoutAgent:
 Исход: {market.outcome}
 
 {description_block}
+
+{oracle_text_block}
 
 [Твоя производительность и работа над ошибками]
 {perf_summary}

@@ -8,6 +8,7 @@ async def test_scrape_url_text_success():
     with patch("httpx.AsyncClient.get") as mock_get:
         mock_response = AsyncMock()
         mock_response.status_code = 200
+        mock_response.headers = {"content-type": "text/html"}
         mock_response.text = """
         <html>
             <head><title>Test Oracle</title></head>
@@ -38,6 +39,18 @@ async def test_scrape_url_text_failure():
         mock_get.return_value = mock_response
 
         text = await scrape_url_text("https://example.com/blocked")
+        assert text is None
+
+@pytest.mark.asyncio
+async def test_scrape_url_text_unsupported_content_type():
+    with patch("httpx.AsyncClient.get") as mock_get:
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/pdf"}
+        mock_response.text = "%PDF-1.4 binary garbage..."
+        mock_get.return_value = mock_response
+
+        text = await scrape_url_text("https://example.com/document.pdf")
         assert text is None
 
 @pytest.mark.asyncio

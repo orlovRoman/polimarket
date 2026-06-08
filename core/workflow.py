@@ -406,6 +406,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     oracle_domain = None
     oracle_text = None
     force_oracle_search = False
+    res_source = None
     try:
         from agents.shared.utils.resolution_extractor import get_resolution_source, scrape_url_text
         if m.description and api_key:
@@ -469,7 +470,8 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         triggered_at=triggered_at,
         search_query=search_query,
         grounded_context=grounded,
-        oracle_page_text=oracle_text
+        oracle_page_text=oracle_text,
+        resolution_source=res_source
     )
 
     # velocity уже вычислен в начале функции run_agent_evaluation

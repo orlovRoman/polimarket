@@ -169,7 +169,7 @@ def extract_resolution_source_regex(description: str) -> Optional[ResolutionSour
             rss_url=rss,
             resolution_type="rss_monitorable" if rss else "api_only",
             extraction_method="regex",
-            confidence=0.65
+            confidence=0.55
         )
 
     return None
@@ -431,6 +431,13 @@ async def scrape_url_text(url: str) -> Optional[str]:
             if resp.status_code != 200:
                 logger.warning(f"[scraper] Failed to scrape {url}, status code: {resp.status_code}")
                 return None
+            
+            content_type_raw = resp.headers.get("content-type")
+            if content_type_raw is not None:
+                content_type = str(content_type_raw).lower()
+                if not any(t in content_type for t in ("text/", "application/json", "application/xml")):
+                    logger.warning(f"[scraper] Unsupported content type for {url}: {content_type}")
+                    return None
             
             html_content = resp.text
             
