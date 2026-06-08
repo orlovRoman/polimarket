@@ -48,7 +48,7 @@
     </div>
     <div class="table-card" style="height: 380px; margin-bottom: 0; display: flex; flex-direction: column; padding: 24px;">
         <div class="table-title" style="margin-bottom: 10px;">Виртуальный портфель</div>
-        <div class="table-wrapper" style="flex-grow: 1; max-height: calc(100% - 30px); margin-top: 0; overflow-y: auto;">
+        <div class="table-wrapper" style="height: 260px; margin-top: 0; overflow-y: auto;">
             <table>
                 <thead>
                     <tr>
@@ -83,14 +83,13 @@
                     <th onclick="toggleSort('active', 'min_price_seen_outcome')" style="cursor:pointer; user-select:none;">Минимум<span id="sort-active-min_price_seen_outcome"></span></th>
                     <th onclick="toggleSort('active', 'volume_2h')" style="cursor:pointer; user-select:none;">Объем (2ч)<span id="sort-active-volume_2h"></span></th>
                     <th onclick="toggleSort('active', 'predicted_outcome')" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-active-predicted_outcome"></span></th>
-                    <th onclick="toggleSort('active', 'edge')" style="cursor:pointer; user-select:none;">Edge<span id="sort-active-edge"></span></th>
                     <th onclick="toggleSort('active', 'added_at')" style="cursor:pointer; user-select:none;">Добавлен<span id="sort-active-added_at"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
             <tbody id="active-positions-tbody">
                 <tr>
-                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="9" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
@@ -110,14 +109,13 @@
                     <th onclick="toggleSort('resolved', 'predicted_outcome')" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome"></span></th>
                     <th onclick="toggleSort('resolved', 'actual_outcome')" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome"></span></th>
                     <th onclick="toggleSort('resolved', 'pnl_realized')" style="cursor:pointer; user-select:none;">PnL<span id="sort-resolved-pnl_realized"></span></th>
-                    <th onclick="toggleSort('resolved', 'edge')" style="cursor:pointer; user-select:none;">Edge<span id="sort-resolved-edge"></span></th>
                     <th onclick="toggleSort('resolved', 'was_correct')" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
                     <th onclick="toggleSort('resolved', 'resolved_at')" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
                 </tr>
             </thead>
             <tbody id="resolved-positions-tbody">
                 <tr>
-                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="9" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>

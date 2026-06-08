@@ -46,7 +46,6 @@
                 <th>Рынок</th>
                 <th>Прогноз</th>
                 <th>Цена входа</th>
-                <th>Edge</th>
                 <th>Исход</th>
                 <th>PnL</th>
                 <th>Время создания</th>
@@ -54,7 +53,7 @@
         </thead>
         <tbody id="signals-tbody">
             <tr>
-                <td colspan="8" style="text-align: center;" class="text-muted">Загрузка сигналов...</td>
+                <td colspan="7" style="text-align: center;" class="text-muted">Загрузка сигналов...</td>
             </tr>
         </tbody>
     </table>
@@ -108,7 +107,7 @@
         const tbody = document.getElementById('signals-tbody');
         const displaySignals = signals.slice(0, 20);
         if (displaySignals.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
         } else {
             tbody.innerHTML = displaySignals.map(sig => {
                 const prob = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
@@ -119,7 +118,6 @@
                         <td><a href="${sig.market_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${sig.market_title}</a></td>
                         <td><span class="badge ${sig.target_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${sig.target_outcome}</span> (${prob !== null ? formatPercent(prob) : '—'})</td>
                         <td>${sig.market_price_at_signal !== null ? formatPercent(sig.market_price_at_signal) : '—'}</td>
-                        <td class="${sig.edge > 0 ? 'text-green' : ''}">${sig.edge !== null ? formatPercent(sig.edge) : '—'}</td>
                         <td><span class="badge ${statusClass}">${sig.status}</span></td>
                         <td>${formatPnL(sig.pnl_realized)}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(sig.created_at)}</td>
