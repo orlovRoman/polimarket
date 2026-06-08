@@ -272,14 +272,22 @@ def _safe_result(future: concurrent.futures.Future, default, timeout: int = 15, 
         return default
 
 
-def _fetch_grounded_context(market: Market, api_key: str, model: str) -> str:
+def _fetch_grounded_context(market: Market, api_key: str, model: str, oracle_domain: Optional[str] = None, force_oracle_search: bool = False) -> str:
     """
     Один LLM-вызов с google_search. Результат используется SCOUT и SWING.
     """
     try:
+        base_query = f"'{market.title}'"
+        if oracle_domain and force_oracle_search:
+            search_text = f"Search for the latest official resolution results and data about: {base_query} site:{oracle_domain}"
+        elif oracle_domain:
+            search_text = f"Search for the latest news and data about: {base_query}. Try to include site:{oracle_domain} if relevant."
+        else:
+            search_text = f"Search for the latest news and data about: {base_query}."
+
         payload = {
             "contents": [{"role": "user", "parts": [{"text": (
-                f"Search for the latest news and data about: '{market.title}'. "
+                f"{search_text} "
                 f"Return key findings as bullet points with source and date."
             )}]}],
             "tools": [{"google_search": {}}]
@@ -395,9 +403,33 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     nexus_config = get_memory("agent_config_NEXUS") or {}
     grounding_model = grounding_config.get("model") or nexus_config.get("model") or "gemini-2.5-flash"
     
+    oracle_domain = None
+    oracle_text = None
+    force_oracle_search = False
+    try:
+        from agents.shared.utils.resolution_extractor import get_resolution_source, scrape_url_text
+        if m.description and api_key:
+            res_source = await get_resolution_source(m.description, m.title, api_key)
+            if res_source:
+                oracle_domain = res_source.domain
+                if res_source.raw_url:
+                    logger.info(f"[workflow] Обнаружен URL оракула: {res_source.raw_url}. Запускаем скрапинг...")
+                    oracle_text = await scrape_url_text(res_source.raw_url)
+                    if oracle_text:
+                        logger.info(f"[workflow] Успешно скраплено {len(oracle_text)} символов с оракула.")
+                    else:
+                        logger.warning(f"[workflow] Скрапинг оракула {res_source.raw_url} вернул пустой текст или 403. Активируем точечный Google Search.")
+                        force_oracle_search = True
+    except Exception as e:
+        logger.exception(f"[workflow] Ошибка при скрапинге оракула: {e}")
+
     grounded = ""
     if api_key:
-        grounded = _fetch_grounded_context(m, api_key, grounding_model)
+        grounded = _fetch_grounded_context(
+            m, api_key, grounding_model,
+            oracle_domain=oracle_domain,
+            force_oracle_search=force_oracle_search
+        )
     else:
         grounded = "Grounding не выполнен (нет API-ключа)."
 
@@ -436,7 +468,8 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         source_text=source_text,
         triggered_at=triggered_at,
         search_query=search_query,
-        grounded_context=grounded
+        grounded_context=grounded,
+        oracle_page_text=oracle_text
     )
 
     # velocity уже вычислен в начале функции run_agent_evaluation

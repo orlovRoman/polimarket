@@ -413,3 +413,51 @@ def _build_resolution_block(src: ResolutionSource, hit: dict) -> str:
             f"URL: {src.raw_url or 'не найден'}\n"
             f"Ключевые слова: {src.keywords}\n"
             f"{status}\n")
+
+
+async def scrape_url_text(url: str) -> Optional[str]:
+    """
+    Извлекает чистый текст страницы по URL (до 4000 символов).
+    Удаляет HTML-теги, скрипты и стили.
+    """
+    if not url:
+        return None
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                logger.warning(f"[scraper] Failed to scrape {url}, status code: {resp.status_code}")
+                return None
+            
+            html_content = resp.text
+            
+            # Удаляем скрипты и стили
+            html_content = re.sub(r'<(script|style)\b[^>]*>([\s\S]*?)<\/\1>', '', html_content, flags=re.IGNORECASE)
+            
+            # Удаляем HTML комментарии
+            html_content = re.sub(r'<!--[\s\S]*?-->', '', html_content)
+            
+            # Заменяем <br>, <p>, <div>, <li> и т.д. на переносы строк
+            html_content = re.sub(r'<br\s*\/?>', '\n', html_content, flags=re.IGNORECASE)
+            html_content = re.sub(r'</?(p|div|li|h[1-6]|tr)\b[^>]*>', '\n', html_content, flags=re.IGNORECASE)
+            
+            # Удаляем остальные теги
+            text = re.sub(r'<[^>]+>', '', html_content)
+            
+            # Декодируем HTML сущности
+            import html as html_lib
+            text = html_lib.unescape(text)
+            
+            # Очищаем лишние пробелы и переносы
+            lines = [line.strip() for line in text.splitlines()]
+            non_empty_lines = [line for line in lines if line]
+            clean_text = "\n".join(non_empty_lines)
+            
+            # Обрезаем до 4000 символов
+            return clean_text[:4000] if clean_text else None
+    except Exception as e:
+        logger.warning(f"[scraper] Error scraping {url}: {e}")
+        return None

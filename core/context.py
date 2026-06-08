@@ -58,3 +58,4 @@ class MarketContext(BaseModel):
     orderbook_shape_annotation: str = ""
     swing_skipped: bool = False
     swing_skip_reason: Optional[str] = None
+    oracle_page_text: Optional[str] = None

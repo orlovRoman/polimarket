@@ -206,6 +206,11 @@ class SwingAgent:
 Правило: если asymmetry_score < 0.55 — рынок сбалансирован, рекомендуй IGNORE.
 """
 
+        oracle_text_val = getattr(context, 'oracle_page_text', None)
+        oracle_text_block = ""
+        if oracle_text_val:
+            oracle_text_block = f"\n[ТЕКСТ СТРАНИЦЫ ОРАКУЛА (ФАКТЫ ДЛЯ РАЗРЕШЕНИЯ)]:\n{oracle_text_val}\n"
+
         prompt = f"""
 Сегодняшняя дата и время: {now_str}
 Рынок: {market.title}
@@ -217,6 +222,8 @@ class SwingAgent:
 {ob_shape_block}
 
 {resolution_block}
+
+{oracle_text_block}
 
 {hype_breakdown}
 
@@ -254,7 +261,13 @@ class SwingAgent:
 
 {contrarian_block}
 
-Твоя задача — оценить вероятность резкого скачка цены (hype potential).
+Твоя задача — оценить вероятность резкого скачка цены (hype potential) ИЛИ найти неэффективность на основе жестких фактов оракула (Value-режим).
+Если на скрапленой странице оракула или в результатах поиска уже есть окончательные официальные данные (например, точный результат матча или отчет о прибыли), и они доказывают определенный исход, но рынок еще не скорректировался:
+1. Выставь has_hard_facts = true.
+2. Выставь llm_confidence >= 0.85 (основываясь на неопровержимых фактах).
+3. Выставь asymmetry_score >= 0.70.
+В этом случае отсутствие хайпа, низкая волатильность или отсутствие постов в соцсетях будут проигнорированы, и система совершит вход на основе фактов (Value-режим).
+
 Ответ верни строго в формате JSON.
 
 Выставь llm_confidence (0.0–1.0): твоя независимая оценка вероятности резкого движения цены.
@@ -289,9 +302,13 @@ class SwingAgent:
                 "asymmetry_score": {
                     "type": "NUMBER",
                     "description": "0.0–1.0. Насколько выбранное направление асимметрично выгоднее противоположного. 0.5 = оба направления равнозначны. >0.7 = сильная асимметрия."
+                },
+                "has_hard_facts": {
+                    "type": "BOOLEAN",
+                    "description": "Установи в true ТОЛЬКО если на странице оракула или в результатах поиска содержатся прямые, официальные и недвусмысленные цифры/данные, закрывающие этот рынок."
                 }
             },
-            "required": ["target_outcome", "target_exit_price", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict", "llm_confidence", "llm_direction", "contrarian_case", "asymmetry_score"]
+            "required": ["target_outcome", "target_exit_price", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict", "llm_confidence", "llm_direction", "contrarian_case", "asymmetry_score", "has_hard_facts"]
         }
         
         payload = {
@@ -360,12 +377,14 @@ class SwingAgent:
                 target_price = _safe_float(analysis.get("target_exit_price"), 0.15)
 
                 from core.swing_rules import swing_decision
+                has_hard_facts = bool(analysis.get("has_hard_facts", False))
                 recommendation, final_confidence = swing_decision(
                     hype_score=hype_score,
                     price=market.price,
                     llm_confidence=llm_confidence,
                     llm_direction=direction,
-                    use_llm_blend=True
+                    use_llm_blend=True,
+                    has_hard_facts=has_hard_facts
                 )
                 analysis["recommendation"] = recommendation
                 analysis["confidence"] = final_confidence
@@ -375,43 +394,63 @@ class SwingAgent:
                 # 1. Horizon strategy min_confidence filter
                 rejection_reason = ""
                 if analysis["recommendation"] == "buy":
-                    if analysis["confidence"] < horizon.min_confidence:
-                        analysis["recommendation"] = "ignore"
-                        rejection_reason = f"Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} < минимум {horizon.min_confidence}"
-                    if horizon.require_immediate_catalyst:
-                        catalyst = analysis.get("catalyst", "").lower()
-                        no_catalyst_phrases = ["нет катализатора", "отсутствует", "не найден", "не обнаружен"]
-                        if any(ph in catalyst for ph in no_catalyst_phrases):
+                    if not has_hard_facts:
+                        if analysis["confidence"] < horizon.min_confidence:
                             analysis["recommendation"] = "ignore"
-                            rejection_reason = f"Горизонт {horizon.label}: нет немедленного катализатора"
+                            rejection_reason = f"Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} < минимум {horizon.min_confidence}"
+                        if horizon.require_immediate_catalyst:
+                            catalyst = analysis.get("catalyst", "").lower()
+                            no_catalyst_phrases = ["нет катализатора", "отсутствует", "не найден", "не обнаружен"]
+                            if any(ph in catalyst for ph in no_catalyst_phrases):
+                                analysis["recommendation"] = "ignore"
+                                rejection_reason = f"Горизонт {horizon.label}: нет немедленного катализатора"
 
                 # 2. ROI-фильтр
                 from agents.shared.utils.roi_filter import apply_roi_filter
-                roi_result = apply_roi_filter(
-                    current_price=market.price,
-                    target_price=target_price,
-                    direction=direction
-                )
+                if has_hard_facts:
+                    target_val = target_price if target_price > market.price else 0.99
+                    from agents.shared.utils.roi_filter import ROIFilterResult
+                    entry_p = market.price if direction == "YES" else (1.0 - market.price)
+                    entry_p = max(entry_p, 0.001)
+                    roi_percent = ((target_val - entry_p) / entry_p) * 100
+                    roi_result = ROIFilterResult(
+                        passes=True,
+                        roi_percent=round(roi_percent, 1),
+                        absolute_edge=round(target_val - entry_p, 4),
+                        rejection_reason=""
+                    )
+                else:
+                    roi_result = apply_roi_filter(
+                        current_price=market.price,
+                        target_price=target_price,
+                        direction=direction
+                    )
                 if not roi_result.passes and analysis["recommendation"] == "buy":
                     analysis["recommendation"] = "ignore"
                     rejection_reason = f"ROI-фильтр: {roi_result.rejection_reason}"
 
                 # 3. Контрарианский анализ
-                if asymmetry < 0.55 and analysis["recommendation"] == "buy":
+                if not has_hard_facts and asymmetry < 0.55 and analysis["recommendation"] == "buy":
                     analysis["recommendation"] = "ignore"
                     rejection_reason = f"Асимметрия {asymmetry:.2f} < 0.55 — рынок сбалансирован, нет edge"
 
                 # 4. Catalyst verifier (ПОСЛЕДНИМ)
                 from agents.shared.utils.catalyst_verifier import verify_catalyst
-                catalyst_check = verify_catalyst(
-                    catalyst=analysis.get("catalyst", ""),
-                    news_block=news_block,
-                    grounded_context=grounded_context,
-                )
+                if has_hard_facts:
+                    class DummyCatalystCheck:
+                        confirmed = True
+                        confidence_penalty = 0.0
+                        warning = ""
+                    catalyst_check = DummyCatalystCheck()
+                else:
+                    catalyst_check = verify_catalyst(
+                        catalyst=analysis.get("catalyst", ""),
+                        news_block=news_block,
+                        grounded_context=grounded_context,
+                    )
                 if not catalyst_check.confirmed:
                     old_conf = analysis["confidence"]
                     analysis["confidence"] = round(max(0.1, old_conf - catalyst_check.confidence_penalty), 3)
-                    # Повторный horizon check после штрафования уверенности
                     if analysis["confidence"] < horizon.min_confidence and analysis["recommendation"] == "buy":
                         analysis["recommendation"] = "ignore"
                         rejection_reason = f"[{catalyst_check.warning}] → отозван (нет катализатора)"

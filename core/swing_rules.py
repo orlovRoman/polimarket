@@ -3,7 +3,8 @@ def swing_decision(
     price: float,
     llm_confidence: float = 0.5,
     llm_direction: str = "YES",
-    use_llm_blend: bool = False
+    use_llm_blend: bool = False,
+    has_hard_facts: bool = False
 ) -> tuple[str, float]:
     """
     Returns (recommendation, confidence) blending LLM inputs or using formula logic.
@@ -12,6 +13,11 @@ def swing_decision(
     is_cheap = effective_price < 0.20
 
     if use_llm_blend:  # вызов из агента с LLM-данными
+        if has_hard_facts:
+            if llm_confidence >= 0.85:
+                return "buy", round(llm_confidence, 3)
+            return "ignore", round(llm_confidence, 3)
+
         final = 0.35 * hype_score + 0.65 * llm_confidence
         if final >= 0.52 and is_cheap:
             return "buy", round(final, 3)
