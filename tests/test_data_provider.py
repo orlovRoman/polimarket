@@ -6,7 +6,7 @@ from web import data_provider
 from core.models import Market
 from datetime import datetime, timezone
 
-@pytest.fixture
+@pytest.fixture(autouse=False)
 def isolated_db(tmp_path, monkeypatch):
     """Изолированная база данных для теста."""
     db_path = tmp_path / "test_data_provider.db"
@@ -18,7 +18,8 @@ def isolated_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "_db_initialized", False)
     
     db_module.init_db()
-    return db_path
+    yield db_path
+    db_module._db_initialized = False
 
 def test_get_overview_stats_empty(isolated_db):
     stats = data_provider.get_overview_stats()
@@ -104,8 +105,8 @@ def test_get_penny_stocks_dashboard(isolated_db):
             ('penny_b', 'Penny B', 'http://b', 0.08, 0.02, 0.08, 0.02, 'RESOLVED')
         """)
         conn.execute("""
-            INSERT INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, strategy_type, pnl_realized, was_profitable, resolved_at)
-            VALUES ('sig_penny', 'penny', 'penny_b', 'poly', 0.1, 0.8, 'HIGH', 's', 'd', 'LOSS', 'penny_stocks', -10.0, 0, datetime('now'))
+            INSERT INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, strategy_type, pnl_realized, was_profitable, resolved_at, market_price_at_signal)
+            VALUES ('sig_penny', 'penny', 'penny_b', 'poly', 0.1, 0.8, 'HIGH', 's', 'd', 'LOSS', 'penny_stocks', -10.0, 0, datetime('now'), 0.08)
         """)
 
     data = data_provider.get_penny_stocks_dashboard()

@@ -5,7 +5,7 @@ from web.dashboard import create_dashboard_app
 import config
 import agents.shared.python.db as db_module
 
-@pytest.fixture
+@pytest.fixture(autouse=False)
 def isolated_db(tmp_path, monkeypatch):
     """Изолированная база данных для теста."""
     db_path = tmp_path / "test_dashboard_routes.db"
@@ -17,7 +17,8 @@ def isolated_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "_db_initialized", False)
     
     db_module.init_db()
-    return db_path
+    yield db_path
+    db_module._db_initialized = False
 
 @pytest.mark.asyncio
 async def test_api_overview_returns_200(isolated_db):
