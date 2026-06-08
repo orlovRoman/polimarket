@@ -336,7 +336,20 @@
             padding: 24px;
             backdrop-filter: blur(12px);
             margin-bottom: 32px;
+        }
+
+        .table-wrapper {
+            max-height: 400px;
+            overflow-y: auto;
             overflow-x: auto;
+            margin-top: 10px;
+        }
+
+        .table-wrapper th {
+            position: sticky;
+            top: 0;
+            background-color: #111827; /* solid background matching sidebar color */
+            z-index: 10;
         }
 
         .table-title {
