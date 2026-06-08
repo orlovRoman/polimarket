@@ -55,15 +55,15 @@
         <table>
             <thead>
                 <tr>
-                    <th>Рынок</th>
-                    <th>Цена входа</th>
-                    <th>Текущая</th>
-                    <th>Максимум</th>
-                    <th>Минимум</th>
-                    <th>Объем (2ч)</th>
-                    <th>Прогноз</th>
-                    <th>Edge</th>
-                    <th>Добавлен</th>
+                    <th onclick="toggleSort('active', 'title')" style="cursor:pointer; user-select:none;">Рынок<span id="sort-active-title"></span></th>
+                    <th onclick="toggleSort('active', 'initial_price_outcome')" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-active-initial_price_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'current_price_outcome')" style="cursor:pointer; user-select:none;">Текущая<span id="sort-active-current_price_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'max_price_seen_outcome')" style="cursor:pointer; user-select:none;">Максимум<span id="sort-active-max_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'min_price_seen_outcome')" style="cursor:pointer; user-select:none;">Минимум<span id="sort-active-min_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'volume_2h')" style="cursor:pointer; user-select:none;">Объем (2ч)<span id="sort-active-volume_2h"></span></th>
+                    <th onclick="toggleSort('active', 'predicted_outcome')" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-active-predicted_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'edge')" style="cursor:pointer; user-select:none;">Edge<span id="sort-active-edge"></span></th>
+                    <th onclick="toggleSort('active', 'added_at')" style="cursor:pointer; user-select:none;">Добавлен<span id="sort-active-added_at"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
@@ -82,19 +82,21 @@
         <table>
             <thead>
                 <tr>
-                    <th>Рынок</th>
-                    <th>Цена входа</th>
-                    <th>Прогноз</th>
-                    <th>Исход</th>
-                    <th>PnL</th>
-                    <th>Edge</th>
-                    <th>Результат</th>
-                    <th>Разрешен</th>
+                    <th onclick="toggleSort('resolved', 'title')" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
+                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'predicted_outcome')" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'actual_outcome')" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'pnl_realized')" style="cursor:pointer; user-select:none;">PnL<span id="sort-resolved-pnl_realized"></span></th>
+                    <th onclick="toggleSort('resolved', 'edge')" style="cursor:pointer; user-select:none;">Edge<span id="sort-resolved-edge"></span></th>
+                    <th onclick="toggleSort('resolved', 'was_correct')" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
+                    <th onclick="toggleSort('resolved', 'resolved_at')" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
                 </tr>
             </thead>
             <tbody id="resolved-positions-tbody">
                 <tr>
-                    <td colspan="8" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
@@ -527,11 +529,148 @@
         }
     }
 
+    let sortState = {
+        active: { col: 'added_at', dir: 'desc' },
+        resolved: { col: 'resolved_at', dir: 'desc' }
+    };
+    let lastFetchedData = null;
+
+    function toggleSort(tableType, column) {
+        const state = sortState[tableType];
+        if (state.col === column) {
+            state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+            state.col = column;
+            state.dir = 'desc';
+        }
+        renderTablesOnly();
+        updateSortIndicators(tableType);
+    }
+
+    function sortDataArray(arr, col, dir) {
+        arr.sort((a, b) => {
+            let valA = a[col];
+            let valB = b[col];
+            
+            if (valA === null || valA === undefined) return 1;
+            if (valB === null || valB === undefined) return -1;
+            
+            if (typeof valA === 'string') {
+                return dir === 'asc' 
+                    ? valA.localeCompare(valB) 
+                    : valB.localeCompare(valA);
+            }
+            return dir === 'asc' ? valA - valB : valB - valA;
+        });
+    }
+
+    function updateSortIndicators(tableType) {
+        const columns = tableType === 'active' 
+            ? ['title', 'initial_price_outcome', 'current_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'volume_2h', 'predicted_outcome', 'edge', 'added_at']
+            : ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_realized', 'edge', 'was_correct', 'resolved_at'];
+            
+        columns.forEach(col => {
+            const el = document.getElementById(`sort-${tableType}-${col}`);
+            if (el) {
+                el.textContent = '';
+                el.style.color = '';
+            }
+        });
+        
+        const activeState = sortState[tableType];
+        const el = document.getElementById(`sort-${tableType}-${activeState.col}`);
+        if (el) {
+            el.textContent = activeState.dir === 'asc' ? ' ▲' : ' ▼';
+            el.style.color = 'var(--accent-purple)';
+        }
+    }
+
+    function renderTablesOnly() {
+        if (!lastFetchedData) return;
+        
+        // 1. Сортировка и рендер Активных
+        let activeData = [...lastFetchedData.active];
+        sortDataArray(activeData, sortState.active.col, sortState.active.dir);
+        renderActiveTable(activeData);
+        
+        // 2. Сортировка и рендер Завершенных
+        let resolvedData = [...lastFetchedData.resolved];
+        resolvedData.forEach(row => {
+            row.was_correct = row.predicted_outcome === row.actual_outcome;
+        });
+        sortDataArray(resolvedData, sortState.resolved.col, sortState.resolved.dir);
+        renderResolvedTable(resolvedData);
+    }
+
+    function renderActiveTable(activeList) {
+        const activeTbody = document.getElementById('active-positions-tbody');
+        if (activeList.length === 0) {
+            activeTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
+        } else {
+            activeTbody.innerHTML = activeList.map(row => {
+                const changePct = row.initial_price_outcome > 0 ? ((row.current_price_outcome - row.initial_price_outcome) / row.initial_price_outcome * 100) : 0;
+                const changeClass = changePct > 0 ? 'text-green' : changePct < 0 ? 'text-red' : '';
+                const changeSign = changePct > 0 ? '+' : '';
+                
+                const actionBtn = row.virtual_bought_price !== null
+                    ? `<span class="badge badge-blue">В портфеле</span>`
+                    : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${row.current_price})">Купить</button>`;
+
+                const analyzeBtn = `<button class="badge badge-purple" style="border:none; cursor:pointer; font-weight:600; margin-left:4px;" onclick="showAnalysis('${row.market_id}')">Анализ</button>`;
+
+                return `
+                    <tr>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${formatPriceCents(row.initial_price_outcome)}</td>
+                        <td>${formatPriceCents(row.current_price_outcome)} <span class="${changeClass}" style="font-size:0.8rem; margin-left:4px;">(${changeSign}${changePct.toFixed(1)}%)</span></td>
+                        <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
+                        <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
+                        <td>$${Math.round(row.volume_2h)}</td>
+                        <td><span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span></td>
+                        <td class="${row.edge > 0 ? 'text-green' : ''}">${formatPercent(row.edge)}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.added_at)}</td>
+                        <td>${actionBtn} ${analyzeBtn}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    function renderResolvedTable(resolvedList) {
+        const resolvedTbody = document.getElementById('resolved-positions-tbody');
+        if (resolvedList.length === 0) {
+            resolvedTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
+        } else {
+            resolvedTbody.innerHTML = resolvedList.map(row => {
+                const wasCorrect = row.predicted_outcome === row.actual_outcome;
+                const resultBadge = wasCorrect 
+                    ? '<span class="badge badge-green">✅ WIN</span>' 
+                    : '<span class="badge badge-red">❌ LOSS</span>';
+                return `
+                    <tr>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-secondary); text-decoration:none;">${row.title}</a></td>
+                        <td>${formatPriceCents(row.initial_price_outcome)}</td>
+                        <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
+                        <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
+                        <td><span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span></td>
+                        <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
+                        <td>${formatPnL(row.pnl_realized)}</td>
+                        <td class="${row.edge > 0 ? 'text-green' : ''}">${formatPercent(row.edge)}</td>
+                        <td>${resultBadge}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
     async function loadPennyStocksData() {
         const data = await fetchJSON('/api/penny-stocks');
         const equityData = await fetchJSON('/api/equity-curve?strategy=penny_stocks&days=30');
 
         if (!data) return;
+
+        lastFetchedData = data;
 
         // 1. Рендерим KPI
         document.getElementById('kpi-active').textContent = data.stats.active_count;
@@ -562,65 +701,12 @@
             }).join('');
         }
 
-        // 3. Рендерим таблицу Активных позиций
-        const activeTbody = document.getElementById('active-positions-tbody');
-        if (data.active.length === 0) {
-            activeTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
-        } else {
-            activeTbody.innerHTML = data.active.map(row => {
-                const changePct = row.initial_price_outcome > 0 ? ((row.current_price_outcome - row.initial_price_outcome) / row.initial_price_outcome * 100) : 0;
-                const changeClass = changePct > 0 ? 'text-green' : changePct < 0 ? 'text-red' : '';
-                const changeSign = changePct > 0 ? '+' : '';
-                
-                const actionBtn = row.virtual_bought_price !== null
-                    ? `<span class="badge badge-blue">В портфеле</span>`
-                    : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${row.current_price})">Купить</button>`;
+        // 3. Рендерим таблицы с сортировкой
+        renderTablesOnly();
+        updateSortIndicators('active');
+        updateSortIndicators('resolved');
 
-                const analyzeBtn = `<button class="badge badge-purple" style="border:none; cursor:pointer; font-weight:600; margin-left:4px;" onclick="showAnalysis('${row.market_id}')">Анализ</button>`;
-
-                return `
-                    <tr>
-                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
-                        <td>${formatPriceCents(row.initial_price_outcome)}</td>
-                        <td>${formatPriceCents(row.current_price_outcome)} <span class="${changeClass}" style="font-size:0.8rem; margin-left:4px;">(${changeSign}${changePct.toFixed(1)}%)</span></td>
-                        <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
-                        <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
-                        <td>$${Math.round(row.volume_2h)}</td>
-                        <td><span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span></td>
-                        <td class="${row.edge > 0 ? 'text-green' : ''}">${formatPercent(row.edge)}</td>
-                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.added_at)}</td>
-                        <td>${actionBtn} ${analyzeBtn}</td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        // 4. Рендерим таблицу Завершенных позиций
-        const resolvedTbody = document.getElementById('resolved-positions-tbody');
-        if (data.resolved.length === 0) {
-            resolvedTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
-        } else {
-            resolvedTbody.innerHTML = data.resolved.map(row => {
-                const wasCorrect = row.predicted_outcome === row.actual_outcome;
-                const resultBadge = wasCorrect 
-                    ? '<span class="badge badge-green">✅ WIN</span>' 
-                    : '<span class="badge badge-red">❌ LOSS</span>';
-                return `
-                    <tr>
-                        <td><a href="${row.url}" target="_blank" style="color:var(--text-secondary); text-decoration:none;">${row.title}</a></td>
-                        <td>${formatPriceCents(row.initial_price_outcome)}</td>
-                        <td><span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span></td>
-                        <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
-                        <td>${formatPnL(row.pnl_realized)}</td>
-                        <td class="${row.edge > 0 ? 'text-green' : ''}">${formatPercent(row.edge)}</td>
-                        <td>${resultBadge}</td>
-                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        // 5. Обновляем графики
+        // 4. Обновляем графики
         if (equityData) {
             const dates = equityData.map(e => {
                 const d = new Date(e.date);
