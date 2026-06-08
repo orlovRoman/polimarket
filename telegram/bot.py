@@ -2093,7 +2093,15 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
 
 async def send_penny_page(message_or_callback, page: int = 0) -> None:
     signals = await asyncio.to_thread(get_signals, 100)
-    penny_signals = [s for s in signals if s.get('market_price') is not None and min(s['market_price'], 1.0 - s['market_price']) <= 0.05]
+    penny_signals = []
+    for s in signals:
+        price_safe = s.get('market_price')
+        if price_safe is None:
+            continue
+        target = s.get('target_outcome', 'YES').upper()
+        buy_price = price_safe if target == 'YES' else (1.0 - price_safe)
+        if buy_price <= 0.10:
+            penny_signals.append(s)
     
     if not penny_signals:
         text = "🪙 Пока нет дешевых опционов в базе. Запустите сканирование."
@@ -2263,11 +2271,16 @@ async def send_penny_active_page(message_or_callback, page: int = 0) -> None:
     response = f"🪙 <b>Активные Penny Stocks ({start_idx + 1}-{min(start_idx + chunk_size, len(active))} из {len(active)}):</b>\n\n"
     
     for stock in chunk:
-        init_price_cents = int(round(stock['initial_price'] * 100))
-        curr_price_cents = int(round(stock['current_price'] * 100))
-        max_price_cents = int(round(stock['max_price_seen'] * 100))
-        
         pred = stock['predicted_outcome'] or 'Нет прогноза'
+        if pred == 'NO':
+            init_price_cents = int(round((1.0 - stock['initial_price']) * 100))
+            curr_price_cents = int(round((1.0 - stock['current_price']) * 100))
+            max_price_cents = int(round((1.0 - stock['min_price_seen']) * 100))
+        else:
+            init_price_cents = int(round(stock['initial_price'] * 100))
+            curr_price_cents = int(round(stock['current_price'] * 100))
+            max_price_cents = int(round(stock['max_price_seen'] * 100))
+        
         edge_str = f"+{stock['edge']*100:.1f}%" if stock['edge'] is not None else "N/A"
         
         title_safe = stock['title'].replace('<', '&lt;').replace('>', '&gt;')
@@ -2305,11 +2318,16 @@ async def send_penny_history_page(message_or_callback, page: int = 0) -> None:
     response = f"🗄 <b>История исходов Penny Stocks ({start_idx + 1}-{min(start_idx + chunk_size, len(history))} из {len(history)}):</b>\n\n"
     
     for stock in chunk:
-        init_price_cents = int(round(stock['initial_price'] * 100))
-        final_price_cents = int(round(stock['current_price'] * 100))
-        max_price_cents = int(round(stock['max_price_seen'] * 100))
-        
         pred = stock['predicted_outcome']
+        if pred == 'NO':
+            init_price_cents = int(round((1.0 - stock['initial_price']) * 100))
+            final_price_cents = int(round((1.0 - stock['current_price']) * 100))
+            max_price_cents = int(round((1.0 - stock['min_price_seen']) * 100))
+        else:
+            init_price_cents = int(round(stock['initial_price'] * 100))
+            final_price_cents = int(round(stock['current_price'] * 100))
+            max_price_cents = int(round(stock['max_price_seen'] * 100))
+            
         act = stock['actual_outcome']
         is_correct = pred and act and pred.upper() == act.upper()
         result_emoji = "✅" if is_correct else "❌"

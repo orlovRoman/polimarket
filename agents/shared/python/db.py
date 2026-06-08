@@ -715,6 +715,13 @@ def init_db():
             if 'virtual_bought_at' not in penny_cols:
                 cursor.execute("ALTER TABLE penny_stocks_monitoring ADD COLUMN virtual_bought_at TIMESTAMP DEFAULT NULL")
 
+            # Миграция: удаление некорректных legacy записей из мониторинга
+            cursor.execute("""
+                DELETE FROM penny_stocks_monitoring 
+                WHERE (predicted_outcome = 'NO' AND initial_price <= 0.10)
+                   OR (predicted_outcome = 'YES' AND initial_price >= 0.90)
+            """)
+
             # Таблица Favourite Compounding возможностей
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS compound_opportunities (
@@ -2051,10 +2058,14 @@ def add_penny_stock_to_monitoring(market_id: str, title: str, url: str, initial_
                                   predicted_outcome: str = None, edge: float = None, confidence: float = None) -> None:
     with get_connection() as conn:
         conn.execute("""
-            INSERT OR IGNORE INTO penny_stocks_monitoring
+            INSERT INTO penny_stocks_monitoring
             (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
              predicted_outcome, edge, confidence, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+            ON CONFLICT(market_id) DO UPDATE SET
+                predicted_outcome = CASE WHEN excluded.predicted_outcome IS NOT NULL THEN excluded.predicted_outcome ELSE predicted_outcome END,
+                edge = CASE WHEN excluded.edge IS NOT NULL THEN excluded.edge ELSE edge END,
+                confidence = CASE WHEN excluded.confidence IS NOT NULL THEN excluded.confidence ELSE confidence END
         """, (market_id, title, url, initial_price, initial_price, initial_price, initial_price,
               predicted_outcome, edge, confidence))
 
@@ -2065,7 +2076,11 @@ def get_active_penny_stocks() -> list[dict]:
                    volume_2h, predicted_outcome, edge, confidence, status, spike_alert_sent, added_at,
                    virtual_bought_price, virtual_bought_at
             FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE'
+            WHERE status = 'ACTIVE' AND (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
+                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            )
             ORDER BY added_at DESC
         """).fetchall()
     return [dict(r) for r in rows]
@@ -2119,14 +2134,44 @@ def resolve_penny_stock(market_id: str, actual_outcome: str) -> None:
 
 def get_penny_stocks_stats() -> dict:
     with get_connection() as conn:
-        row_total = conn.execute("SELECT COUNT(*) as cnt FROM penny_stocks_monitoring").fetchone()
-        row_active = conn.execute("SELECT COUNT(*) as cnt FROM penny_stocks_monitoring WHERE status = 'ACTIVE'").fetchone()
-        row_resolved = conn.execute("SELECT COUNT(*) as cnt FROM penny_stocks_monitoring WHERE status = 'RESOLVED'").fetchone()
+        row_total = conn.execute("""
+            SELECT COUNT(*) as cnt FROM penny_stocks_monitoring
+            WHERE (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
+                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            )
+        """).fetchone()
+        row_active = conn.execute("""
+            SELECT COUNT(*) as cnt FROM penny_stocks_monitoring 
+            WHERE status = 'ACTIVE' AND (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
+                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            )
+        """).fetchone()
+        row_resolved = conn.execute("""
+            SELECT COUNT(*) as cnt FROM penny_stocks_monitoring 
+            WHERE status = 'RESOLVED' AND (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
+                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            )
+        """).fetchone()
         row_correct = conn.execute("""
             SELECT COUNT(*) as cnt FROM penny_stocks_monitoring 
-            WHERE status = 'RESOLVED' AND UPPER(predicted_outcome) = UPPER(actual_outcome)
+            WHERE status = 'RESOLVED' AND UPPER(predicted_outcome) = UPPER(actual_outcome) AND (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90)
+            )
         """).fetchone()
-        row_avg_edge = conn.execute("SELECT AVG(edge) as avg_edge FROM penny_stocks_monitoring WHERE edge IS NOT NULL").fetchone()
+        row_avg_edge = conn.execute("""
+            SELECT AVG(edge) as avg_edge FROM penny_stocks_monitoring 
+            WHERE edge IS NOT NULL AND (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90)
+            )
+        """).fetchone()
         
     total = row_total["cnt"] if row_total else 0
     active = row_active["cnt"] if row_active else 0
@@ -2150,7 +2195,11 @@ def get_penny_stocks_history(limit: int = 50) -> list[dict]:
             SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
                    predicted_outcome, actual_outcome, edge, confidence, added_at, resolved_at
             FROM penny_stocks_monitoring
-            WHERE status = 'RESOLVED'
+            WHERE status = 'RESOLVED' AND (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
+                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            )
             ORDER BY resolved_at DESC
             LIMIT ?
         """, (limit,)).fetchall()

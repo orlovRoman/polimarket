@@ -114,10 +114,34 @@ def get_penny_stocks_dashboard() -> dict:
         active_rows = conn.execute("""
             SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, volume_2h, predicted_outcome, edge, confidence, added_at, virtual_bought_price
             FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE' AND initial_price <= 0.10
+            WHERE status = 'ACTIVE' AND (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
+                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            )
             ORDER BY added_at DESC
         """).fetchall()
-        active = [dict(r) for r in active_rows]
+        
+        active = []
+        for r in active_rows:
+            row_dict = dict(r)
+            pred = row_dict['predicted_outcome']
+            init = row_dict['initial_price']
+            curr = row_dict['current_price']
+            mx = row_dict['max_price_seen']
+            mn = row_dict['min_price_seen']
+            
+            if pred == 'NO':
+                row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
+                row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
+                row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
+                row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4) if mx is not None else None
+            else:
+                row_dict['initial_price_outcome'] = init
+                row_dict['current_price_outcome'] = curr
+                row_dict['max_price_seen_outcome'] = mx
+                row_dict['min_price_seen_outcome'] = mn
+            active.append(row_dict)
 
         # Завершенные позиции (с PnL из сигналов)
         resolved_rows = conn.execute("""
@@ -125,11 +149,35 @@ def get_penny_stocks_dashboard() -> dict:
                    s.pnl_realized
             FROM penny_stocks_monitoring p
             LEFT JOIN signals s ON p.market_id = s.market_id AND s.strategy_type = 'penny_stocks'
-            WHERE p.status = 'RESOLVED' AND p.initial_price <= 0.10
+            WHERE p.status = 'RESOLVED' AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
+                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
+            )
             ORDER BY p.resolved_at DESC
             LIMIT 50
         """).fetchall()
-        resolved = [dict(r) for r in resolved_rows]
+        
+        resolved = []
+        for r in resolved_rows:
+            row_dict = dict(r)
+            pred = row_dict['predicted_outcome']
+            init = row_dict['initial_price']
+            curr = row_dict['current_price']
+            mx = row_dict['max_price_seen']
+            mn = row_dict['min_price_seen']
+            
+            if pred == 'NO':
+                row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
+                row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
+                row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
+                row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4) if mx is not None else None
+            else:
+                row_dict['initial_price_outcome'] = init
+                row_dict['current_price_outcome'] = curr
+                row_dict['max_price_seen_outcome'] = mx
+                row_dict['min_price_seen_outcome'] = mn
+            resolved.append(row_dict)
 
         # Виртуальный портфель
         portfolio_rows = conn.execute("""
@@ -175,7 +223,12 @@ def get_penny_stocks_dashboard() -> dict:
                 MAX(pnl_realized) as best_pnl,
                 AVG(pnl_realized) as avg_pnl
             FROM signals
-            WHERE strategy_type = 'penny_stocks' AND status IN ('WIN', 'LOSS') AND market_price_at_signal <= 0.10
+            WHERE strategy_type = 'penny_stocks' 
+              AND status IN ('WIN', 'LOSS') 
+              AND (
+                  (target_outcome = 'YES' AND market_price_at_signal <= 0.10) OR
+                  (target_outcome = 'NO' AND market_price_at_signal >= 0.90)
+              )
         """).fetchone()
 
         win_rate = None
@@ -187,9 +240,18 @@ def get_penny_stocks_dashboard() -> dict:
             avg_pnl = stats_row['avg_pnl'] or 0.0
 
         avg_entry_row = conn.execute("""
-            SELECT AVG(initial_price) as avg_entry
+            SELECT AVG(
+                CASE 
+                    WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price 
+                    ELSE initial_price 
+                END
+            ) as avg_entry
             FROM penny_stocks_monitoring
-            WHERE initial_price <= 0.10
+            WHERE (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
+                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            )
         """).fetchone()
         avg_entry = avg_entry_row['avg_entry'] if avg_entry_row else None
 
@@ -203,7 +265,19 @@ def get_penny_stocks_dashboard() -> dict:
         }
 
         # Распределение цен входа
-        all_prices_rows = conn.execute("SELECT initial_price FROM penny_stocks_monitoring WHERE initial_price <= 0.10").fetchall()
+        all_prices_rows = conn.execute("""
+            SELECT 
+                CASE 
+                    WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price 
+                    ELSE initial_price 
+                END as outcome_initial_price
+            FROM penny_stocks_monitoring 
+            WHERE (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
+                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            )
+        """).fetchall()
         bins = {
             '1-5¢': 0,
             '5-10¢': 0,
@@ -212,7 +286,7 @@ def get_penny_stocks_dashboard() -> dict:
             '20+¢': 0
         }
         for r in all_prices_rows:
-            p = r['initial_price']
+            p = r['outcome_initial_price']
             if p is None:
                 continue
             if p < 0.05:

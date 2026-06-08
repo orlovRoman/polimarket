@@ -99,19 +99,20 @@ def test_get_penny_stocks_dashboard(isolated_db):
     # Вставляем Penny Stocks
     with db_module.get_connection() as conn:
         conn.execute("""
-            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status)
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
             VALUES 
-            ('penny_a', 'Penny A', 'http://a', 0.03, 0.04, 0.05, 0.03, 'ACTIVE'),
-            ('penny_b', 'Penny B', 'http://b', 0.08, 0.02, 0.08, 0.02, 'RESOLVED')
+            ('penny_a', 'Penny A', 'http://a', 0.03, 0.04, 0.05, 0.03, 'ACTIVE', 'YES'),
+            ('penny_b', 'Penny B', 'http://b', 0.08, 0.02, 0.08, 0.02, 'RESOLVED', 'YES')
         """)
         conn.execute("""
-            INSERT INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, strategy_type, pnl_realized, was_profitable, resolved_at, market_price_at_signal)
-            VALUES ('sig_penny', 'penny', 'penny_b', 'poly', 0.1, 0.8, 'HIGH', 's', 'd', 'LOSS', 'penny_stocks', -10.0, 0, datetime('now'), 0.08)
+            INSERT INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, strategy_type, pnl_realized, was_profitable, resolved_at, market_price_at_signal, target_outcome)
+            VALUES ('sig_penny', 'penny', 'penny_b', 'poly', 0.1, 0.8, 'HIGH', 's', 'd', 'LOSS', 'penny_stocks', -10.0, 0, datetime('now'), 0.08, 'YES')
         """)
 
     data = data_provider.get_penny_stocks_dashboard()
     assert len(data['active']) == 1
     assert data['active'][0]['title'] == 'Penny A'
+    assert data['active'][0]['initial_price_outcome'] == 0.03
     assert len(data['resolved']) == 1
     assert data['resolved'][0]['title'] == 'Penny B'
     assert data['resolved'][0]['pnl_realized'] == -10.0
@@ -119,6 +120,35 @@ def test_get_penny_stocks_dashboard(isolated_db):
     assert data['stats']['resolved_count'] == 1
     assert data['price_distribution']['1-5¢'] == 1
     assert data['price_distribution']['5-10¢'] == 1
+
+def test_penny_stocks_dashboard_filtering(isolated_db):
+    # Тест фильтрации:
+    # 1. YES-прогноз с начальной ценой 0.05 (должен пройти: <= 0.10)
+    # 2. YES-прогноз с начальной ценой 0.95 (должен отсеяться: > 0.10)
+    # 3. NO-прогноз с начальной ценой 0.95 (должен пройти: NO по цене 0.05 <= 0.10)
+    # 4. NO-прогноз с начальной ценой 0.05 (должен отсеяться: NO по цене 0.95 > 0.10)
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES 
+            ('p1', 'Yes Pass', 'http://1', 0.05, 0.05, 0.05, 0.05, 'ACTIVE', 'YES'),
+            ('p2', 'Yes Fail', 'http://2', 0.95, 0.95, 0.95, 0.95, 'ACTIVE', 'YES'),
+            ('p3', 'No Pass',  'http://3', 0.95, 0.94, 0.95, 0.94, 'ACTIVE', 'NO'),
+            ('p4', 'No Fail',  'http://4', 0.05, 0.05, 0.05, 0.05, 'ACTIVE', 'NO')
+        """)
+        
+    data = data_provider.get_penny_stocks_dashboard()
+    # Должны отображаться только p1 и p3
+    active_titles = [x['title'] for x in data['active']]
+    assert 'Yes Pass' in active_titles
+    assert 'No Pass' in active_titles
+    assert 'Yes Fail' not in active_titles
+    assert 'No Fail' not in active_titles
+
+    # Проверяем цены исхода для p3 (NO):
+    p3_data = next(x for x in data['active'] if x['market_id'] == 'p3')
+    assert p3_data['initial_price_outcome'] == 0.05 # 1.0 - 0.95
+    assert p3_data['current_price_outcome'] == 0.06 # 1.0 - 0.94
 
 def test_get_auto_disable_candidates(isolated_db):
     with db_module.get_connection() as conn:
