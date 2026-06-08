@@ -1,0 +1,253 @@
+<!-- overview.html -->
+<div class="kpi-row">
+    <div class="kpi-card">
+        <div class="kpi-title">Общий PnL (30д)</div>
+        <div class="kpi-value" id="kpi-total-pnl">$0.00</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Всего сигналов (30д)</div>
+        <div class="kpi-value" id="kpi-total-signals">0</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Средний Win Rate</div>
+        <div class="kpi-value" id="kpi-avg-winrate">—</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Лучшая стратегия</div>
+        <div class="kpi-value" id="kpi-best-strat">—</div>
+    </div>
+</div>
+
+<div class="chart-card">
+    <div class="chart-title">Сравнение доходности стратегий (30д)</div>
+    <div style="height: calc(100% - 40px);">
+        <canvas id="multiEquityChart"></canvas>
+    </div>
+</div>
+
+<div class="table-card">
+    <div class="table-title">Мониторинг торговых стратегий</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Стратегия</th>
+                <th>Статус</th>
+                <th>Win Rate (30д)</th>
+                <th>PnL (30д)</th>
+                <th>PnL (7д)</th>
+                <th>Sharpe Ratio</th>
+                <th>Всего сигналов</th>
+            </tr>
+        </thead>
+        <tbody id="strategies-tbody">
+            <tr>
+                <td colspan="7" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="table-card" id="disable-candidates-card" style="border-color: rgba(239, 68, 68, 0.3); background-color: rgba(239, 68, 68, 0.02);">
+    <div class="table-title" style="color: var(--accent-red); display: flex; align-items: center; gap: 8px;">
+        <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"></path></svg>
+        Кандидаты на отключение (Коэффициент Шарпа < 0)
+    </div>
+    <div id="disable-candidates-content" class="text-muted" style="font-size:0.95rem;">
+        Проверка кандидатов...
+    </div>
+</div>
+
+<script>
+    const strategyDisplayNames = {
+        'scout': 'Scout (LLM)',
+        'synthetic_corridor': 'Synthetic Corridor',
+        'temporal_corridor': 'Temporal Corridor',
+        'cross_platform': 'Cross Platform',
+        'whale': 'Whale Following',
+        'penny_stocks': 'Penny Stocks'
+    };
+
+    const strategyUrls = {
+        'scout': '/scout',
+        'synthetic_corridor': '/corridors',
+        'temporal_corridor': '/corridors',
+        'cross_platform': '/corridors',
+        'whale': '/whale',
+        'penny_stocks': '/penny-stocks'
+    };
+
+    const strategyColors = {
+        'scout': '#3b82f6',
+        'synthetic_corridor': '#10b981',
+        'temporal_corridor': '#8b5cf6',
+        'cross_platform': '#f59e0b',
+        'whale': '#ec4899',
+        'penny_stocks': '#06b6d4'
+    };
+
+    let multiChart = null;
+
+    async function loadOverviewData() {
+        const stats = await fetchJSON('/api/overview');
+        const equity = await fetchJSON('/api/equity-curve?strategy=all&days=30');
+
+        if (!stats) return;
+
+        // 1. Считаем глобальные KPI
+        let totalPnL = 0;
+        let totalSignals = 0;
+        let winRateSum = 0;
+        let winRateCount = 0;
+        let bestStratName = '—';
+        let bestStratPnL = -999999;
+
+        for (const stype in stats) {
+            const s = stats[stype];
+            totalPnL += s.pnl_30d;
+            totalSignals += s.signals_count;
+            if (s.win_rate !== null) {
+                winRateSum += s.win_rate;
+                winRateCount++;
+            }
+            if (s.pnl_30d > bestStratPnL && s.signals_count > 0) {
+                bestStratPnL = s.pnl_30d;
+                bestStratName = strategyDisplayNames[stype] || stype;
+            }
+        }
+
+        const avgWinRate = winRateCount > 0 ? (winRateSum / winRateCount) : null;
+
+        document.getElementById('kpi-total-pnl').innerHTML = formatPnL(totalPnL);
+        document.getElementById('kpi-total-signals').textContent = totalSignals;
+        document.getElementById('kpi-avg-winrate').textContent = avgWinRate !== null ? formatPercent(avgWinRate) : '—';
+        document.getElementById('kpi-best-strat').textContent = bestStratName;
+
+        // 2. Рендерим таблицу стратегий
+        const tbody = document.getElementById('strategies-tbody');
+        tbody.innerHTML = Object.keys(stats).map(stype => {
+            const s = stats[stype];
+            const name = strategyDisplayNames[stype] || stype;
+            const url = strategyUrls[stype] || '#';
+            return `
+                <tr>
+                    <td><a href="${url}" style="color:var(--text-primary); font-weight:600; text-decoration:none; border-bottom:1px dotted var(--text-secondary);">${name}</a></td>
+                    <td style="font-size:1.1rem; text-align:center;">${s.status_emoji}</td>
+                    <td>${s.win_rate !== null ? formatPercent(s.win_rate) : '—'}</td>
+                    <td>${formatPnL(s.pnl_30d)}</td>
+                    <td>${formatPnL(s.pnl_7d)}</td>
+                    <td class="${s.sharpe < 0 ? 'text-red' : s.sharpe > 1 ? 'text-green' : ''}">${s.sharpe !== null ? s.sharpe.toFixed(2) : '—'}</td>
+                    <td>${s.signals_count}</td>
+                </tr>
+            `;
+        }).join('');
+
+        // 3. Выделяем кандидатов на авто-отключение
+        const candidates = Object.keys(stats).filter(stype => stats[stype].sharpe !== null && stats[stype].sharpe < 0);
+        const candidatesContent = document.getElementById('disable-candidates-content');
+        if (candidates.length === 0) {
+            candidatesContent.innerHTML = `<span class="text-green" style="display:flex; align-items:center; gap:6px;">
+                <svg style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                Все стратегии работают с положительным Sharpe Ratio. Рекомендаций на отключение нет.
+            </span>`;
+        } else {
+            candidatesContent.innerHTML = `
+                <div style="margin-bottom: 12px; color: var(--text-primary);">Внимание! Рекомендуется приостановить следующие стратегии:</div>
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    ${candidates.map(stype => {
+                        const s = stats[stype];
+                        const name = strategyDisplayNames[stype] || stype;
+                        return `
+                            <div style="background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.2); padding:10px 14px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+                                <div><strong>${name}</strong> (Sharpe: <span class="text-red">${s.sharpe.toFixed(2)}</span>, Win Rate: ${formatPercent(s.win_rate)})</div>
+                                <span class="badge badge-red">Неэффективна</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        // 4. Рендерим график доходности
+        if (equity) {
+            // Выравнивание дат
+            const allDatesSet = new Set();
+            for (const stype in equity) {
+                equity[stype].forEach(pt => allDatesSet.add(pt.date));
+            }
+            const sortedDates = Array.from(allDatesSet).sort();
+
+            const datasets = [];
+            for (const stype in equity) {
+                const curve = equity[stype];
+                if (curve.length === 0) continue;
+                
+                const dataPoints = [];
+                let lastVal = 0.0;
+                
+                const dateMap = {};
+                curve.forEach(pt => {
+                    dateMap[pt.date] = pt.cumulative_pnl;
+                });
+                
+                sortedDates.forEach(d => {
+                    if (dateMap[d] !== undefined) {
+                        lastVal = dateMap[d];
+                    }
+                    dataPoints.push(lastVal);
+                });
+
+                datasets.push({
+                    label: strategyDisplayNames[stype] || stype,
+                    data: dataPoints,
+                    borderColor: strategyColors[stype] || '#9ca3af',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2.5,
+                    tension: 0.2,
+                    pointRadius: 1.5,
+                    pointHoverRadius: 4
+                });
+            }
+
+            const xLabels = sortedDates.map(dateStr => {
+                const d = new Date(dateStr);
+                return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+            });
+
+            if (multiChart) {
+                multiChart.data.labels = xLabels;
+                multiChart.data.datasets = datasets;
+                multiChart.update();
+            } else {
+                const ctx = document.getElementById('multiEquityChart').getContext('2d');
+                multiChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: xLabels,
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        scales: {
+                            y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#9ca3af' } },
+                            x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: { color: '#f3f4f6', font: { family: 'Inter', size: 11 } }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    registerRefresh(loadOverviewData);
+</script>

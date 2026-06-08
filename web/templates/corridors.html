@@ -1,0 +1,324 @@
+<!-- corridors.html -->
+<style>
+    .tab-container {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 24px;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 12px;
+    }
+    .tab-btn {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        padding: 10px 20px;
+        font-size: 0.95rem;
+        font-weight: 500;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: all var(--transition-speed) ease;
+    }
+    .tab-btn:hover {
+        color: var(--text-primary);
+        background-color: rgba(255, 255, 255, 0.03);
+    }
+    .tab-btn.active {
+        color: var(--text-primary);
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%);
+        border: 1px solid rgba(139, 92, 246, 0.25);
+    }
+    .tab-content {
+        display: none;
+    }
+    .tab-content.active {
+        display: block;
+    }
+</style>
+
+<div class="tab-container">
+    <button class="tab-btn active" onclick="switchTab('synthetic')">🔬 Синтетические коридоры</button>
+    <button class="tab-btn" onclick="switchTab('temporal')">⏳ Временные коридоры</button>
+    <button class="tab-btn" onclick="switchTab('cross')">🔄 Кросс-платформа</button>
+</div>
+
+<div class="kpi-row">
+    <div class="kpi-card">
+        <div class="kpi-title">Всего сделок (30д)</div>
+        <div class="kpi-value" id="kpi-total">0</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Win Rate</div>
+        <div class="kpi-value" id="kpi-winrate">—</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Средний PnL</div>
+        <div class="kpi-value" id="kpi-avgpnl">$0.00</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Лучший трейд</div>
+        <div class="kpi-value" id="kpi-besttrade">$0.00</div>
+    </div>
+</div>
+
+<div class="chart-card" style="height: 350px; margin-bottom: 32px;">
+    <div class="chart-title" id="chart-title">Кривая доходности: Синтетические коридоры</div>
+    <div style="height: calc(100% - 40px);">
+        <canvas id="equityChart"></canvas>
+    </div>
+</div>
+
+<!-- Вкладка 1: Синтетические коридоры -->
+<div id="tab-synthetic" class="tab-content active">
+    <div class="table-card">
+        <div class="table-title">Лог сигналов: Синтетические коридоры</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Событие</th>
+                    <th>Нижний порог</th>
+                    <th>Верхний порог</th>
+                    <th>Спред (Теор / Реал)</th>
+                    <th>Инвестировано</th>
+                    <th>PnL в коридоре</th>
+                    <th>ROI (Мин / Макс)</th>
+                    <th>Время создания</th>
+                </tr>
+            </thead>
+            <tbody id="synthetic-tbody">
+                <tr>
+                    <td colspan="8" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Вкладка 2: Временные коридоры -->
+<div id="tab-temporal" class="tab-content">
+    <div class="table-card">
+        <div class="table-title">Лог сигналов: Временные коридоры</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Событие</th>
+                    <th>Стоимость (Теор / Реал)</th>
+                    <th>Спред (Теор / Реал)</th>
+                    <th>Ставки (Early / Late)</th>
+                    <th>Ожидаемый EV</th>
+                    <th>ROI (%)</th>
+                    <th>Статус</th>
+                    <th>Время создания</th>
+                </tr>
+            </thead>
+            <tbody id="temporal-tbody">
+                <tr>
+                    <td colspan="8" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Вкладка 3: Кросс-платформенный арбитраж -->
+<div id="tab-cross" class="tab-content">
+    <div class="table-card">
+        <div class="table-title">Лог сигналов: Кросс-платформенный арбитраж</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Рынок A</th>
+                    <th>Рынок B</th>
+                    <th>Цены (A / B)</th>
+                    <th>Спред (%)</th>
+                    <th>Тип арбитража</th>
+                    <th>Инструкция</th>
+                    <th>Статус</th>
+                    <th>Время создания</th>
+                </tr>
+            </thead>
+            <tbody id="cross-tbody">
+                <tr>
+                    <td colspan="8" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let activeTab = 'synthetic';
+    let rawData = null;
+    let equityData = null;
+    let equityChart = null;
+
+    const strategyTypes = {
+        'synthetic': 'synthetic_corridor',
+        'temporal': 'temporal_corridor',
+        'cross': 'cross_platform'
+    };
+
+    const strategyColors = {
+        'synthetic': '#10b981',
+        'temporal': '#8b5cf6',
+        'cross': '#f59e0b'
+    };
+
+    const tabDisplayNames = {
+        'synthetic': 'Синтетические коридоры',
+        'temporal': 'Временные коридоры',
+        'cross': 'Кросс-платформенный арбитраж'
+    };
+
+    function switchTab(tabName) {
+        activeTab = tabName;
+        
+        // Переключаем кнопки табов
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        const activeBtn = Array.from(document.querySelectorAll('.tab-btn')).find(btn => btn.textContent.includes(tabDisplayNames[tabName].slice(0, 10)));
+        if (activeBtn) activeBtn.classList.add('active');
+
+        // Переключаем контент
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+
+        // Обновляем заголовок графика
+        document.getElementById('chart-title').textContent = `Кривая доходности: ${tabDisplayNames[tabName]}`;
+
+        // Перерисовываем UI
+        renderUI();
+    }
+
+    async function loadCorridorsData() {
+        rawData = await fetchJSON('/api/corridors');
+        equityData = await fetchJSON('/api/equity-curve?strategy=all&days=30');
+        renderUI();
+    }
+
+    function renderUI() {
+        if (!rawData) return;
+
+        // 1. Рендерим KPI
+        const stype = strategyTypes[activeTab];
+        const kpi = rawData.kpis[stype] || { total: 0, win_rate: null, avg_pnl: 0, best_pnl: 0 };
+        
+        document.getElementById('kpi-total').textContent = kpi.total;
+        document.getElementById('kpi-winrate').textContent = kpi.win_rate !== null ? formatPercent(kpi.win_rate) : '—';
+        document.getElementById('kpi-avgpnl').innerHTML = formatPnL(kpi.avg_pnl);
+        document.getElementById('kpi-besttrade').innerHTML = formatPnL(kpi.best_pnl);
+
+        // 2. Рендерим таблицы
+        // Синтетика
+        const synthTbody = document.getElementById('synthetic-tbody');
+        if (rawData.synthetic.length === 0) {
+            synthTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
+        } else {
+            synthTbody.innerHTML = rawData.synthetic.map(row => `
+                <tr>
+                    <td><a href="${row.event_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.event_title}</a></td>
+                    <td>${row.lower_level} (${formatPriceCents(row.lower_price_yes)})</td>
+                    <td>${row.upper_level} (${formatPriceCents(row.upper_price_yes)})</td>
+                    <td>${formatPercent(row.theoretical_spread_pct)} / ${formatPercent(row.real_spread_pct)}</td>
+                    <td>$${row.total_invested_usd ? row.total_invested_usd.toFixed(2) : '0.00'}</td>
+                    <td class="text-green">+$${row.pnl_in_corridor_usd ? row.pnl_in_corridor_usd.toFixed(2) : '0.00'}</td>
+                    <td>${formatPercent(row.roi_min_pct)} / ${formatPercent(row.roi_max_pct)}</td>
+                    <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.created_at)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Временные
+        const tempTbody = document.getElementById('temporal-tbody');
+        if (rawData.temporal.length === 0) {
+            tempTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
+        } else {
+            tempTbody.innerHTML = rawData.temporal.map(row => `
+                <tr>
+                    <td><a href="${row.event_url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${row.event_title}</a></td>
+                    <td>$${row.theoretical_cost ? row.theoretical_cost.toFixed(2) : '0.00'} / $${row.real_cost ? row.real_cost.toFixed(2) : '0.00'}</td>
+                    <td>${formatPercent(row.theoretical_spread_pct)} / ${formatPercent(row.real_spread_pct)}</td>
+                    <td>$${row.early_stake_usd ? row.early_stake_usd.toFixed(2) : '0.00'} / $${row.late_stake_usd ? row.late_stake_usd.toFixed(2) : '0.00'}</td>
+                    <td class="${row.ev_usd > 0 ? 'text-green' : ''}">$${row.ev_usd ? row.ev_usd.toFixed(2) : '0.00'}</td>
+                    <td class="${row.roi_pct > 0 ? 'text-green' : ''}">${formatPercent(row.roi_pct / 100)}</td>
+                    <td><span class="badge ${row.status === 'ACTIVE' ? 'badge-blue' : 'badge-green'}">${row.status}</span></td>
+                    <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.created_at)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Кросс-платформа
+        const crossTbody = document.getElementById('cross-tbody');
+        if (rawData.cross.length === 0) {
+            crossTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
+        } else {
+            crossTbody.innerHTML = rawData.cross.map(row => `
+                <tr>
+                    <td><strong>${row.market_a_platform}</strong>: ${row.market_a_title} (${formatPriceCents(row.market_a_price)})</td>
+                    <td><strong>${row.market_b_platform}</strong>: ${row.market_b_title} (${formatPriceCents(row.market_b_price)})</td>
+                    <td>${formatPriceCents(row.market_a_price)} / ${formatPriceCents(row.market_b_price)}</td>
+                    <td class="text-green">${formatPercent(row.spread_percent / 100)}</td>
+                    <td><span class="badge badge-blue">${row.arbitrage_type}</span></td>
+                    <td style="font-size:0.85rem;">${row.trade_instruction || '—'}</td>
+                    <td><span class="badge ${row.status === 'new' ? 'badge-blue' : 'badge-green'}">${row.status}</span></td>
+                    <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.created_at)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // 3. Рендерим график доходности для текущего таба
+        if (equityData) {
+            const curve = equityData[stype] || [];
+            const dates = curve.map(e => {
+                const d = new Date(e.date);
+                return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+            });
+            const pnlVals = curve.map(e => e.cumulative_pnl);
+            const color = strategyColors[activeTab];
+
+            if (equityChart) {
+                equityChart.data.labels = dates;
+                equityChart.data.datasets[0].data = pnlVals;
+                equityChart.data.datasets[0].borderColor = color;
+                equityChart.data.datasets[0].backgroundColor = color + '0D'; // прозрачный
+                equityChart.data.datasets[0].pointBackgroundColor = color;
+                equityChart.update();
+            } else {
+                const ctx = document.getElementById('equityChart').getContext('2d');
+                equityChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: dates,
+                        datasets: [{
+                            label: 'Кумулятивный PnL ($)',
+                            data: pnlVals,
+                            borderColor: color,
+                            backgroundColor: color + '0D',
+                            fill: true,
+                            tension: 0.2,
+                            borderWidth: 2,
+                            pointBackgroundColor: color,
+                            pointRadius: 3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#9ca3af' } },
+                            x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    function formatPriceCents(val) {
+        if (val === null || val === undefined) return "—";
+        return `${(val * 100).toFixed(1)}¢`;
+    }
+
+    registerRefresh(loadCorridorsData);
+</script>

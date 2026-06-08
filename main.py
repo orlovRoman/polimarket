@@ -245,6 +245,25 @@ async def start_fastapi():
     server.install_signal_handlers = lambda: None  # отключаем перехват сигналов uvicorn'ом
     await server.serve()
 
+async def start_dashboard():
+    """Запуск aiohttp сервера дашборда в фоне"""
+    from web.dashboard import create_dashboard_app
+    from aiohttp import web
+    import os
+    app = create_dashboard_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("DASHBOARD_PORT", "8050"))
+    site = web.TCPSite(runner, host="0.0.0.0", port=port)
+    await site.start()
+    logger.info(f"📊 Дашборд запущен на http://localhost:{port}")
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        logger.info("Остановка дашборда...")
+        await runner.cleanup()
+
 import socket
 
 _lock_socket = None
@@ -634,6 +653,7 @@ async def start_system():
     polling_task = None
     api_task = None
     watchlist_task = None
+    dashboard_task = None
     
     # Обработчики завершения процесса (асинхронный graceful shutdown)
     loop = asyncio.get_running_loop()
@@ -651,7 +671,7 @@ async def start_system():
         logger.info("🚨 Получен сигнал завершения, запускаем отмену фоновых задач...")
         import config
         config.shutdown_requested = True
-        for task in [polling_task, api_task, watchlist_task]:
+        for task in [polling_task, api_task, watchlist_task, dashboard_task]:
             if task and not task.done():
                 task.cancel()
     
@@ -765,6 +785,9 @@ async def start_system():
     logger.info("Запуск FastAPI...")
     api_task = asyncio.create_task(start_fastapi())
 
+    logger.info("Запуск дашборда...")
+    dashboard_task = asyncio.create_task(start_dashboard())
+
     polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
     
     # Устанавливаем обработчики сигналов в самом конце, чтобы переопределить обработчики Playwright/Uvicorn
@@ -777,7 +800,7 @@ async def start_system():
 
     try:
         done, pending = await asyncio.wait(
-            [polling_task, api_task],
+            [polling_task, api_task, dashboard_task],
             return_when=asyncio.FIRST_COMPLETED
         )
         for task in done:
@@ -823,12 +846,12 @@ async def start_system():
                 pass
 
         # 3. Отменяем фоновые задачи
-        for task in [polling_task, api_task, watchlist_task]:
+        for task in [polling_task, api_task, watchlist_task, dashboard_task]:
             if task and not task.done():
                 task.cancel()
                 
         # 4. Ожидаем завершения отменённых задач
-        await asyncio.gather(polling_task, api_task, watchlist_task, return_exceptions=True)
+        await asyncio.gather(polling_task, api_task, watchlist_task, dashboard_task, return_exceptions=True)
         
         # 5. Закрываем сессию
         try:

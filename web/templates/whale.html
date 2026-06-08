@@ -1,0 +1,169 @@
+<!-- whale.html -->
+<div class="kpi-row">
+    <div class="kpi-card">
+        <div class="kpi-title">Win Rate (30д)</div>
+        <div class="kpi-value" id="kpi-winrate">—</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Brier Score</div>
+        <div class="kpi-value" id="kpi-brier">—</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Sharpe Ratio</div>
+        <div class="kpi-value" id="kpi-sharpe">—</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Ср. Edge</div>
+        <div class="kpi-value" id="kpi-edge">—</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Всего сигналов</div>
+        <div class="kpi-value" id="kpi-count">0</div>
+    </div>
+</div>
+
+<div class="chart-card" style="height: 380px; margin-bottom: 32px;">
+    <div class="chart-title">Кривая доходности (Whale Following)</div>
+    <div style="height: calc(100% - 40px);">
+        <canvas id="equityChart"></canvas>
+    </div>
+</div>
+
+<div class="table-card">
+    <div class="table-title">Последние 20 сигналов Whale Following</div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Рынок</th>
+                <th>Прогноз</th>
+                <th>Цена входа</th>
+                <th>Edge</th>
+                <th>Исход</th>
+                <th>PnL</th>
+                <th>Время создания</th>
+            </tr>
+        </thead>
+        <tbody id="signals-tbody">
+            <tr>
+                <td colspan="8" style="text-align: center;" class="text-muted">Загрузка сигналов...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+    let equityChart = null;
+
+    async function loadWhaleData() {
+        const overview = await fetchJSON('/api/overview');
+        const signals = await fetchJSON('/api/signals?strategy=whale&days=30&limit=50');
+        const equityData = await fetchJSON('/api/equity-curve?strategy=whale&days=30');
+
+        if (!overview || !signals) return;
+
+        // 1. Рендерим KPI из overview
+        const stats = overview['whale'];
+        if (stats) {
+            document.getElementById('kpi-winrate').textContent = stats.win_rate !== null ? formatPercent(stats.win_rate) : '—';
+            document.getElementById('kpi-sharpe').textContent = stats.sharpe !== null ? stats.sharpe.toFixed(2) : '—';
+            document.getElementById('kpi-count').textContent = stats.signals_count;
+        }
+
+        // Вычисляем Brier Score и Avg Edge на лету
+        let brierSum = 0;
+        let brierCount = 0;
+        let edgeSum = 0;
+        let edgeCount = 0;
+
+        signals.forEach(sig => {
+            const p = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
+            if (p !== null && (sig.status === 'WIN' || sig.status === 'LOSS')) {
+                const outcome = sig.status === 'WIN' ? 1.0 : 0.0;
+                brierSum += (p - outcome) * (p - outcome);
+                brierCount++;
+            }
+            if (sig.edge !== null) {
+                edgeSum += sig.edge;
+                edgeCount++;
+            }
+        });
+
+        const avgBrier = brierCount > 0 ? (brierSum / brierCount) : null;
+        const avgEdge = edgeCount > 0 ? (edgeSum / edgeCount) : null;
+
+        document.getElementById('kpi-brier').textContent = formatBrier(avgBrier);
+        document.getElementById('kpi-edge').textContent = avgEdge !== null ? formatPercent(avgEdge) : '—';
+
+        // 2. Рендерим таблицу сигналов
+        const tbody = document.getElementById('signals-tbody');
+        const displaySignals = signals.slice(0, 20);
+        if (displaySignals.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
+        } else {
+            tbody.innerHTML = displaySignals.map(sig => {
+                const prob = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
+                const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
+                return `
+                    <tr>
+                        <td class="text-muted" style="font-size:0.8rem;">${sig.id.slice(0, 8)}...</td>
+                        <td><a href="${sig.market_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${sig.market_title}</a></td>
+                        <td><span class="badge ${sig.target_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${sig.target_outcome}</span> (${prob !== null ? formatPercent(prob) : '—'})</td>
+                        <td>${sig.market_price_at_signal !== null ? formatPercent(sig.market_price_at_signal) : '—'}</td>
+                        <td class="${sig.edge > 0 ? 'text-green' : ''}">${sig.edge !== null ? formatPercent(sig.edge) : '—'}</td>
+                        <td><span class="badge ${statusClass}">${sig.status}</span></td>
+                        <td>${formatPnL(sig.pnl_realized)}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(sig.created_at)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 3. Строим кривую доходности
+        if (equityData) {
+            const dates = equityData.map(e => {
+                const d = new Date(e.date);
+                return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+            });
+            const pnlVals = equityData.map(e => e.cumulative_pnl);
+
+            if (equityChart) {
+                equityChart.data.labels = dates;
+                equityChart.data.datasets[0].data = pnlVals;
+                equityChart.update();
+            } else {
+                const ctx = document.getElementById('equityChart').getContext('2d');
+                equityChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: dates,
+                        datasets: [{
+                            label: 'Кумулятивный PnL ($)',
+                            data: pnlVals,
+                            borderColor: '#ec4899',
+                            backgroundColor: 'rgba(236, 72, 153, 0.05)',
+                            fill: true,
+                            tension: 0.2,
+                            borderWidth: 2,
+                            pointBackgroundColor: '#ec4899',
+                            pointRadius: 3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#9ca3af' } },
+                            x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    registerRefresh(loadWhaleData);
+</script>

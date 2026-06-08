@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusPolyBot Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --bg-sidebar: #111827;
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --border-color: rgba(55, 65, 81, 0.4);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent-green: #10b981;
+            --accent-green-bg: rgba(16, 185, 129, 0.1);
+            --accent-red: #ef4444;
+            --accent-red-bg: rgba(239, 68, 68, 0.1);
+            --accent-blue: #3b82f6;
+            --accent-blue-bg: rgba(59, 130, 246, 0.1);
+            --accent-purple: #8b5cf6;
+            --accent-purple-bg: rgba(139, 92, 246, 0.1);
+            --transition-speed: 0.25s;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.08) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            height: 100vh;
+            z-index: 100;
+        }
+
+        .sidebar-brand {
+            padding: 24px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            border-bottom: 1px solid var(--border-color);
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sidebar-brand::before {
+            content: '';
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.6);
+        }
+
+        .sidebar-menu {
+            list-style: none;
+            padding: 20px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex-grow: 1;
+        }
+
+        .sidebar-item a {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95rem;
+            border-radius: 8px;
+            transition: all var(--transition-speed) ease;
+            gap: 12px;
+        }
+
+        .sidebar-item a:hover {
+            color: var(--text-primary);
+            background-color: rgba(255, 255, 255, 0.04);
+        }
+
+        .sidebar-item.active a {
+            color: var(--text-primary);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+            border: 1px solid rgba(139, 92, 246, 0.25);
+            box-shadow: inset 0 0 8px rgba(139, 92, 246, 0.05);
+        }
+
+        .sidebar-item a svg {
+            width: 20px;
+            height: 20px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .sidebar-footer {
+            padding: 20px;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        /* Main Content Container */
+        .main-container {
+            margin-left: 280px;
+            width: calc(100% - 280px);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        header {
+            height: 70px;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: rgba(11, 15, 25, 0.5);
+            backdrop-filter: blur(8px);
+            position: sticky;
+            top: 0;
+            z-index: 90;
+        }
+
+        .header-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            padding: 6px 12px;
+            background-color: var(--accent-green-bg);
+            color: var(--accent-green);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .refresh-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all var(--transition-speed) ease;
+        }
+
+        .refresh-btn:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-color: var(--text-secondary);
+        }
+
+        /* Content Area */
+        .content {
+            padding: 40px;
+            flex-grow: 1;
+        }
+
+        /* Premium Dashboard Components */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .kpi-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            backdrop-filter: blur(12px);
+            transition: transform var(--transition-speed) ease, border-color var(--transition-speed) ease;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(139, 92, 246, 0.3);
+        }
+
+        .kpi-title {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .kpi-value {
+            font-size: 1.85rem;
+            font-weight: 700;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .chart-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            backdrop-filter: blur(12px);
+            margin-bottom: 32px;
+            height: 380px;
+            position: relative;
+        }
+
+        .chart-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .table-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            backdrop-filter: blur(12px);
+            margin-bottom: 32px;
+            overflow-x: auto;
+        }
+
+        .table-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: 500;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(55, 65, 81, 0.2);
+            color: var(--text-primary);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Utilities */
+        .text-green { color: var(--accent-green); }
+        .text-red { color: var(--accent-red); }
+        .text-blue { color: var(--accent-blue); }
+        .text-purple { color: var(--accent-purple); }
+        .text-muted { color: var(--text-secondary); }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-green { background-color: var(--accent-green-bg); color: var(--accent-green); }
+        .badge-red { background-color: var(--accent-red-bg); color: var(--accent-red); }
+        .badge-blue { background-color: var(--accent-blue-bg); color: var(--accent-blue); }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            opacity: 0.8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 992px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; position: relative; border-right: none; border-bottom: 1px solid var(--border-color); }
+            .sidebar-menu { flex-direction: row; overflow-x: auto; padding: 10px; }
+            .main-container { margin-left: 0; width: 100%; }
+            header { padding: 0 20px; }
+            .content { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-brand">
+            NexusPolyBot
+        </div>
+        <ul class="sidebar-menu">
+            <li class="sidebar-item" id="nav-overview">
+                <a href="/">
+                    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>
+                    Overview
+                </a>
+            </li>
+            <li class="sidebar-item" id="nav-penny">
+                <a href="/penny-stocks">
+                    <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                    Penny Stocks
+                </a>
+            </li>
+            <li class="sidebar-item" id="nav-scout">
+                <a href="/scout">
+                    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    Scout (LLM)
+                </a>
+            </li>
+            <li class="sidebar-item" id="nav-whale">
+                <a href="/whale">
+                    <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
+                    Whale Following
+                </a>
+            </li>
+            <li class="sidebar-item" id="nav-corridors">
+                <a href="/corridors">
+                    <svg viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>
+                    Corridors
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <div>Версия: 1.2.0</div>
+            <div>Статус: Активен</div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <header>
+            <div class="header-title" id="page-title">Панель управления</div>
+            <div class="header-meta">
+                <div class="status-badge">
+                    <span class="status-dot"></span>
+                    Бот онлайн
+                </div>
+                <button class="refresh-btn" onclick="triggerRefresh()">
+                    <svg style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                    Обновлено: <span id="update-time">--:--:--</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="content">
+            <!-- PAGE_CONTENT -->
+        </div>
+    </div>
+
+    <script>
+        // Глобальные утилиты
+        async function fetchJSON(url) {
+            try {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                return await res.json();
+            } catch (err) {
+                console.error("Fetch error:", err);
+                return null;
+            }
+        }
+
+        function formatPnL(val) {
+            if (val === null || val === undefined) return "$0.00";
+            const num = parseFloat(val);
+            const sign = num > 0 ? "+" : "";
+            const color = num > 0 ? "text-green" : num < 0 ? "text-red" : "";
+            return `<span class="${color}">${sign}$${num.toFixed(2)}</span>`;
+        }
+
+        function formatPercent(val) {
+            if (val === null || val === undefined) return "—";
+            const num = parseFloat(val) * 100;
+            return `${num.toFixed(1)}%`;
+        }
+
+        function formatBrier(val) {
+            if (val === null || val === undefined) return "—";
+            return parseFloat(val).toFixed(4);
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return "—";
+            try {
+                const d = new Date(dateStr);
+                return d.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
+        // Авто-подсветка активного пункта меню
+        const path = window.location.pathname;
+        if (path === '/') {
+            document.getElementById('nav-overview').classList.add('active');
+            document.getElementById('page-title').textContent = 'Общий статус системы';
+        } else if (path === '/penny-stocks') {
+            document.getElementById('nav-penny').classList.add('active');
+            document.getElementById('page-title').textContent = 'Стратегия: Penny Stocks';
+        } else if (path === '/scout') {
+            document.getElementById('nav-scout').classList.add('active');
+            document.getElementById('page-title').textContent = 'Стратегия: Scout (LLM)';
+        } else if (path === '/whale') {
+            document.getElementById('nav-whale').classList.add('active');
+            document.getElementById('page-title').textContent = 'Стратегия: Whale Following';
+        } else if (path === '/corridors') {
+            document.getElementById('nav-corridors').classList.add('active');
+            document.getElementById('page-title').textContent = 'Стратегия: Коридоры & Арбитраж';
+        }
+
+        // Система автообновления
+        const refreshCallbacks = [];
+        function registerRefresh(cb) {
+            refreshCallbacks.push(cb);
+        }
+
+        async function triggerRefresh() {
+            document.getElementById("update-time").textContent = new Date().toLocaleTimeString('ru-RU');
+            for (const cb of refreshCallbacks) {
+                try {
+                    await cb();
+                } catch (err) {
+                    console.error("Refresh callback error:", err);
+                }
+            }
+        }
+
+        window.addEventListener("DOMContentLoaded", () => {
+            triggerRefresh();
+            setInterval(triggerRefresh, 30000); // 30 секунд
+        });
+    </script>
+</body>
+</html>
