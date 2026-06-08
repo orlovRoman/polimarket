@@ -231,6 +231,16 @@ class CoreEngine:
     def _run_team_discussion_inner(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
         from core.guards import LLMUnavailableError
         
+        # ── АВТОРЕЗОЛЮЦИЯ: закрываем истёкшие PENDING-сигналы ──
+        try:
+            from services.signal_resolver import resolve_pending_signals
+            n_resolved = resolve_pending_signals()
+            if n_resolved:
+                logger.info(f"[Engine] Авторезолюция: закрыто {n_resolved} сигналов перед сканированием")
+        except Exception as _e:
+            logger.warning(f"[Engine] Авторезолюция не выполнена: {_e}")
+        # ────────────────────────────────────────────────────────
+        
         if summary_callback is None:
             summary_callback = send_telegram_alert
 
