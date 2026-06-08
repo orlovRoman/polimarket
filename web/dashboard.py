@@ -11,7 +11,6 @@ from web import data_provider
 logger = logging.getLogger("NexusPolyBot.Dashboard")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-@functools.lru_cache(maxsize=16)
 def render_template(page_name: str) -> str:
     """Читает base.html и вставляет контент конкретной страницы."""
     base_path = TEMPLATES_DIR / "base.html"
@@ -28,6 +27,9 @@ def render_template(page_name: str) -> str:
         page_html = f.read()
         
     return base_html.replace("<!-- PAGE_CONTENT -->", page_html)
+
+# Совместимость с тестами (ранее использовавшими lru_cache)
+render_template.cache_clear = lambda: None
 
 # === HTML хэндлеры ===
 
@@ -159,6 +161,12 @@ async def api_discover_penny_stocks(request):
                 initial_price=m.price,
                 predicted_outcome=None
             )
+            # Баг #5: Рынки с NULL прогнозом и ценой 0.10–0.90 невидимы на дашборде.
+            if not (m.price <= 0.10 or m.price >= 0.90):
+                logger.warning(
+                    f"Discovered market {m.id} ('{m.title}') has price {m.price} outside penny stock limits (<=0.10 or >=0.90) "
+                    f"and will be invisible on the dashboard until analyzed."
+                )
             new_discovered += 1
             
         if new_discovered > 0:
@@ -365,6 +373,7 @@ async def api_analyze_penny_stock(request):
     from agents.shared.python.db import get_market_discussions
     
     if force:
+        logger.info(f"Force re-analysis requested for market {market_id}. Clearing DB opinions/cache and active jobs.")
         from agents.shared.python.db import get_connection
         def clear_db():
             with get_connection() as conn:

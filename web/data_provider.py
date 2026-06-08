@@ -60,7 +60,9 @@ def get_overview_stats() -> dict:
                 stats[stype]['pnl_30d'] = round(r['pnl_30d'] or 0.0, 2)
                 stats[stype]['signals_count'] = r['total']
 
-        # 2.5 Отдельно догружаем статистику для penny_stocks из виртуальной истории сделок
+        # 2.5 Отдельно догружаем статистику для penny_stocks из виртуальной истории сделок.
+        # ВНИМАНИЕ: pnl_cents в БД хранит значение в долларах (долях доллара, например 0.05 = $0.05),
+        # поэтому напрямую суммируем и округляем до 2 знаков, так же как для других стратегий.
         penny_pnl = conn.execute("""
             SELECT 
                 COUNT(*) as total,
@@ -97,7 +99,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
     def get_curve_for_strategy(conn, stype):
         if stype == 'penny_stocks':
             rows = conn.execute("""
-                SELECT date(sold_at) as date, SUM(pnl_cents * 100) as daily_pnl
+                SELECT date(sold_at) as date, SUM(pnl_cents) as daily_pnl
                 FROM penny_virtual_trades_history
                 WHERE sold_at >= ?
                 GROUP BY date(sold_at)
