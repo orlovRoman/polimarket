@@ -430,7 +430,7 @@ def get_corridors_dashboard() -> dict:
 
         # Кросс-платформа
         cross_rows = conn.execute("""
-            SELECT id, market_a_title, market_a_platform, market_a_price, market_b_title, market_b_platform, market_b_price, spread_percent, arbitrage_type, reasoning, status, created_at, action_a, action_b, entry_price_a_cents, entry_price_b_cents, expected_pnl_pct, risk_level
+            SELECT id, market_a_title, market_a_platform, market_a_price, market_b_title, market_b_platform, market_b_price, spread_percent, arbitrage_type, reasoning, status, created_at, action_a, action_b, entry_price_a_cents, entry_price_b_cents, expected_pnl_pct, risk_level, has_arbitrage
             FROM cross_arbitrage_signals
             ORDER BY created_at DESC
             LIMIT 50

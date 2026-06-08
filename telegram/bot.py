@@ -592,6 +592,8 @@ async def command_synthetic_handler(message: types.Message) -> None:
             run_synthetic_corridor_scan,
             poly_limit=200,  # Чуть больше лимит при ручном скане
             budget_per_trade=200.0,
+            min_volume=1_000,
+            min_executable_contracts=5,
         )
         if found:
             await asyncio.to_thread(send_synthetic_corridor_alerts)

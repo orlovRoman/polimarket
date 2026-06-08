@@ -101,6 +101,10 @@ async def scheduled_cross_arbitrage_scan():
     """Автоматический кросс-платформенный арбитражный скан (Polymarket ↔ Kalshi)."""
     logger.info(">>> Кросс-арбитраж: запуск скана...")
     try:
+        from core.config_provider import ConfigProvider
+        min_spread_cross = ConfigProvider.get_min_spread_sync("cross_platform") * 100.0
+        logger.info(f"[ДИАГНОСТИКА] min_spread_cross={min_spread_cross}%")
+
         from core.arbitrage_workflow import run_cross_platform_scan
         from services.notifications import send_cross_arbitrage_alerts
         import os
@@ -123,6 +127,10 @@ async def scheduled_synthetic_corridors():
     """Скан внутрирыночных синтетических коридоров (Polymarket)."""
     logger.info(">>> Синтетические коридоры: запуск скана...")
     try:
+        from core.config_provider import ConfigProvider
+        min_spread_syn = ConfigProvider.get_min_spread_sync("synthetic_corridor") * 100.0
+        logger.info(f"[ДИАГНОСТИКА] min_spread_synthetic={min_spread_syn}%")
+
         from services.synthetic_corridor_scanner import run_synthetic_corridor_scan
         from services.notifications import send_synthetic_corridor_alerts
         from config import CORRIDOR_BUDGET_PER_TRADE
@@ -130,6 +138,8 @@ async def scheduled_synthetic_corridors():
             run_synthetic_corridor_scan,
             poly_limit=300,
             budget_per_trade=CORRIDOR_BUDGET_PER_TRADE,
+            min_volume=1_000,
+            min_executable_contracts=5,
         )
         if found:
             await asyncio.to_thread(send_synthetic_corridor_alerts)

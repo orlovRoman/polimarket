@@ -167,10 +167,10 @@ def run_cross_platform_scan(
             time.sleep(5)
             continue
 
-        # BUG-01: Only save if has_arbitrage
+        # Сохраняем всегда для диагностики UI
+        save_cross_arbitrage(signal)
+
         if signal.has_arbitrage:
-            save_cross_arbitrage(signal)
-            
             # Запись в Evaluation Engine
             try:
                 from core.eval.signal_logger import SignalLogger, StrategyType

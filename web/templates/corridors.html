@@ -250,18 +250,26 @@
         if (rawData.cross.length === 0) {
             crossTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
         } else {
-            crossTbody.innerHTML = rawData.cross.map(row => `
-                <tr>
+            crossTbody.innerHTML = rawData.cross.map(row => {
+                const hasArb = row.has_arbitrage !== undefined ? row.has_arbitrage : 1;
+                const spreadClass = hasArb ? 'text-green' : 'text-muted';
+                const statusText = hasArb ? row.status : 'Нет арбитража';
+                const statusClass = hasArb ? (row.status === 'new' ? 'badge-blue' : 'badge-green') : 'badge-gray';
+                const rowStyle = hasArb ? '' : 'style="opacity: 0.65;"';
+                
+                return `
+                <tr ${rowStyle}>
                     <td><strong>${row.market_a_platform}</strong>: ${row.market_a_title} (${formatPriceCents(row.market_a_price)})</td>
                     <td><strong>${row.market_b_platform}</strong>: ${row.market_b_title} (${formatPriceCents(row.market_b_price)})</td>
                     <td>${formatPriceCents(row.market_a_price)} / ${formatPriceCents(row.market_b_price)}</td>
-                    <td class="text-green">${formatPercent(row.spread_percent / 100)}</td>
+                    <td class="${spreadClass}">${formatPercent(row.spread_percent / 100)}</td>
                     <td><span class="badge badge-blue">${row.arbitrage_type}</span></td>
                     <td style="font-size:0.85rem;">${row.trade_instruction || '—'}</td>
-                    <td><span class="badge ${row.status === 'new' ? 'badge-blue' : 'badge-green'}">${row.status}</span></td>
+                    <td><span class="badge ${statusClass}">${statusText}</span></td>
                     <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.created_at)}</td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
         }
 
         // 3. Рендерим график доходности для текущего таба
