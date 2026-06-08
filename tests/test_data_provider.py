@@ -93,7 +93,6 @@ def test_get_penny_stocks_dashboard(isolated_db):
     data = data_provider.get_penny_stocks_dashboard()
     assert data['active'] == []
     assert data['resolved'] == []
-    assert data['cheapest'] == []
     assert data['stats']['active_count'] == 0
 
     # Вставляем Penny Stocks
@@ -111,21 +110,28 @@ def test_get_penny_stocks_dashboard(isolated_db):
         """)
 
     data = data_provider.get_penny_stocks_dashboard()
-    assert len(data['active']) == 1
-    assert data['active'][0]['title'] == 'Penny A'
-    assert data['active'][0]['initial_price_outcome'] == 0.03
-    
-    assert len(data['cheapest']) == 1
-    assert data['cheapest'][0]['title'] == 'Penny C'
-    assert data['cheapest'][0]['cheap_outcome'] == 'YES'
-    
+    # Теперь все активные (с прогнозом и без) попадают в active
+    active_titles = [x['title'] for x in data['active']]
+    assert 'Penny A' in active_titles
+    assert 'Penny C' in active_titles  # NULL-рынок тоже в active
+    assert data['stats']['active_count'] == 2
+    assert data['stats']['active_predicted_count'] == 1  # только Penny A с прогнозом
+
+    # penny_c без прогноза — должен иметь cheap_outcome
+    penny_c = next(x for x in data['active'] if x['title'] == 'Penny C')
+    assert penny_c['cheap_outcome'] == 'YES'
+    assert penny_c['predicted_outcome'] is None
+
+    # penny_a с прогнозом YES
+    penny_a = next(x for x in data['active'] if x['title'] == 'Penny A')
+    assert penny_a['initial_price_outcome'] == 0.03
+
     assert len(data['resolved']) == 1
     assert data['resolved'][0]['title'] == 'Penny B'
     assert data['resolved'][0]['pnl_realized'] == -10.0
-    assert data['stats']['active_count'] == 1
     assert data['stats']['resolved_count'] == 1
-    assert data['price_distribution']['1-5¢'] == 2
-    assert data['price_distribution']['5-10¢'] == 1
+    assert data['price_distribution']['1-5¢'] == 2   # penny_a(0.03) + penny_c(0.02)
+    assert data['price_distribution']['5-10¢'] == 1  # penny_b(0.08)
 
 def test_penny_stocks_dashboard_filtering(isolated_db):
     # Тест фильтрации:
@@ -133,7 +139,7 @@ def test_penny_stocks_dashboard_filtering(isolated_db):
     # 2. YES-прогноз с начальной ценой 0.95 (должен отсеяться: > 0.10)
     # 3. NO-прогноз с начальной ценой 0.95 (должен пройти: NO по цене 0.05 <= 0.10)
     # 4. NO-прогноз с начальной ценой 0.05 (должен отсеяться: NO по цене 0.95 > 0.10)
-    # 5. NULL-прогноз с начальной ценой 0.04 (должен пойти в cheapest, а не в active)
+    # 5. NULL-прогноз с начальной ценой 0.04 (теперь тоже в active, как неоцененный)
     with db_module.get_connection() as conn:
         conn.execute("""
             INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
@@ -146,22 +152,26 @@ def test_penny_stocks_dashboard_filtering(isolated_db):
         """)
         
     data = data_provider.get_penny_stocks_dashboard()
-    # В active должны отображаться только p1 и p3
     active_titles = [x['title'] for x in data['active']]
+
+    # Оцененные рынки в active (p1 YES pass, p3 NO pass)
     assert 'Yes Pass' in active_titles
     assert 'No Pass' in active_titles
+
+    # Неподходящие оцененные рынки НЕ в active (p2 YES fail, p4 NO fail)
     assert 'Yes Fail' not in active_titles
     assert 'No Fail' not in active_titles
-    assert 'Null Pass' not in active_titles
 
-    # В cheapest должен быть p5
-    cheapest_titles = [x['title'] for x in data['cheapest']]
-    assert 'Null Pass' in cheapest_titles
+    # NULL-рынок (p5) теперь ВХОДИТ в active (единый список с серым бейджем)
+    assert 'Null Pass' in active_titles
+    p5_data = next(x for x in data['active'] if x['market_id'] == 'p5')
+    assert p5_data['predicted_outcome'] is None
+    assert p5_data['cheap_outcome'] == 'YES'  # 0.04 < 0.90
 
     # Проверяем цены исхода для p3 (NO):
     p3_data = next(x for x in data['active'] if x['market_id'] == 'p3')
-    assert p3_data['initial_price_outcome'] == 0.05 # 1.0 - 0.95
-    assert p3_data['current_price_outcome'] == 0.06 # 1.0 - 0.94
+    assert p3_data['initial_price_outcome'] == 0.05  # 1.0 - 0.95
+    assert p3_data['current_price_outcome'] == 0.06  # 1.0 - 0.94
 
 def test_get_auto_disable_candidates(isolated_db):
     with db_module.get_connection() as conn:
@@ -248,7 +258,7 @@ def test_virtual_portfolio_no_outcome_approx(isolated_db):
     assert p['pnl_percent'] == pytest.approx(1.04, abs=0.01)
 
 def test_cheapest_price_outcome_no_direction(isolated_db):
-    """cheapest с init >= 0.90 должен считать цену исхода как 1.0 - init (NO-направление)."""
+    """NULL-рынок с init >= 0.90 должен считать цену исхода как 1.0 - init (NO-направление)."""
     with db_module.get_connection() as conn:
         conn.execute("""
             INSERT INTO penny_stocks_monitoring
@@ -259,18 +269,20 @@ def test_cheapest_price_outcome_no_direction(isolated_db):
         """)
 
     data = data_provider.get_penny_stocks_dashboard()
-    cheapest = {x['market_id']: x for x in data['cheapest']}
+    # Теперь NULL-рынок попадает в active
+    active_by_id = {x['market_id']: x for x in data['active']}
 
-    assert 'c_no' in cheapest
-    c = cheapest['c_no']
+    assert 'c_no' in active_by_id
+    c = active_by_id['c_no']
     assert c['cheap_outcome'] == 'NO'
+    assert c['predicted_outcome'] is None
     assert c['initial_price_outcome'] == pytest.approx(0.07, abs=1e-4)   # 1.0 - 0.93
     assert c['current_price_outcome'] == pytest.approx(0.08, abs=1e-4)   # 1.0 - 0.92
     assert c['max_price_seen_outcome'] == pytest.approx(0.09, abs=1e-4)  # 1.0 - 0.91
     assert c['min_price_seen_outcome'] == pytest.approx(0.07, abs=1e-4)  # 1.0 - 0.93
 
-def test_cheapest_limit_100(isolated_db):
-    """cheapest не должен возвращать больше 100 строк."""
+def test_active_limit_100(isolated_db):
+    """active не должен возвращать больше 100 строк (LIMIT 100 в SQL)."""
     with db_module.get_connection() as conn:
         conn.executemany("""
             INSERT INTO penny_stocks_monitoring
@@ -280,10 +292,11 @@ def test_cheapest_limit_100(isolated_db):
         """, [(f"bulk_{i}", f"Bulk {i}") for i in range(150)])
 
     data = data_provider.get_penny_stocks_dashboard()
-    assert len(data['cheapest']) <= 100
+    assert len(data['active']) <= 100
 
-def test_cheapest_not_in_active(isolated_db):
-    """Рынок без прогноза (NULL) не должен попадать в active."""
+
+def test_null_market_in_active_not_excluded(isolated_db):
+    """Рынок без прогноза (NULL) должен попадать в active с cheap_outcome."""
     with db_module.get_connection() as conn:
         conn.execute("""
             INSERT INTO penny_stocks_monitoring
@@ -294,6 +307,7 @@ def test_cheapest_not_in_active(isolated_db):
 
     data = data_provider.get_penny_stocks_dashboard()
     active_ids = [x['market_id'] for x in data['active']]
-    cheapest_ids = [x['market_id'] for x in data['cheapest']]
-    assert 'null_mkt' not in active_ids
-    assert 'null_mkt' in cheapest_ids
+    assert 'null_mkt' in active_ids
+    null_row = next(x for x in data['active'] if x['market_id'] == 'null_mkt')
+    assert null_row['predicted_outcome'] is None
+    assert null_row['cheap_outcome'] == 'YES'

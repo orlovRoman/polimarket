@@ -111,7 +111,12 @@ async def test_analyze_status_clears_failed_job(isolated_db):
 async def test_stale_jobs_cleanup(isolated_db):
     """_cleanup_stale_jobs удаляет записи старше 1 часа."""
     from web.dashboard import analysis_jobs, _cleanup_stale_jobs
+    import web.dashboard as dash
     import time
+
+    # Сбрасываем rate-limit, чтобы тест не блокировался
+    dash._last_cleanup = 0.0
+
     analysis_jobs["old_mkt"] = {"status": "completed", "opinions": [], "_ts": time.time() - 3700}
     analysis_jobs["new_mkt_2"] = {"status": "completed", "opinions": [], "_ts": time.time()}
 

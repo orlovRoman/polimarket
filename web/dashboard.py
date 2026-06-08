@@ -66,6 +66,7 @@ async def api_equity_curve(request):
     days_str = request.query.get("days", "30")
     try:
         days = int(days_str)
+        days = max(1, min(days, 365))
     except ValueError:
         days = 30
     data = await asyncio.to_thread(data_provider.get_equity_curve, strategy, days)
@@ -125,9 +126,15 @@ async def api_sell_penny_stock(request):
 analysis_jobs = {}
 _background_tasks = set()
 _jobs_lock = threading.Lock()
+_last_cleanup = 0.0
+_CLEANUP_INTERVAL = 60.0
 
 def _cleanup_stale_jobs():
+    global _last_cleanup
     _now = time.time()
+    if _now - _last_cleanup < _CLEANUP_INTERVAL:
+        return
+    _last_cleanup = _now
     with _jobs_lock:
         stale = [k for k, v in analysis_jobs.items() if _now - v.get("_ts", _now) > 3600]
         for k in stale:
