@@ -611,15 +611,27 @@
     }
 
     async function buyVirtual(marketId, price) {
-        const res = await fetch('/api/penny-stocks/buy', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ market_id: marketId, price: price })
-        });
-        if (res.ok) {
-            triggerRefresh();
-        } else {
-            console.error("Ошибка покупки");
+        if (price === undefined || price === null) {
+            console.error("Ошибка покупки: не указана цена покупки (price равен null или undefined)");
+            alert("Не удалось определить цену покупки. Пожалуйста, обновите страницу.");
+            return;
+        }
+        try {
+            const res = await fetch('/api/penny-stocks/buy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ market_id: marketId, price: price })
+            });
+            if (res.ok) {
+                triggerRefresh();
+            } else {
+                const err = await res.json();
+                console.error("Ошибка покупки:", err.error || res.statusText);
+                alert("Ошибка при покупке: " + (err.error || "неизвестная ошибка"));
+            }
+        } catch (e) {
+            console.error("Сетевая ошибка при покупке:", e);
+            alert("Сетевая ошибка при покупке");
         }
     }
 
@@ -719,7 +731,7 @@
                 const changeClass = changePct > 0 ? 'text-green' : changePct < 0 ? 'text-red' : '';
                 const changeSign = changePct > 0 ? '+' : '';
                 
-                const buyPrice = row.current_price !== null ? row.current_price : row.initial_price;
+                const buyPrice = row.current_price ?? row.initial_price;
                 const actionBtn = row.virtual_bought_price !== null
                     ? `<span class="badge badge-blue">В портфеле</span>`
                     : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;

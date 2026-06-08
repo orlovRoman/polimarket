@@ -101,12 +101,13 @@ async def api_buy_penny_stock(request):
         if not market_id or price_str is None:
             return web.json_response({"error": "market_id and price are required"}, status=400)
         price = float(price_str)
-    except Exception as e:
-        return web.json_response({"error": f"Invalid request body: {e}"}, status=400)
         
-    from agents.shared.python.db import buy_virtual_penny_stock
-    await asyncio.to_thread(buy_virtual_penny_stock, market_id, price)
-    return web.json_response({"status": "ok"})
+        from agents.shared.python.db import buy_virtual_penny_stock
+        await asyncio.to_thread(buy_virtual_penny_stock, market_id, price)
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.error(f"Error in api_buy_penny_stock: {e}", exc_info=True)
+        return web.json_response({"error": str(e)}, status=500 if "Invalid request body" not in str(e) else 400)
 
 async def api_sell_penny_stock(request):
     try:
@@ -114,12 +115,13 @@ async def api_sell_penny_stock(request):
         market_id = body.get("market_id")
         if not market_id:
             return web.json_response({"error": "market_id is required"}, status=400)
+            
+        from agents.shared.python.db import sell_virtual_penny_stock
+        await asyncio.to_thread(sell_virtual_penny_stock, market_id)
+        return web.json_response({"status": "ok"})
     except Exception as e:
-        return web.json_response({"error": f"Invalid request body: {e}"}, status=400)
-        
-    from agents.shared.python.db import sell_virtual_penny_stock
-    await asyncio.to_thread(sell_virtual_penny_stock, market_id)
-    return web.json_response({"status": "ok"})
+        logger.error(f"Error in api_sell_penny_stock: {e}", exc_info=True)
+        return web.json_response({"error": str(e)}, status=500 if "Invalid request body" not in str(e) else 400)
 
 async def api_discover_penny_stocks(request):
     try:
