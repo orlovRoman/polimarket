@@ -2074,8 +2074,23 @@ def get_gate_metrics_last_n(n: int = 10) -> list[dict]:
 
 # ─── Функции Penny Stocks ───────────────────────────────────
 
+def _round_price(price: float | None) -> float | None:
+    """Округляет цену до целых центов (2 знака после запятой) для Penny Stocks.
+    Если цена активного рынка округляется до 0.0 или 1.0, ограничивает ее диапазоном [0.01, 0.99],
+    так как активные контракты на Polymarket не могут стоить 0 центов или 100 центов.
+    """
+    if price is None:
+        return None
+    rounded = round(price, 2)
+    if rounded <= 0.0:
+        return 0.01
+    if rounded >= 1.0:
+        return 0.99
+    return rounded
+
 def add_penny_stock_to_monitoring(market_id: str, title: str, url: str, initial_price: float,
                                   predicted_outcome: str = None, edge: float = None, confidence: float = None) -> None:
+    init_p = _round_price(initial_price)
     with get_connection() as conn:
         conn.execute("""
             INSERT INTO penny_stocks_monitoring
@@ -2086,7 +2101,7 @@ def add_penny_stock_to_monitoring(market_id: str, title: str, url: str, initial_
                 predicted_outcome = CASE WHEN excluded.predicted_outcome IS NOT NULL THEN excluded.predicted_outcome ELSE predicted_outcome END,
                 edge = CASE WHEN excluded.edge IS NOT NULL THEN excluded.edge ELSE edge END,
                 confidence = CASE WHEN excluded.confidence IS NOT NULL THEN excluded.confidence ELSE confidence END
-        """, (market_id, title, url, initial_price, initial_price, initial_price, initial_price,
+        """, (market_id, title, url, init_p, init_p, init_p, init_p,
               predicted_outcome, edge, confidence))
 
 def get_active_penny_stocks() -> list[dict]:
@@ -2106,6 +2121,7 @@ def get_active_penny_stocks() -> list[dict]:
     return [dict(r) for r in rows]
 
 def update_penny_stock_price(market_id: str, price: float, volume_2h: float = 0.0) -> None:
+    curr_p = _round_price(price)
     with get_connection() as conn:
         conn.execute("""
             UPDATE penny_stocks_monitoring
@@ -2114,7 +2130,7 @@ def update_penny_stock_price(market_id: str, price: float, volume_2h: float = 0.
                 min_price_seen = MIN(min_price_seen, ?),
                 volume_2h = ?
             WHERE market_id = ?
-        """, (price, price, price, volume_2h, market_id))
+        """, (curr_p, curr_p, curr_p, volume_2h, market_id))
 
 def mark_penny_spike_sent(market_id: str) -> None:
     with get_connection() as conn:
@@ -2131,7 +2147,7 @@ def buy_virtual_penny_stock(market_id: str, price: float) -> None:
             SET virtual_bought_price = ?,
                 virtual_bought_at = CURRENT_TIMESTAMP
             WHERE market_id = ?
-        """, (price, market_id))
+        """, (_round_price(price), market_id))
 
 def sell_virtual_penny_stock(market_id: str) -> None:
     with get_connection() as conn:
