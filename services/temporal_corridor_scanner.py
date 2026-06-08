@@ -15,17 +15,20 @@ import config
 logger = logging.getLogger("NexusPolyBot.TemporalCorridor")
 
 def run_temporal_corridor_scan(
-    poly_limit: int = 100,
-    min_theoretical_spread_pct: float = 1.0,   # предфильтр
-    min_real_spread_pct: float = 2.0,          # финальный фильтр по ордербуку
-    min_date_gap_days: int = 14,
-    min_volume: float = 5_000,
-    min_executable_contracts: float = 30.0,
-    min_quality_score: float = 0.4,
+    poly_limit: int = 500,              # было 100 → 500
+    min_theoretical_spread_pct: float = 0.5,  # было 1.0
+    min_real_spread_pct: float = None,   # было 2.0
+    min_date_gap_days: int = 7,         # было 14 → 7
+    min_volume: float = 2_000,          # было 5_000 → 2_000
+    min_executable_contracts: float = 10.0,  # было 30 → 10
+    min_quality_score: float = 0.3,     # было 0.4 → 0.3
     budget: float = 200.0,
 ) -> list[TemporalCorridorSignal]:
     from core.config_provider import ConfigProvider
-    min_real_spread_pct = ConfigProvider.get_min_spread_sync("temporal_corridor") * 100.0
+    if min_real_spread_pct is None:
+        min_real_spread_pct = ConfigProvider.get_min_spread_sync("temporal_corridor") * 100.0
+
+    logger.info(f"[TC-ДИАГ] min_volume={min_volume}, min_real_spread={min_real_spread_pct}%, min_exec={min_executable_contracts}, min_quality={min_quality_score}")
 
     # 1. Загрузка событий (/events API — группы готовы) через кэш
     raw = get_raw_events(
@@ -50,6 +53,7 @@ def run_temporal_corridor_scan(
     logger.info(f"[TC] Теоретических кандидатов: {len(candidates)}")
 
     if not candidates:
+        logger.info("[TC] Воронка: {'no_orderbook': 0, 'low_spread': 0, 'low_size': 0, 'low_quality': 0, 'passed': 0}")
         return []
 
     session = make_session_with_timeout()

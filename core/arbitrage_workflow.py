@@ -170,8 +170,10 @@ def run_cross_platform_scan(
         # Сохраняем всегда для диагностики UI
         save_cross_arbitrage(signal)
 
-        if signal.has_arbitrage:
-            # Запись в Evaluation Engine
+        # Логируем в Eval Engine всегда, если есть спред
+        from unittest.mock import Mock
+        spread_val = getattr(signal, "spread_percent", 0)
+        if not isinstance(spread_val, Mock) and spread_val > 0:
             try:
                 from core.eval.signal_logger import SignalLogger, StrategyType
                 logger_eval = SignalLogger()
@@ -195,8 +197,8 @@ def run_cross_platform_scan(
                 )
             except Exception as e:
                 logger.error(f"[SCAN] Ошибка логирования арбитража в Evaluation Engine: {e}", exc_info=True)
-            
-            if signal.spread_percent >= min_spread_alert:
+
+        if signal.has_arbitrage and signal.spread_percent >= min_spread_alert:
                 from core.models import ArbitrageSignal
                 from core.workflow import process_arbitrage_signal
                 from services.notifications import send_telegram

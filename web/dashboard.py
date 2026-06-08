@@ -231,8 +231,9 @@ async def analysis_worker():
             market_id = await _analysis_queue.get()
         except asyncio.CancelledError:
             break
-        except Exception:
-            continue
+        except Exception as e:
+            logger.error(f"analysis_worker: ошибка получения задания: {e}")
+            continue  # task_done не нужен — задание не было взято
         try:
             await run_analysis_in_background(market_id)
         except Exception as e:
@@ -459,6 +460,8 @@ async def api_analyze_penny_stock(request):
             }
         return web.json_response({"status": "completed", "opinions": opinions})
         
+    if _analysis_queue is None:
+        return web.json_response({"error": "Сервер ещё инициализируется, попробуйте позже."}, status=503)
     try:
         _analysis_queue.put_nowait(market_id)
         with _jobs_lock:

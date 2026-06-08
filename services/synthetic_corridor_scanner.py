@@ -16,15 +16,18 @@ import config
 logger = logging.getLogger("NexusPolyBot.SyntheticCorridor")
 
 def run_synthetic_corridor_scan(
-    poly_limit: int = 100,
+    poly_limit: int = 300,
     min_theoretical_spread_pct: float = 0.3,
-    min_real_spread_pct: float = 0.8,
-    min_volume: float = 5_000,
-    min_executable_contracts: float = 20,
+    min_real_spread_pct: float = None,
+    min_volume: float = 1_000,
+    min_executable_contracts: float = 3,
     budget_per_trade: float = 200.0,
 ) -> list[SyntheticCorridorSignal]:
     from core.config_provider import ConfigProvider
-    min_real_spread_pct = ConfigProvider.get_min_spread_sync("synthetic_corridor") * 100.0
+    if min_real_spread_pct is None:
+        min_real_spread_pct = ConfigProvider.get_min_spread_sync("synthetic_corridor") * 100.0
+    
+    logger.info(f"[SCA-ДИАГ] min_volume={min_volume}, min_real_spread={min_real_spread_pct}%, min_exec={min_executable_contracts}")
     
     raw = get_raw_events(
         cache_key=f"poly_events_{poly_limit}",
@@ -45,6 +48,7 @@ def run_synthetic_corridor_scan(
     logger.info(f"[SCA] Теоретических нарушений: {len(violations)}")
     
     if not violations:
+        logger.info("[SCA] Воронка: no_orderbook=0 low_spread=0 low_size=0 passed=0")
         return []
     
     session = make_session_with_timeout()
