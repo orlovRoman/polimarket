@@ -1,6 +1,8 @@
 # web/dashboard.py
 import asyncio
 import logging
+import functools
+import time
 from pathlib import Path
 from aiohttp import web
 from web import data_provider
@@ -8,6 +10,7 @@ from web import data_provider
 logger = logging.getLogger("NexusPolyBot.Dashboard")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+@functools.lru_cache(maxsize=16)
 def render_template(page_name: str) -> str:
     """Читает base.html и вставляет контент конкретной страницы."""
     base_path = TEMPLATES_DIR / "base.html"
@@ -119,6 +122,13 @@ async def api_sell_penny_stock(request):
 # === Фоновый запуск анализа ===
 
 analysis_jobs = {}
+_background_tasks = set()
+
+def _cleanup_stale_jobs():
+    _now = time.time()
+    stale = [k for k, v in analysis_jobs.items() if _now - v.get("_ts", _now) > 3600]
+    for k in stale:
+        del analysis_jobs[k]
 
 async def run_analysis_in_background(market_id: str):
     from core.singleton import get_core_engine
@@ -145,7 +155,8 @@ async def run_analysis_in_background(market_id: str):
     if not db_market:
         analysis_jobs[market_id] = {
             "status": "failed",
-            "error": "Рынок не найден ни в локальной БД, ни в адаптере Polymarket."
+            "error": "Рынок не найден ни в локальной БД, ни в адаптере Polymarket.",
+            "_ts": time.time()
         }
         return
         
@@ -160,7 +171,8 @@ async def run_analysis_in_background(market_id: str):
                 "scout": "⚙️ Анализирует...",
                 "swing": "⏳ Ожидает",
                 "shadow": "⏳ Ожидает"
-            }
+            },
+            "_ts": time.time()
         }
         
         # Подгружаем полноценный объект рынка из адаптера
@@ -201,6 +213,7 @@ async def run_analysis_in_background(market_id: str):
                     progress["swing"] = swing_status
                 if shadow_status:
                     progress["shadow"] = shadow_status
+                job["_ts"] = time.time()
                     
         signal, swing_signal, context = await run_agent_evaluation(
             market,
@@ -216,12 +229,14 @@ async def run_analysis_in_background(market_id: str):
         if context is None:
             analysis_jobs[market_id] = {
                 "status": "failed",
-                "error": "Анализ рынка пропущен (дедупликация или сбой)."
+                "error": "Анализ рынка пропущен (дедупликация или сбой).",
+                "_ts": time.time()
             }
             return
             
         sync_update_state(shadow_status="⚙️ Анализирует...")
-        opinion_shadow = engine._run_shadow_analysis(
+        opinion_shadow = await asyncio.to_thread(
+            engine._run_shadow_analysis,
             m=market,
             active_signal=signal or swing_signal,
             signal=signal,
@@ -238,7 +253,8 @@ async def run_analysis_in_background(market_id: str):
         else:
             sync_update_state(shadow_status="⚪️ Нет мнения")
             
-        process_consensus(
+        await asyncio.to_thread(
+            process_consensus,
             context, signal, swing_signal, opinion_shadow,
             engine.state, sync_update_state, None,
             api_key=engine.api_key
@@ -250,17 +266,20 @@ async def run_analysis_in_background(market_id: str):
         
         analysis_jobs[market_id] = {
             "status": "completed",
-            "opinions": opinions
+            "opinions": opinions,
+            "_ts": time.time()
         }
         
     except Exception as e:
         logger.error(f"Error in background dashboard analysis for {market_id}: {e}", exc_info=True)
         analysis_jobs[market_id] = {
             "status": "failed",
-            "error": str(e)
+            "error": str(e),
+            "_ts": time.time()
         }
 
 async def api_analyze_penny_stock(request):
+    _cleanup_stale_jobs()
     try:
         body = await request.json()
         market_id = body.get("market_id")
@@ -285,6 +304,7 @@ async def api_analyze_penny_stock(request):
     job = analysis_jobs.get(market_id)
     if job:
         if job["status"] == "completed":
+            job["_ts"] = time.time()
             return web.json_response({"status": "completed", "opinions": job["opinions"]})
         elif job["status"] == "failed":
             del analysis_jobs[market_id]
@@ -295,11 +315,15 @@ async def api_analyze_penny_stock(request):
     if opinions and len(opinions) > 0:
         analysis_jobs[market_id] = {
             "status": "completed",
-            "opinions": opinions
+            "opinions": opinions,
+            "_ts": time.time()
         }
         return web.json_response({"status": "completed", "opinions": opinions})
         
-    asyncio.create_task(run_analysis_in_background(market_id))
+    task = asyncio.create_task(run_analysis_in_background(market_id))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    
     return web.json_response({"status": "running", "progress": {
         "scout": "⏳ Инициализация...",
         "swing": "⏳ Ожидает",
@@ -307,6 +331,7 @@ async def api_analyze_penny_stock(request):
     }})
 
 async def api_analyze_status(request):
+    _cleanup_stale_jobs()
     market_id = request.query.get("market_id")
     if not market_id:
         return web.json_response({"error": "market_id is required"}, status=400)
@@ -314,6 +339,7 @@ async def api_analyze_status(request):
     job = analysis_jobs.get(market_id)
     if job:
         if job["status"] == "completed":
+            job["_ts"] = time.time()
             return web.json_response({"status": "completed", "opinions": job["opinions"]})
         elif job["status"] == "failed":
             return web.json_response({"status": "failed", "error": job.get("error")})
@@ -325,7 +351,8 @@ async def api_analyze_status(request):
     if opinions and len(opinions) > 0:
         analysis_jobs[market_id] = {
             "status": "completed",
-            "opinions": opinions
+            "opinions": opinions,
+            "_ts": time.time()
         }
         return web.json_response({"status": "completed", "opinions": opinions})
         

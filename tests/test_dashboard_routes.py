@@ -11,8 +11,8 @@ def isolated_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test_dashboard_routes.db"
     db_path_str = str(db_path)
     
-    # Патчим DB_PATH в config и db_module
-    monkeypatch.setattr(config, "DB_PATH", db_path_str)
+    # Патчим DB_PATH в config и db_module (оба объектом Path)
+    monkeypatch.setattr(config, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_db_initialized", False)
     

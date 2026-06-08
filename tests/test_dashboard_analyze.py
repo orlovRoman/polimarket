@@ -1,7 +1,7 @@
 # tests/test_dashboard_analyze.py
 import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from aiohttp.test_utils import TestClient, TestServer
 from web.dashboard import create_dashboard_app, analysis_jobs
 import config
@@ -11,10 +11,9 @@ import agents.shared.python.db as db_module
 def isolated_db(tmp_path, monkeypatch):
     """Изолированная база данных для теста."""
     db_path = tmp_path / "test_dashboard_analyze.db"
-    db_path_str = str(db_path)
     
-    # Патчим DB_PATH в config и db_module
-    monkeypatch.setattr(config, "DB_PATH", db_path_str)
+    # Патчим DB_PATH в config и db_module (оба объектом Path)
+    monkeypatch.setattr(config, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_db_initialized", False)
     
@@ -42,7 +41,7 @@ async def test_api_analyze_existing_opinions(isolated_db):
         assert data["opinions"][0]["agent_name"] == "SCOUT"
 
 @pytest.mark.asyncio
-@patch("web.dashboard.run_analysis_in_background")
+@patch("web.dashboard.run_analysis_in_background", new_callable=AsyncMock)
 async def test_api_analyze_starts_task(mock_run_bg, isolated_db):
     app = create_dashboard_app()
     async with TestClient(TestServer(app)) as client:
@@ -63,7 +62,7 @@ async def test_api_analyze_status_not_found(isolated_db):
         assert data["status"] == "not_found"
 
 @pytest.mark.asyncio
-@patch("web.dashboard.run_analysis_in_background")
+@patch("web.dashboard.run_analysis_in_background", new_callable=AsyncMock)
 async def test_api_analyze_force_clears_db(mock_run_bg, isolated_db):
     # Сначала записываем мнения в БД
     db_module.add_discussion_message("test_force", "SCOUT", "Old opinion", 0.9, True)
