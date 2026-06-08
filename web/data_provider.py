@@ -142,14 +142,16 @@ def get_penny_stocks_dashboard() -> dict:
     with get_connection() as conn:
         # Активные позиции (с прогнозом и без)
         active_rows = conn.execute("""
-            SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, volume_2h, predicted_outcome, edge, confidence, added_at, virtual_bought_price
-            FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE' AND (
-                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
-                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
-                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.volume_2h, p.predicted_outcome, p.edge, p.confidence, p.added_at, p.virtual_bought_price,
+                   (am.market_id IS NOT NULL) as is_analyzed
+            FROM penny_stocks_monitoring p
+            LEFT JOIN analyzed_markets am ON p.market_id = am.market_id
+            WHERE p.status = 'ACTIVE' AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
+                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
             )
-            ORDER BY added_at DESC
+            ORDER BY p.added_at DESC
             LIMIT 100
         """).fetchall()
         

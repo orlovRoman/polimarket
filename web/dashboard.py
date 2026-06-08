@@ -215,6 +215,31 @@ _jobs_lock = threading.Lock()
 _last_cleanup = 0.0
 _CLEANUP_INTERVAL = 60.0
 
+import concurrent.futures
+_analysis_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="scout-analysis"
+)
+_analysis_semaphore = asyncio.Semaphore(2)
+_analysis_queue = None
+
+async def analysis_worker():
+    """Фоновый воркер для обработки очереди анализов."""
+    global _analysis_queue
+    while True:
+        try:
+            market_id = await _analysis_queue.get()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            continue
+        try:
+            await run_analysis_in_background(market_id)
+        except Exception as e:
+            logger.error(f"Error in analysis worker for {market_id}: {e}", exc_info=True)
+        finally:
+            _analysis_queue.task_done()
+
 def _cleanup_stale_jobs():
     global _last_cleanup
     _now = time.time()
@@ -227,6 +252,10 @@ def _cleanup_stale_jobs():
             del analysis_jobs[k]
 
 async def run_analysis_in_background(market_id: str):
+    async with _analysis_semaphore:
+        await _run_analysis_in_background_impl(market_id)
+
+async def _run_analysis_in_background_impl(market_id: str):
     from core.singleton import get_core_engine
     from core.workflow import run_agent_evaluation, process_consensus
     from agents.shared.python.db import get_market_from_db, get_market_discussions, mark_market_analyzed
@@ -335,16 +364,20 @@ async def run_analysis_in_background(market_id: str):
             return
             
         sync_update_state(shadow_status="⚙️ Анализирует...")
-        opinion_shadow = await asyncio.to_thread(
-            engine._run_shadow_analysis,
-            m=market,
-            active_signal=signal or swing_signal,
-            signal=signal,
-            swing_signal=swing_signal,
-            context=context,
-            price_hist=price_hist,
-            _update_state=sync_update_state,
-            log=logger.info
+        loop = asyncio.get_running_loop()
+        opinion_shadow = await loop.run_in_executor(
+            _analysis_executor,
+            functools.partial(
+                engine._run_shadow_analysis,
+                m=market,
+                active_signal=signal or swing_signal,
+                signal=signal,
+                swing_signal=swing_signal,
+                context=context,
+                price_hist=price_hist,
+                _update_state=sync_update_state,
+                log=logger.info
+            )
         )
         
         if opinion_shadow:
@@ -426,15 +459,25 @@ async def api_analyze_penny_stock(request):
             }
         return web.json_response({"status": "completed", "opinions": opinions})
         
-    task = asyncio.create_task(run_analysis_in_background(market_id))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    
-    return web.json_response({"status": "running", "progress": {
-        "scout": "⏳ Инициализация...",
-        "swing": "⏳ Ожидает",
-        "shadow": "⏳ Ожидает"
-    }})
+    try:
+        _analysis_queue.put_nowait(market_id)
+        with _jobs_lock:
+            analysis_jobs[market_id] = {
+                "status": "running",
+                "progress": {
+                    "scout": "⏳ В очереди...",
+                    "swing": "⏳ Ожидает",
+                    "shadow": "⏳ Ожидает"
+                },
+                "_ts": time.time()
+            }
+        return web.json_response({"status": "running", "progress": {
+            "scout": "⏳ В очереди...",
+            "swing": "⏳ Ожидает",
+            "shadow": "⏳ Ожидает"
+        }})
+    except asyncio.QueueFull:
+        return web.json_response({"error": "Очередь анализов переполнена. Пожалуйста, подождите завершения текущих задач."}, status=429)
 
 async def api_analyze_status(request):
     _cleanup_stale_jobs()
@@ -496,4 +539,19 @@ def create_dashboard_app() -> web.Application:
     app.router.add_post("/api/penny-stocks/discover", api_discover_penny_stocks)
     
     logger.info("Application routes successfully registered.")
+    
+    async def on_startup(app):
+        global _analysis_queue
+        _analysis_queue = asyncio.Queue(maxsize=10)
+        for i in range(2):
+            task = asyncio.create_task(analysis_worker(), name=f"analysis-worker-{i}")
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+            
+    async def on_cleanup(app):
+        _analysis_executor.shutdown(wait=False)
+
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
+    
     return app
