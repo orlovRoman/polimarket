@@ -69,30 +69,11 @@ def init_db():
     """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
     global _db_initialized
     if _db_initialized:
-        # Проверяем, действительно ли таблицы существуют в текущем файле БД
-        try:
-            conn = sqlite3.connect(DB_PATH, timeout=1)
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='markets'")
-            has_table = cursor.fetchone() is not None
-            conn.close()
-            if has_table:
-                return
-        except Exception:
-            pass
+        return
             
     with _db_init_lock:
         if _db_initialized:  # double-check после получения лока
-            try:
-                conn = sqlite3.connect(DB_PATH, timeout=1)
-                cursor = conn.cursor()
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='markets'")
-                has_table = cursor.fetchone() is not None
-                conn.close()
-                if has_table:
-                    return
-            except Exception:
-                pass
+            return
                 
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         
