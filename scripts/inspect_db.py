@@ -12,6 +12,11 @@ import config
 
 def inspect_active_penny_stocks():
     print(f"DB_PATH: {config.DB_PATH}")
+    db_path = Path(config.DB_PATH)
+    if not db_path.exists():
+        print(f"❌ БД не найдена: {config.DB_PATH}")
+        sys.exit(1)
+        
     conn = sqlite3.connect(str(config.DB_PATH))
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
