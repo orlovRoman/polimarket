@@ -136,3 +136,65 @@ def test_log_resolution_idempotence():
     conn.close()
     
     assert first_res == second_res
+
+
+def test_log_penny_stocks_signal_and_resolution():
+    logger = SignalLogger()
+    
+    # 1. Запись сигнала для Penny Stocks
+    signal_id = "test-sig-penny"
+    strategy_type = StrategyType.PENNY_STOCKS
+    market_id = "market-penny"
+    predicted_prob = 0.90
+    market_price = 0.05  # Дешевый penny stock (5 центов)
+    edge = 0.85
+    metadata = {
+        "target_outcome": "YES",
+        "priority": "high",
+        "summary": "Test penny stocks signal",
+        "platform": "polymarket"
+    }
+    
+    logger.log_signal(
+        signal_id=signal_id,
+        strategy_type=strategy_type,
+        market_id=market_id,
+        predicted_probability=predicted_prob,
+        market_price_at_signal=market_price,
+        edge_at_signal=edge,
+        metadata=metadata
+    )
+    
+    # Проверяем запись в БД
+    conn = sqlite3.connect(temp_db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM signals WHERE id = ?", (signal_id,))
+    row = cursor.fetchone()
+    assert row is not None
+    assert row["strategy_type"] == "penny_stocks"
+    assert row["market_price_at_signal"] == 0.05
+    assert row["predicted_probability"] == 0.90
+    # Проверяем, что estimated_probability равен market_price_at_signal
+    assert row["estimated_probability"] == 0.05
+    conn.close()
+
+    # 2. Запись резолюции (выигрышный исход YES)
+    logger.log_resolution(
+        signal_id=signal_id,
+        resolution_outcome="YES",
+        resolution_price=1.0
+    )
+    
+    conn = sqlite3.connect(temp_db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT status, was_profitable, pnl_realized FROM signals WHERE id = ?", (signal_id,))
+    row = cursor.fetchone()
+    assert row is not None
+    assert row["status"] == "WIN"
+    assert row["was_profitable"] == 1
+    # При ставке $10 по цене 0.05: 10 / 0.05 = 200 контрактов.
+    # Выигрыш чистыми: 200 * (1.0 - 0.05) = 190.00
+    assert row["pnl_realized"] == 190.00
+    conn.close()

@@ -17,6 +17,7 @@ class StrategyType(str, Enum):
     TEMPORAL_CORRIDOR = 'temporal_corridor'
     CROSS_PLATFORM = 'cross_platform'
     WHALE = 'whale'
+    PENNY_STOCKS = 'penny_stocks'
 
 class SignalPayload(BaseModel):
     signal_id: str
@@ -137,7 +138,7 @@ class SignalLogger:
                     "PENDING",
                     payload.created_at.isoformat(),
                     target_outcome,
-                    payload.predicted_probability,
+                    payload.market_price_at_signal,
                     payload.predicted_probability,
                     payload.market_price_at_signal,
                     payload.edge_at_signal,
@@ -274,7 +275,7 @@ class SignalLogger:
 
         # По умолчанию (для scout и whale):
         # Если target_outcome совпадает с resolution_outcome
-        if strategy_type in ('scout', 'whale') or not strategy_type:
+        if strategy_type in ('scout', 'whale', 'penny_stocks') or not strategy_type:
             is_win = (target_outcome == resolution_outcome)
             # Виртуальный PnL
             # Если мы покупаем YES по цене market_price_at_signal, при победе получаем 1.0, иначе 0.0.

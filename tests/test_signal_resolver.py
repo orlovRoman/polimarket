@@ -58,7 +58,7 @@ def test_resolve_pending_signals_logic():
         # 4. Рынок истек, но цена посередине = 0.50 (не должен резолвиться)
         conn.execute(
             "INSERT INTO markets (id, platform, title, description, url, outcome, price, close_time, tokens, volume) "
-            "VALUES (?, 'polymarket', 'Middle Price Market', '', 'http://test.4', 'YES', 0.50, ?, '[]', 1000.0)",
+            "VALUES (?, 'polymarket', 'Middle Price Market', '', 'http://test.4', '', 0.50, ?, '[]', 1000.0)",
             ("mkt-middle", expired_time)
         )
         
@@ -192,3 +192,46 @@ def test_log_signal_archives_old_pending():
         
         row2 = conn.execute("SELECT status FROM signals WHERE id = 'sig-second-pending'").fetchone()
         assert row2["status"] == "PENDING"
+
+
+def test_resolve_is_idempotent():
+    now = datetime.now(timezone.utc)
+    expired_time = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO markets (id, platform, title, description, url, outcome, price, close_time, tokens, volume) "
+            "VALUES (?, 'polymarket', 'Expired Market for Idempotency', '', 'http://test.idemp', 'YES', 0.98, ?, '[]', 1000.0)",
+            ("mkt-idempotent", expired_time)
+        )
+        
+    logger = SignalLogger()
+    
+    logger.log_signal(
+        signal_id="sig-idempotent",
+        strategy_type=StrategyType.SCOUT,
+        market_id="mkt-idempotent",
+        predicted_probability=0.8,
+        market_price_at_signal=0.5,
+        edge_at_signal=0.3,
+        metadata={"target_outcome": "YES"}
+    )
+    
+    # Первый запуск - должен разрешить 1 сигнал
+    count1 = resolve_pending_signals()
+    assert count1 == 1
+    
+    with get_connection() as conn:
+        row1 = conn.execute("SELECT status, resolved_at FROM signals WHERE id = 'sig-idempotent'").fetchone()
+        assert row1["status"] == "WIN"
+        first_resolved_at = row1["resolved_at"]
+        assert first_resolved_at is not None
+        
+    # Второй запуск - должен обработать 0 сигналов, статус не меняется
+    count2 = resolve_pending_signals()
+    assert count2 == 0
+    
+    with get_connection() as conn:
+        row2 = conn.execute("SELECT status, resolved_at FROM signals WHERE id = 'sig-idempotent'").fetchone()
+        assert row2["status"] == "WIN"
+        assert row2["resolved_at"] == first_resolved_at

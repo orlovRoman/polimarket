@@ -48,7 +48,7 @@ async def test_evaluation_engine_empty_db():
         report = await engine.run_full_evaluation()
         
         assert report is not None
-        assert len(report.results) == 5  # Все 5 стратегий
+        assert len(report.results) == 6  # Все 6 стратегий
         for res in report.results.values():
             assert res.metrics is None
             assert len(res.suggestions) == 0

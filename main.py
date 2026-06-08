@@ -602,6 +602,15 @@ async def scheduled_outcome_tracker():
     finally:
         _resolution_running = False
 
+async def scheduled_signal_resolution():
+    logger.info(">>> Авторезолюция PENDING-сигналов по расписанию...")
+    try:
+        from services.signal_resolver import resolve_pending_signals
+        n_resolved = await asyncio.to_thread(resolve_pending_signals)
+        logger.info(f"<<< Авторезолюция: закрыто {n_resolved} сигналов.")
+    except Exception as e:
+        logger.error(f"Ошибка в авторезолюции по расписанию: {e}", exc_info=True)
+
 async def start_system():
     load_dotenv()
     from config import startup_check
@@ -706,6 +715,16 @@ async def start_system():
         trigger="interval",
         hours=2,
         id="outcome_tracker",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # Авторезолюция сигналов — каждые 30 минут
+    scheduler.add_job(
+        scheduled_signal_resolution,
+        trigger="interval",
+        minutes=30,
+        id="signal_resolution_job",
         replace_existing=True,
         misfire_grace_time=600,
     )

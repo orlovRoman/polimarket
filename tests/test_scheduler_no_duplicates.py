@@ -45,11 +45,11 @@ def test_only_one_resolution_job_registered():
         if any(kw in j["func"] for kw in ["resolution", "resolve", "outcome"])
     ]
     
-    # Должен быть ровно один outcome_tracker
-    assert len(resolution_jobs) == 1, (
+    # Должно быть ровно два резолвера: outcome_tracker и signal_resolution_job
+    assert len(resolution_jobs) == 2, (
         f"Найдено {len(resolution_jobs)} резолверов: {resolution_jobs}. "
-        "Должен быть ровно один — outcome_tracker."
+        "Ожидалось два: outcome_tracker и signal_resolution_job."
     )
-    assert resolution_jobs[0]["id"] == "outcome_tracker", (
-        f"Ожидался ID 'outcome_tracker', получено: {resolution_jobs[0]['id']}"
-    )
+    job_ids = {j["id"] for j in resolution_jobs}
+    assert "outcome_tracker" in job_ids
+    assert "signal_resolution_job" in job_ids

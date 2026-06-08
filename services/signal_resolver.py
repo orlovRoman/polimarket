@@ -31,6 +31,7 @@ def resolve_pending_signals(limit: int = 50) -> int:
                     s.estimated_probability,
                     s.edge,
                     m.price         AS final_price,
+                    m.outcome       AS market_outcome,
                     m.close_time
                 FROM signals s
                 JOIN markets m ON s.market_id = m.id
@@ -54,9 +55,13 @@ def resolve_pending_signals(limit: int = 50) -> int:
         signal_id    = row["signal_id"]
         target       = (row["target_outcome"] or "YES").upper()
         final_price  = float(row["final_price"])
+        market_outcome = (row["market_outcome"] or "").upper()
 
-        # Определяем победивший исход по финальной цене
-        if final_price >= 0.95:
+        # Определяем победивший исход по приоритету: сначала outcome из markets, затем по цене
+        if market_outcome in ("YES", "NO"):
+            resolution_outcome = market_outcome
+            resolution_price   = 1.0 if market_outcome == "YES" else 0.0
+        elif final_price >= 0.95:
             resolution_outcome = "YES"
             resolution_price   = 1.0
         elif final_price <= 0.05:
@@ -64,7 +69,7 @@ def resolve_pending_signals(limit: int = 50) -> int:
             resolution_price   = 0.0
         else:
             # Рынок ещё не разрешился (цена в середине) — пропускаем
-            logger.debug(f"[SignalResolver] Сигнал {signal_id}: цена {final_price:.3f} — рынок ещё не разрешён, пропускаем.")
+            logger.debug(f"[SignalResolver] Сигнал {signal_id}: цена {final_price:.3f}, исход '{market_outcome}' — рынок ещё не разрешён, пропускаем.")
             continue
 
         try:
