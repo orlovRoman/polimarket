@@ -1,9 +1,11 @@
 import logging
+from typing import Optional
+from datetime import datetime, timezone
 from agents.shared.python.db import get_connection, is_alert_already_sent, mark_alert_sent
 
 logger = logging.getLogger("NexusPolyBot.OnchainTrend")
 
-def scan_volume_spikes(min_spike_ratio: float = 3.0) -> list[dict]:
+def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
     """
     SQL-only: находит рынки с аномальным ростом ончейн-объёма.
     Сравнивает объём за последние 2ч с предыдущими 2ч.
@@ -41,7 +43,7 @@ def scan_volume_spikes(min_spike_ratio: float = 3.0) -> list[dict]:
     spikes = []
     for row in rows:
         alert_key = f"onchain_spike_{row['market_id']}"
-        if is_alert_already_sent(alert_key, ttl_hours=6):
+        if is_alert_already_sent(alert_key, ttl_hours=2):
             continue
         spikes.append(dict(row))
         mark_alert_sent(alert_key, "onchain_spike")
@@ -77,6 +79,146 @@ def scan_volume_spikes(min_spike_ratio: float = 3.0) -> list[dict]:
         except Exception as e:
             logger.error(f"[OnchainTrend] Ошибка логирования Whale-сигнала в Evaluation Engine: {e}", exc_info=True)
     return spikes
+
+
+def scan_large_single_bets() -> list[dict]:
+    """
+    Находит крупные одиночные сделки (> $1000) за последние 2 часа
+    и логирует сигналы типа WHALE в Evaluation Engine.
+    """
+    try:
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT 
+                    t.market_id,
+                    t.wallet_address,
+                    t.amount_usd,
+                    t.outcome,
+                    t.price,
+                    m.title,
+                    m.url
+                FROM trader_transactions t
+                JOIN markets m ON t.market_id = m.id
+                WHERE t.timestamp > datetime('now', '-2 hours')
+                  AND t.amount_usd > 1000.0
+            """).fetchall()
+    except Exception as e:
+        logger.error(f"[OnchainTrend] Ошибка при SQL-запросе крупных сделок: {e}")
+        return []
+
+    signals = []
+    for row in rows:
+        alert_key = f"whale_single_bet_{row['market_id']}_{row['wallet_address']}_{row['amount_usd']:.0f}"
+        if is_alert_already_sent(alert_key, ttl_hours=2):
+            continue
+            
+        signals.append(dict(row))
+        mark_alert_sent(alert_key, "whale_single_bet")
+        
+        try:
+            side = row["outcome"]
+            prob = 0.85  # Дефолтная высокая уверенность для крупных одиночных ставок китов
+            
+            from core.eval.signal_logger import SignalLogger, StrategyType
+            logger_eval = SignalLogger()
+            
+            # Детализированное описание для логов
+            summary_msg = f"Whale single bet: ${row['amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
+            logger.info(f"[OnchainTrend] {summary_msg}")
+            
+            logger_eval.log_signal(
+                signal_id=f"sig-whale-single-{row['market_id']}-{row['wallet_address']}-{int(row['amount_usd'])}",
+                strategy_type=StrategyType.WHALE,
+                market_id=row['market_id'],
+                predicted_probability=prob,
+                market_price_at_signal=row['price'],
+                edge_at_signal=max(-1.0, min(1.0, prob - row['price'])),
+                metadata={
+                    "target_outcome": side,
+                    "priority": "medium",
+                    "summary": summary_msg,
+                    "platform": "polymarket",
+                    "wallet_address": row['wallet_address'],
+                    "amount_usd": row['amount_usd'],
+                    "reason": "large_single_bet"
+                }
+            )
+        except Exception as e:
+            logger.error(f"[OnchainTrend] Ошибка логирования крупной сделки: {e}", exc_info=True)
+            
+    return signals
+
+
+def scan_wallet_series() -> list[dict]:
+    """
+    Находит серии сделок одного кошелька на одном рынке за последний 1 час (>= 5 сделок, общий объем > $2000)
+    и логирует сигналы типа WHALE в Evaluation Engine.
+    """
+    try:
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT 
+                    t.market_id,
+                    t.wallet_address,
+                    COUNT(*) as tx_count,
+                    SUM(t.amount_usd) as total_amount_usd,
+                    -- Определяем доминирующий исход серии
+                    SUM(CASE WHEN t.outcome = 'YES' THEN t.amount_usd ELSE 0.0 END) as yes_vol,
+                    SUM(CASE WHEN t.outcome = 'NO' THEN t.amount_usd ELSE 0.0 END) as no_vol,
+                    AVG(t.price) as avg_price,
+                    m.title,
+                    m.url
+                FROM trader_transactions t
+                JOIN markets m ON t.market_id = m.id
+                WHERE t.timestamp > datetime('now', '-1 hour')
+                GROUP BY t.market_id, t.wallet_address
+                HAVING tx_count >= 5 AND total_amount_usd > 2000.0
+            """).fetchall()
+    except Exception as e:
+        logger.error(f"[OnchainTrend] Ошибка при SQL-запросе серий сделок: {e}")
+        return []
+
+    signals = []
+    for row in rows:
+        alert_key = f"whale_series_{row['market_id']}_{row['wallet_address']}"
+        if is_alert_already_sent(alert_key, ttl_hours=2):
+            continue
+            
+        signals.append(dict(row))
+        mark_alert_sent(alert_key, "whale_series")
+        
+        try:
+            side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
+            prob = 0.90  # Более высокая уверенность для серий сделок одного кошелька
+            
+            from core.eval.signal_logger import SignalLogger, StrategyType
+            logger_eval = SignalLogger()
+            
+            summary_msg = f"Whale wallet series: {row['tx_count']} trades, total ${row['total_amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
+            logger.info(f"[OnchainTrend] {summary_msg}")
+            
+            logger_eval.log_signal(
+                signal_id=f"sig-whale-series-{row['market_id']}-{row['wallet_address']}",
+                strategy_type=StrategyType.WHALE,
+                market_id=row['market_id'],
+                predicted_probability=prob,
+                market_price_at_signal=row['avg_price'],
+                edge_at_signal=max(-1.0, min(1.0, prob - row['avg_price'])),
+                metadata={
+                    "target_outcome": side,
+                    "priority": "medium",
+                    "summary": summary_msg,
+                    "platform": "polymarket",
+                    "wallet_address": row['wallet_address'],
+                    "total_amount_usd": row['total_amount_usd'],
+                    "tx_count": row['tx_count'],
+                    "reason": "wallet_series"
+                }
+            )
+        except Exception as e:
+            logger.error(f"[OnchainTrend] Ошибка логирования серии сделок: {e}", exc_info=True)
+            
+    return signals
 
 
 def build_spike_message(spike: dict) -> str:

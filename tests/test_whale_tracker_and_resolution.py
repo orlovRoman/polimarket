@@ -288,3 +288,105 @@ def test_shadow_agent_prompt_token_optimization():
         # А во втором содержит полную информацию
         assert "=== ОНЧЕЙН АКТИВНОСТЬ (Smart Money) ===" in prompt_without
         assert "0xWhaleA" in prompt_without
+
+
+def test_new_whale_scanners_and_early_resolution():
+    from services.onchain_trend_alert import scan_large_single_bets, scan_wallet_series
+    from services.outcome_tracker import run_resolution_cycle
+    from agents.shared.python.db import save_market, get_connection
+    from core.models import Market
+    import uuid
+
+    # 1. Создаем два рынка в БД
+    market_id_1 = f"mkt_whale_test_1_{uuid.uuid4().hex[:8]}"
+    market_1 = Market(
+        id=market_id_1,
+        platform="polymarket",
+        title="Will Whale Test 1 succeed?",
+        url="https://polymarket.com/whale-test-1",
+        outcome="",
+        price=0.5,
+        close_time=datetime.now(timezone.utc) + timedelta(days=10),
+        condition_id=f"cond_{market_id_1}"
+    )
+    save_market(market_1)
+
+    market_id_2 = f"mkt_whale_test_2_{uuid.uuid4().hex[:8]}"
+    market_2 = Market(
+        id=market_id_2,
+        platform="polymarket",
+        title="Will Whale Test 2 succeed?",
+        url="https://polymarket.com/whale-test-2",
+        outcome="",
+        price=0.5,
+        close_time=datetime.now(timezone.utc) + timedelta(days=10),
+        condition_id=f"cond_{market_id_2}"
+    )
+    save_market(market_2)
+
+    # 2. Добавляем крупную одиночную транзакцию (> $1000) для рынка 1
+    now = datetime.now(timezone.utc)
+    t_recent = (now - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+    
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO trader_transactions (wallet_address, market_id, outcome, amount_usd, price, timestamp)
+            VALUES ('0xWhaleSingle', ?, 'YES', 1500.0, 0.5, ?)
+        """, (market_id_1, t_recent))
+
+    # Запускаем скан крупных одиночных ставок
+    large_bets = scan_large_single_bets()
+    assert len(large_bets) == 1
+    assert large_bets[0]["market_id"] == market_id_1
+    assert large_bets[0]["wallet_address"] == "0xWhaleSingle"
+    assert large_bets[0]["amount_usd"] == 1500.0
+
+    # Проверяем, что сигнал записан в signals
+    with get_connection() as conn:
+        sig = conn.execute("SELECT * FROM signals WHERE market_id = ? AND strategy_type = 'whale' AND summary LIKE '%single%'", (market_id_1,)).fetchone()
+        assert sig is not None
+        assert sig["status"] == "PENDING"
+        assert sig["target_outcome"] == "YES"
+
+    # 3. Добавляем серию транзакций от другого кошелька (5 штук по $500, смумарно $2500 > $2000) для рынка 2
+    for i in range(5):
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO trader_transactions (wallet_address, market_id, outcome, amount_usd, price, timestamp)
+                VALUES ('0xWhaleSeries', ?, 'NO', 500.0, 0.5, ?)
+            """, (market_id_2, t_recent))
+
+    # Запускаем скан серий сделок
+    series_bets = scan_wallet_series()
+    assert len(series_bets) == 1
+    assert series_bets[0]["market_id"] == market_id_2
+    assert series_bets[0]["wallet_address"] == "0xWhaleSeries"
+    assert series_bets[0]["total_amount_usd"] == 2500.0
+
+    # Проверяем, что сигнал серии записан в signals
+    with get_connection() as conn:
+        sig_series = conn.execute("SELECT * FROM signals WHERE market_id = ? AND strategy_type = 'whale' AND summary LIKE '%series%'", (market_id_2,)).fetchone()
+        assert sig_series is not None
+        assert sig_series["status"] == "PENDING"
+        assert sig_series["target_outcome"] == "NO"
+
+    # 4. Проверяем досрочную резолюцию сигналов
+    # Изменим исходы рынков в БД на "YES" (досрочное разрешение)
+    with get_connection() as conn:
+        conn.execute("UPDATE markets SET outcome = 'YES' WHERE id IN (?, ?)", (market_id_1, market_id_2))
+
+    # Запускаем Outcome Tracker
+    with patch("services.polymarket_client.get_market_resolution", return_value="YES"):
+        stats = run_resolution_cycle()
+        assert stats["resolved"] >= 2
+
+    # Проверяем, что наши сигналы обновились
+    with get_connection() as conn:
+        sig_single = conn.execute("SELECT status, pnl_realized FROM signals WHERE market_id = ? AND summary LIKE '%single%'", (market_id_1,)).fetchone()
+        assert sig_single["status"] == "WIN"
+        assert sig_single["pnl_realized"] == 10.0
+
+        sig_series = conn.execute("SELECT status, pnl_realized FROM signals WHERE market_id = ? AND summary LIKE '%series%'", (market_id_2,)).fetchone()
+        assert sig_series["status"] == "LOSS"
+        assert sig_series["pnl_realized"] == -10.0
+

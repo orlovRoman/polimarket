@@ -18,6 +18,20 @@ class ThresholdCalibrator:
     """
     
     MIN_SIGNALS_FOR_CALIBRATION = 50
+    MIN_SIGNALS_EARLY_MODE = 15
+
+    def _get_min_signals(self, strategy_type: str) -> int:
+        """Снижает порог для новых стратегий (<90 дней)."""
+        try:
+            from agents.shared.python.db import get_strategy_first_signal_date
+            from datetime import datetime, timezone
+            first_signal = get_strategy_first_signal_date(strategy_type)
+            if first_signal is None:
+                return self.MIN_SIGNALS_EARLY_MODE
+            age_days = (datetime.now(timezone.utc) - first_signal).days
+            return self.MIN_SIGNALS_FOR_CALIBRATION if age_days >= 90 else self.MIN_SIGNALS_EARLY_MODE
+        except Exception:
+            return self.MIN_SIGNALS_EARLY_MODE
 
     def _is_trending_down(self, trend: Sequence[StrategyMetrics]) -> bool:
         """
@@ -41,14 +55,16 @@ class ThresholdCalibrator:
         self,
         metrics: StrategyMetrics,
         current_min_edge: float,
-        trend: Optional[Sequence[StrategyMetrics]] = None
+        trend: Optional[Sequence[StrategyMetrics]] = None,
+        strategy_type: str = "scout"
     ) -> Optional[CalibrationSuggestion]:
         """
         Корректировка порога минимального преимущества (min_edge).
         Если win_rate < 45% -> повысить порог (более консервативно).
         Если brier_score > 0.20 -> модель не калибрована, не менять порог (шум).
         """
-        if metrics.resolved_signals < self.MIN_SIGNALS_FOR_CALIBRATION:
+        min_signals = self._get_min_signals(strategy_type)
+        if metrics.resolved_signals < min_signals:
             return None
             
         # Рост Brier score > 0.20 указывает на плохую калибровку модели, изменения опасны
@@ -98,12 +114,14 @@ class ThresholdCalibrator:
         self,
         metrics: StrategyMetrics,
         current_min_spread: float,
-        trend: Optional[Sequence[StrategyMetrics]] = None
+        trend: Optional[Sequence[StrategyMetrics]] = None,
+        strategy_type: str = "scout"
     ) -> Optional[CalibrationSuggestion]:
         """
         Корректировка порога спреда (min_spread) для арбитража/коридоров.
         """
-        if metrics.resolved_signals < self.MIN_SIGNALS_FOR_CALIBRATION:
+        min_signals = self._get_min_signals(strategy_type)
+        if metrics.resolved_signals < min_signals:
             return None
             
         if metrics.brier_score > 0.20:
@@ -147,12 +165,14 @@ class ThresholdCalibrator:
         self,
         metrics: StrategyMetrics,
         current_threshold: float,
-        trend: Optional[Sequence[StrategyMetrics]] = None
+        trend: Optional[Sequence[StrategyMetrics]] = None,
+        strategy_type: str = "scout"
     ) -> Optional[CalibrationSuggestion]:
         """
         Корректировка порога копирования сделок китов (whale_win_rate).
         """
-        if metrics.resolved_signals < self.MIN_SIGNALS_FOR_CALIBRATION:
+        min_signals = self._get_min_signals(strategy_type)
+        if metrics.resolved_signals < min_signals:
             return None
             
         if metrics.brier_score > 0.20:

@@ -67,7 +67,7 @@ def run_resolution_cycle() -> dict:
 # ── Внутренние функции ──────────────────────────────────────
 
 def _get_pending_with_closed_market() -> list[dict]:
-    """Возвращает PENDING-сигналы, чей рынок уже закрыт (close_time < now)."""
+    """Возвращает PENDING-сигналы, готовые к резолюции (закрытые или старые для проверки по API)."""
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT s.id, s.market_id, s.target_outcome, s.strategy_type,
@@ -77,7 +77,11 @@ def _get_pending_with_closed_market() -> list[dict]:
             FROM signals s
             JOIN markets m ON s.market_id = m.id
             WHERE s.status = 'PENDING'
-              AND datetime(m.close_time) < datetime('now')
+              AND (
+                datetime(m.close_time) < datetime('now')
+                OR m.outcome IN ('YES', 'NO')
+                OR s.created_at < datetime('now', '-12 hours')
+              )
               AND s.resolved_at IS NULL
         """).fetchall()
     return [dict(r) for r in rows]

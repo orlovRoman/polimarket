@@ -198,13 +198,17 @@ async def scheduled_cluster_update():
 
 
 async def job_onchain_alerts():
-    """Фоновый скан и отправка ончейн-всплесков объёма."""
+    """Фоновый скан и отправка ончейн-всплесков объёма + тихий сбор Whale сигналов."""
     logger.info(">>> Запуск сканирования ончейн-всплесков объёма...")
     try:
-        from services.onchain_trend_alert import scan_volume_spikes, build_spike_message
+        from services.onchain_trend_alert import (
+            scan_volume_spikes, build_spike_message, 
+            scan_large_single_bets, scan_wallet_series
+        )
         from agents.shared.python.db import mark_alert_sent
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         
+        # 1. Сканируем всплески объема (с алертом в TG)
         spikes = await asyncio.to_thread(scan_volume_spikes)
         for spike in spikes:
             msg = build_spike_message(spike)
@@ -221,7 +225,14 @@ async def job_onchain_alerts():
             )
             mark_alert_sent(f"onchain_spike_{spike['market_id']}", "onchain_spike")
             logger.info(f"Отправлен ончейн-алерт по рынку: {spike['title']}")
-        logger.info("<<< Сканирование ончейн-всплесков завершено.")
+            
+        # 2. Сканируем крупные одиночные ставки (тихая запись в БД)
+        await asyncio.to_thread(scan_large_single_bets)
+        
+        # 3. Сканируем серии сделок одного кошелька (тихая запись в БД)
+        await asyncio.to_thread(scan_wallet_series)
+        
+        logger.info("<<< Сканирование ончейн-всплесков и Whale-сигналов завершено.")
     except asyncio.CancelledError:
         logger.info("<<< Сканирование ончейн-всплесков отменено.")
     except Exception as e:

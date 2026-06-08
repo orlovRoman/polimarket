@@ -101,7 +101,7 @@ class EvaluationEngine:
             if current_edge is None:
                 current_edge = getattr(config, "MIN_EDGE_DEFAULT", 0.05)
                 
-            sug = self.calibrator.suggest_edge_threshold(metrics, current_edge, trend)
+            sug = self.calibrator.suggest_edge_threshold(metrics, current_edge, trend, strategy.value)
             if sug:
                 suggestions.append(sug)
                 
@@ -117,7 +117,7 @@ class EvaluationEngine:
                 else:
                     current_spread = 5.0
                     
-            sug = self.calibrator.suggest_spread_threshold(metrics, current_spread, trend)
+            sug = self.calibrator.suggest_spread_threshold(metrics, current_spread, trend, strategy.value)
             if sug:
                 suggestions.append(sug)
                 
@@ -126,7 +126,7 @@ class EvaluationEngine:
             if current_whale_tr is None:
                 current_whale_tr = getattr(config, "WHALE_GATE_MIN_CONFIDENCE", 0.70)
                 
-            sug = self.calibrator.suggest_whale_win_rate_threshold(metrics, current_whale_tr, trend)
+            sug = self.calibrator.suggest_whale_win_rate_threshold(metrics, current_whale_tr, trend, strategy.value)
             if sug:
                 suggestions.append(sug)
                 

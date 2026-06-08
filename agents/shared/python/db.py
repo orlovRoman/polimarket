@@ -2329,5 +2329,25 @@ def get_blacklist_tags() -> list[str]:
         logger.error(f"[Blacklist] Ошибка получения черного списка тегов: {e}")
         return []
 
+def get_strategy_first_signal_date(strategy_type: str) -> Optional[datetime]:
+    """Возвращает дату самого первого сигнала для заданной стратегии."""
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT MIN(created_at) as first_date FROM signals WHERE strategy_type = ?",
+                (strategy_type,)
+            ).fetchone()
+            if row and row["first_date"]:
+                date_str = row["first_date"]
+                if "Z" in date_str:
+                    date_str = date_str.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(date_str)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+    except Exception as e:
+        logger.error(f"[DB] Ошибка получения даты первого сигнала для {strategy_type}: {e}")
+    return None
+
 if __name__ == "__main__":
     init_db()
