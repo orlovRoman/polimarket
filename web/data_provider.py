@@ -71,6 +71,12 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
     Генерирует кривую доходности (кумулятивный PnL по дням).
     Если strategy='all', возвращает словарь кривых для всех стратегий.
     """
+    try:
+        days = int(days)
+        days = max(1, min(days, 365))
+    except (ValueError, TypeError):
+        days = 30
+        
     from agents.shared.python.db import get_connection
     strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks']
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
@@ -244,6 +250,7 @@ def get_penny_stocks_dashboard() -> dict:
             WHERE strategy_type = 'penny_stocks' 
               AND status IN ('WIN', 'LOSS') 
               AND (
+                  market_price_at_signal IS NULL OR
                   (target_outcome = 'YES' AND market_price_at_signal <= 0.10) OR
                   (target_outcome = 'NO' AND market_price_at_signal >= 0.90)
               )

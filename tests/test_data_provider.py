@@ -88,6 +88,12 @@ def test_get_equity_curve(isolated_db):
     assert 'scout' in all_curves
     assert len(all_curves['scout']) == 2
 
+    # Тестируем валидацию и клэмпинг days в get_equity_curve
+    curve_neg = data_provider.get_equity_curve('scout', days=-10)
+    assert len(curve_neg) > 0  # не должно падать
+    curve_huge = data_provider.get_equity_curve('scout', days=99999)
+    assert len(curve_huge) == 2  # клэмпится к 365 и возвращает 2 найденные точки
+
 def test_get_penny_stocks_dashboard(isolated_db):
     # Пустой
     data = data_provider.get_penny_stocks_dashboard()
@@ -124,7 +130,7 @@ def test_get_penny_stocks_dashboard(isolated_db):
 
     # penny_a с прогнозом YES
     penny_a = next(x for x in data['active'] if x['title'] == 'Penny A')
-    assert penny_a['initial_price_outcome'] == 0.03
+    assert penny_a['initial_price_outcome'] == pytest.approx(0.03, abs=1e-4)
 
     assert len(data['resolved']) == 1
     assert data['resolved'][0]['title'] == 'Penny B'
@@ -170,8 +176,8 @@ def test_penny_stocks_dashboard_filtering(isolated_db):
 
     # Проверяем цены исхода для p3 (NO):
     p3_data = next(x for x in data['active'] if x['market_id'] == 'p3')
-    assert p3_data['initial_price_outcome'] == 0.05  # 1.0 - 0.95
-    assert p3_data['current_price_outcome'] == 0.06  # 1.0 - 0.94
+    assert p3_data['initial_price_outcome'] == pytest.approx(0.05, abs=1e-4)  # 1.0 - 0.95
+    assert p3_data['current_price_outcome'] == pytest.approx(0.06, abs=1e-4)  # 1.0 - 0.94
 
 def test_get_auto_disable_candidates(isolated_db):
     with db_module.get_connection() as conn:
@@ -199,6 +205,11 @@ def test_get_corridors_dashboard(isolated_db):
             INSERT INTO cross_arbitrage_signals (id, market_a_id, market_a_title, market_a_platform, market_a_price, market_a_url, market_b_id, market_b_title, market_b_platform, market_b_price, market_b_url, has_arbitrage, arbitrage_type, spread_percent, match_score, status, created_at)
             VALUES ('sig_cross', 'a_id', 'Title A', 'polymarket', 0.45, 'http://a', 'b_id', 'Title B', 'kalshi', 0.52, 'http://b', 1, 'CROSS_PLATFORM', 0.07, 0.9, 'new', datetime('now'))
         """)
+        # Сигнал для corridors (LOSS), чтобы проверить win_rate = 0.0 при total > 0, wins = 0
+        conn.execute("""
+            INSERT INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, strategy_type, pnl_realized, was_profitable, resolved_at)
+            VALUES ('sig_corr_loss', 'scout', 'm1', 'poly', 0.1, 0.8, 'HIGH', 's', 'd', 'LOSS', 'synthetic_corridor', -5.0, 0, datetime('now'))
+        """)
 
     data = data_provider.get_corridors_dashboard()
     assert len(data['synthetic']) == 1
@@ -218,9 +229,13 @@ def test_get_corridors_dashboard(isolated_db):
         assert 'avg_pnl' in kpi
         assert 'best_pnl' in kpi
 
+    # Проверяем win_rate при wins=0, total=1
+    assert data['kpis']['synthetic_corridor']['win_rate'] == 0.0
+    assert data['kpis']['synthetic_corridor']['total'] == 1
+    
     # При отсутствии сигналов — дефолтные значения, не ошибка
-    assert data['kpis']['synthetic_corridor']['win_rate'] is None
-    assert data['kpis']['synthetic_corridor']['total'] == 0
+    assert data['kpis']['temporal_corridor']['win_rate'] is None
+    assert data['kpis']['temporal_corridor']['total'] == 0
 
 def test_virtual_portfolio_operations(isolated_db):
     # Вставляем Penny Stock в мониторинг
@@ -306,7 +321,7 @@ def test_active_limit_100(isolated_db):
         """, [(f"bulk_{i}", f"Bulk {i}") for i in range(150)])
 
     data = data_provider.get_penny_stocks_dashboard()
-    assert len(data['active']) <= 100
+    assert len(data['active']) == 100
 
 
 def test_null_market_in_active_not_excluded(isolated_db):
