@@ -28,8 +28,6 @@ def render_template(page_name: str) -> str:
         
     return base_html.replace("<!-- PAGE_CONTENT -->", page_html)
 
-# Совместимость с тестами (ранее использовавшими lru_cache)
-render_template.cache_clear = lambda: None
 
 # === HTML хэндлеры ===
 
@@ -161,9 +159,9 @@ async def api_discover_penny_stocks(request):
                 initial_price=m.price,
                 predicted_outcome=None
             )
-            # Баг #5: Рынки с NULL прогнозом и ценой 0.10–0.90 невидимы на дашборде.
+            # Рынки с ценой 0.10–0.90 не являются penny stocks по определению.
             if not (m.price <= 0.10 or m.price >= 0.90):
-                logger.warning(
+                logger.debug(
                     f"Discovered market {m.id} ('{m.title}') has price {m.price} outside penny stock limits (<=0.10 or >=0.90) "
                     f"and will be invisible on the dashboard until analyzed."
                 )

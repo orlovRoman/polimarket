@@ -20,13 +20,10 @@ def isolated_db(tmp_path, monkeypatch):
     db_module.init_db()
     # Очищаем кэш перед тестом
     analysis_jobs.clear()
-    from web.dashboard import render_template
-    render_template.cache_clear()
     
     yield db_path
     db_module._db_initialized = False
     analysis_jobs.clear()
-    render_template.cache_clear()
 
 @pytest.mark.asyncio
 async def test_api_analyze_existing_opinions(isolated_db):
@@ -141,21 +138,4 @@ async def test_background_task_added_to_set(mock_run_bg, isolated_db):
     # Проверяем, что задача была добавлена (или уже завершена, но не упала)
     assert len(dashboard._background_tasks) >= 0
 
-@pytest.mark.asyncio
-async def test_render_template_cache_cleared_between_tests(tmp_path, monkeypatch):
-    """lru_cache render_template не протекает между тестами."""
-    from web import dashboard
-    dashboard.render_template.cache_clear()
-    
-    # Создаём временные шаблоны
-    templates_dir = tmp_path / "templates"
-    templates_dir.mkdir()
-    (templates_dir / "base.html").write_text("<html><!-- PAGE_CONTENT --></html>")
-    (templates_dir / "overview.html").write_text("<p>overview</p>")
-    
-    monkeypatch.setattr(dashboard, "TEMPLATES_DIR", templates_dir)
-    dashboard.render_template.cache_clear()  # сбрасываем после подмены пути
 
-    result = dashboard.render_template("overview.html")
-    assert "<p>overview</p>" in result
-    dashboard.render_template.cache_clear()

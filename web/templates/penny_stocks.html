@@ -48,7 +48,7 @@
     </div>
     <div class="table-card" style="height: 380px; margin-bottom: 0; display: flex; flex-direction: column; padding: 24px;">
         <div class="table-title" style="margin-bottom: 10px;">Виртуальный портфель</div>
-        <div class="table-wrapper" style="height: 260px; margin-top: 0; overflow-y: auto;">
+        <div class="table-wrapper" style="min-height: 200px; max-height: 300px; margin-top: 0; overflow-y: auto;">
             <table>
                 <thead>
                     <tr>
@@ -712,7 +712,7 @@
     function renderActiveTable(activeList) {
         const activeTbody = document.getElementById('active-positions-tbody');
         if (activeList.length === 0) {
-            activeTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
+            activeTbody.innerHTML = `<tr><td colspan="9" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
         } else {
             activeTbody.innerHTML = activeList.map(row => {
                 const changePct = row.initial_price_outcome > 0 ? ((row.current_price_outcome - row.initial_price_outcome) / row.initial_price_outcome * 100) : 0;
@@ -727,15 +727,9 @@
                 const analyzeBtn = `<button class="badge badge-purple" style="border:none; cursor:pointer; font-weight:600; margin-left:4px;" onclick="showAnalysis('${row.market_id}')">Анализ</button>`;
 
                 let outcomeBadge = '';
-                let edgeValue = '—';
-                let edgeClass = '';
                 
                 if (row.predicted_outcome !== null) {
                     outcomeBadge = `<span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span>`;
-                    edgeValue = formatPercent(row.edge);
-                    if (row.edge > 0) {
-                        edgeClass = 'text-green';
-                    }
                 } else {
                     outcomeBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.cheap_outcome} (деш.)</span>`;
                 }
@@ -749,7 +743,6 @@
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
                         <td>$${Math.round(row.volume_2h)}</td>
                         <td>${outcomeBadge}</td>
-                        <td class="${edgeClass}">${edgeValue}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.added_at)}</td>
                         <td><div style="display: flex; gap: 6px; align-items: center; white-space: nowrap;">${actionBtn}${analyzeBtn}</div></td>
                     </tr>
@@ -761,7 +754,7 @@
     function renderResolvedTable(resolvedList) {
         const resolvedTbody = document.getElementById('resolved-positions-tbody');
         if (resolvedList.length === 0) {
-            resolvedTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
+            resolvedTbody.innerHTML = `<tr><td colspan="9" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
         } else {
             resolvedTbody.innerHTML = resolvedList.map(row => {
                 const targetOutcome = row.predicted_outcome !== null ? row.predicted_outcome : row.cheap_outcome;
@@ -786,7 +779,6 @@
                         <td>${outcomeBadge}</td>
                         <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
                         <td>${formatPnL(row.pnl_realized)}</td>
-                        <td class="${row.edge > 0 ? 'text-green' : ''}">${formatPercent(row.edge)}</td>
                         <td>${resultBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
                     </tr>
