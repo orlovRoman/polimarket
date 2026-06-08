@@ -121,7 +121,7 @@ class MarketSelector:
                 all_markets += self.adapter.list_markets_paged(limit=500, offset=500, order="volume")
                 # Предфильтр: убираем уже закрытые до price-фильтра
                 alive = [m for m in all_markets if (m.close_time - now).total_seconds() > min_hours * 3600]
-                penny = [m for m in alive if 0.01 <= m.price <= 0.05 or 0.95 <= m.price <= 0.99]
+                penny = [m for m in alive if 0.01 <= m.price <= 0.05]
                 return penny[:limit]
             
             if category in ("favourite_compound", "favourite_compounding"):
@@ -225,7 +225,7 @@ class MarketSelector:
 
         # Если это режим penny_stocks, даем им максимальный приоритет
         if scan_category == "penny_stocks":
-            if 0.01 <= market.price <= 0.05 or 0.95 <= market.price <= 0.99:
+            if 0.01 <= market.price <= 0.05:
                 score += 10.0
         else:
             # Обычный режим: Цена в зоне неопределённости (0.15–0.85) → интересно для SCOUT

@@ -114,7 +114,7 @@ def get_penny_stocks_dashboard() -> dict:
         active_rows = conn.execute("""
             SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, volume_2h, predicted_outcome, edge, confidence, added_at
             FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE'
+            WHERE status = 'ACTIVE' AND initial_price <= 0.10
             ORDER BY added_at DESC
         """).fetchall()
         active = [dict(r) for r in active_rows]
@@ -125,7 +125,7 @@ def get_penny_stocks_dashboard() -> dict:
                    s.pnl_realized
             FROM penny_stocks_monitoring p
             LEFT JOIN signals s ON p.market_id = s.market_id AND s.strategy_type = 'penny_stocks'
-            WHERE p.status = 'RESOLVED'
+            WHERE p.status = 'RESOLVED' AND p.initial_price <= 0.10
             ORDER BY p.resolved_at DESC
             LIMIT 50
         """).fetchall()
@@ -142,7 +142,7 @@ def get_penny_stocks_dashboard() -> dict:
                 MAX(pnl_realized) as best_pnl,
                 AVG(pnl_realized) as avg_pnl
             FROM signals
-            WHERE strategy_type = 'penny_stocks' AND status IN ('WIN', 'LOSS')
+            WHERE strategy_type = 'penny_stocks' AND status IN ('WIN', 'LOSS') AND market_price_at_signal <= 0.10
         """).fetchone()
 
         win_rate = None
@@ -156,6 +156,7 @@ def get_penny_stocks_dashboard() -> dict:
         avg_entry_row = conn.execute("""
             SELECT AVG(initial_price) as avg_entry
             FROM penny_stocks_monitoring
+            WHERE initial_price <= 0.10
         """).fetchone()
         avg_entry = avg_entry_row['avg_entry'] if avg_entry_row else None
 
@@ -169,7 +170,7 @@ def get_penny_stocks_dashboard() -> dict:
         }
 
         # Распределение цен входа
-        all_prices_rows = conn.execute("SELECT initial_price FROM penny_stocks_monitoring").fetchall()
+        all_prices_rows = conn.execute("SELECT initial_price FROM penny_stocks_monitoring WHERE initial_price <= 0.10").fetchall()
         bins = {
             '1-5¢': 0,
             '5-10¢': 0,
