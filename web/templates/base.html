@@ -8,6 +8,54 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+        // Глобальные утилиты
+        async function fetchJSON(url) {
+            try {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                return await res.json();
+            } catch (err) {
+                console.error("Fetch error:", err);
+                return null;
+            }
+        }
+
+        function formatPnL(val) {
+            if (val === null || val === undefined) return "$0.00";
+            const num = parseFloat(val);
+            const sign = num > 0 ? "+" : "";
+            const color = num > 0 ? "text-green" : num < 0 ? "text-red" : "";
+            return `<span class="${color}">${sign}$${num.toFixed(2)}</span>`;
+        }
+
+        function formatPercent(val) {
+            if (val === null || val === undefined) return "—";
+            const num = parseFloat(val) * 100;
+            return `${num.toFixed(1)}%`;
+        }
+
+        function formatBrier(val) {
+            if (val === null || val === undefined) return "—";
+            return parseFloat(val).toFixed(4);
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return "—";
+            try {
+                const d = new Date(dateStr);
+                return d.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
+        // Система автообновления
+        const refreshCallbacks = [];
+        function registerRefresh(cb) {
+            refreshCallbacks.push(cb);
+        }
+    </script>
     <style>
         :root {
             --bg-color: #0b0f19;
@@ -444,48 +492,6 @@
         </div>
     </div>
 
-    <script>
-        // Глобальные утилиты
-        async function fetchJSON(url) {
-            try {
-                const res = await fetch(url);
-                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                return await res.json();
-            } catch (err) {
-                console.error("Fetch error:", err);
-                return null;
-            }
-        }
-
-        function formatPnL(val) {
-            if (val === null || val === undefined) return "$0.00";
-            const num = parseFloat(val);
-            const sign = num > 0 ? "+" : "";
-            const color = num > 0 ? "text-green" : num < 0 ? "text-red" : "";
-            return `<span class="${color}">${sign}$${num.toFixed(2)}</span>`;
-        }
-
-        function formatPercent(val) {
-            if (val === null || val === undefined) return "—";
-            const num = parseFloat(val) * 100;
-            return `${num.toFixed(1)}%`;
-        }
-
-        function formatBrier(val) {
-            if (val === null || val === undefined) return "—";
-            return parseFloat(val).toFixed(4);
-        }
-
-        function formatDate(dateStr) {
-            if (!dateStr) return "—";
-            try {
-                const d = new Date(dateStr);
-                return d.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
-            } catch (e) {
-                return dateStr;
-            }
-        }
-
         // Авто-подсветка активного пункта меню
         const path = window.location.pathname;
         if (path === '/') {
@@ -503,12 +509,6 @@
         } else if (path === '/corridors') {
             document.getElementById('nav-corridors').classList.add('active');
             document.getElementById('page-title').textContent = 'Стратегия: Коридоры & Арбитраж';
-        }
-
-        // Система автообновления
-        const refreshCallbacks = [];
-        function registerRefresh(cb) {
-            refreshCallbacks.push(cb);
         }
 
         async function triggerRefresh() {
