@@ -88,6 +88,34 @@ async def api_corridors(request):
     data = await asyncio.to_thread(data_provider.get_corridors_dashboard)
     return web.json_response(data)
 
+async def api_buy_penny_stock(request):
+    try:
+        body = await request.json()
+        market_id = body.get("market_id")
+        price_str = body.get("price")
+        if not market_id or price_str is None:
+            return web.json_response({"error": "market_id and price are required"}, status=400)
+        price = float(price_str)
+    except Exception as e:
+        return web.json_response({"error": f"Invalid request body: {e}"}, status=400)
+        
+    from agents.shared.python.db import buy_virtual_penny_stock
+    await asyncio.to_thread(buy_virtual_penny_stock, market_id, price)
+    return web.json_response({"status": "ok"})
+
+async def api_sell_penny_stock(request):
+    try:
+        body = await request.json()
+        market_id = body.get("market_id")
+        if not market_id:
+            return web.json_response({"error": "market_id is required"}, status=400)
+    except Exception as e:
+        return web.json_response({"error": f"Invalid request body: {e}"}, status=400)
+        
+    from agents.shared.python.db import sell_virtual_penny_stock
+    await asyncio.to_thread(sell_virtual_penny_stock, market_id)
+    return web.json_response({"status": "ok"})
+
 # === Фабрика приложения ===
 
 def create_dashboard_app() -> web.Application:
@@ -107,6 +135,10 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/equity-curve", api_equity_curve)
     app.router.add_get("/api/signals", api_signals)
     app.router.add_get("/api/corridors", api_corridors)
+    
+    # POST API маршруты (виртуальный портфель)
+    app.router.add_post("/api/penny-stocks/buy", api_buy_penny_stock)
+    app.router.add_post("/api/penny-stocks/sell", api_sell_penny_stock)
     
     logger.info("Application routes successfully registered.")
     return app

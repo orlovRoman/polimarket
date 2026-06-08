@@ -708,6 +708,13 @@ def init_db():
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_penny_status ON penny_stocks_monitoring(status)")
 
+            # Миграция: добавляем поля виртуального портфеля в penny_stocks_monitoring
+            penny_cols = {row[1] for row in cursor.execute("PRAGMA table_info(penny_stocks_monitoring)").fetchall()}
+            if 'virtual_bought_price' not in penny_cols:
+                cursor.execute("ALTER TABLE penny_stocks_monitoring ADD COLUMN virtual_bought_price REAL DEFAULT NULL")
+            if 'virtual_bought_at' not in penny_cols:
+                cursor.execute("ALTER TABLE penny_stocks_monitoring ADD COLUMN virtual_bought_at TIMESTAMP DEFAULT NULL")
+
             # Таблица Favourite Compounding возможностей
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS compound_opportunities (
@@ -2055,7 +2062,8 @@ def get_active_penny_stocks() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
-                   volume_2h, predicted_outcome, edge, confidence, status, spike_alert_sent, added_at
+                   volume_2h, predicted_outcome, edge, confidence, status, spike_alert_sent, added_at,
+                   virtual_bought_price, virtual_bought_at
             FROM penny_stocks_monitoring
             WHERE status = 'ACTIVE'
             ORDER BY added_at DESC
@@ -2078,6 +2086,24 @@ def mark_penny_spike_sent(market_id: str) -> None:
         conn.execute("""
             UPDATE penny_stocks_monitoring
             SET spike_alert_sent = 1
+            WHERE market_id = ?
+        """, (market_id,))
+
+def buy_virtual_penny_stock(market_id: str, price: float) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE penny_stocks_monitoring
+            SET virtual_bought_price = ?,
+                virtual_bought_at = CURRENT_TIMESTAMP
+            WHERE market_id = ?
+        """, (price, market_id))
+
+def sell_virtual_penny_stock(market_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE penny_stocks_monitoring
+            SET virtual_bought_price = NULL,
+                virtual_bought_at = NULL
             WHERE market_id = ?
         """, (market_id,))
 

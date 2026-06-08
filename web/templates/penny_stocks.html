@@ -25,10 +25,26 @@
             <canvas id="equityChart"></canvas>
         </div>
     </div>
-    <div class="chart-card">
-        <div class="chart-title">Распределение цен входа</div>
-        <div style="height: calc(100% - 40px);">
-            <canvas id="entryChart"></canvas>
+    <div class="table-card" style="height: 380px; margin-bottom: 0; display: flex; flex-direction: column; padding: 24px;">
+        <div class="table-title" style="margin-bottom: 10px;">Виртуальный портфель</div>
+        <div class="table-wrapper" style="flex-grow: 1; max-height: calc(100% - 30px); margin-top: 0; overflow-y: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Рынок</th>
+                        <th>Направление</th>
+                        <th>Вход</th>
+                        <th>Текущая</th>
+                        <th>PnL</th>
+                        <th>Действие</th>
+                    </tr>
+                </thead>
+                <tbody id="portfolio-tbody">
+                    <tr>
+                        <td colspan="6" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -48,11 +64,12 @@
                     <th>Прогноз</th>
                     <th>Edge</th>
                     <th>Добавлен</th>
+                    <th>Действие</th>
                 </tr>
             </thead>
             <tbody id="active-positions-tbody">
                 <tr>
-                    <td colspan="9" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
@@ -91,7 +108,32 @@
     }
 
     let equityChart = null;
-    let entryChart = null;
+
+    async function buyVirtual(marketId, price) {
+        const res = await fetch('/api/penny-stocks/buy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ market_id: marketId, price: price })
+        });
+        if (res.ok) {
+            triggerRefresh();
+        } else {
+            console.error("Ошибка покупки");
+        }
+    }
+
+    async function sellVirtual(marketId) {
+        const res = await fetch('/api/penny-stocks/sell', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ market_id: marketId })
+        });
+        if (res.ok) {
+            triggerRefresh();
+        } else {
+            console.error("Ошибка продажи");
+        }
+    }
 
     async function loadPennyStocksData() {
         const data = await fetchJSON('/api/penny-stocks');
@@ -105,15 +147,43 @@
         document.getElementById('kpi-avgentry').textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : '—';
         document.getElementById('kpi-besttrade').innerHTML = formatPnL(data.stats.best_trade_pnl);
 
-        // 2. Рендерим таблицу Активных позиций
+        // 2. Рендерим таблицу Виртуального портфеля
+        const portfolioTbody = document.getElementById('portfolio-tbody');
+        if (!data.portfolio || data.portfolio.length === 0) {
+            portfolioTbody.innerHTML = `<tr><td colspan="6" style="text-align: center;" class="text-muted">Портфель пуст</td></tr>`;
+        } else {
+            portfolioTbody.innerHTML = data.portfolio.map(row => {
+                const pnlClass = row.pnl_cents > 0 ? 'text-green' : row.pnl_cents < 0 ? 'text-red' : '';
+                const pnlSign = row.pnl_cents > 0 ? '+' : '';
+                return `
+                    <tr>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td><span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span></td>
+                        <td>${formatPriceCents(row.virtual_bought_price)}</td>
+                        <td>${formatPriceCents(row.current_price)}</td>
+                        <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent}%)</span></td>
+                        <td>
+                            <button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600;" onclick="sellVirtual('${row.market_id}')">Продать</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 3. Рендерим таблицу Активных позиций
         const activeTbody = document.getElementById('active-positions-tbody');
         if (data.active.length === 0) {
-            activeTbody.innerHTML = `<tr><td colspan="9" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
+            activeTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
         } else {
             activeTbody.innerHTML = data.active.map(row => {
                 const changePct = row.initial_price > 0 ? ((row.current_price - row.initial_price) / row.initial_price * 100) : 0;
                 const changeClass = changePct > 0 ? 'text-green' : changePct < 0 ? 'text-red' : '';
                 const changeSign = changePct > 0 ? '+' : '';
+                
+                const actionBtn = row.virtual_bought_price !== null
+                    ? `<span class="badge badge-blue">В портфеле</span>`
+                    : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${row.current_price})">Купить</button>`;
+
                 return `
                     <tr>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
@@ -125,12 +195,13 @@
                         <td><span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span></td>
                         <td class="${row.edge > 0 ? 'text-green' : ''}">${formatPercent(row.edge)}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.added_at)}</td>
+                        <td>${actionBtn}</td>
                     </tr>
                 `;
             }).join('');
         }
 
-        // 3. Рендерим таблицу Завершенных позиций
+        // 4. Рендерим таблицу Завершенных позиций
         const resolvedTbody = document.getElementById('resolved-positions-tbody');
         if (data.resolved.length === 0) {
             resolvedTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
@@ -155,44 +226,7 @@
             }).join('');
         }
 
-        // 4. Обновляем графики
-        // Распределение цен
-        const labels = Object.keys(data.price_distribution);
-        const values = Object.values(data.price_distribution);
-        
-        if (entryChart) {
-            entryChart.data.datasets[0].data = values;
-            entryChart.update();
-        } else {
-            const ctx = document.getElementById('entryChart').getContext('2d');
-            entryChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Количество',
-                        data: values,
-                        backgroundColor: 'rgba(59, 130, 246, 0.4)',
-                        borderColor: '#3b82f6',
-                        borderWidth: 1.5,
-                        borderRadius: 4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: { beginAtZero: true, grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#9ca3af' } },
-                        x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
-                    },
-                    plugins: {
-                        legend: { display: false }
-                    }
-                }
-            });
-        }
-
-        // Кривая доходности
+        // 5. Обновляем графики
         if (equityData) {
             const dates = equityData.map(e => {
                 const d = new Date(e.date);

@@ -153,3 +153,54 @@ def test_get_corridors_dashboard(isolated_db):
     assert data['temporal'][0]['event_title'] == 'Temporal Title'
     assert len(data['cross']) == 1
     assert data['cross'][0]['market_a_title'] == 'Title A'
+
+def test_virtual_portfolio_operations(isolated_db):
+    # Вставляем Penny Stock в мониторинг
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('penny_v', 'Penny Virtual', 'http://v', 0.04, 0.05, 0.05, 0.04, 'ACTIVE', 'YES')
+        """)
+    
+    # Изначально портфель пуст
+    data = data_provider.get_penny_stocks_dashboard()
+    assert len(data['portfolio']) == 0
+    
+    # "Покупаем" виртуально
+    from agents.shared.python.db import buy_virtual_penny_stock
+    buy_virtual_penny_stock('penny_v', 0.04)
+    
+    data = data_provider.get_penny_stocks_dashboard()
+    assert len(data['portfolio']) == 1
+    assert data['portfolio'][0]['market_id'] == 'penny_v'
+    assert data['portfolio'][0]['virtual_bought_price'] == 0.04
+    assert data['portfolio'][0]['pnl_cents'] == 0.01  # current_price(0.05) - bought(0.04)
+    assert data['portfolio'][0]['pnl_percent'] == 25.0
+    
+    # "Продаем" (удаляем)
+    from agents.shared.python.db import sell_virtual_penny_stock
+    sell_virtual_penny_stock('penny_v')
+    
+    data = data_provider.get_penny_stocks_dashboard()
+    assert len(data['portfolio']) == 0
+
+def test_virtual_portfolio_no_outcome(isolated_db):
+    # Позиция со ставкой на NO
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('penny_no', 'Penny NO', 'http://no', 0.04, 0.03, 0.04, 0.03, 'ACTIVE', 'NO')
+        """)
+        
+    from agents.shared.python.db import buy_virtual_penny_stock
+    buy_virtual_penny_stock('penny_no', 0.04)  # YES=0.04, значит NO=0.96
+    
+    data = data_provider.get_penny_stocks_dashboard()
+    assert len(data['portfolio']) == 1
+    # Цена входа для NO: 1.0 - 0.04 = 0.96
+    # Текущая цена для NO: 1.0 - 0.03 = 0.97
+    # PnL: 0.97 - 0.96 = 0.01¢
+    assert data['portfolio'][0]['bought_outcome_price'] == 0.96
+    assert data['portfolio'][0]['current_outcome_price'] == 0.97
+    assert data['portfolio'][0]['pnl_cents'] == 0.01
+    assert data['portfolio'][0]['pnl_percent'] == 1.04

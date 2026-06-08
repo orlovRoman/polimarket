@@ -112,7 +112,7 @@ def get_penny_stocks_dashboard() -> dict:
     with get_connection() as conn:
         # Активные позиции
         active_rows = conn.execute("""
-            SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, volume_2h, predicted_outcome, edge, confidence, added_at
+            SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, volume_2h, predicted_outcome, edge, confidence, added_at, virtual_bought_price
             FROM penny_stocks_monitoring
             WHERE status = 'ACTIVE' AND initial_price <= 0.10
             ORDER BY added_at DESC
@@ -130,6 +130,39 @@ def get_penny_stocks_dashboard() -> dict:
             LIMIT 50
         """).fetchall()
         resolved = [dict(r) for r in resolved_rows]
+
+        # Виртуальный портфель
+        portfolio_rows = conn.execute("""
+            SELECT market_id, title, url, initial_price, current_price, predicted_outcome, edge, confidence, virtual_bought_price, virtual_bought_at
+            FROM penny_stocks_monitoring
+            WHERE status = 'ACTIVE' AND virtual_bought_price IS NOT NULL
+            ORDER BY virtual_bought_at DESC
+        """).fetchall()
+        
+        portfolio = []
+        for r in portfolio_rows:
+            row_dict = dict(r)
+            pred = row_dict['predicted_outcome']
+            v_bought = row_dict['virtual_bought_price']
+            v_curr = row_dict['current_price']
+            
+            # Учитываем направление ставки
+            if pred == 'NO':
+                bought_outcome = 1.0 - v_bought
+                curr_outcome = 1.0 - v_curr
+            else:  # YES
+                bought_outcome = v_bought
+                curr_outcome = v_curr
+                
+            pnl_cents = curr_outcome - bought_outcome
+            pnl_percent = (pnl_cents / bought_outcome * 100) if bought_outcome > 0 else 0.0
+            
+            row_dict['bought_outcome_price'] = round(bought_outcome, 4)
+            row_dict['current_outcome_price'] = round(curr_outcome, 4)
+            row_dict['pnl_cents'] = round(pnl_cents, 4)
+            row_dict['pnl_percent'] = round(pnl_percent, 2)
+            
+            portfolio.append(row_dict)
 
         # Статистика
         total_active = len(active)
@@ -196,6 +229,7 @@ def get_penny_stocks_dashboard() -> dict:
     return {
         'active': active,
         'resolved': resolved,
+        'portfolio': portfolio,
         'stats': stats,
         'price_distribution': bins
     }

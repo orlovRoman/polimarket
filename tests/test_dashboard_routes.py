@@ -46,3 +46,36 @@ async def test_html_routes_render_200(isolated_db):
             assert resp.status == 200
             html = await resp.text()
             assert "<html" in html.lower()
+
+@pytest.mark.asyncio
+async def test_api_buy_sell_routes(isolated_db):
+    # Создаем тестовую запись
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('penny_api', 'Penny API', 'http://api', 0.04, 0.05, 0.05, 0.04, 'ACTIVE', 'YES')
+        """)
+        
+    app = create_dashboard_app()
+    async with TestClient(TestServer(app)) as client:
+        # Покупаем
+        resp = await client.post("/api/penny-stocks/buy", json={"market_id": "penny_api", "price": 0.04})
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["status"] == "ok"
+        
+        # Проверяем, что в БД записалось
+        rows = db_module.get_active_penny_stocks()
+        item = next(r for r in rows if r['market_id'] == 'penny_api')
+        assert item['virtual_bought_price'] == 0.04
+        
+        # Продаем
+        resp = await client.post("/api/penny-stocks/sell", json={"market_id": "penny_api"})
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["status"] == "ok"
+        
+        # Проверяем сброс в БД
+        rows = db_module.get_active_penny_stocks()
+        item = next(r for r in rows if r['market_id'] == 'penny_api')
+        assert item['virtual_bought_price'] is None
