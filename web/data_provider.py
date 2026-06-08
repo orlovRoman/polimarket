@@ -200,22 +200,31 @@ def get_penny_stocks_dashboard() -> dict:
         for r in portfolio_rows:
             row_dict = dict(r)
             pred = row_dict['predicted_outcome']
+            init = row_dict['initial_price']
             v_bought = row_dict['virtual_bought_price']
             v_curr = row_dict['current_price']
             
+            # Определяем направление сделки
+            if pred is not None:
+                outcome_to_track = pred
+            else:
+                outcome_to_track = 'NO' if (init is not None and init >= 0.90) else 'YES'
+                
+            row_dict['cheap_outcome'] = outcome_to_track
+            
             # Учитываем направление ставки
-            if pred == 'NO':
-                bought_outcome = 1.0 - v_bought
-                curr_outcome = 1.0 - v_curr
+            if outcome_to_track == 'NO':
+                bought_outcome = 1.0 - v_bought if v_bought is not None else None
+                curr_outcome = 1.0 - v_curr if v_curr is not None else None
             else:  # YES
                 bought_outcome = v_bought
                 curr_outcome = v_curr
                 
-            pnl_cents = curr_outcome - bought_outcome
-            pnl_percent = (pnl_cents / bought_outcome * 100) if bought_outcome > 0 else 0.0
+            pnl_cents = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
+            pnl_percent = (pnl_cents / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
             
-            row_dict['bought_outcome_price'] = round(bought_outcome, 4)
-            row_dict['current_outcome_price'] = round(curr_outcome, 4)
+            row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
+            row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
             row_dict['pnl_cents'] = round(pnl_cents, 4)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
             
@@ -256,7 +265,7 @@ def get_penny_stocks_dashboard() -> dict:
                 END
             ) as avg_entry
             FROM penny_stocks_monitoring
-            WHERE (
+            WHERE status = 'ACTIVE' AND (
                 (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
                 (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
                 (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
@@ -284,7 +293,7 @@ def get_penny_stocks_dashboard() -> dict:
                     ELSE initial_price 
                 END as outcome_initial_price
             FROM penny_stocks_monitoring 
-            WHERE (
+            WHERE status = 'ACTIVE' AND (
                 (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
                 (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
                 (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
@@ -355,7 +364,7 @@ def get_corridors_dashboard() -> dict:
     with get_connection() as conn:
         # Синтетические коридоры
         synth_rows = conn.execute("""
-            SELECT signal_id, event_slug, event_title, event_url, lower_level, lower_price_yes, upper_level, upper_price_yes, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, total_invested_usd, pnl_in_corridor_usd, roi_min_pct, roi_max_pct, created_at
+            SELECT signal_id, event_title, event_url, lower_level, lower_price_yes, upper_level, upper_price_yes, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, total_invested_usd, pnl_in_corridor_usd, roi_min_pct, roi_max_pct, created_at
             FROM synthetic_corridors
             ORDER BY created_at DESC
             LIMIT 50
@@ -364,7 +373,7 @@ def get_corridors_dashboard() -> dict:
 
         # Временные коридоры
         temp_rows = conn.execute("""
-            SELECT id, signal_id, event_slug, event_title, event_url, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, early_stake_usd, late_stake_usd, ev_usd, roi_pct, status, created_at
+            SELECT id, signal_id, event_title, event_url, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, early_stake_usd, late_stake_usd, ev_usd, roi_pct, status, created_at
             FROM temporal_corridors
             ORDER BY created_at DESC
             LIMIT 50

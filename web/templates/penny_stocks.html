@@ -616,9 +616,10 @@
                 const changeClass = changePct > 0 ? 'text-green' : changePct < 0 ? 'text-red' : '';
                 const changeSign = changePct > 0 ? '+' : '';
                 
+                const buyPrice = row.current_price !== null ? row.current_price : row.initial_price;
                 const actionBtn = row.virtual_bought_price !== null
                     ? `<span class="badge badge-blue">В портфеле</span>`
-                    : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${row.current_price})">Купить</button>`;
+                    : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;
 
                 const analyzeBtn = `<button class="badge badge-purple" style="border:none; cursor:pointer; font-weight:600; margin-left:4px;" onclick="showAnalysis('${row.market_id}')">Анализ</button>`;
 
@@ -705,12 +706,20 @@
             portfolioTbody.innerHTML = data.portfolio.map(row => {
                 const pnlClass = row.pnl_cents > 0 ? 'text-green' : row.pnl_cents < 0 ? 'text-red' : '';
                 const pnlSign = row.pnl_cents > 0 ? '+' : '';
+                
+                let directionBadge = '';
+                if (row.predicted_outcome !== null) {
+                    directionBadge = `<span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span>`;
+                } else {
+                    directionBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.cheap_outcome} (деш.)</span>`;
+                }
+
                 return `
                     <tr>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
-                        <td><span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span></td>
-                        <td>${formatPriceCents(row.virtual_bought_price)}</td>
-                        <td>${formatPriceCents(row.current_price)}</td>
+                        <td>${directionBadge}</td>
+                        <td>${formatPriceCents(row.bought_outcome_price)}</td>
+                        <td>${formatPriceCents(row.current_outcome_price)}</td>
                         <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent}%)</span></td>
                         <td>
                             <button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600;" onclick="sellVirtual('${row.market_id}')">Продать</button>

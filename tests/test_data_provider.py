@@ -131,7 +131,7 @@ def test_get_penny_stocks_dashboard(isolated_db):
     assert data['resolved'][0]['pnl_realized'] == -10.0
     assert data['stats']['resolved_count'] == 1
     assert data['price_distribution']['1-5¢'] == 2   # penny_a(0.03) + penny_c(0.02)
-    assert data['price_distribution']['5-10¢'] == 1  # penny_b(0.08)
+    assert data['price_distribution']['5-10¢'] == 0  # penny_b(0.08) - RESOLVED, больше не попадает в распределение активных
 
 def test_penny_stocks_dashboard_filtering(isolated_db):
     # Тест фильтрации:
@@ -207,6 +207,20 @@ def test_get_corridors_dashboard(isolated_db):
     assert data['temporal'][0]['event_title'] == 'Temporal Title'
     assert len(data['cross']) == 1
     assert data['cross'][0]['market_a_title'] == 'Title A'
+
+    # Проверяем kpis структуру
+    assert 'kpis' in data
+    for stype in ['synthetic_corridor', 'temporal_corridor', 'cross_platform']:
+        assert stype in data['kpis']
+        kpi = data['kpis'][stype]
+        assert 'total' in kpi
+        assert 'win_rate' in kpi
+        assert 'avg_pnl' in kpi
+        assert 'best_pnl' in kpi
+
+    # При отсутствии сигналов — дефолтные значения, не ошибка
+    assert data['kpis']['synthetic_corridor']['win_rate'] is None
+    assert data['kpis']['synthetic_corridor']['total'] == 0
 
 def test_virtual_portfolio_operations(isolated_db):
     # Вставляем Penny Stock в мониторинг
@@ -311,3 +325,24 @@ def test_null_market_in_active_not_excluded(isolated_db):
     null_row = next(x for x in data['active'] if x['market_id'] == 'null_mkt')
     assert null_row['predicted_outcome'] is None
     assert null_row['cheap_outcome'] == 'YES'
+
+
+def test_virtual_portfolio_null_prediction_no_outcome(isolated_db):
+    """Виртуальный портфель для рынка без прогноза с NO-направлением (init >= 0.90)."""
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('penny_null_no', 'Penny Null NO', 'http://null_no', 0.94, 0.93, 0.94, 0.93, 'ACTIVE', NULL)
+        """)
+        
+    from agents.shared.python.db import buy_virtual_penny_stock
+    buy_virtual_penny_stock('penny_null_no', 0.94)
+    
+    data = data_provider.get_penny_stocks_dashboard()
+    assert len(data['portfolio']) == 1
+    p = data['portfolio'][0]
+    assert p['cheap_outcome'] == 'NO'
+    assert p['bought_outcome_price'] == pytest.approx(0.06, abs=1e-4)
+    assert p['current_outcome_price'] == pytest.approx(0.07, abs=1e-4)
+    assert p['pnl_cents'] == pytest.approx(0.01, abs=1e-4)
+
