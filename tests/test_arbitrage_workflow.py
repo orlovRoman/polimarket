@@ -105,6 +105,7 @@ def test_no_unconditional_sleep_on_success():
 
         signal = MagicMock()
         signal.has_arbitrage = False
+        signal.spread_percent = 0.0
         MockAgent.return_value.analyze_cross_platform.return_value = signal
 
         from core.arbitrage_workflow import run_cross_platform_scan

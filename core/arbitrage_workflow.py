@@ -172,7 +172,7 @@ def run_cross_platform_scan(
 
         # Логируем в Eval Engine всегда, если есть спред
         spread_val = getattr(signal, "spread_percent", 0) or 0
-        if type(spread_val).__name__ not in ('Mock', 'MagicMock') and spread_val > 0:
+        if spread_val > 0:
             try:
                 from core.eval.signal_logger import SignalLogger, StrategyType
                 logger_eval = SignalLogger()
