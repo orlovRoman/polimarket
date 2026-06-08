@@ -214,7 +214,7 @@ class AuthMiddleware(BaseMiddleware):
                 event.data.startswith(prefix) for prefix in (
                     "ignore_mkt_", "watch_mkt_", "add_idea_", 
                     "compound_buy:", "compound_skip:", "compound_sell:",
-                    "reindex_rag", "analyze_mkt_"
+                    "reindex_rag", "analyze_mkt_", "cmp_ana_a:", "cmp_ana_l:"
                 )
             )
             if not is_stale_bypass:
@@ -3359,6 +3359,43 @@ async def handle_compound_skip(callback: types.CallbackQuery):
     await callback.answer("❌ Пропущено")
     await callback.message.edit_reply_markup(reply_markup=None)
 
+@dp.callback_query(F.data.startswith("cmp_ana_a:"))
+async def callback_compound_analyze_alert(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+
+    market_id = callback.data.split(":", 1)[1]
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+        
+    callback.data = f"analyze_mkt_{market_id}"
+    await callback_analyze_market(callback)
+
+@dp.callback_query(F.data.startswith("cmp_ana_l:"))
+async def callback_compound_analyze_list(callback: CallbackQuery) -> None:
+    async with _callback_dedup_lock:
+        is_processed = callback.id in _processed_callback_ids
+        if not is_processed:
+            _processed_callback_ids.append(callback.id)
+            
+    if is_processed:
+        await callback.answer()
+        return
+
+    parts = callback.data.split(":")
+    market_id = parts[1]
+    
+    callback.data = f"analyze_mkt_{market_id}"
+    await callback_analyze_market(callback)
+
 @dp.callback_query(lambda c: c.data and c.data.startswith("compound_sell:"))
 async def handle_compound_sell(callback: types.CallbackQuery):
     # Формат: compound_sell:{opp_id}:{exit_price}
@@ -3516,7 +3553,7 @@ async def _send_compound_list(message_or_callback, page: int = 0) -> None:
         
     action_row = [
         InlineKeyboardButton(text="✅ Купил", callback_data=f"compound_buy:{opp['id']}:{page}"),
-        InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"compound_skip:{opp['id']}:{page}")
+        InlineKeyboardButton(text="🔍 Проанализировать", callback_data=f"cmp_ana_l:{opp['market_id'][:40]}:{page}")
     ]
     
     kb = InlineKeyboardMarkup(inline_keyboard=[

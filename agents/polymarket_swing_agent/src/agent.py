@@ -40,7 +40,8 @@ class SwingAgent:
         news_titles = context.news_titles
         reddit_posts = context.reddit_posts
         wiki_context = context.wiki_context
-        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        now_utc = datetime.now(timezone.utc)
+        now_str = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
         price_hist = price_history or []
         
         try:
@@ -95,12 +96,15 @@ class SwingAgent:
 
         # Считаем метрики для hype_potential
         price_now = market.price
-        price_raw = price_hist[-7].get("price", "") if len(price_hist) >= 7 else ""
+        price_raw = ""
+        if len(price_hist) >= 7:
+            entry = price_hist[-7]
+            if isinstance(entry, dict):
+                price_raw = entry.get("price", "")
         price_6h_ago = _safe_float(price_raw, price_now)
         price_delta_6h = price_now - price_6h_ago
 
         close_dt = market.close_time
-        now_utc = datetime.now(tz=timezone.utc)
         if close_dt.tzinfo is None:
             close_dt = close_dt.replace(tzinfo=timezone.utc)
         hours_to_close = max((close_dt - now_utc).total_seconds() / 3600, 0)
@@ -139,7 +143,6 @@ class SwingAgent:
 
         # Теперь считаем recent_news_count из уже обработанного списка
         recent_news_count = 0
-        now = datetime.now(tz=timezone.utc)
         for ni in news_items_to_guard:
             pub = ni.get("published")
             if pub:
@@ -147,7 +150,7 @@ class SwingAgent:
                     pub_dt = datetime.fromisoformat(pub)
                     if pub_dt.tzinfo is None:
                         pub_dt = pub_dt.replace(tzinfo=timezone.utc)
-                    age_h = (now - pub_dt).total_seconds() / 3600
+                    age_h = (now_utc - pub_dt).total_seconds() / 3600
                     if 0 <= age_h <= 6:
                         recent_news_count += 1
                 except Exception:
@@ -173,7 +176,7 @@ class SwingAgent:
 
         news_block = guard_news_with_age(
             news_items_to_guard,
-            now=now
+            now=now_utc
         )
         
         IS_TECH_MARKET = any(kw in market.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
@@ -329,6 +332,7 @@ class SwingAgent:
         TEXT_FIELDS = ["reasoning", "catalyst", "catalyst_absence_reason", "swing_risk", "swing_verdict", "risk", "verdict"]
         
         analysis = None
+        signal = None
         for attempt in range(3):
             result, active_model = generate_content_with_fallback(
                 api_key=self.api_key,
@@ -395,23 +399,27 @@ class SwingAgent:
                 analysis["hype_potential"] = hype_score
 
                 # 1. Horizon strategy min_confidence filter
-                rejection_reason = ""
+                rejection_reasons = []
                 if analysis["recommendation"] == "buy":
                     if not has_hard_facts:
                         if analysis["confidence"] < horizon.min_confidence:
                             analysis["recommendation"] = "ignore"
-                            rejection_reason = f"Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} < минимум {horizon.min_confidence}"
+                            rejection_reasons.append(f"Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} < минимум {horizon.min_confidence}")
                         if horizon.require_immediate_catalyst:
                             catalyst = analysis.get("catalyst", "").lower()
                             no_catalyst_phrases = ["нет катализатора", "отсутствует", "не найден", "не обнаружен"]
                             if any(ph in catalyst for ph in no_catalyst_phrases):
                                 analysis["recommendation"] = "ignore"
-                                rejection_reason = f"Горизонт {horizon.label}: нет немедленного катализатора"
+                                rejection_reasons.append(f"Горизонт {horizon.label}: нет немедленного катализатора")
 
                 # 2. ROI-фильтр
                 from agents.shared.utils.roi_filter import apply_roi_filter
                 if has_hard_facts:
-                    target_val = target_price if target_price > market.price else 0.99
+                    if direction == "YES":
+                        target_val = target_price if target_price > market.price else 0.99
+                    else: # NO
+                        no_entry = 1.0 - market.price
+                        target_val = (1.0 - target_price) if (1.0 - target_price) > no_entry else 0.99
                     from agents.shared.utils.roi_filter import ROIFilterResult
                     entry_p = market.price if direction == "YES" else (1.0 - market.price)
                     entry_p = max(entry_p, 0.001)
@@ -430,12 +438,12 @@ class SwingAgent:
                     )
                 if not roi_result.passes and analysis["recommendation"] == "buy":
                     analysis["recommendation"] = "ignore"
-                    rejection_reason = f"ROI-фильтр: {roi_result.rejection_reason}"
+                    rejection_reasons.append(f"ROI-фильтр: {roi_result.rejection_reason}")
 
                 # 3. Контрарианский анализ
                 if not has_hard_facts and asymmetry < 0.55 and analysis["recommendation"] == "buy":
                     analysis["recommendation"] = "ignore"
-                    rejection_reason = f"Асимметрия {asymmetry:.2f} < 0.55 — рынок сбалансирован, нет edge"
+                    rejection_reasons.append(f"Асимметрия {asymmetry:.2f} < 0.55 — рынок сбалансирован, нет edge")
 
                 # 4. Catalyst verifier (ПОСЛЕДНИМ)
                 from agents.shared.utils.catalyst_verifier import verify_catalyst
@@ -456,7 +464,9 @@ class SwingAgent:
                     analysis["confidence"] = round(max(0.1, old_conf - catalyst_check.confidence_penalty), 3)
                     if analysis["confidence"] < horizon.min_confidence and analysis["recommendation"] == "buy":
                         analysis["recommendation"] = "ignore"
-                        rejection_reason = f"[{catalyst_check.warning}] → отозван (нет катализатора)"
+                        rejection_reasons.append(f"[{catalyst_check.warning}] → отозван (нет катализатора)")
+
+                rejection_reason = " | ".join(rejection_reasons) if rejection_reasons else "Низкий потенциал хайпа"
 
                 recommendation = analysis.get("recommendation", "ignore").lower()
                 hype_potential = _safe_float(analysis.get("hype_potential"), 0.0)
@@ -471,7 +481,7 @@ class SwingAgent:
                 if recommendation == 'buy':
                     final_verdict += "✅ Рекомендация: ВХОДИТЬ"
                 else:
-                    final_verdict += f"⏸ Причина пропуска: {rejection_reason or 'Низкий потенциал хайпа'}"
+                    final_verdict += f"⏸ Причина пропуска: {rejection_reason}"
                 
                 # Расчет ROI для деталей
                 current_price = market.price if target_outcome == "YES" else (1.0 - market.price)
@@ -505,11 +515,11 @@ class SwingAgent:
                         f"Обоснование: {analysis.get('reasoning', '')}"
                     )
                 )
-                return signal
+                break
                 
             except json.JSONDecodeError as e:
                 print(f"[SWING] Ошибка парсинга JSON (попытка {attempt+1}): {e}")
             except Exception as e:
                 print(f"[SWING] Ошибка при оценке рынка {market.id} (попытка {attempt+1}): {e}")
                 
-        return None
+        return signal

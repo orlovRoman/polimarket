@@ -326,3 +326,37 @@ async def test_send_compound_exit_alert_safety():
             await send_compound_exit_alert(bot, chat_id, opp, 0.95)
             
     assert bot.send_message.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_callback_compound_analyze_alert_handler():
+    from telegram.bot import callback_compound_analyze_alert
+    from unittest.mock import AsyncMock, patch
+
+    cb = AsyncMock()
+    cb.data = "cmp_ana_a:test_market_123"
+    cb.message = AsyncMock()
+    
+    with patch("telegram.bot.callback_analyze_market", new_callable=AsyncMock) as mock_analyze:
+        await callback_compound_analyze_alert(cb)
+        
+        cb.message.edit_reply_markup.assert_called_once_with(reply_markup=None)
+        mock_analyze.assert_called_once_with(cb)
+        assert cb.data == "analyze_mkt_test_market_123"
+
+
+@pytest.mark.asyncio
+async def test_callback_compound_analyze_list_handler():
+    from telegram.bot import callback_compound_analyze_list
+    from unittest.mock import AsyncMock, patch
+
+    cb = AsyncMock()
+    cb.data = "cmp_ana_l:test_market_456:2"
+    cb.message = AsyncMock()
+    
+    with patch("telegram.bot.callback_analyze_market", new_callable=AsyncMock) as mock_analyze:
+        await callback_compound_analyze_list(cb)
+        
+        cb.message.edit_reply_markup.assert_not_called()
+        mock_analyze.assert_called_once_with(cb)
+        assert cb.data == "analyze_mkt_test_market_456"

@@ -462,8 +462,8 @@ async def send_compound_alert(bot, chat_id: int, opp) -> None:
             callback_data=f"compound_buy:{opp.opp_id}"
         ),
         InlineKeyboardButton(
-            text="❌ Пропустить",
-            callback_data=f"compound_skip:{opp.opp_id}"
+            text="🔍 Проанализировать",
+            callback_data=f"cmp_ana_a:{opp.market_id[:40]}"
         ),
         InlineKeyboardButton(
             text="🔗 Открыть",
