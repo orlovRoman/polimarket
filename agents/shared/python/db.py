@@ -64,7 +64,6 @@ def _escape_like(pattern: str) -> str:
 _db_initialized = False
 _db_init_lock = threading.Lock()
 
-@_ensure_initializing
 def init_db():
     """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
     global _db_initialized
@@ -75,9 +74,20 @@ def init_db():
         if _db_initialized:  # double-check после получения лока
             return
                 
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        
-        with get_connection() as conn:
+        try:
+            _init_db_impl()
+            _db_initialized = True
+            logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
+        except Exception as e:
+            logger.error(f"init_db failed: {e}", exc_info=True)
+            raise
+
+@_ensure_initializing
+def _init_db_impl():
+    """Внутренняя реализация инициализации таблиц базы данных."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    
+    with get_connection() as conn:
 
             cursor = conn.cursor()
             
@@ -782,8 +792,6 @@ def init_db():
                 )
             """)
 
-        _db_initialized = True
-        logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
 
 # ─── Списки рынков: Игнорировать / Следить ──────────────────────────────────
 
