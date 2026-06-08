@@ -7,11 +7,22 @@ from core.eval.signal_logger import SignalLogger, StrategyType
 from services.signal_resolver import resolve_pending_signals
 
 @pytest.fixture(autouse=True)
-def setup_test_db():
+def setup_test_db(tmp_path, monkeypatch):
+    test_db = tmp_path / "test.db"
+    
+    import config
+    import agents.shared.python.db as db_module
+    import core.eval.signal_logger as sl_module
+    
+    monkeypatch.setattr(config, "DB_PATH", test_db)
+    monkeypatch.setattr(db_module, "DB_PATH", test_db)
+    monkeypatch.setattr(sl_module, "DB_PATH", test_db)
+    
+    monkeypatch.setattr(db_module, "_db_initialized", False)
+    
+    from agents.shared.python.db import init_db
     init_db()
-    with get_connection() as conn:
-        conn.execute("DELETE FROM signals")
-        conn.execute("DELETE FROM markets")
+    yield
 
 def test_resolve_pending_signals_logic():
     # Создаем тестовые рынки в БД
@@ -112,24 +123,72 @@ def test_resolve_pending_signals_logic():
     # Проверяем статусы сигналов в БД
     with get_connection() as conn:
         # sig-yes-win -> WIN
-        row = conn.execute("SELECT status, was_profitable FROM signals WHERE id = 'sig-yes-win'").fetchone()
+        row = conn.execute("SELECT status, was_profitable, resolved_at FROM signals WHERE id = 'sig-yes-win'").fetchone()
         assert row["status"] == "WIN"
         assert row["was_profitable"] == 1
+        assert row["resolved_at"] is not None
         
         # sig-yes-loss -> LOSS
-        row = conn.execute("SELECT status, was_profitable FROM signals WHERE id = 'sig-yes-loss'").fetchone()
+        row = conn.execute("SELECT status, was_profitable, resolved_at FROM signals WHERE id = 'sig-yes-loss'").fetchone()
         assert row["status"] == "LOSS"
         assert row["was_profitable"] == 0
+        assert row["resolved_at"] is not None
 
         # sig-no-win -> WIN
-        row = conn.execute("SELECT status, was_profitable FROM signals WHERE id = 'sig-no-win'").fetchone()
+        row = conn.execute("SELECT status, was_profitable, resolved_at FROM signals WHERE id = 'sig-no-win'").fetchone()
         assert row["status"] == "WIN"
         assert row["was_profitable"] == 1
+        assert row["resolved_at"] is not None
 
         # sig-future -> PENDING (не изменился)
-        row = conn.execute("SELECT status FROM signals WHERE id = 'sig-future'").fetchone()
+        row = conn.execute("SELECT status, resolved_at FROM signals WHERE id = 'sig-future'").fetchone()
         assert row["status"] == "PENDING"
+        assert row["resolved_at"] is None
 
         # sig-middle -> PENDING (не изменился)
-        row = conn.execute("SELECT status FROM signals WHERE id = 'sig-middle'").fetchone()
+        row = conn.execute("SELECT status, resolved_at FROM signals WHERE id = 'sig-middle'").fetchone()
         assert row["status"] == "PENDING"
+        assert row["resolved_at"] is None
+
+
+def test_log_signal_archives_old_pending():
+    # Создаем один тестовый рынок
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO markets (id, platform, title, description, url, outcome, price, close_time, tokens, volume) "
+            "VALUES ('mkt-unique-test', 'polymarket', 'Unique Test Market', '', 'http://test.5', 'YES', 0.5, '2026-06-08 12:00:00', '[]', 1000.0)"
+        )
+        
+    logger = SignalLogger()
+    
+    # Записываем первый сигнал по этому рынку (статус PENDING)
+    logger.log_signal(
+        signal_id="sig-first-pending",
+        strategy_type=StrategyType.SCOUT,
+        market_id="mkt-unique-test",
+        predicted_probability=0.7,
+        market_price_at_signal=0.5,
+        edge_at_signal=0.2,
+        metadata={"target_outcome": "YES"}
+    )
+    
+    # Записываем второй сигнал по тому же рынку (тоже должен быть PENDING)
+    # Это должно отработать без IntegrityError благодаря авто-архивации старого сигнала
+    logger.log_signal(
+        signal_id="sig-second-pending",
+        strategy_type=StrategyType.SCOUT,
+        market_id="mkt-unique-test",
+        predicted_probability=0.8,
+        market_price_at_signal=0.5,
+        edge_at_signal=0.3,
+        metadata={"target_outcome": "YES"}
+    )
+    
+    # Проверяем статусы сигналов в БД:
+    # Первый должен стать ARCHIVED, а второй остаться PENDING
+    with get_connection() as conn:
+        row1 = conn.execute("SELECT status FROM signals WHERE id = 'sig-first-pending'").fetchone()
+        assert row1["status"] == "ARCHIVED"
+        
+        row2 = conn.execute("SELECT status FROM signals WHERE id = 'sig-second-pending'").fetchone()
+        assert row2["status"] == "PENDING"

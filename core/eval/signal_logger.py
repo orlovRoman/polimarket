@@ -95,6 +95,11 @@ class SignalLogger:
 
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                # Архивируем старый PENDING сигнал по этому рынку, чтобы освободить UNIQUE индекс
+                cursor.execute(
+                    "UPDATE signals SET status='ARCHIVED' WHERE market_id=? AND status='PENDING' AND id != ?",
+                    (payload.market_id, payload.signal_id)
+                )
                 cursor.execute("""
                     INSERT INTO signals (
                         id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at,
