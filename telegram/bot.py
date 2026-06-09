@@ -188,6 +188,7 @@ async def continuous_monitoring_loop() -> None:
                 await asyncio.sleep(5)
     except asyncio.CancelledError:
         logger.info("⏹ Мониторинг отменён (CancelledError)")
+        raise
     finally:
         _monitoring_task = None
         _monitoring_stop_event = None

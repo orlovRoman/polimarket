@@ -44,7 +44,7 @@ async def run_watchlist_monitor(bot, chat_id: str) -> None:
             await _check_watchlist(bot, chat_id)
         except asyncio.CancelledError:
             logger.info("[WatchlistMonitor] Получен сигнал отмены, завершаем.")
-            break
+            raise
         except Exception as e:
             logger.error(f"[WatchlistMonitor] Ошибка в цикле мониторинга: {e}", exc_info=True)
         
@@ -52,7 +52,7 @@ async def run_watchlist_monitor(bot, chat_id: str) -> None:
             await asyncio.sleep(POLL_INTERVAL_SEC)
         except asyncio.CancelledError:
             logger.info("[WatchlistMonitor] Ожидание прервано, завершаем.")
-            break
+            raise
 
 
 async def _check_watchlist(bot, chat_id: str) -> None:

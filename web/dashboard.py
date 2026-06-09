@@ -57,8 +57,32 @@ async def api_overview(request):
     data = await asyncio.to_thread(data_provider.get_overview_stats)
     return web.json_response(data)
 
+def get_int_query(request, name, default):
+    val_str = request.query.get(name)
+    if not val_str:
+        return default
+    try:
+        return int(val_str)
+    except ValueError:
+        return default
+
 async def api_penny_stocks(request):
-    data = await asyncio.to_thread(data_provider.get_penny_stocks_dashboard)
+    active_page = get_int_query(request, "active_page", 1)
+    active_limit = get_int_query(request, "active_limit", 50)
+    resolved_page = get_int_query(request, "resolved_page", 1)
+    resolved_limit = get_int_query(request, "resolved_limit", 50)
+    history_page = get_int_query(request, "history_page", 1)
+    history_limit = get_int_query(request, "history_limit", 50)
+    
+    data = await asyncio.to_thread(
+        data_provider.get_penny_stocks_dashboard,
+        active_page=active_page,
+        active_limit=active_limit,
+        resolved_page=resolved_page,
+        resolved_limit=resolved_limit,
+        history_page=history_page,
+        history_limit=history_limit
+    )
     return web.json_response(data)
 
 async def api_equity_curve(request):
@@ -90,8 +114,41 @@ async def api_signals(request):
     return web.json_response(data)
 
 async def api_corridors(request):
-    data = await asyncio.to_thread(data_provider.get_corridors_dashboard)
+    synthetic_page = get_int_query(request, "synthetic_page", 1)
+    synthetic_limit = get_int_query(request, "synthetic_limit", 50)
+    temporal_page = get_int_query(request, "temporal_page", 1)
+    temporal_limit = get_int_query(request, "temporal_limit", 50)
+    cross_page = get_int_query(request, "cross_page", 1)
+    cross_limit = get_int_query(request, "cross_limit", 50)
+    
+    data = await asyncio.to_thread(
+        data_provider.get_corridors_dashboard,
+        synthetic_page=synthetic_page,
+        synthetic_limit=synthetic_limit,
+        temporal_page=temporal_page,
+        temporal_limit=temporal_limit,
+        cross_page=cross_page,
+        cross_limit=cross_limit
+    )
     return web.json_response(data)
+
+async def api_delete_market(request):
+    try:
+        body = await request.json()
+        table_name = body.get("table_name")
+        record_id = body.get("record_id")
+        if not table_name or record_id is None:
+            return web.json_response({"error": "table_name and record_id are required"}, status=400)
+    except Exception as e:
+        return web.json_response({"error": f"Invalid JSON body: {e}"}, status=400)
+        
+    from agents.shared.python.db import delete_market_record
+    
+    success = await asyncio.to_thread(delete_market_record, table_name, str(record_id))
+    if success:
+        return web.json_response({"status": "ok"})
+    else:
+        return web.json_response({"error": "Failed to delete record or record not found"}, status=500)
 
 async def api_buy_penny_stock(request):
     try:
@@ -119,7 +176,7 @@ async def api_buy_penny_stock(request):
         await asyncio.to_thread(buy_virtual_penny_stock, market_id, price)
         return web.json_response({"status": "ok"})
     except Exception as e:
-        logger.error(f"Error in api_buy_penny_stock: {e}", exc_info=True)
+        logger.exception("Error in api_buy_penny_stock")
         return web.json_response({"error": f"Internal server error: {e}"}, status=500)
 
 async def api_sell_penny_stock(request):
@@ -141,7 +198,7 @@ async def api_sell_penny_stock(request):
         await asyncio.to_thread(sell_virtual_penny_stock, market_id)
         return web.json_response({"status": "ok"})
     except Exception as e:
-        logger.error(f"Error in api_sell_penny_stock: {e}", exc_info=True)
+        logger.exception("Error in api_sell_penny_stock")
         return web.json_response({"error": f"Internal server error: {e}"}, status=500)
 
 async def api_discover_penny_stocks(request):
@@ -204,7 +261,7 @@ async def api_discover_penny_stocks(request):
         return web.json_response({"status": "ok", "discovered": new_discovered})
         
     except Exception as e:
-        logger.error(f"Error in api_discover_penny_stocks: {e}", exc_info=True)
+        logger.exception("Error in api_discover_penny_stocks")
         return web.json_response({"error": str(e)}, status=500)
 
 # === Фоновый запуск анализа ===
@@ -230,14 +287,14 @@ async def analysis_worker():
         try:
             market_id = await _analysis_queue.get()
         except asyncio.CancelledError:
-            break
+            raise
         except Exception as e:
             logger.error(f"analysis_worker: ошибка получения задания: {e}")
             continue  # task_done не нужен — задание не было взято
         try:
             await run_analysis_in_background(market_id)
         except Exception as e:
-            logger.error(f"Error in analysis worker for {market_id}: {e}", exc_info=True)
+            logger.exception(f"Error in analysis worker for {market_id}")
         finally:
             _analysis_queue.task_done()
 
@@ -406,7 +463,7 @@ async def _run_analysis_in_background_impl(market_id: str):
             }
         
     except Exception as e:
-        logger.error(f"Error in background dashboard analysis for {market_id}: {e}", exc_info=True)
+        logger.exception(f"Error in background dashboard analysis for {market_id}")
         with _jobs_lock:
             analysis_jobs[market_id] = {
                 "status": "failed",
@@ -540,6 +597,7 @@ def create_dashboard_app() -> web.Application:
     app.router.add_post("/api/penny-stocks/analyze", api_analyze_penny_stock)
     app.router.add_get("/api/penny-stocks/analyze-status", api_analyze_status)
     app.router.add_post("/api/penny-stocks/discover", api_discover_penny_stocks)
+    app.router.add_post("/api/delete-market", api_delete_market)
     
     logger.info("Application routes successfully registered.")
     
@@ -550,9 +608,11 @@ def create_dashboard_app() -> web.Application:
             task = asyncio.create_task(analysis_worker(), name=f"analysis-worker-{i}")
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)
+        await asyncio.sleep(0)
             
     async def on_cleanup(app):
         _analysis_executor.shutdown(wait=False)
+        await asyncio.sleep(0)
 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)

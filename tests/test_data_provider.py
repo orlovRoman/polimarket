@@ -25,7 +25,7 @@ def test_get_overview_stats_empty(isolated_db):
     assert isinstance(stats, dict)
     assert 'scout' in stats
     assert stats['scout']['win_rate'] is None
-    assert stats['scout']['pnl_7d'] == 0.0
+    assert stats['scout']['pnl_7d'] == pytest.approx(0.0)
 
 def test_get_overview_stats_with_data(isolated_db):
     # Создаем тестовый рынок
@@ -56,10 +56,10 @@ def test_get_overview_stats_with_data(isolated_db):
         """)
 
     stats = data_provider.get_overview_stats()
-    assert stats['scout']['win_rate'] == 1.0
-    assert stats['scout']['sharpe'] == 2.5
-    assert stats['scout']['pnl_7d'] == 15.0
-    assert stats['scout']['pnl_30d'] == 15.0
+    assert stats['scout']['win_rate'] == pytest.approx(1.0)
+    assert stats['scout']['sharpe'] == pytest.approx(2.5)
+    assert stats['scout']['pnl_7d'] == pytest.approx(15.0)
+    assert stats['scout']['pnl_30d'] == pytest.approx(15.0)
     assert stats['scout']['signals_count'] == 1
     assert stats['scout']['status_emoji'] == "🟢"
 
@@ -79,8 +79,8 @@ def test_get_equity_curve(isolated_db):
 
     curve = data_provider.get_equity_curve('scout', days=30)
     assert len(curve) == 2
-    assert curve[0]['cumulative_pnl'] == 10.0
-    assert curve[1]['cumulative_pnl'] == 5.0
+    assert curve[0]['cumulative_pnl'] == pytest.approx(10.0)
+    assert curve[1]['cumulative_pnl'] == pytest.approx(5.0)
 
     # Проверяем режим 'all'
     all_curves = data_provider.get_equity_curve('all', days=30)
@@ -189,7 +189,7 @@ def test_get_auto_disable_candidates(isolated_db):
     candidates = data_provider.get_auto_disable_candidates()
     assert len(candidates) == 1
     assert candidates[0]['strategy_type'] == 'scout'
-    assert candidates[0]['sharpe_ratio'] == -1.5
+    assert candidates[0]['sharpe_ratio'] == pytest.approx(-1.5)
 
 def test_get_corridors_dashboard(isolated_db):
     with db_module.get_connection() as conn:
@@ -230,7 +230,7 @@ def test_get_corridors_dashboard(isolated_db):
         assert 'best_pnl' in kpi
 
     # Проверяем win_rate при wins=0, total=1
-    assert data['kpis']['synthetic_corridor']['win_rate'] == 0.0
+    assert data['kpis']['synthetic_corridor']['win_rate'] == pytest.approx(0.0)
     assert data['kpis']['synthetic_corridor']['total'] == 1
     
     # При отсутствии сигналов — дефолтные значения, не ошибка
@@ -256,9 +256,9 @@ def test_virtual_portfolio_operations(isolated_db):
     data = data_provider.get_penny_stocks_dashboard()
     assert len(data['portfolio']) == 1
     assert data['portfolio'][0]['market_id'] == 'penny_v'
-    assert data['portfolio'][0]['virtual_bought_price'] == 0.04
-    assert data['portfolio'][0]['pnl_cents'] == 0.01  # current_price(0.05) - bought(0.04)
-    assert data['portfolio'][0]['pnl_percent'] == 25.0
+    assert data['portfolio'][0]['virtual_bought_price'] == pytest.approx(0.04)
+    assert data['portfolio'][0]['pnl_cents'] == pytest.approx(0.01)  # current_price(0.05) - bought(0.04)
+    assert data['portfolio'][0]['pnl_percent'] == pytest.approx(25.0)
     
     # "Продаем" (удаляем)
     from agents.shared.python.db import sell_virtual_penny_stock
@@ -383,10 +383,10 @@ def test_virtual_sell_saves_to_history(isolated_db):
         row = conn.execute("SELECT * FROM penny_virtual_trades_history WHERE market_id = 'penny_v2'").fetchone()
         assert row is not None
         assert row['outcome'] == 'YES'
-        assert row['bought_price'] == 0.04
-        assert row['bought_outcome_price'] == 0.04
-        assert row['sold_price'] == 0.06
-        assert row['sold_outcome_price'] == 0.06
+        assert row['bought_price'] == pytest.approx(0.04)
+        assert row['bought_outcome_price'] == pytest.approx(0.04)
+        assert row['sold_price'] == pytest.approx(0.06)
+        assert row['sold_outcome_price'] == pytest.approx(0.06)
         assert row['pnl_cents'] == pytest.approx(0.02, abs=1e-4)
         assert row['pnl_percent'] == pytest.approx(50.0, abs=1e-4)
 
@@ -409,10 +409,10 @@ def test_resolve_closes_virtual_trade(isolated_db):
         row = conn.execute("SELECT * FROM penny_virtual_trades_history WHERE market_id = 'penny_v3'").fetchone()
         assert row is not None
         assert row['outcome'] == 'NO'
-        assert row['bought_price'] == 0.95
+        assert row['bought_price'] == pytest.approx(0.95)
         assert row['bought_outcome_price'] == pytest.approx(0.05, abs=1e-4)
-        assert row['sold_price'] == 0.0  # YES-цена при выигрыше NO равна 0.0
-        assert row['sold_outcome_price'] == 1.0  # выиграли, исход равен 1.0
+        assert row['sold_price'] == pytest.approx(0.0)  # YES-цена при выигрыше NO равна 0.0
+        assert row['sold_outcome_price'] == pytest.approx(1.0)  # выиграли, исход равен 1.0
         assert row['pnl_cents'] == pytest.approx(0.95, abs=1e-4) # 1.0 - 0.05
         assert row['pnl_percent'] == pytest.approx(1900.0, abs=1e-4)
 

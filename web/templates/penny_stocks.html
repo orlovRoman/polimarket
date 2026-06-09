@@ -52,6 +52,7 @@
             <table>
                 <thead>
                     <tr>
+                        <th>#</th>
                         <th>Рынок</th>
                         <th>Направление</th>
                         <th>Вход</th>
@@ -62,7 +63,7 @@
                 </thead>
                 <tbody id="portfolio-tbody">
                     <tr>
-                        <td colspan="6" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                        <td colspan="7" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                     </tr>
                 </tbody>
             </table>
@@ -76,6 +77,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>#</th>
                     <th onclick="toggleSort('active', 'title')" style="cursor:pointer; user-select:none;">Рынок<span id="sort-active-title"></span></th>
                     <th onclick="toggleSort('active', 'initial_price_outcome')" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-active-initial_price_outcome"></span></th>
                     <th onclick="toggleSort('active', 'current_price_outcome')" style="cursor:pointer; user-select:none;">Текущая<span id="sort-active-current_price_outcome"></span></th>
@@ -89,11 +91,12 @@
             </thead>
             <tbody id="active-positions-tbody">
                 <tr>
-                    <td colspan="9" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
     </div>
+    <div id="active-pagination"></div>
 </div>
 
 <div class="table-card">
@@ -102,6 +105,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>#</th>
                     <th onclick="toggleSort('resolved', 'title')" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
                     <th onclick="toggleSort('resolved', 'initial_price_outcome')" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome"></span></th>
                     <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome"></span></th>
@@ -111,15 +115,17 @@
                     <th onclick="toggleSort('resolved', 'pnl_realized')" style="cursor:pointer; user-select:none;">PnL<span id="sort-resolved-pnl_realized"></span></th>
                     <th onclick="toggleSort('resolved', 'was_correct')" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
                     <th onclick="toggleSort('resolved', 'resolved_at')" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
+                    <th>Действие</th>
                 </tr>
             </thead>
             <tbody id="resolved-positions-tbody">
                 <tr>
-                    <td colspan="9" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="11" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
     </div>
+    <div id="resolved-pagination"></div>
 </div>
 
 <div class="table-card">
@@ -128,6 +134,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>#</th>
                     <th>Рынок</th>
                     <th>Направление</th>
                     <th>Вход</th>
@@ -139,11 +146,12 @@
             </thead>
             <tbody id="virtual-history-tbody">
                 <tr>
-                    <td colspan="7" style="text-align: center;" class="text-muted">История пуста</td>
+                    <td colspan="8" style="text-align: center;" class="text-muted">История пуста</td>
                 </tr>
             </tbody>
         </table>
     </div>
+    <div id="history-pagination"></div>
 </div>
 
 <style>
@@ -719,6 +727,53 @@
         }
     }
 
+    let pagination = {
+        active: { page: 1, limit: 50, total: 0 },
+        resolved: { page: 1, limit: 50, total: 0 },
+        history: { page: 1, limit: 50, total: 0 }
+    };
+
+    async function deleteMarket(tableName, recordId) {
+        if (!confirm('Вы уверены, что хотите скрыть этот рынок из мониторинга?')) return;
+        try {
+            const res = await fetch('/api/delete-market', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table_name: tableName, record_id: recordId })
+            });
+            const ret = await res.json();
+            if (ret.status === 'ok') {
+                showToast('Рынок скрыт');
+                await loadPennyStocksData();
+            } else {
+                alert('Ошибка: ' + (ret.error || 'не удалось удалить'));
+            }
+        } catch (err) {
+            alert('Ошибка запроса: ' + err);
+        }
+    }
+
+    function renderPaginationControls(containerId, sectionKey) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        const p = pagination[sectionKey];
+        const totalPages = Math.max(1, Math.ceil(p.total / p.limit));
+        
+        container.innerHTML = `
+            <div class="pagination-controls" style="display:flex; justify-content:center; align-items:center; gap:12px; margin-top:16px; font-size:0.9rem;">
+                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page <= 1 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} onclick="changePage('${sectionKey}', ${p.page - 1})">← Назад</button>
+                <span class="text-muted">Страница <strong>${p.page}</strong> из <strong>${totalPages}</strong> (всего: ${p.total})</span>
+                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page >= totalPages ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} onclick="changePage('${sectionKey}', ${p.page + 1})">Вперед →</button>
+            </div>
+        `;
+    }
+     
+    async function changePage(sectionKey, newPage) {
+        pagination[sectionKey].page = newPage;
+        await loadPennyStocksData();
+    }
+
     function renderTablesOnly() {
         if (!lastFetchedData) return;
         
@@ -739,9 +794,9 @@
     function renderActiveTable(activeList) {
         const activeTbody = document.getElementById('active-positions-tbody');
         if (activeList.length === 0) {
-            activeTbody.innerHTML = `<tr><td colspan="9" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
+            activeTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
         } else {
-            activeTbody.innerHTML = activeList.map(row => {
+            activeTbody.innerHTML = activeList.map((row, index) => {
                 const changePct = row.initial_price_outcome > 0 ? ((row.current_price_outcome - row.initial_price_outcome) / row.initial_price_outcome * 100) : 0;
                 const changeClass = changePct > 0 ? 'text-green' : changePct < 0 ? 'text-red' : '';
                 const changeSign = changePct > 0 ? '+' : '';
@@ -752,9 +807,9 @@
                     : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;
 
                 const analyzeBtn = `<button class="badge badge-purple" style="border:none; cursor:pointer; font-weight:600; margin-left:4px;" onclick="showAnalysis('${row.market_id}')">Анализ</button>`;
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; margin-left:4px; background-color:#ef4444; color:#fff;" onclick="deleteMarket('penny_stocks_monitoring', '${row.market_id}')">🗑️</button>`;
 
                 let outcomeBadge = '';
-                
                 if (row.predicted_outcome !== null) {
                     outcomeBadge = `<span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span>`;
                 } else {
@@ -762,8 +817,10 @@
                 }
 
                 const rowStyle = row.is_analyzed ? 'style="background-color: rgba(139, 92, 246, 0.08);"' : '';
+                const globalIndex = (pagination.active.page - 1) * pagination.active.limit + index + 1;
                 return `
                     <tr ${rowStyle}>
+                        <td>${globalIndex}</td>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
                         <td>${formatPriceCents(row.initial_price_outcome)}</td>
                         <td>${formatPriceCents(row.current_price_outcome)} <span class="${changeClass}" style="font-size:0.8rem; margin-left:4px;">(${changeSign}${changePct.toFixed(1)}%)</span></td>
@@ -772,7 +829,7 @@
                         <td>$${Math.round(row.volume_2h)}</td>
                         <td>${outcomeBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.added_at)}</td>
-                        <td><div style="display: flex; gap: 6px; align-items: center; white-space: nowrap;">${actionBtn}${analyzeBtn}</div></td>
+                        <td><div style="display: flex; gap: 6px; align-items: center; white-space: nowrap;">${actionBtn}${analyzeBtn}${deleteBtn}</div></td>
                     </tr>
                 `;
             }).join('');
@@ -782,9 +839,9 @@
     function renderResolvedTable(resolvedList) {
         const resolvedTbody = document.getElementById('resolved-positions-tbody');
         if (resolvedList.length === 0) {
-            resolvedTbody.innerHTML = `<tr><td colspan="9" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
+            resolvedTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
         } else {
-            resolvedTbody.innerHTML = resolvedList.map(row => {
+            resolvedTbody.innerHTML = resolvedList.map((row, index) => {
                 const targetOutcome = row.predicted_outcome !== null ? row.predicted_outcome : row.cheap_outcome;
                 const wasCorrect = targetOutcome === row.actual_outcome;
                 const resultBadge = wasCorrect 
@@ -798,8 +855,11 @@
                     outcomeBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.cheap_outcome} (деш.)</span>`;
                 }
 
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('penny_stocks_monitoring', '${row.market_id}')">🗑️</button>`;
+                const globalIndex = (pagination.resolved.page - 1) * pagination.resolved.limit + index + 1;
                 return `
                     <tr>
+                        <td>${globalIndex}</td>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-secondary); text-decoration:none;">${row.title}</a></td>
                         <td>${formatPriceCents(row.initial_price_outcome)}</td>
                         <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
@@ -809,6 +869,7 @@
                         <td>${row.pnl_realized !== null ? formatPnL(row.pnl_realized) : '—'}</td>
                         <td>${resultBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
+                        <td>${deleteBtn}</td>
                     </tr>
                 `;
             }).join('');
@@ -818,9 +879,9 @@
     function renderVirtualHistoryTable(historyList) {
         const historyTbody = document.getElementById('virtual-history-tbody');
         if (!historyList || historyList.length === 0) {
-            historyTbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">История пуста</td></tr>`;
+            historyTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">История пуста</td></tr>`;
         } else {
-            historyTbody.innerHTML = historyList.map(row => {
+            historyTbody.innerHTML = historyList.map((row, index) => {
                 const pnlClass = row.pnl_cents > 0 ? 'text-green' : row.pnl_cents < 0 ? 'text-red' : '';
                 const pnlSign = row.pnl_cents > 0 ? '+' : '';
                 
@@ -833,8 +894,10 @@
                     directionBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.outcome} (деш.)</span>`;
                 }
                 
+                const globalIndex = (pagination.history.page - 1) * pagination.history.limit + index + 1;
                 return `
                     <tr>
+                        <td>${globalIndex}</td>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
                         <td>${directionBadge}</td>
                         <td>${formatPriceCents(row.bought_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.bought_price)})</span></td>
@@ -849,12 +912,16 @@
     }
 
     async function loadPennyStocksData() {
-        const data = await fetchJSON('/api/penny-stocks');
+        const url = `/api/penny-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&resolved_page=${pagination.resolved.page}&resolved_limit=${pagination.resolved.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}`;
+        const data = await fetchJSON(url);
         const equityData = await fetchJSON('/api/equity-curve?strategy=penny_stocks&days=30');
 
         if (!data) return;
 
         lastFetchedData = data;
+        pagination.active.total = data.active_total || 0;
+        pagination.resolved.total = data.resolved_total || 0;
+        pagination.history.total = data.history_total || 0;
 
         // 1. Рендерим KPI
         document.getElementById('kpi-active').textContent = data.stats.active_count;
@@ -866,9 +933,9 @@
         // 2. Рендерим таблицу Виртуального портфеля
         const portfolioTbody = document.getElementById('portfolio-tbody');
         if (!data.portfolio || data.portfolio.length === 0) {
-            portfolioTbody.innerHTML = `<tr><td colspan="6" style="text-align: center;" class="text-muted">Портфель пуст</td></tr>`;
+            portfolioTbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Портфель пуст</td></tr>`;
         } else {
-            portfolioTbody.innerHTML = data.portfolio.map(row => {
+            portfolioTbody.innerHTML = data.portfolio.map((row, index) => {
                 const pnlClass = row.pnl_cents > 0 ? 'text-green' : row.pnl_cents < 0 ? 'text-red' : '';
                 const pnlSign = row.pnl_cents > 0 ? '+' : '';
                 
@@ -881,6 +948,7 @@
 
                 return `
                     <tr>
+                        <td>${index + 1}</td>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
                         <td>${directionBadge}</td>
                         <td>${formatPriceCents(row.bought_outcome_price)}</td>
@@ -897,6 +965,9 @@
         // 3. Рендерим таблицы с сортировкой
         renderTablesOnly();
         renderVirtualHistoryTable(data.virtual_history);
+        renderPaginationControls('active-pagination', 'active');
+        renderPaginationControls('resolved-pagination', 'resolved');
+        renderPaginationControls('history-pagination', 'history');
         updateSortIndicators('active');
         updateSortIndicators('resolved');
 

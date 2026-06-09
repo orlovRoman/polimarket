@@ -798,6 +798,11 @@ def _init_db_impl():
                 )
             """)
 
+            # Миграция: status в synthetic_corridors
+            synth_cols = {row[1] for row in cursor.execute("PRAGMA table_info(synthetic_corridors)").fetchall()}
+            if 'status' not in synth_cols:
+                cursor.execute("ALTER TABLE synthetic_corridors ADD COLUMN status TEXT DEFAULT 'ACTIVE'")
+
 
 # ─── Списки рынков: Игнорировать / Следить ──────────────────────────────────
 
@@ -2550,6 +2555,46 @@ def get_strategy_first_signal_date(strategy_type: str) -> Optional[datetime]:
     except Exception as e:
         logger.error(f"[DB] Ошибка получения даты первого сигнала для {strategy_type}: {e}")
     return None
+
+def delete_market_record(table_name: str, record_id: str) -> bool:
+    """
+    Мягко удаляет запись (устанавливает статус DELETED / deleted) в одной из таблиц:
+    - penny_stocks_monitoring (по market_id)
+    - synthetic_corridors (по signal_id)
+    - temporal_corridors (по id или signal_id)
+    - cross_arbitrage_signals (по id)
+    """
+    allowed_tables = {
+        "penny_stocks_monitoring": ("market_id", "DELETED"),
+        "synthetic_corridors": ("signal_id", "DELETED"),
+        "temporal_corridors": ("signal_id", "DELETED"),
+        "cross_arbitrage_signals": ("id", "deleted")
+    }
+    if table_name not in allowed_tables:
+        logger.error(f"[DB] Таблица {table_name} не поддерживается для мягкого удаления.")
+        return False
+        
+    pk_col, deleted_status = allowed_tables[table_name]
+    
+    try:
+        with get_connection() as conn:
+            actual_pk = pk_col
+            val_to_bind = record_id
+            if table_name == "temporal_corridors":
+                if isinstance(record_id, int) or (isinstance(record_id, str) and record_id.isdigit()):
+                    actual_pk = "id"
+                    val_to_bind = int(record_id)
+                    
+            query = f"UPDATE {table_name} SET status = ? WHERE {actual_pk} = ?"
+            cursor = conn.execute(query, (deleted_status, val_to_bind))
+            conn.commit()
+            
+            affected = cursor.rowcount
+            logger.info(f"[DB] Мягкое удаление в {table_name}: изменено {affected} строк для {actual_pk}={record_id}")
+            return affected > 0
+    except Exception as e:
+        logger.error(f"[DB] Ошибка мягкого удаления в {table_name} для ID {record_id}: {e}", exc_info=True)
+        return False
 
 if __name__ == "__main__":
     init_db()

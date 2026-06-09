@@ -74,6 +74,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>#</th>
                     <th>Событие</th>
                     <th>Нижний порог</th>
                     <th>Верхний порог</th>
@@ -82,15 +83,17 @@
                     <th>PnL в коридоре</th>
                     <th>ROI (Мин / Макс)</th>
                     <th>Время создания</th>
+                    <th>Действие</th>
                 </tr>
             </thead>
             <tbody id="synthetic-tbody">
                 <tr>
-                    <td colspan="8" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
     </div>
+    <div id="synthetic-pagination"></div>
 </div>
 
 <!-- Вкладка 2: Временные коридоры -->
@@ -100,6 +103,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>#</th>
                     <th>Событие</th>
                     <th>Стоимость (Теор / Реал)</th>
                     <th>Спред (Теор / Реал)</th>
@@ -108,15 +112,17 @@
                     <th>ROI (%)</th>
                     <th>Статус</th>
                     <th>Время создания</th>
+                    <th>Действие</th>
                 </tr>
             </thead>
             <tbody id="temporal-tbody">
                 <tr>
-                    <td colspan="8" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
     </div>
+    <div id="temporal-pagination"></div>
 </div>
 
 <!-- Вкладка 3: Кросс-платформенный арбитраж -->
@@ -126,6 +132,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>#</th>
                     <th>Рынок A</th>
                     <th>Рынок B</th>
                     <th>Цены (A / B)</th>
@@ -134,15 +141,17 @@
                     <th>Инструкция</th>
                     <th>Статус</th>
                     <th>Время создания</th>
+                    <th>Действие</th>
                 </tr>
             </thead>
             <tbody id="cross-tbody">
                 <tr>
-                    <td colspan="8" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
     </div>
+    <div id="cross-pagination"></div>
 </div>
 
 <script>
@@ -150,6 +159,53 @@
     let rawData = null;
     let equityData = null;
     let equityChart = null;
+
+    let pagination = {
+        synthetic: { page: 1, limit: 50, total: 0 },
+        temporal: { page: 1, limit: 50, total: 0 },
+        cross: { page: 1, limit: 50, total: 0 }
+    };
+
+    async function deleteMarket(tableName, recordId) {
+        if (!confirm('Вы уверены, что хотите скрыть этот коридор?')) return;
+        try {
+            const res = await fetch('/api/delete-market', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table_name: tableName, record_id: recordId })
+            });
+            const ret = await res.json();
+            if (ret.status === 'ok') {
+                showToast('Коридор скрыт');
+                await loadCorridorsData();
+            } else {
+                alert('Ошибка: ' + (ret.error || 'не удалось удалить'));
+            }
+        } catch (err) {
+            alert('Ошибка запроса: ' + err);
+        }
+    }
+
+    function renderPaginationControls(containerId, sectionKey) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        const p = pagination[sectionKey];
+        const totalPages = Math.max(1, Math.ceil(p.total / p.limit));
+        
+        container.innerHTML = `
+            <div class="pagination-controls" style="display:flex; justify-content:center; align-items:center; gap:12px; margin-top:16px; font-size:0.9rem;">
+                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page <= 1 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} onclick="changePage('${sectionKey}', ${p.page - 1})">← Назад</button>
+                <span class="text-muted">Страница <strong>${p.page}</strong> из <strong>${totalPages}</strong> (всего: ${p.total})</span>
+                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page >= totalPages ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} onclick="changePage('${sectionKey}', ${p.page + 1})">Вперед →</button>
+            </div>
+        `;
+    }
+     
+    async function changePage(sectionKey, newPage) {
+        pagination[sectionKey].page = newPage;
+        await loadCorridorsData();
+    }
 
     const strategyTypes = {
         'synthetic': 'synthetic_corridor',
@@ -189,13 +245,19 @@
     }
 
     async function loadCorridorsData() {
-        rawData = await fetchJSON('/api/corridors');
+        const url = `/api/corridors?synthetic_page=${pagination.synthetic.page}&synthetic_limit=${pagination.synthetic.limit}&temporal_page=${pagination.temporal.page}&temporal_limit=${pagination.temporal.limit}&cross_page=${pagination.cross.page}&cross_limit=${pagination.cross.limit}`;
+        rawData = await fetchJSON(url);
         equityData = await fetchJSON('/api/equity-curve?strategy=all&days=30');
         renderUI();
     }
 
     function renderUI() {
         if (!rawData) return;
+
+        // Записываем totals
+        pagination.synthetic.total = rawData.synthetic_total || 0;
+        pagination.temporal.total = rawData.temporal_total || 0;
+        pagination.cross.total = rawData.cross_total || 0;
 
         // 1. Рендерим KPI
         const stype = strategyTypes[activeTab];
@@ -210,55 +272,71 @@
         // Синтетика
         const synthTbody = document.getElementById('synthetic-tbody');
         if (rawData.synthetic.length === 0) {
-            synthTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
+            synthTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
         } else {
-            synthTbody.innerHTML = rawData.synthetic.map(row => `
-                <tr>
-                    <td><a href="${row.event_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.event_title}</a></td>
-                    <td>${row.lower_level} (${formatPriceCents(row.lower_price_yes)})</td>
-                    <td>${row.upper_level} (${formatPriceCents(row.upper_price_yes)})</td>
-                    <td>${formatPercent(row.theoretical_spread_pct)} / ${formatPercent(row.real_spread_pct)}</td>
-                    <td>$${row.total_invested_usd ? row.total_invested_usd.toFixed(2) : '0.00'}</td>
-                    <td class="text-green">+$${row.pnl_in_corridor_usd ? row.pnl_in_corridor_usd.toFixed(2) : '0.00'}</td>
-                    <td>${formatPercent(row.roi_min_pct)} / ${formatPercent(row.roi_max_pct)}</td>
-                    <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.created_at)}</td>
-                </tr>
-            `).join('');
+            synthTbody.innerHTML = rawData.synthetic.map((row, index) => {
+                const globalIndex = (pagination.synthetic.page - 1) * pagination.synthetic.limit + index + 1;
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('synthetic_corridors', '${row.signal_id}')">🗑️</button>`;
+                return `
+                    <tr>
+                        <td>${globalIndex}</td>
+                        <td><a href="${row.event_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.event_title}</a></td>
+                        <td>${row.lower_level} (${formatPriceCents(row.lower_price_yes)})</td>
+                        <td>${row.upper_level} (${formatPriceCents(row.upper_price_yes)})</td>
+                        <td>${formatPercent(row.theoretical_spread_pct)} / ${formatPercent(row.real_spread_pct)}</td>
+                        <td>$${row.total_invested_usd ? row.total_invested_usd.toFixed(2) : '0.00'}</td>
+                        <td class="text-green">+$${row.pnl_in_corridor_usd ? row.pnl_in_corridor_usd.toFixed(2) : '0.00'}</td>
+                        <td>${formatPercent(row.roi_min_pct)} / ${formatPercent(row.roi_max_pct)}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.created_at)}</td>
+                        <td>${deleteBtn}</td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         // Временные
         const tempTbody = document.getElementById('temporal-tbody');
         if (rawData.temporal.length === 0) {
-            tempTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
+            tempTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
         } else {
-            tempTbody.innerHTML = rawData.temporal.map(row => `
-                <tr>
-                    <td><a href="${row.event_url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${row.event_title}</a></td>
-                    <td>$${row.theoretical_cost ? row.theoretical_cost.toFixed(2) : '0.00'} / $${row.real_cost ? row.real_cost.toFixed(2) : '0.00'}</td>
-                    <td>${formatPercent(row.theoretical_spread_pct)} / ${formatPercent(row.real_spread_pct)}</td>
-                    <td>$${row.early_stake_usd ? row.early_stake_usd.toFixed(2) : '0.00'} / $${row.late_stake_usd ? row.late_stake_usd.toFixed(2) : '0.00'}</td>
-                    <td class="${row.ev_usd > 0 ? 'text-green' : ''}">$${row.ev_usd ? row.ev_usd.toFixed(2) : '0.00'}</td>
-                    <td class="${row.roi_pct > 0 ? 'text-green' : ''}">${formatPercent(row.roi_pct / 100)}</td>
-                    <td><span class="badge ${row.status === 'ACTIVE' ? 'badge-blue' : 'badge-green'}">${row.status}</span></td>
-                    <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.created_at)}</td>
-                </tr>
-            `).join('');
+            tempTbody.innerHTML = rawData.temporal.map((row, index) => {
+                const globalIndex = (pagination.temporal.page - 1) * pagination.temporal.limit + index + 1;
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('temporal_corridors', '${row.signal_id}')">🗑️</button>`;
+                return `
+                    <tr>
+                        <td>${globalIndex}</td>
+                        <td><a href="${row.event_url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${row.event_title}</a></td>
+                        <td>$${row.theoretical_cost ? row.theoretical_cost.toFixed(2) : '0.00'} / $${row.real_cost ? row.real_cost.toFixed(2) : '0.00'}</td>
+                        <td>${formatPercent(row.theoretical_spread_pct)} / ${formatPercent(row.real_spread_pct)}</td>
+                        <td>$${row.early_stake_usd ? row.early_stake_usd.toFixed(2) : '0.00'} / $${row.late_stake_usd ? row.late_stake_usd.toFixed(2) : '0.00'}</td>
+                        <td class="${row.ev_usd > 0 ? 'text-green' : ''}">$${row.ev_usd ? row.ev_usd.toFixed(2) : '0.00'}</td>
+                        <td class="${row.roi_pct > 0 ? 'text-green' : ''}">${formatPercent(row.roi_pct / 100)}</td>
+                        <td><span class="badge ${row.status === 'ACTIVE' ? 'badge-blue' : 'badge-green'}">${row.status}</span></td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.created_at)}</td>
+                        <td>${deleteBtn}</td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         // Кросс-платформа
         const crossTbody = document.getElementById('cross-tbody');
         if (rawData.cross.length === 0) {
-            crossTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
+            crossTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет сигналов</td></tr>`;
         } else {
-            crossTbody.innerHTML = rawData.cross.map(row => {
+            crossTbody.innerHTML = rawData.cross.map((row, index) => {
                 const hasArb = row.has_arbitrage ? 1 : 0;
                 const spreadClass = hasArb ? 'text-green' : 'text-muted';
                 const statusText = hasArb ? row.status : 'Нет арбитража';
                 const statusClass = hasArb ? (row.status === 'new' ? 'badge-blue' : 'badge-green') : 'badge-gray';
                 const rowStyle = hasArb ? '' : 'style="opacity: 0.65;"';
                 
+                const globalIndex = (pagination.cross.page - 1) * pagination.cross.limit + index + 1;
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('cross_arbitrage_signals', '${row.id}')">🗑️</button>`;
+                
                 return `
                 <tr ${rowStyle}>
+                    <td>${globalIndex}</td>
                     <td><strong>${row.market_a_platform}</strong>: ${row.market_a_title} (${formatPriceCents(row.market_a_price)})</td>
                     <td><strong>${row.market_b_platform}</strong>: ${row.market_b_title} (${formatPriceCents(row.market_b_price)})</td>
                     <td>${formatPriceCents(row.market_a_price)} / ${formatPriceCents(row.market_b_price)}</td>
@@ -267,10 +345,16 @@
                     <td style="font-size:0.85rem;">${row.trade_instruction || '—'}</td>
                     <td><span class="badge ${statusClass}">${statusText}</span></td>
                     <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.created_at)}</td>
+                    <td>${deleteBtn}</td>
                 </tr>
                 `;
             }).join('');
         }
+
+        // Рендерим пагинаторы
+        renderPaginationControls('synthetic-pagination', 'synthetic');
+        renderPaginationControls('temporal-pagination', 'temporal');
+        renderPaginationControls('cross-pagination', 'cross');
 
         // 3. Рендерим график доходности для текущего таба
         if (equityData) {

@@ -134,14 +134,26 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         else:
             return get_curve_for_strategy(conn, strategy)
 
-def get_penny_stocks_dashboard() -> dict:
+def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100) -> dict:
     """
     Собирает данные для дашборда Penny Stocks (активные, завершенные позиции, статистика, распределение).
     """
     from agents.shared.python.db import get_connection
     with get_connection() as conn:
-        # Активные позиции (с прогнозом и без)
-        active_rows = conn.execute("""
+        # Подсчет общего количества активных
+        active_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM penny_stocks_monitoring p
+            WHERE p.status = 'ACTIVE' AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
+                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
+            )
+        """).fetchone()['cnt']
+
+        # Активные позиции (с прогнозом и без) с пагинацией
+        active_offset = (active_page - 1) * active_limit
+        active_rows = conn.execute(f"""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.volume_2h, p.predicted_outcome, p.edge, p.confidence, p.added_at, p.virtual_bought_price,
                    (am.market_id IS NOT NULL) as is_analyzed
             FROM penny_stocks_monitoring p
@@ -152,7 +164,7 @@ def get_penny_stocks_dashboard() -> dict:
                 (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
             )
             ORDER BY p.added_at DESC
-            LIMIT 100
+            LIMIT {active_limit} OFFSET {active_offset}
         """).fetchall()
         
         active = []
@@ -184,8 +196,20 @@ def get_penny_stocks_dashboard() -> dict:
                 row_dict['min_price_seen_outcome'] = mn
             active.append(row_dict)
 
-        # Завершенные позиции (все дешевые, с прогнозом и без)
-        resolved_rows = conn.execute("""
+        # Подсчет общего количества завершенных
+        resolved_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM penny_stocks_monitoring p
+            WHERE p.status = 'RESOLVED' AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
+                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
+            )
+        """).fetchone()['cnt']
+
+        # Завершенные позиции (все дешевые, с прогнозом и без) с пагинацией
+        resolved_offset = (resolved_page - 1) * resolved_limit
+        resolved_rows = conn.execute(f"""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
                    h.pnl_cents as pnl_realized
             FROM penny_stocks_monitoring p
@@ -200,7 +224,7 @@ def get_penny_stocks_dashboard() -> dict:
                 (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
             )
             ORDER BY p.resolved_at DESC
-            LIMIT 100
+            LIMIT {resolved_limit} OFFSET {resolved_offset}
         """).fetchall()
         
         resolved = []
@@ -275,8 +299,8 @@ def get_penny_stocks_dashboard() -> dict:
             portfolio.append(row_dict)
 
         # Статистика
-        total_active = len(active)
-        total_resolved = len(resolved)
+        total_active = active_total
+        total_resolved = resolved_total
         
         # Статистика по истории виртуальных сделок
         stats_row = conn.execute("""
@@ -288,7 +312,7 @@ def get_penny_stocks_dashboard() -> dict:
             FROM penny_virtual_trades_history
             WHERE sold_at >= datetime('now', '-30 days')
         """).fetchone()
- 
+  
         win_rate = None
         best_pnl = 0.0
         avg_pnl = 0.0
@@ -313,7 +337,15 @@ def get_penny_stocks_dashboard() -> dict:
         """).fetchone()
         avg_entry = avg_entry_row['avg_entry'] if avg_entry_row else None
 
-        total_active_predicted = len([x for x in active if x['predicted_outcome'] is not None])
+        total_active_predicted = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM penny_stocks_monitoring
+            WHERE status = 'ACTIVE' AND predicted_outcome IS NOT NULL AND (
+                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
+                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
+                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+            )
+        """).fetchone()['cnt']
 
         stats = {
             'active_count': total_active,
@@ -361,22 +393,29 @@ def get_penny_stocks_dashboard() -> dict:
             else:
                 bins['20+¢'] += 1
 
-        # История виртуальных сделок
-        history_rows = conn.execute("""
+        # Подсчет общего количества истории виртуальных сделок
+        history_total = conn.execute("SELECT COUNT(*) as cnt FROM penny_virtual_trades_history").fetchone()['cnt']
+
+        # История виртуальных сделок с пагинацией
+        history_offset = (history_page - 1) * history_limit
+        history_rows = conn.execute(f"""
             SELECT id, market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at
             FROM penny_virtual_trades_history
             ORDER BY sold_at DESC
-            LIMIT 100
+            LIMIT {history_limit} OFFSET {history_offset}
         """).fetchall()
         virtual_history = [dict(r) for r in history_rows]
- 
+  
     return {
         'active': active,
         'resolved': resolved,
         'portfolio': portfolio,
         'virtual_history': virtual_history,
         'stats': stats,
-        'price_distribution': bins
+        'price_distribution': bins,
+        'active_total': active_total,
+        'resolved_total': resolved_total,
+        'history_total': history_total
     }
 
 def get_strategy_signals(strategy: str, days: int = 30, limit: int = 50) -> list:
@@ -408,35 +447,45 @@ def get_auto_disable_candidates() -> list:
         """).fetchall()
         return [dict(r) for r in rows]
 
-def get_corridors_dashboard() -> dict:
+def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=1, temporal_limit=50, cross_page=1, cross_limit=50) -> dict:
     """Собирает лог коридоров (синтетические, временные, кросс-платформенные) и KPI по ним."""
     from agents.shared.python.db import get_connection
     with get_connection() as conn:
+        # Подсчет общего количества
+        synthetic_total = conn.execute("SELECT COUNT(*) as cnt FROM synthetic_corridors WHERE status = 'ACTIVE'").fetchone()['cnt']
+        temporal_total = conn.execute("SELECT COUNT(*) as cnt FROM temporal_corridors WHERE status = 'ACTIVE'").fetchone()['cnt']
+        cross_total = conn.execute("SELECT COUNT(*) as cnt FROM cross_arbitrage_signals WHERE has_arbitrage = 1 AND status != 'deleted'").fetchone()['cnt']
+
         # Синтетические коридоры
-        synth_rows = conn.execute("""
+        synth_offset = (synthetic_page - 1) * synthetic_limit
+        synth_rows = conn.execute(f"""
             SELECT signal_id, event_title, event_url, lower_level, lower_price_yes, upper_level, upper_price_yes, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, total_invested_usd, pnl_in_corridor_usd, roi_min_pct, roi_max_pct, created_at
             FROM synthetic_corridors
+            WHERE status = 'ACTIVE'
             ORDER BY created_at DESC
-            LIMIT 50
+            LIMIT {synthetic_limit} OFFSET {synth_offset}
         """).fetchall()
         synthetic = [dict(r) for r in synth_rows]
 
         # Временные коридоры
-        temp_rows = conn.execute("""
+        temp_offset = (temporal_page - 1) * temporal_limit
+        temp_rows = conn.execute(f"""
             SELECT id, signal_id, event_title, event_url, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, early_stake_usd, late_stake_usd, ev_usd, roi_pct, status, created_at
             FROM temporal_corridors
+            WHERE status = 'ACTIVE'
             ORDER BY created_at DESC
-            LIMIT 50
+            LIMIT {temporal_limit} OFFSET {temp_offset}
         """).fetchall()
         temporal = [dict(r) for r in temp_rows]
 
         # Кросс-платформа (только с подтвержденным арбитражем)
-        cross_rows = conn.execute("""
+        cross_offset = (cross_page - 1) * cross_limit
+        cross_rows = conn.execute(f"""
             SELECT id, market_a_title, market_a_platform, market_a_price, market_b_title, market_b_platform, market_b_price, spread_percent, arbitrage_type, reasoning, status, created_at, action_a, action_b, entry_price_a_cents, entry_price_b_cents, expected_pnl_pct, risk_level, has_arbitrage, trade_instruction
             FROM cross_arbitrage_signals
-            WHERE has_arbitrage = 1
+            WHERE has_arbitrage = 1 AND status != 'deleted'
             ORDER BY created_at DESC
-            LIMIT 50
+            LIMIT {cross_limit} OFFSET {cross_offset}
         """).fetchall()
         cross = [dict(r) for r in cross_rows]
 
@@ -487,5 +536,8 @@ def get_corridors_dashboard() -> dict:
         'temporal': temporal,
         'cross': cross,
         'cross_diagnostics': cross_diagnostics,
-        'kpis': kpis
+        'kpis': kpis,
+        'synthetic_total': synthetic_total,
+        'temporal_total': temporal_total,
+        'cross_total': cross_total
     }

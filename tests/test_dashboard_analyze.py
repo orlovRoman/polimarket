@@ -124,7 +124,7 @@ async def test_stale_jobs_cleanup(isolated_db):
 @pytest.mark.asyncio
 @patch("web.dashboard.run_analysis_in_background", new_callable=AsyncMock)
 async def test_background_task_added_to_set(mock_run_bg, isolated_db):
-    """asyncio.create_task добавляет задачу в _background_tasks."""
+    """Фоновые воркеры запускаются при старте приложения и выполняют задачи."""
     from web import dashboard
     initial_count = len(dashboard._background_tasks)
 
@@ -132,10 +132,10 @@ async def test_background_task_added_to_set(mock_run_bg, isolated_db):
     async with TestClient(TestServer(app)) as client:
         await client.post("/api/penny-stocks/analyze", json={"market_id": "task_mkt"})
         # Даём event loop обработать
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.05)
         
     mock_run_bg.assert_called_once_with("task_mkt")
-    # Проверяем, что задача была добавлена (или уже завершена, но не упала)
-    assert len(dashboard._background_tasks) >= 0
+    # Проверяем, что воркеры добавились в _background_tasks
+    assert len(dashboard._background_tasks) > initial_count
 
 

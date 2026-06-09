@@ -9,7 +9,6 @@ import agents.shared.python.db as db_module
 def isolated_db(tmp_path, monkeypatch):
     """Изолированная база данных для теста."""
     db_path = tmp_path / "test_dashboard_routes.db"
-    db_path_str = str(db_path)
     
     # Патчим DB_PATH в config и db_module (оба объектом Path)
     monkeypatch.setattr(config, "DB_PATH", db_path)
@@ -68,7 +67,7 @@ async def test_api_buy_sell_routes(isolated_db):
         # Проверяем, что в БД записалось
         rows = db_module.get_active_penny_stocks()
         item = next(r for r in rows if r['market_id'] == 'penny_api')
-        assert item['virtual_bought_price'] == 0.04
+        assert item['virtual_bought_price'] == pytest.approx(0.04)
         
         # Продаем
         resp = await client.post("/api/penny-stocks/sell", json={"market_id": "penny_api"})

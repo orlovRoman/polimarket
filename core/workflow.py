@@ -385,17 +385,17 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
             else:
                 raise
         
-        news_titles = _safe_result(future_rss, default=[], timeout=15, label="RSS") if future_rss else []
-        reddit_posts = _safe_result(future_reddit, default=[], timeout=15, label="Reddit") if future_reddit else []
-        wiki_context = _safe_result(future_wiki, default=[], timeout=20, label="Wikipedia") if future_wiki else []
-        hn_posts = _safe_result(future_hn, default=[], timeout=15, label="HackerNews") if future_hn else []
+        news_titles = await asyncio.to_thread(_safe_result, future_rss, [], 15, "RSS") if future_rss else []
+        reddit_posts = await asyncio.to_thread(_safe_result, future_reddit, [], 15, "Reddit") if future_reddit else []
+        wiki_context = await asyncio.to_thread(_safe_result, future_wiki, [], 20, "Wikipedia") if future_wiki else []
+        hn_posts = await asyncio.to_thread(_safe_result, future_hn, [], 15, "HackerNews") if future_hn else []
     finally:
         shutdown_kwargs = {"wait": False, "cancel_futures": True} \
             if sys.version_info >= (3, 9) else {"wait": False}
         executor.shutdown(**shutdown_kwargs)
 
     # Google Trends — последовательно (не thread-safe)
-    trends_data = fetch_google_trends(search_query)
+    trends_data = await asyncio.to_thread(fetch_google_trends, search_query)
 
     api_key = getattr(scout, 'api_key', None) or getattr(swing, 'api_key', None)
     
@@ -426,7 +426,8 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     grounded = ""
     if api_key:
-        grounded = _fetch_grounded_context(
+        grounded = await asyncio.to_thread(
+            _fetch_grounded_context,
             m, api_key, grounding_model,
             oracle_domain=oracle_domain,
             force_oracle_search=force_oracle_search
