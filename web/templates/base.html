@@ -25,7 +25,12 @@
             if (val === null || val === undefined) return "$0.00";
             const num = parseFloat(val);
             const sign = num > 0 ? "+" : "";
-            const color = num > 0 ? "text-green" : num < 0 ? "text-red" : "";
+            let color = "";
+            if (num > 0) {
+                color = "text-green";
+            } else if (num < 0) {
+                color = "text-red";
+            }
             return `<span class="${color}">${sign}$${num.toFixed(2)}</span>`;
         }
 

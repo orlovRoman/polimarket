@@ -78,14 +78,14 @@
             <thead>
                 <tr>
                     <th>#</th>
-                    <th onclick="toggleSort('active', 'title')" style="cursor:pointer; user-select:none;">Рынок<span id="sort-active-title"></span></th>
-                    <th onclick="toggleSort('active', 'initial_price_outcome')" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-active-initial_price_outcome"></span></th>
-                    <th onclick="toggleSort('active', 'current_price_outcome')" style="cursor:pointer; user-select:none;">Текущая<span id="sort-active-current_price_outcome"></span></th>
-                    <th onclick="toggleSort('active', 'max_price_seen_outcome')" style="cursor:pointer; user-select:none;">Максимум<span id="sort-active-max_price_seen_outcome"></span></th>
-                    <th onclick="toggleSort('active', 'min_price_seen_outcome')" style="cursor:pointer; user-select:none;">Минимум<span id="sort-active-min_price_seen_outcome"></span></th>
-                    <th onclick="toggleSort('active', 'volume_2h')" style="cursor:pointer; user-select:none;">Объем (2ч)<span id="sort-active-volume_2h"></span></th>
-                    <th onclick="toggleSort('active', 'predicted_outcome')" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-active-predicted_outcome"></span></th>
-                    <th onclick="toggleSort('active', 'added_at')" style="cursor:pointer; user-select:none;">Добавлен<span id="sort-active-added_at"></span></th>
+                    <th onclick="toggleSort('active', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-active-title"></span></th>
+                    <th onclick="toggleSort('active', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-active-initial_price_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'current_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'current_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Текущая<span id="sort-active-current_price_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-active-max_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-active-min_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'volume_2h')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'volume_2h')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Объем (2ч)<span id="sort-active-volume_2h"></span></th>
+                    <th onclick="toggleSort('active', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-active-predicted_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'added_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'added_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Добавлен<span id="sort-active-added_at"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
@@ -106,15 +106,15 @@
             <thead>
                 <tr>
                     <th>#</th>
-                    <th onclick="toggleSort('resolved', 'title')" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
-                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'predicted_outcome')" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'actual_outcome')" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'pnl_realized')" style="cursor:pointer; user-select:none;">PnL<span id="sort-resolved-pnl_realized"></span></th>
-                    <th onclick="toggleSort('resolved', 'was_correct')" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
-                    <th onclick="toggleSort('resolved', 'resolved_at')" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
+                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
+                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'pnl_realized')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_realized')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL<span id="sort-resolved-pnl_realized"></span></th>
+                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
+                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
@@ -292,13 +292,13 @@
     }
     .badge-purple {
         background-color: rgba(139, 92, 246, 0.1);
-        color: #a78bfa;
+        color: #d8b4fe;
         border: 1px solid rgba(139, 92, 246, 0.2);
     }
 </style>
 
 <!-- Modal Overlay for Analysis -->
-<div id="analysis-modal" class="modal-overlay" style="display: none;" onclick="if(event.target === this) closeAnalysisModal()">
+<div id="analysis-modal" class="modal-overlay" style="display: none;" onclick="if(event.target === this) closeAnalysisModal()" onkeydown="if(event.key==='Enter'||event.key===' '||event.key==='Escape') closeAnalysisModal()" role="button" aria-label="Закрыть модальное окно" tabindex="-1">
     <div class="modal-card" onclick="event.stopPropagation()">
         <div class="modal-header">
             <span class="modal-title" id="modal-market-title">Анализ рынка</span>
@@ -582,7 +582,12 @@
         if (val === null || val === undefined) return "0¢";
         const cents = val * 100;
         const sign = cents > 0 ? "+" : "";
-        const color = cents > 0 ? "text-green" : cents < 0 ? "text-red" : "";
+        let color = "";
+        if (cents > 0) {
+            color = "text-green";
+        } else if (cents < 0) {
+            color = "text-red";
+        }
         
         let centsStr = cents.toFixed(2);
         if (centsStr.endsWith('.00')) {
@@ -798,7 +803,12 @@
         } else {
             activeTbody.innerHTML = activeList.map((row, index) => {
                 const changePct = row.initial_price_outcome > 0 ? ((row.current_price_outcome - row.initial_price_outcome) / row.initial_price_outcome * 100) : 0;
-                const changeClass = changePct > 0 ? 'text-green' : changePct < 0 ? 'text-red' : '';
+                let changeClass = '';
+                if (changePct > 0) {
+                    changeClass = 'text-green';
+                } else if (changePct < 0) {
+                    changeClass = 'text-red';
+                }
                 const changeSign = changePct > 0 ? '+' : '';
                 
                 const buyPrice = Math.round((row.current_price ?? row.initial_price) * 100) / 100;
@@ -882,7 +892,12 @@
             historyTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">История пуста</td></tr>`;
         } else {
             historyTbody.innerHTML = historyList.map((row, index) => {
-                const pnlClass = row.pnl_cents > 0 ? 'text-green' : row.pnl_cents < 0 ? 'text-red' : '';
+                let pnlClass = '';
+                if (row.pnl_cents > 0) {
+                    pnlClass = 'text-green';
+                } else if (row.pnl_cents < 0) {
+                    pnlClass = 'text-red';
+                }
                 const pnlSign = row.pnl_cents > 0 ? '+' : '';
                 
                 let directionBadge = '';
@@ -936,7 +951,12 @@
             portfolioTbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Портфель пуст</td></tr>`;
         } else {
             portfolioTbody.innerHTML = data.portfolio.map((row, index) => {
-                const pnlClass = row.pnl_cents > 0 ? 'text-green' : row.pnl_cents < 0 ? 'text-red' : '';
+                let pnlClass = '';
+                if (row.pnl_cents > 0) {
+                    pnlClass = 'text-green';
+                } else if (row.pnl_cents < 0) {
+                    pnlClass = 'text-red';
+                }
                 const pnlSign = row.pnl_cents > 0 ? '+' : '';
                 
                 let directionBadge = '';

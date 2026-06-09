@@ -328,7 +328,10 @@
                 const hasArb = row.has_arbitrage ? 1 : 0;
                 const spreadClass = hasArb ? 'text-green' : 'text-muted';
                 const statusText = hasArb ? row.status : 'Нет арбитража';
-                const statusClass = hasArb ? (row.status === 'new' ? 'badge-blue' : 'badge-green') : 'badge-gray';
+                let statusClass = 'badge-gray';
+                if (hasArb) {
+                    statusClass = row.status === 'new' ? 'badge-blue' : 'badge-green';
+                }
                 const rowStyle = hasArb ? '' : 'style="opacity: 0.65;"';
                 
                 const globalIndex = (pagination.cross.page - 1) * pagination.cross.limit + index + 1;
