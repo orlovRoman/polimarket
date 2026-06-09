@@ -139,6 +139,7 @@
                     <th>Направление</th>
                     <th>Вход</th>
                     <th>Выход</th>
+                    <th>Текущая</th>
                     <th>Максимум</th>
                     <th>Минимум</th>
                     <th>PnL</th>
@@ -148,7 +149,7 @@
             </thead>
             <tbody id="virtual-history-tbody">
                 <tr>
-                    <td colspan="10" style="text-align: center;" class="text-muted">История пуста</td>
+                    <td colspan="11" style="text-align: center;" class="text-muted">История пуста</td>
                 </tr>
             </tbody>
         </table>
@@ -891,7 +892,7 @@
     function renderVirtualHistoryTable(historyList) {
         const historyTbody = document.getElementById('virtual-history-tbody');
         if (!historyList || historyList.length === 0) {
-            historyTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">История пуста</td></tr>`;
+            historyTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">История пуста</td></tr>`;
         } else {
             historyTbody.innerHTML = historyList.map((row, index) => {
                 let pnlClass = '';
@@ -919,6 +920,7 @@
                         <td>${directionBadge}</td>
                         <td>${formatPriceCents(row.bought_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.bought_price)})</span></td>
                         <td>${formatPriceCents(row.sold_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.sold_price)})</span></td>
+                        <td>${row.current_outcome_price !== null && row.current_outcome_price !== undefined ? formatPriceCents(row.current_outcome_price) : '—'}</td>
                         <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
                         <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent.toFixed(2)}%)</span></td>

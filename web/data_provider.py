@@ -398,9 +398,28 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         # История виртуальных сделок с пагинацией
         history_offset = (history_page - 1) * history_limit
         history_rows = conn.execute("""
-            SELECT id, market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at, max_price_seen, min_price_seen
-            FROM penny_virtual_trades_history
-            ORDER BY sold_at DESC
+            SELECT 
+                h.id, 
+                h.market_id, 
+                h.title, 
+                h.url, 
+                h.outcome, 
+                h.bought_price, 
+                h.bought_outcome_price, 
+                h.sold_price, 
+                h.sold_outcome_price, 
+                h.pnl_cents, 
+                h.pnl_percent, 
+                h.bought_at, 
+                h.sold_at, 
+                h.max_price_seen, 
+                h.min_price_seen,
+                m.current_price,
+                m.status as market_status,
+                m.actual_outcome
+            FROM penny_virtual_trades_history h
+            LEFT JOIN penny_stocks_monitoring m ON h.market_id = m.market_id
+            ORDER BY h.sold_at DESC
             LIMIT ? OFFSET ?
         """, (history_limit, history_offset)).fetchall()
         
@@ -420,6 +439,23 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             else:
                 row_dict['max_price_seen_outcome'] = None
                 row_dict['min_price_seen_outcome'] = None
+
+            # Расчет текущей стоимости исхода сделки
+            curr = row_dict['current_price']
+            status = row_dict['market_status']
+            actual_outcome = row_dict['actual_outcome']
+            current_outcome_price = None
+
+            if status == 'ACTIVE' and curr is not None:
+                if outcome == 'NO':
+                    current_outcome_price = round(1.0 - curr, 4)
+                else:
+                    current_outcome_price = curr
+            elif status == 'RESOLVED':
+                if actual_outcome is not None:
+                    current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
+
+            row_dict['current_outcome_price'] = current_outcome_price
             virtual_history.append(row_dict)
 
     return {

@@ -454,3 +454,46 @@ def test_penny_resolved_includes_unanalyzed(isolated_db):
     assert r_no['cheap_outcome'] == 'NO'
     assert r_no['predicted_outcome'] is None
 
+
+def test_virtual_history_current_price(isolated_db):
+    """Проверяет правильность расчета current_outcome_price в virtual_history."""
+    with db_module.get_connection() as conn:
+        # Вставляем рынки в мониторинг
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('m_active_yes', 'M Active YES', 'url1', 0.05, 0.08, 0.08, 0.05, 'ACTIVE', 'YES')
+        """)
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('m_active_no', 'M Active NO', 'url2', 0.95, 0.92, 0.95, 0.92, 'ACTIVE', 'NO')
+        """)
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome, actual_outcome)
+            VALUES ('m_resolved_yes_win', 'M Resolved YES Win', 'url3', 0.05, 1.0, 1.0, 0.05, 'RESOLVED', 'YES', 'YES')
+        """)
+        conn.execute("""
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome, actual_outcome)
+            VALUES ('m_resolved_yes_lose', 'M Resolved YES Lose', 'url4', 0.05, 0.0, 0.05, 0.0, 'RESOLVED', 'YES', 'NO')
+        """)
+
+        # Вставляем сделки в историю
+        conn.execute("""
+            INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, sold_at)
+            VALUES 
+            ('m_active_yes', 'M Active YES', 'url1', 'YES', 0.05, 0.05, 0.07, 0.07, 0.02, 40.0, datetime('now')),
+            ('m_active_no', 'M Active NO', 'url2', 'NO', 0.95, 0.05, 0.93, 0.07, 0.02, 40.0, datetime('now')),
+            ('m_resolved_yes_win', 'M Resolved YES Win', 'url3', 'YES', 0.05, 0.05, 0.08, 0.08, 0.03, 60.0, datetime('now')),
+            ('m_resolved_yes_lose', 'M Resolved YES Lose', 'url4', 'YES', 0.05, 0.05, 0.03, 0.03, -0.02, -40.0, datetime('now')),
+            ('m_deleted', 'M Deleted', 'url5', 'YES', 0.05, 0.05, 0.06, 0.06, 0.01, 20.0, datetime('now'))
+        """)
+
+    data = data_provider.get_penny_stocks_dashboard()
+    vh = {x['market_id']: x for x in data['virtual_history']}
+
+    assert vh['m_active_yes']['current_outcome_price'] == pytest.approx(0.08)
+    assert vh['m_active_no']['current_outcome_price'] == pytest.approx(0.08)
+    assert vh['m_resolved_yes_win']['current_outcome_price'] == pytest.approx(1.0)
+    assert vh['m_resolved_yes_lose']['current_outcome_price'] == pytest.approx(0.0)
+    assert vh['m_deleted']['current_outcome_price'] is None
+
+
