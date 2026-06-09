@@ -398,12 +398,29 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         # История виртуальных сделок с пагинацией
         history_offset = (history_page - 1) * history_limit
         history_rows = conn.execute("""
-            SELECT id, market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at
+            SELECT id, market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at, max_price_seen, min_price_seen
             FROM penny_virtual_trades_history
             ORDER BY sold_at DESC
             LIMIT ? OFFSET ?
         """, (history_limit, history_offset)).fetchall()
-        virtual_history = [dict(r) for r in history_rows]
+        
+        virtual_history = []
+        for r in history_rows:
+            row_dict = dict(r)
+            outcome = row_dict['outcome']
+            mx = row_dict['max_price_seen']
+            mn = row_dict['min_price_seen']
+            if mx is not None and mn is not None:
+                if outcome == 'NO':
+                    row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4)
+                    row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4)
+                else:
+                    row_dict['max_price_seen_outcome'] = mx
+                    row_dict['min_price_seen_outcome'] = mn
+            else:
+                row_dict['max_price_seen_outcome'] = None
+                row_dict['min_price_seen_outcome'] = None
+            virtual_history.append(row_dict)
 
     return {
         'active': active,

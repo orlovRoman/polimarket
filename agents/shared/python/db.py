@@ -721,6 +721,8 @@ def _init_db_impl():
                     pnl_percent REAL NOT NULL,
                     bought_at TIMESTAMP,
                     sold_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    max_price_seen REAL DEFAULT NULL,
+                    min_price_seen REAL DEFAULT NULL,
                     FOREIGN KEY (market_id) REFERENCES markets (id)
                 )
             """)
@@ -812,6 +814,13 @@ def _init_db_impl():
             cross_cols = {row[1] for row in cursor.execute("PRAGMA table_info(cross_arbitrage_signals)").fetchall()}
             if 'status' not in cross_cols:
                 cursor.execute("ALTER TABLE cross_arbitrage_signals ADD COLUMN status TEXT DEFAULT 'new'")
+
+            # Миграция: max_price_seen и min_price_seen в penny_virtual_trades_history
+            hist_cols = {row[1] for row in cursor.execute("PRAGMA table_info(penny_virtual_trades_history)").fetchall()}
+            if 'max_price_seen' not in hist_cols:
+                cursor.execute("ALTER TABLE penny_virtual_trades_history ADD COLUMN max_price_seen REAL DEFAULT NULL")
+            if 'min_price_seen' not in hist_cols:
+                cursor.execute("ALTER TABLE penny_virtual_trades_history ADD COLUMN min_price_seen REAL DEFAULT NULL")
 
 
 # ─── Списки рынков: Игнорировать / Следить ──────────────────────────────────
@@ -2163,7 +2172,7 @@ def sell_virtual_penny_stock(market_id: str) -> None:
     with get_connection() as conn:
         # 1. Считываем данные рынка из мониторинга
         row = conn.execute("""
-            SELECT title, url, initial_price, current_price, predicted_outcome, virtual_bought_price, virtual_bought_at
+            SELECT title, url, initial_price, current_price, predicted_outcome, virtual_bought_price, virtual_bought_at, max_price_seen, min_price_seen
             FROM penny_stocks_monitoring
             WHERE market_id = ?
         """, (market_id,)).fetchone()
@@ -2196,12 +2205,14 @@ def sell_virtual_penny_stock(market_id: str) -> None:
             conn.execute("""
                 INSERT INTO penny_virtual_trades_history (
                     market_id, title, url, outcome, bought_price, bought_outcome_price, 
-                    sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at,
+                    max_price_seen, min_price_seen
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 market_id, row['title'], row['url'], outcome_to_track,
                 v_bought, bought_outcome, v_curr, curr_outcome,
-                pnl_cents, pnl_percent, v_bought_at
+                pnl_cents, pnl_percent, v_bought_at,
+                row['max_price_seen'], row['min_price_seen']
             ))
             
         # 2. Очищаем портфель
