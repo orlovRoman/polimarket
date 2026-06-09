@@ -29,7 +29,7 @@ def get_overview_stats() -> dict:
             'signals_count': 0,
             'status_emoji': '🟡'
         }
-        
+
     with get_connection() as conn:
         # 1. Читаем последние метрики из strategy_metrics
         rows = conn.execute("""
@@ -64,7 +64,7 @@ def get_overview_stats() -> dict:
         # ВНИМАНИЕ: pnl_cents в БД хранит значение в долларах (долях доллара, например 0.05 = $0.05),
         # поэтому напрямую суммируем и округляем до 2 знаков, так же как для других стратегий.
         penny_pnl = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_cents ELSE 0.0 END) as pnl_7d,
                 SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_cents ELSE 0.0 END) as pnl_30d
@@ -78,7 +78,7 @@ def get_overview_stats() -> dict:
         # 3. Обновляем статус-эмодзи
         for stype, sdata in stats.items():
             sdata['status_emoji'] = get_status_emoji(sdata['sharpe'], sdata['win_rate'])
-            
+
     return stats
 
 def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, list[dict]]:
@@ -91,11 +91,11 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         days = max(1, min(days, 365))
     except (ValueError, TypeError):
         days = 30
-        
+
     from agents.shared.python.db import get_connection
     strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks']
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    
+
     def get_curve_for_strategy(conn, stype):
         if stype == 'penny_stocks':
             rows = conn.execute("""
@@ -109,13 +109,13 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
             rows = conn.execute("""
                 SELECT date(resolved_at) as date, SUM(pnl_realized) as daily_pnl
                 FROM signals
-                WHERE strategy_type = ? 
-                  AND status IN ('WIN', 'LOSS') 
+                WHERE strategy_type = ?
+                  AND status IN ('WIN', 'LOSS')
                   AND resolved_at >= ?
                 GROUP BY date(resolved_at)
                 ORDER BY date(resolved_at) ASC
             """, (stype, period_start)).fetchall()
-        
+
         cumulative = 0.0
         curve = []
         for r in rows:
@@ -153,7 +153,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # Активные позиции (с прогнозом и без) с пагинацией
         active_offset = (active_page - 1) * active_limit
-        active_rows = conn.execute(f"""
+        active_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.volume_2h, p.predicted_outcome, p.edge, p.confidence, p.added_at, p.virtual_bought_price,
                    (am.market_id IS NOT NULL) as is_analyzed
             FROM penny_stocks_monitoring p
@@ -164,9 +164,9 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
             )
             ORDER BY p.added_at DESC
-            LIMIT {active_limit} OFFSET {active_offset}
-        """).fetchall()
-        
+            LIMIT ? OFFSET ?
+        """, (active_limit, active_offset)).fetchall()
+
         active = []
         for r in active_rows:
             row_dict = dict(r)
@@ -175,15 +175,15 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             curr = row_dict['current_price']
             mx = row_dict['max_price_seen']
             mn = row_dict['min_price_seen']
-            
+
             # Определяем целевой исход для отображения цен
             if pred is not None:
                 outcome_to_track = pred
             else:
                 outcome_to_track = 'NO' if (init is not None and init >= 0.90) else 'YES'
-            
+
             row_dict['cheap_outcome'] = outcome_to_track
-            
+
             if outcome_to_track == 'NO':
                 row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
                 row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
@@ -209,7 +209,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # Завершенные позиции (все дешевые, с прогнозом и без) с пагинацией
         resolved_offset = (resolved_page - 1) * resolved_limit
-        resolved_rows = conn.execute(f"""
+        resolved_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
                    h.pnl_cents as pnl_realized
             FROM penny_stocks_monitoring p
@@ -224,9 +224,9 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
             )
             ORDER BY p.resolved_at DESC
-            LIMIT {resolved_limit} OFFSET {resolved_offset}
-        """).fetchall()
-        
+            LIMIT ? OFFSET ?
+        """, (resolved_limit, resolved_offset)).fetchall()
+
         resolved = []
         for r in resolved_rows:
             row_dict = dict(r)
@@ -235,15 +235,15 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             curr = row_dict['current_price']
             mx = row_dict['max_price_seen']
             mn = row_dict['min_price_seen']
-            
+
             # Определяем направление
             if pred is not None:
                 outcome_to_track = pred
             else:
                 outcome_to_track = 'NO' if (init is not None and init >= 0.90) else 'YES'
-                
+
             row_dict['cheap_outcome'] = outcome_to_track
-            
+
             if outcome_to_track == 'NO':
                 row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
                 row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
@@ -263,7 +263,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             WHERE status = 'ACTIVE' AND virtual_bought_price IS NOT NULL
             ORDER BY virtual_bought_at DESC
         """).fetchall()
-        
+
         portfolio = []
         for r in portfolio_rows:
             row_dict = dict(r)
@@ -271,15 +271,15 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             init = row_dict['initial_price']
             v_bought = row_dict['virtual_bought_price']
             v_curr = row_dict['current_price']
-            
+
             # Определяем направление сделки
             if pred is not None:
                 outcome_to_track = pred
             else:
                 outcome_to_track = 'NO' if (init is not None and init >= 0.90) else 'YES'
-                
+
             row_dict['cheap_outcome'] = outcome_to_track
-            
+
             # Учитываем направление ставки
             if outcome_to_track == 'NO':
                 bought_outcome = 1.0 - v_bought if v_bought is not None else None
@@ -287,24 +287,24 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             else:  # YES
                 bought_outcome = v_bought
                 curr_outcome = v_curr
-                
+
             pnl_cents = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
             pnl_percent = (pnl_cents / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
-            
+
             row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
             row_dict['pnl_cents'] = round(pnl_cents, 4)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
-            
+
             portfolio.append(row_dict)
 
         # Статистика
         total_active = active_total
         total_resolved = resolved_total
-        
+
         # Статистика по истории виртуальных сделок
         stats_row = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as count,
                 SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
                 MAX(pnl_cents) as best_pnl,
@@ -312,7 +312,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             FROM penny_virtual_trades_history
             WHERE sold_at >= datetime('now', '-30 days')
         """).fetchone()
-  
+
         win_rate = None
         best_pnl = 0.0
         avg_pnl = 0.0
@@ -323,9 +323,9 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         avg_entry_row = conn.execute("""
             SELECT AVG(
-                CASE 
-                    WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price 
-                    ELSE initial_price 
+                CASE
+                    WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price
+                    ELSE initial_price
                 END
             ) as avg_entry
             FROM penny_stocks_monitoring
@@ -342,8 +342,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             FROM penny_stocks_monitoring
             WHERE status = 'ACTIVE' AND predicted_outcome IS NOT NULL AND (
                 (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
-                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
-                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
+                (predicted_outcome = 'NO' AND initial_price >= 0.90)
             )
         """).fetchone()['cnt']
 
@@ -359,12 +358,12 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # Распределение цен входа
         all_prices_rows = conn.execute("""
-            SELECT 
-                CASE 
-                    WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price 
-                    ELSE initial_price 
+            SELECT
+                CASE
+                    WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price
+                    ELSE initial_price
                 END as outcome_initial_price
-            FROM penny_stocks_monitoring 
+            FROM penny_stocks_monitoring
             WHERE status = 'ACTIVE' AND (
                 (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
                 (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
@@ -398,14 +397,14 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # История виртуальных сделок с пагинацией
         history_offset = (history_page - 1) * history_limit
-        history_rows = conn.execute(f"""
+        history_rows = conn.execute("""
             SELECT id, market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at
             FROM penny_virtual_trades_history
             ORDER BY sold_at DESC
-            LIMIT {history_limit} OFFSET {history_offset}
-        """).fetchall()
+            LIMIT ? OFFSET ?
+        """, (history_limit, history_offset)).fetchall()
         virtual_history = [dict(r) for r in history_rows]
-  
+
     return {
         'active': active,
         'resolved': resolved,
@@ -458,35 +457,35 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
 
         # Синтетические коридоры
         synth_offset = (synthetic_page - 1) * synthetic_limit
-        synth_rows = conn.execute(f"""
+        synth_rows = conn.execute("""
             SELECT signal_id, event_title, event_url, lower_level, lower_price_yes, upper_level, upper_price_yes, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, total_invested_usd, pnl_in_corridor_usd, roi_min_pct, roi_max_pct, created_at
             FROM synthetic_corridors
             WHERE status = 'ACTIVE'
             ORDER BY created_at DESC
-            LIMIT {synthetic_limit} OFFSET {synth_offset}
-        """).fetchall()
+            LIMIT ? OFFSET ?
+        """, (synthetic_limit, synth_offset)).fetchall()
         synthetic = [dict(r) for r in synth_rows]
 
         # Временные коридоры
         temp_offset = (temporal_page - 1) * temporal_limit
-        temp_rows = conn.execute(f"""
+        temp_rows = conn.execute("""
             SELECT id, signal_id, event_title, event_url, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, early_stake_usd, late_stake_usd, ev_usd, roi_pct, status, created_at
             FROM temporal_corridors
             WHERE status = 'ACTIVE'
             ORDER BY created_at DESC
-            LIMIT {temporal_limit} OFFSET {temp_offset}
-        """).fetchall()
+            LIMIT ? OFFSET ?
+        """, (temporal_limit, temp_offset)).fetchall()
         temporal = [dict(r) for r in temp_rows]
 
         # Кросс-платформа (только с подтвержденным арбитражем)
         cross_offset = (cross_page - 1) * cross_limit
-        cross_rows = conn.execute(f"""
+        cross_rows = conn.execute("""
             SELECT id, market_a_title, market_a_platform, market_a_price, market_b_title, market_b_platform, market_b_price, spread_percent, arbitrage_type, reasoning, status, created_at, action_a, action_b, entry_price_a_cents, entry_price_b_cents, expected_pnl_pct, risk_level, has_arbitrage, trade_instruction
             FROM cross_arbitrage_signals
             WHERE has_arbitrage = 1 AND status != 'deleted'
             ORDER BY created_at DESC
-            LIMIT {cross_limit} OFFSET {cross_offset}
-        """).fetchall()
+            LIMIT ? OFFSET ?
+        """, (cross_limit, cross_offset)).fetchall()
         cross = [dict(r) for r in cross_rows]
 
         # Диагностическая выборка (последние 10 записей без фильтрации для отладки)
@@ -509,7 +508,7 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
             WHERE strategy_type IN ('synthetic_corridor', 'temporal_corridor', 'cross_platform') AND status IN ('WIN', 'LOSS')
             GROUP BY strategy_type
         """).fetchall()
-        
+
         kpis = {}
         for r in kpi_rows:
             stype = r['strategy_type']
@@ -521,7 +520,7 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
                 'avg_pnl': round(r['avg_pnl'] or 0.0, 2),
                 'best_pnl': round(r['best_pnl'] or 0.0, 2)
             }
-            
+
         for stype in ['synthetic_corridor', 'temporal_corridor', 'cross_platform']:
             if stype not in kpis:
                 kpis[stype] = {

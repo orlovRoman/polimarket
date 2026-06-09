@@ -803,6 +803,16 @@ def _init_db_impl():
             if 'status' not in synth_cols:
                 cursor.execute("ALTER TABLE synthetic_corridors ADD COLUMN status TEXT DEFAULT 'ACTIVE'")
 
+            # Миграция: status в temporal_corridors
+            temp_cols = {row[1] for row in cursor.execute("PRAGMA table_info(temporal_corridors)").fetchall()}
+            if 'status' not in temp_cols:
+                cursor.execute("ALTER TABLE temporal_corridors ADD COLUMN status TEXT DEFAULT 'ACTIVE'")
+
+            # Миграция: status в cross_arbitrage_signals
+            cross_cols = {row[1] for row in cursor.execute("PRAGMA table_info(cross_arbitrage_signals)").fetchall()}
+            if 'status' not in cross_cols:
+                cursor.execute("ALTER TABLE cross_arbitrage_signals ADD COLUMN status TEXT DEFAULT 'new'")
+
 
 # ─── Списки рынков: Игнорировать / Следить ──────────────────────────────────
 

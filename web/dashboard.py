@@ -148,7 +148,7 @@ async def api_delete_market(request):
     if success:
         return web.json_response({"status": "ok"})
     else:
-        return web.json_response({"error": "Failed to delete record or record not found"}, status=500)
+        return web.json_response({"error": "Record not found"}, status=404)
 
 async def api_buy_penny_stock(request):
     try:
