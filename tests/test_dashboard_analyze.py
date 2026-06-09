@@ -133,9 +133,9 @@ async def test_background_task_added_to_set(mock_run_bg, isolated_db):
         await client.post("/api/penny-stocks/analyze", json={"market_id": "task_mkt"})
         # Даём event loop обработать
         await asyncio.sleep(0.05)
+        # Проверяем, что воркеры добавились в _background_tasks
+        assert len(dashboard._background_tasks) > initial_count
         
     mock_run_bg.assert_called_once_with("task_mkt")
-    # Проверяем, что воркеры добавились в _background_tasks
-    assert len(dashboard._background_tasks) > initial_count
 
 

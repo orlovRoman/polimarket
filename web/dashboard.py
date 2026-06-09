@@ -611,6 +611,10 @@ def create_dashboard_app() -> web.Application:
         await asyncio.sleep(0)
             
     async def on_cleanup(app):
+        for task in list(_background_tasks):
+            task.cancel()
+        if _background_tasks:
+            await asyncio.gather(*_background_tasks, return_exceptions=True)
         _analysis_executor.shutdown(wait=False)
         await asyncio.sleep(0)
 
