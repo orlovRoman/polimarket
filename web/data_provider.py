@@ -418,7 +418,11 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 m.status as market_status,
                 m.actual_outcome
             FROM penny_virtual_trades_history h
-            LEFT JOIN penny_stocks_monitoring m ON h.market_id = m.market_id
+            LEFT JOIN (
+                SELECT market_id, current_price, status, actual_outcome
+                FROM penny_stocks_monitoring
+                GROUP BY market_id
+            ) m ON h.market_id = m.market_id
             ORDER BY h.sold_at DESC
             LIMIT ? OFFSET ?
         """, (history_limit, history_offset)).fetchall()
