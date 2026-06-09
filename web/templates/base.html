@@ -21,6 +21,34 @@
             }
         }
 
+        function showToast(message, type = 'success') {
+            let container = document.getElementById('toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toast-container';
+                container.className = 'toast-container';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            // Force reflow
+            toast.offsetHeight;
+
+            toast.classList.add('show');
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+                const removeToast = () => {
+                    toast.removeEventListener('transitionend', removeToast);
+                    toast.remove();
+                };
+                toast.addEventListener('transitionend', removeToast);
+            }, 3000);
+        }
+
         function formatPnL(val) {
             if (val === null || val === undefined) return "$0.00";
             const num = parseFloat(val);
@@ -441,7 +469,49 @@
             .sidebar-menu { flex-direction: row; overflow-x: auto; padding: 10px; }
             .main-container { margin-left: 0; width: 100%; }
             header { padding: 0 20px; }
-            .content { padding: 20px; }
+        }
+
+        /* Toast Notification System */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 9999;
+        }
+
+        .toast {
+            background: rgba(17, 24, 39, 0.9);
+            color: var(--text-primary);
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 250px;
+            transform: translateY(20px);
+            opacity: 0;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+            backdrop-filter: blur(8px);
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast-success {
+            border-left: 4px solid var(--accent-green);
+        }
+
+        .toast-error {
+            border-left: 4px solid var(--accent-red);
         }
     </style>
 </head>
