@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from core.models import Market, AgentOpinion
 from core.context import MarketContext
@@ -35,7 +35,7 @@ class ShadowAgent:
         market = context.market
         smart_money = context.smart_money
         
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         
         # Читаем ордербук из контекста — агент не делает HTTP-запросов
         ob_snap = context.orderbook  # Optional[OrderbookSnapshot]

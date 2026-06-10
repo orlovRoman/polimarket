@@ -378,3 +378,27 @@ def test_run_cycle_archives_stale_pending(mock_pending, mock_fetch, mock_resolve
     # Проверяем, что _resolve_signal вызван для старого сигнала с N/A
     mock_resolve.assert_called_once_with(row_stale, "N/A")
 
+
+def test_parse_created_at():
+    from services.outcome_tracker import _parse_created_at
+    
+    # 1. Формат с пробелом
+    dt1 = _parse_created_at("2026-06-01 14:30:00")
+    assert dt1.year == 2026
+    assert dt1.month == 6
+    assert dt1.day == 1
+    assert dt1.hour == 14
+    assert dt1.minute == 30
+    assert dt1.tzinfo == timezone.utc
+
+    # 2. Формат ISO с T и Z
+    dt2 = _parse_created_at("2026-06-01T14:30:00Z")
+    assert dt2.hour == 14
+    assert dt2.tzinfo == timezone.utc
+
+    # 3. Формат ISO с T и +00:00
+    dt3 = _parse_created_at("2026-06-01T14:30:00+00:00")
+    assert dt3.hour == 14
+    assert dt3.tzinfo == timezone.utc
+
+

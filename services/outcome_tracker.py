@@ -40,11 +40,7 @@ def run_resolution_cycle() -> dict:
             resolution = _fetch_resolution(row["market_id"])
             if resolution is None:
                 try:
-                    created_str = row["created_at"]
-                    if " " in created_str and "+" not in created_str and "-" not in created_str[10:]:
-                        created = datetime.fromisoformat(created_str).replace(tzinfo=timezone.utc)
-                    else:
-                        created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                    created = _parse_created_at(row["created_at"])
                     age_days = (datetime.now(timezone.utc) - created).days
                     if age_days >= 7:
                         _resolve_signal(row, "N/A")
@@ -79,7 +75,14 @@ def run_resolution_cycle() -> dict:
     return stats
 
 
-# ── Внутренние функции ──────────────────────────────────────
+def _parse_created_at(created_str: str) -> datetime:
+    """Надежный парсер даты создания сигнала для обеспечения совместимости."""
+    s = created_str.strip().replace("Z", "+00:00").replace(" ", "T")
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
 
 def _get_pending_with_closed_market() -> list[dict]:
     """Возвращает PENDING-сигналы, готовые к резолюции (закрытые или старые для проверки по API)."""

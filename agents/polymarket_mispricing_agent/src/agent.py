@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
@@ -46,7 +46,7 @@ class ScoutAgent:
         news_titles = context.news_titles
         reddit_posts = context.reddit_posts
         wiki_context = context.wiki_context
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         
         price_history = price_history or []
         price_history_str = "История цен недоступна."

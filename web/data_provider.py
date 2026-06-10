@@ -539,16 +539,16 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
     from agents.shared.python.db import get_connection
     with get_connection() as conn:
         # Подсчет общего количества
-        synthetic_total = conn.execute("SELECT COUNT(*) as cnt FROM synthetic_corridors WHERE (status != 'DELETED' OR status IS NULL)").fetchone()['cnt']
-        temporal_total = conn.execute("SELECT COUNT(*) as cnt FROM temporal_corridors WHERE (status != 'DELETED' OR status IS NULL)").fetchone()['cnt']
-        cross_total = conn.execute("SELECT COUNT(*) as cnt FROM cross_arbitrage_signals WHERE has_arbitrage = 1 AND (status != 'deleted' OR status IS NULL)").fetchone()['cnt']
+        synthetic_total = conn.execute("SELECT COUNT(*) as cnt FROM synthetic_corridors WHERE (status = 'ACTIVE' OR status IS NULL)").fetchone()['cnt']
+        temporal_total = conn.execute("SELECT COUNT(*) as cnt FROM temporal_corridors WHERE (status = 'ACTIVE' OR status IS NULL)").fetchone()['cnt']
+        cross_total = conn.execute("SELECT COUNT(*) as cnt FROM cross_arbitrage_signals WHERE has_arbitrage = 1 AND (status = 'new' OR status IS NULL)").fetchone()['cnt']
 
         # Синтетические коридоры
         synth_offset = (synthetic_page - 1) * synthetic_limit
         synth_rows = conn.execute("""
             SELECT signal_id, event_title, event_url, lower_level, lower_price_yes, upper_level, upper_price_yes, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, total_invested_usd, pnl_in_corridor_usd, roi_min_pct, roi_max_pct, created_at
             FROM synthetic_corridors
-            WHERE (status != 'DELETED' OR status IS NULL)
+            WHERE (status = 'ACTIVE' OR status IS NULL)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """, (synthetic_limit, synth_offset)).fetchall()
@@ -559,7 +559,7 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
         temp_rows = conn.execute("""
             SELECT id, signal_id, event_title, event_url, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, early_stake_usd, late_stake_usd, ev_usd, roi_pct, status, created_at
             FROM temporal_corridors
-            WHERE (status != 'DELETED' OR status IS NULL)
+            WHERE (status = 'ACTIVE' OR status IS NULL)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """, (temporal_limit, temp_offset)).fetchall()
@@ -570,7 +570,7 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
         cross_rows = conn.execute("""
             SELECT id, market_a_title, market_a_platform, market_a_price, market_b_title, market_b_platform, market_b_price, spread_percent, arbitrage_type, reasoning, status, created_at, action_a, action_b, entry_price_a_cents, entry_price_b_cents, expected_pnl_pct, risk_level, has_arbitrage, trade_instruction
             FROM cross_arbitrage_signals
-            WHERE has_arbitrage = 1 AND (status != 'deleted' OR status IS NULL)
+            WHERE has_arbitrage = 1 AND (status = 'new' OR status IS NULL)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """, (cross_limit, cross_offset)).fetchall()
