@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from contextlib import contextmanager
 from pydantic import BaseModel, Field, field_validator
 
-from config import DB_PATH
+from agents.shared.python.db import DB_PATH
 
 logger = logging.getLogger("NexusPolyBot.SignalLogger")
 

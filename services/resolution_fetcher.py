@@ -6,7 +6,7 @@ import httpx
 from datetime import datetime, timezone, timedelta
 
 from core.eval.signal_logger import SignalLogger
-from config import DB_PATH
+from agents.shared.python.db import DB_PATH
 
 logger = logging.getLogger("NexusPolyBot.ResolutionFetcher")
 

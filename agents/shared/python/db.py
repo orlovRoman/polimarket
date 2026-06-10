@@ -10,7 +10,39 @@ from core.models import Market, Signal, MarketCorrelation
 # Импортируем путь из единого конфига
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-from config import DB_PATH
+import config
+
+_db_initialized = False
+_db_init_failed = False
+
+class DynamicPath:
+    def __init__(self):
+        self._last_path = None
+
+    def _check_path_change(self):
+        import os
+        current_path = str(config.DB_PATH)
+        db_exists_and_nonempty = os.path.exists(current_path) and os.path.getsize(current_path) > 0
+        if self._last_path != current_path or not db_exists_and_nonempty:
+            self._last_path = current_path
+            global _db_initialized, _db_init_failed
+            _db_initialized = False
+            _db_init_failed = False
+
+    def __fspath__(self):
+        self._check_path_change()
+        return str(config.DB_PATH)
+
+    def __str__(self):
+        self._check_path_change()
+        return str(config.DB_PATH)
+
+    @property
+    def parent(self):
+        self._check_path_change()
+        return config.DB_PATH.parent
+
+DB_PATH = DynamicPath()
 import logging
 
 COMPOUND_DEFAULTS = {
@@ -41,6 +73,7 @@ def _ensure_initializing(fn):
 @contextmanager
 def get_connection():
     """Контекст-менеджер для SQLite-соединений с гарантированным закрытием."""
+    str(DB_PATH)
     global _db_initializing
     if not _db_initializing:
         init_db()
@@ -61,12 +94,11 @@ def _escape_like(pattern: str) -> str:
     """Экранирует спецсимволы для оператора SQL LIKE."""
     return pattern.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
-_db_initialized = False
-_db_init_failed = False
 _db_init_lock = threading.Lock()
 
 def init_db():
     """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
+    str(DB_PATH)
     global _db_initialized, _db_init_failed
     if _db_initialized:
         return

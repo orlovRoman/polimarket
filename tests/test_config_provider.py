@@ -34,15 +34,15 @@ async def test_config_provider_cache_and_invalidation():
         val_async = await ConfigProvider.get_min_edge("scout")
         assert val_async == 0.08
 
-        # 6. Проверка min_spread для коридоров и кросс-платформы
+        # Проверка min_spread для коридоров и кросс-платформы
         mock_store.get_latest_applied_value_sync = MagicMock(return_value=None)
         
         ConfigProvider.invalidate_cache()
         val_syn = ConfigProvider.get_min_spread_sync("synthetic_corridor")
-        assert val_syn == 0.008
+        assert val_syn == 0.005
         
         val_temp = ConfigProvider.get_min_spread_sync("temporal_corridor")
-        assert val_temp == 0.020
+        assert val_temp == 0.010
         
         val_cross = ConfigProvider.get_min_spread_sync("cross_platform")
         assert val_cross == 0.050

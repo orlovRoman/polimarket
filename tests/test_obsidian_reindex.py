@@ -15,6 +15,8 @@ def isolated_db(tmp_path, monkeypatch):
     import agents.shared.python.db as db_module
     test_db_path = tmp_path / "test_nexus.db"
     monkeypatch.setattr(db_module, "DB_PATH", test_db_path)
+    monkeypatch.setattr(db_module, "_db_initialized", False)
+    monkeypatch.setattr(db_module, "_db_init_failed", False)
     db_module.init_db()
     yield
 

@@ -29,7 +29,11 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
                              THEN t.amount_usd ELSE 0.0 END) AS yes_vol,
                     SUM(CASE WHEN t.outcome = 'NO'
                              AND t.timestamp > datetime('now', '-2 hours')
-                             THEN t.amount_usd ELSE 0.0 END) AS no_vol
+                             THEN t.amount_usd ELSE 0.0 END) AS no_vol,
+                    (SELECT wallet_address FROM trader_transactions
+                     WHERE market_id = t.market_id
+                       AND timestamp > datetime('now', '-2 hours')
+                     ORDER BY amount_usd DESC LIMIT 1) as top_wallet
                 FROM trader_transactions t
                 JOIN markets m ON t.market_id = m.id
                 WHERE t.timestamp > datetime('now', '-4 hours')
@@ -72,6 +76,7 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
                     "priority": "medium",
                     "summary": f"Whale volume spike: {row['title']}",
                     "platform": "polymarket",
+                    "wallet_address": row.get("top_wallet"),
                     "yes_vol": row['yes_vol'],
                     "no_vol": row['no_vol'],
                     "vol_recent": row['vol_recent'],

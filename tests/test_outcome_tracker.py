@@ -328,6 +328,15 @@ def test_get_market_resolution_with_floats(mock_get):
     res = get_market_resolution("mkt-float-2")
     assert res == "NO"
 
+    # Случай 3: outcomePrices на границе порога ["0.99", "0.01"]
+    mock_resp.json.return_value = {
+        "closed": True,
+        "winner": None,
+        "outcomePrices": '["0.99", "0.01"]'
+    }
+    res = get_market_resolution("mkt-float-3")
+    assert res == "YES"
+
 
 @patch("requests.get")
 def test_get_market_resolution_with_tokens(mock_get):

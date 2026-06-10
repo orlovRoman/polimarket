@@ -2,6 +2,25 @@ import pytest, asyncio, uuid
 from unittest.mock import patch, MagicMock, AsyncMock
 from core.workflow import run_agent_evaluation, _fetch_markets_parallel, process_consensus, _prefilter_markets
 
+class MockShutdownExecutor:
+    def __init__(self, *args, **kwargs):
+        self.shutdown = MagicMock()
+    def submit(self, fn, *args, **kwargs):
+        func = fn
+        while hasattr(func, "func"):
+            func = func.func
+        fn_name = getattr(func, "__name__", "")
+        if fn_name in ("fetch_rss_news", "fetch_reddit_news", "fetch_wikipedia_context", "fetch_hackernews"):
+            raise RuntimeError("cannot schedule new futures after interpreter shutdown")
+        from concurrent.futures import Future
+        f = Future()
+        try:
+            res = fn(*args, **kwargs)
+            f.set_result(res)
+        except Exception as e:
+            f.set_exception(e)
+        return f
+
 @pytest.mark.asyncio
 async def test_executor_shutdown_on_runtime_error():
     """При RuntimeError в submit executor должен быть закрыт."""
@@ -14,8 +33,7 @@ async def test_executor_shutdown_on_runtime_error():
     swing = MagicMock()
     swing.estimate_market = AsyncMock(return_value=None)
 
-    mock_executor = MagicMock()
-    mock_executor.submit.side_effect = RuntimeError("cannot schedule new futures after interpreter shutdown")
+    mock_executor = MockShutdownExecutor()
 
     with patch("core.workflow.concurrent.futures.ThreadPoolExecutor", return_value=mock_executor):
         # mock build_search_query to not fail

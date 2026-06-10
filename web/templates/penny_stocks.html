@@ -37,6 +37,14 @@
         <div class="kpi-title">Лучший трейд</div>
         <div class="kpi-value" id="kpi-besttrade">$0.00</div>
     </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Общий PnL (Сделки)</div>
+        <div class="kpi-value" id="kpi-trades-pnl">$0.00</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Общий PnL (Все рынки)</div>
+        <div class="kpi-value" id="kpi-all-pnl">$0.00</div>
+    </div>
 </div>
 
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px;">
@@ -1011,6 +1019,8 @@
         document.getElementById('kpi-winrate').textContent = data.stats.win_rate !== null ? formatPercent(data.stats.win_rate) : '—';
         document.getElementById('kpi-avgentry').textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : '—';
         document.getElementById('kpi-besttrade').innerHTML = formatPnLCents(data.stats.best_trade_pnl);
+        document.getElementById('kpi-trades-pnl').innerHTML = formatPnL(data.stats.total_trades_pnl);
+        document.getElementById('kpi-all-pnl').innerHTML = formatPnL(data.stats.total_resolved_pnl);
 
         // 2. Рендерим таблицу Виртуального портфеля
         const portfolioTbody = document.getElementById('portfolio-tbody');

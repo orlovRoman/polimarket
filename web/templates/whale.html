@@ -36,6 +36,7 @@
             <tr>
                 <th>ID</th>
                 <th>Рынок</th>
+                <th>Кошелёк</th>
                 <th>Прогноз</th>
                 <th>Цена входа</th>
                 <th>Исход</th>
@@ -45,7 +46,7 @@
         </thead>
         <tbody id="signals-tbody">
             <tr>
-                <td colspan="7" style="text-align: center;" class="text-muted">Загрузка сигналов...</td>
+                <td colspan="8" style="text-align: center;" class="text-muted">Загрузка сигналов...</td>
             </tr>
         </tbody>
     </table>
@@ -98,15 +99,23 @@
         const tbody = document.getElementById('signals-tbody');
         const displaySignals = signals.slice(0, 20);
         if (displaySignals.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
         } else {
             tbody.innerHTML = displaySignals.map(sig => {
                 const prob = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
                 const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
+                
+                let walletCell = '<span class="text-muted">агрег.</span>';
+                if (sig.wallet_address) {
+                    const shortWallet = sig.wallet_address.slice(0, 6) + '...' + sig.wallet_address.slice(-4);
+                    walletCell = `<a href="https://polygonscan.com/address/${sig.wallet_address}" target="_blank" title="${sig.wallet_address}" style="color:var(--accent-purple); text-decoration:none; font-family:monospace; border-bottom:1px dashed var(--accent-purple);">${shortWallet}</a>`;
+                }
+
                 return `
                     <tr>
                         <td class="text-muted" style="font-size:0.8rem;">${sig.id.slice(0, 8)}...</td>
                         <td><a href="${sig.market_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${sig.market_title}</a></td>
+                        <td>${walletCell}</td>
                         <td><span class="badge ${sig.target_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${sig.target_outcome}</span> (${prob !== null ? formatPercent(prob) : '—'})</td>
                         <td>${sig.market_price_at_signal !== null ? formatPercent(sig.market_price_at_signal) : '—'}</td>
                         <td><span class="badge ${statusClass}">${sig.status}</span></td>

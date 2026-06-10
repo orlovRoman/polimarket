@@ -37,10 +37,13 @@ def test_job_onchain_alerts_attaches_keyboard(mock_mark, mock_thread, mock_send_
     assert "Проанализировать рынок" in kwargs["reply_markup"].inline_keyboard[0][0].text
 
 # ── 2. Проверяем, что callback_analyze_market запускает обсуждение ─────────
+@patch("core.workflow.process_consensus")
+@patch("core.workflow.run_agent_evaluation", new_callable=AsyncMock)
 @patch("telegram.bot.get_market_discussions", return_value=[])
 @patch("telegram.bot.get_core_engine")
 @patch("telegram.bot._scan_lock.locked", return_value=False)
-def test_callback_analyze_market_triggers_scan(mock_lock, mock_get_engine, mock_get_discussions):
+def test_callback_analyze_market_triggers_scan(mock_lock, mock_get_engine, mock_get_discussions, mock_run_eval, mock_consensus):
+    mock_run_eval.return_value = (MagicMock(), None, MagicMock())
     mock_engine = MagicMock()
     mock_engine._scan_lock.locked.return_value = False
     mock_engine._fetch_pre_orderbook.return_value = None

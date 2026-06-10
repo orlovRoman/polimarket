@@ -136,6 +136,8 @@ def test_get_penny_stocks_dashboard(isolated_db):
     assert data['resolved'][0]['title'] == 'Penny B'
     assert data['resolved'][0]['pnl_realized'] == -10.0
     assert data['stats']['resolved_count'] == 1
+    assert data['stats']['total_trades_pnl'] == -10.0
+    assert data['stats']['total_resolved_pnl'] == -10.0
     assert data['price_distribution']['1-5¢'] == 2   # penny_a(0.03) + penny_c(0.02)
     assert data['price_distribution']['5-10¢'] == 0  # penny_b(0.08) - RESOLVED, больше не попадает в распределение активных
 

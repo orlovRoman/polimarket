@@ -355,6 +355,45 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             )
         """).fetchone()['cnt']
 
+        # 1. Кумулятивный PnL по истории виртуальных сделок
+        trades_pnl_row = conn.execute("SELECT SUM(pnl_cents) as total_pnl FROM penny_virtual_trades_history").fetchone()
+        total_trades_pnl = trades_pnl_row['total_pnl'] if trades_pnl_row and trades_pnl_row['total_pnl'] is not None else 0.0
+
+        # 2. Кумулятивный PnL по всем закрытым (RESOLVED) penny-рынкам (реальный + гипотетический)
+        all_resolved_rows = conn.execute("""
+            SELECT p.initial_price, p.predicted_outcome, p.actual_outcome, h.pnl_cents as pnl_realized
+            FROM penny_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                FROM penny_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED' AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
+                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
+            )
+        """).fetchall()
+
+        total_resolved_pnl = 0.0
+        for r in all_resolved_rows:
+            pnl_realized = r['pnl_realized']
+            if pnl_realized is not None:
+                total_resolved_pnl += pnl_realized
+            else:
+                actual = r['actual_outcome']
+                init = r['initial_price']
+                pred = r['predicted_outcome']
+                if actual is not None and init is not None:
+                    if pred is not None:
+                        outcome_to_track = pred
+                    else:
+                        outcome_to_track = 'NO' if init >= 0.90 else 'YES'
+                    
+                    bought_outcome = (1.0 - init) if outcome_to_track == 'NO' else init
+                    sold_outcome = 1.0 if actual == outcome_to_track else 0.0
+                    total_resolved_pnl += (sold_outcome - bought_outcome)
+
         stats = {
             'active_count': total_active,
             'active_predicted_count': total_active_predicted,
@@ -362,7 +401,9 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             'win_rate': win_rate,
             'avg_entry_price': avg_entry,
             'best_trade_pnl': best_pnl,
-            'avg_pnl': avg_pnl
+            'avg_pnl': avg_pnl,
+            'total_trades_pnl': round(total_trades_pnl, 4),
+            'total_resolved_pnl': round(total_resolved_pnl, 4)
         }
 
         # Распределение цен входа
@@ -507,12 +548,14 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
 def get_strategy_signals(strategy: str, days: int = 30, limit: int = 50) -> list:
     """Возвращает последние сигналы для конкретной стратегии вместе с названием рынков."""
+    import json
     from agents.shared.python.db import get_connection
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT s.id, s.created_at, s.status, s.edge, s.confidence, s.pnl_realized, s.target_outcome,
                    s.estimated_probability, s.predicted_probability, s.market_price_at_signal,
+                   s.details,
                    m.title as market_title, m.url as market_url
             FROM signals s
             JOIN markets m ON s.market_id = m.id
@@ -520,7 +563,23 @@ def get_strategy_signals(strategy: str, days: int = 30, limit: int = 50) -> list
             ORDER BY s.created_at DESC
             LIMIT ?
         """, (strategy, period_start, limit)).fetchall()
-        return [dict(r) for r in rows]
+        
+        signals = []
+        for r in rows:
+            row_dict = dict(r)
+            details_str = row_dict.get('details')
+            wallet_address = None
+            if details_str:
+                try:
+                    meta = json.loads(details_str)
+                    wallet_address = meta.get('wallet_address')
+                except Exception:
+                    pass
+            row_dict['wallet_address'] = wallet_address
+            if 'details' in row_dict:
+                del row_dict['details']
+            signals.append(row_dict)
+        return signals
 
 def get_auto_disable_candidates() -> list:
     """Возвращает список стратегий, у которых Sharpe Ratio < 0."""
@@ -539,16 +598,16 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
     from agents.shared.python.db import get_connection
     with get_connection() as conn:
         # Подсчет общего количества
-        synthetic_total = conn.execute("SELECT COUNT(*) as cnt FROM synthetic_corridors WHERE (status = 'ACTIVE' OR status IS NULL)").fetchone()['cnt']
-        temporal_total = conn.execute("SELECT COUNT(*) as cnt FROM temporal_corridors WHERE (status = 'ACTIVE' OR status IS NULL)").fetchone()['cnt']
-        cross_total = conn.execute("SELECT COUNT(*) as cnt FROM cross_arbitrage_signals WHERE has_arbitrage = 1 AND (status = 'new' OR status IS NULL)").fetchone()['cnt']
+        synthetic_total = conn.execute("SELECT COUNT(*) as cnt FROM synthetic_corridors WHERE (status != 'DELETED' OR status IS NULL)").fetchone()['cnt']
+        temporal_total = conn.execute("SELECT COUNT(*) as cnt FROM temporal_corridors WHERE (status != 'DELETED' OR status IS NULL)").fetchone()['cnt']
+        cross_total = conn.execute("SELECT COUNT(*) as cnt FROM cross_arbitrage_signals WHERE has_arbitrage = 1 AND (status != 'deleted' OR status IS NULL)").fetchone()['cnt']
 
         # Синтетические коридоры
         synth_offset = (synthetic_page - 1) * synthetic_limit
         synth_rows = conn.execute("""
             SELECT signal_id, event_title, event_url, lower_level, lower_price_yes, upper_level, upper_price_yes, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, total_invested_usd, pnl_in_corridor_usd, roi_min_pct, roi_max_pct, created_at
             FROM synthetic_corridors
-            WHERE (status = 'ACTIVE' OR status IS NULL)
+            WHERE (status != 'DELETED' OR status IS NULL)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """, (synthetic_limit, synth_offset)).fetchall()
@@ -559,7 +618,7 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
         temp_rows = conn.execute("""
             SELECT id, signal_id, event_title, event_url, theoretical_cost, theoretical_spread_pct, real_cost, real_spread_pct, early_stake_usd, late_stake_usd, ev_usd, roi_pct, status, created_at
             FROM temporal_corridors
-            WHERE (status = 'ACTIVE' OR status IS NULL)
+            WHERE (status != 'DELETED' OR status IS NULL)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """, (temporal_limit, temp_offset)).fetchall()
@@ -570,7 +629,7 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
         cross_rows = conn.execute("""
             SELECT id, market_a_title, market_a_platform, market_a_price, market_b_title, market_b_platform, market_b_price, spread_percent, arbitrage_type, reasoning, status, created_at, action_a, action_b, entry_price_a_cents, entry_price_b_cents, expected_pnl_pct, risk_level, has_arbitrage, trade_instruction
             FROM cross_arbitrage_signals
-            WHERE has_arbitrage = 1 AND (status = 'new' OR status IS NULL)
+            WHERE has_arbitrage = 1 AND (status != 'deleted' OR status IS NULL)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """, (cross_limit, cross_offset)).fetchall()

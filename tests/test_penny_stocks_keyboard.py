@@ -74,12 +74,15 @@ async def test_callback_analyze_market_uses_cache(
 
 
 @pytest.mark.asyncio
+@patch("core.workflow.process_consensus")
+@patch("core.workflow.run_agent_evaluation", new_callable=AsyncMock)
 @patch("telegram.bot.get_market_discussions", return_value=[])
 @patch("telegram.bot.get_core_engine")
 @patch("telegram.bot._scan_lock.locked", return_value=False)
 async def test_callback_analyze_market_no_cache_triggers_scan(
-    mock_lock, mock_get_engine, mock_get_discussions
+    mock_lock, mock_get_engine, mock_get_discussions, mock_run_eval, mock_consensus
 ):
+    mock_run_eval.return_value = (MagicMock(), None, MagicMock())
     mock_engine = MagicMock()
     mock_engine._scan_lock.locked.return_value = False
     mock_engine._fetch_pre_orderbook.return_value = None

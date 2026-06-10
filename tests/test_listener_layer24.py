@@ -34,15 +34,14 @@ def test_httpx_timeout_exception_is_caught():
     printed = []
 
     async def run_test():
-        with patch("services.telegram_listener.httpx") as mock_httpx, \
+        with patch("httpx.AsyncClient") as mock_async_client, \
              patch("builtins.print", side_effect=lambda *a: printed.append(str(a[0]))):
 
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
-            mock_httpx.AsyncClient.return_value = mock_client
-            mock_httpx.TimeoutException = httpx.TimeoutException
+            mock_async_client.return_value = mock_client
 
             # Прямой вызов логики POST (минимальная симуляция)
             try:

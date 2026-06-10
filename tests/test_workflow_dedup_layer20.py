@@ -126,6 +126,21 @@ def test_session_dedup_per_trigger_type_is_same_market():
 
 # ── Баг #3: документирование save_memory до анализа ──────────
 
+class MockExecutor:
+    def __init__(self, *args, **kwargs):
+        pass
+    def submit(self, fn, *args, **kwargs):
+        from concurrent.futures import Future
+        f = Future()
+        try:
+            res = fn(*args, **kwargs)
+            f.set_result(res)
+        except Exception as e:
+            f.set_exception(e)
+        return f
+    def shutdown(self, *args, **kwargs):
+        pass
+
 def test_save_memory_called_before_llm():
     """save_memory вызывается ДО LLM (до scout.estimate_market)"""
     from core import workflow
@@ -154,7 +169,7 @@ def test_save_memory_called_before_llm():
          patch("core.workflow.save_memory", side_effect=mock_save_memory), \
          patch("config.llm_health_gate") as gate, \
          patch("core.workflow.build_search_query", return_value="q", create=True), \
-         patch("core.workflow.concurrent.futures.ThreadPoolExecutor"), \
+         patch("core.workflow.concurrent.futures.ThreadPoolExecutor", new=MockExecutor), \
          patch("core.workflow._safe_result", return_value=[], create=True), \
          patch("core.workflow.fetch_google_trends", return_value="", create=True), \
          patch("core.workflow.get_market_correlations", return_value=[], create=True), \
@@ -213,7 +228,7 @@ def test_dedup_db_cooldown_expired():
          patch("core.workflow.save_memory"), \
          patch("config.llm_health_gate") as gate, \
          patch("core.workflow.build_search_query", return_value="test", create=True), \
-         patch("core.workflow.concurrent.futures.ThreadPoolExecutor"), \
+         patch("core.workflow.concurrent.futures.ThreadPoolExecutor", new=MockExecutor), \
          patch("core.workflow._safe_result", return_value=[], create=True), \
          patch("core.workflow.fetch_google_trends", return_value={}, create=True), \
          patch("core.workflow.get_market_correlations", return_value=[], create=True):
