@@ -298,3 +298,83 @@ def test_strategy_metrics_period_format(mock_conn):
                 if isinstance(p, str) and "-" in p and ":" in p:
                     # Проверяем, что дата не содержит 'T'
                     assert "T" not in p, f"Формат даты содержит букву 'T': {p}"
+
+
+# ── 7. Тестирование get_market_resolution и принудительной архивации ──
+
+@patch("requests.get")
+def test_get_market_resolution_with_floats(mock_get):
+    from services.polymarket_client import get_market_resolution
+    
+    # Случай 1: outcomePrices в виде ["1.0", "0.0"]
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "closed": True,
+        "winner": None,
+        "outcomePrices": '["1.0", "0.0"]'
+    }
+    mock_get.return_value = mock_resp
+    
+    res = get_market_resolution("mkt-float-1")
+    assert res == "YES"
+
+    # Случай 2: outcomePrices в виде ["0.00", "0.999"]
+    mock_resp.json.return_value = {
+        "closed": True,
+        "winner": None,
+        "outcomePrices": '["0.00", "0.999"]'
+    }
+    res = get_market_resolution("mkt-float-2")
+    assert res == "NO"
+
+
+@patch("requests.get")
+def test_get_market_resolution_with_tokens(mock_get):
+    from services.polymarket_client import get_market_resolution
+    
+    # Проверка резолюции через tokens
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "closed": False,
+        "winner": None,
+        "outcomePrices": None,
+        "tokens": [
+            {"outcome": "Yes", "price": "0.995"},
+            {"outcome": "No", "price": "0.005"}
+        ]
+    }
+    mock_get.return_value = mock_resp
+    
+    res = get_market_resolution("mkt-token-1")
+    assert res == "YES"
+
+
+@patch("services.outcome_tracker._send_telegram_summary")
+@patch("services.outcome_tracker._update_all_strategy_metrics")
+@patch("services.outcome_tracker._resolve_signal")
+@patch("services.outcome_tracker._fetch_resolution", return_value=None)
+@patch("services.outcome_tracker._get_pending_with_closed_market")
+def test_run_cycle_archives_stale_pending(mock_pending, mock_fetch, mock_resolve, mock_metrics, mock_send):
+    # s1 - старый сигнал (10 дней назад), должен быть архивирован как N/A
+    # s2 - свежий сигнал (1 день назад), должен быть пропущен (skipped)
+    stale_dt = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    fresh_dt = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    
+    row_stale = _make_row("stale-1")
+    row_stale["created_at"] = stale_dt
+    
+    row_fresh = _make_row("fresh-1")
+    row_fresh["created_at"] = fresh_dt
+    
+    mock_pending.return_value = [row_stale, row_fresh]
+    
+    stats = run_resolution_cycle()
+    assert stats["resolved"] == 1
+    assert stats["skipped"] == 1
+    assert stats["errors"] == 0
+    
+    # Проверяем, что _resolve_signal вызван для старого сигнала с N/A
+    mock_resolve.assert_called_once_with(row_stale, "N/A")
+

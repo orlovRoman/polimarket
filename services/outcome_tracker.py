@@ -39,7 +39,22 @@ def run_resolution_cycle() -> dict:
         try:
             resolution = _fetch_resolution(row["market_id"])
             if resolution is None:
-                stats["skipped"] += 1
+                try:
+                    created_str = row["created_at"]
+                    if " " in created_str and "+" not in created_str and "-" not in created_str[10:]:
+                        created = datetime.fromisoformat(created_str).replace(tzinfo=timezone.utc)
+                    else:
+                        created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                    age_days = (datetime.now(timezone.utc) - created).days
+                    if age_days >= 7:
+                        _resolve_signal(row, "N/A")
+                        stats["resolved"] += 1
+                        resolved_items.append((row, "N/A"))
+                    else:
+                        stats["skipped"] += 1
+                except Exception as parse_err:
+                    logger.error(f"[OutcomeTracker] Ошибка разбора даты {row['created_at']}: {parse_err}")
+                    stats["skipped"] += 1
                 continue
             _resolve_signal(row, resolution)
             stats["resolved"] += 1

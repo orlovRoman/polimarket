@@ -28,19 +28,37 @@ def get_market_resolution(market_id: str) -> Optional[str]:
         winner = data.get("winner")
         if winner and str(winner).upper() in ("YES", "NO"):
             return str(winner).upper()
-            
-        # 2. Fallback: проверяем closed + outcomePrices
+
+        # 2. Проверяем через tokens (YES/NO токены с ценой >= 0.99)
+        tokens = data.get("tokens", [])
+        if tokens:
+            for token in tokens:
+                try:
+                    price_val = float(token.get("price", 0) or 0)
+                    if price_val >= 0.99:
+                        outcome_name = str(token.get("outcome", "")).upper()
+                        if outcome_name in ("YES", "NO"):
+                            return outcome_name
+                except (ValueError, TypeError):
+                    continue
+
+        # 3. Fallback: проверяем closed + outcomePrices
         closed = data.get("closed", False)
         if not closed:
             return None
-            
+
         outcome_prices_str = data.get("outcomePrices")
         if outcome_prices_str:
             try:
                 outcome_prices = json.loads(outcome_prices_str)
                 if outcome_prices:
-                    winner_index = outcome_prices.index("1")
-                    return "YES" if winner_index == 0 else "NO"
+                    prices_float = [float(p) for p in outcome_prices]
+                    winner_index = next(
+                        (i for i, p in enumerate(prices_float) if p >= 0.99),
+                        None
+                    )
+                    if winner_index is not None:
+                        return "YES" if winner_index == 0 else "NO"
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
                 
