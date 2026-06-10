@@ -83,6 +83,9 @@ async def api_penny_stocks(request):
         history_page=history_page,
         history_limit=history_limit
     )
+    with _jobs_lock:
+        running_ids = [mid for mid, job in analysis_jobs.items() if job.get("status") == "running"]
+    data["running_analyses"] = running_ids
     return web.json_response(data)
 
 async def api_equity_curve(request):

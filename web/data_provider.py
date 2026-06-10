@@ -472,6 +472,24 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             row_dict['current_outcome_price'] = current_outcome_price
             virtual_history.append(row_dict)
 
+        # Последние проанализированные рынки для системных оповещений
+        alerts_rows = conn.execute("""
+            SELECT am.market_id, am.analyzed_at, COALESCE(p.title, m.title, am.market_id) as title
+            FROM analyzed_markets am
+            LEFT JOIN penny_stocks_monitoring p ON am.market_id = p.market_id
+            LEFT JOIN markets m ON am.market_id = m.id
+            ORDER BY am.analyzed_at DESC
+            LIMIT 30
+        """).fetchall()
+        
+        system_alerts = []
+        for r in alerts_rows:
+            system_alerts.append({
+                'market_id': r['market_id'],
+                'analyzed_at': r['analyzed_at'],
+                'title': r['title']
+            })
+
     return {
         'active': active,
         'resolved': resolved,
@@ -481,7 +499,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'price_distribution': bins,
         'active_total': active_total,
         'resolved_total': resolved_total,
-        'history_total': history_total
+        'history_total': history_total,
+        'system_alerts': system_alerts
     }
 
 def get_strategy_signals(strategy: str, days: int = 30, limit: int = 50) -> list:

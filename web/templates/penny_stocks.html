@@ -40,10 +40,12 @@
 </div>
 
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px;">
-    <div class="chart-card">
-        <div class="chart-title">Кривая доходности (Penny Stocks)</div>
-        <div style="height: calc(100% - 40px);">
-            <canvas id="equityChart"></canvas>
+    <div class="chart-card" style="display: flex; flex-direction: column; height: 380px; padding: 24px;">
+        <div class="chart-title" style="margin-bottom: 16px;">Системные оповещения</div>
+        <div id="system-alerts-container" style="flex: 1; overflow-y: auto; padding-right: 4px;">
+            <div id="system-alerts-list" style="display: flex; flex-direction: column; gap: 10px;">
+                <div class="text-muted" style="text-align: center; padding: 20px;">Нет новых оповещений</div>
+            </div>
         </div>
     </div>
     <div class="table-card" style="height: 380px; margin-bottom: 0; display: flex; flex-direction: column; padding: 24px;">
@@ -298,6 +300,19 @@
         color: #d8b4fe;
         border: 1px solid rgba(139, 92, 246, 0.2);
     }
+    .badge-orange {
+        background-color: rgba(249, 115, 22, 0.15);
+        color: #ffedd5;
+        border: 1px solid rgba(249, 115, 22, 0.4);
+    }
+    @keyframes pulse {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(0.96); opacity: 0.85; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    .pulse-animation {
+        animation: pulse 1.5s infinite ease-in-out;
+    }
 </style>
 
 <!-- Modal Overlay for Analysis -->
@@ -316,6 +331,7 @@
 <script>
     let pollTimeout = null;
     let pollDelay = 2000;
+    let runningAnalyses = [];
 
     function closeAnalysisModal() {
         const modal = document.getElementById('analysis-modal');
@@ -819,7 +835,19 @@
                     ? `<span class="badge badge-blue">В портфеле</span>`
                     : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;
 
-                const analyzeBtn = `<button class="badge badge-purple" style="border:none; cursor:pointer; font-weight:600; margin-left:4px;" onclick="showAnalysis('${row.market_id}')">Анализ</button>`;
+                let analyzeBtnClass = 'badge-gray';
+                let analyzeBtnText = 'Анализ';
+                let analyzeBtnPulse = '';
+                
+                if (row.is_analyzed) {
+                    analyzeBtnClass = 'badge-green';
+                } else if (runningAnalyses.includes(row.market_id)) {
+                    analyzeBtnClass = 'badge-orange';
+                    analyzeBtnText = 'Анализ (идет...)';
+                    analyzeBtnPulse = 'pulse-animation';
+                }
+
+                const analyzeBtn = `<button class="badge ${analyzeBtnClass} ${analyzeBtnPulse}" style="border:none; cursor:pointer; font-weight:600; margin-left:4px;" onclick="showAnalysis('${row.market_id}')">${analyzeBtnText}</button>`;
                 const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; margin-left:4px; background-color:#ef4444; color:#fff;" onclick="deleteMarket('penny_stocks_monitoring', '${row.market_id}')">🗑️</button>`;
 
                 let outcomeBadge = '';
@@ -932,10 +960,36 @@
         }
     }
 
+    function renderSystemAlerts(alertsList) {
+        const container = document.getElementById('system-alerts-list');
+        if (!alertsList || alertsList.length === 0) {
+            container.innerHTML = `<div class="text-muted" style="text-align: center; padding: 20px;">Нет новых оповещений</div>`;
+        } else {
+            container.innerHTML = alertsList.map(alert => {
+                const date = new Date(alert.analyzed_at);
+                const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+                return `
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 12px;">
+                        <span class="badge badge-green" style="font-size: 0.75rem; padding: 2px 6px;">READY</span>
+                        <div style="flex: 1;">
+                            <div style="color: var(--text-primary); font-size: 0.9rem; font-weight: 500;">Анализ готов</div>
+                            <div style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 2px;">
+                                Анализ рынка <a href="#" style="color: var(--accent-purple); text-decoration: none; border-bottom: 1px dashed var(--accent-purple);" onclick="event.preventDefault(); showAnalysis('${alert.market_id}')">«${alert.title}»</a> готов
+                            </div>
+                        </div>
+                        <div class="text-muted" style="font-size: 0.75rem; text-align: right; white-space: nowrap;">
+                            ${dateStr}, ${timeStr}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
     async function loadPennyStocksData() {
         const url = `/api/penny-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&resolved_page=${pagination.resolved.page}&resolved_limit=${pagination.resolved.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}`;
         const data = await fetchJSON(url);
-        const equityData = await fetchJSON('/api/equity-curve?strategy=penny_stocks&days=30');
 
         if (!data) return;
 
@@ -943,6 +997,8 @@
         pagination.active.total = data.active_total || 0;
         pagination.resolved.total = data.resolved_total || 0;
         pagination.history.total = data.history_total || 0;
+
+        runningAnalyses = data.running_analyses || [];
 
         // 1. Рендерим KPI
         document.getElementById('kpi-active').textContent = data.stats.active_count;
@@ -997,64 +1053,8 @@
         updateSortIndicators('active');
         updateSortIndicators('resolved');
 
-        // 4. Обновляем графики
-        if (equityData) {
-            const dates = equityData.map(e => {
-                const d = new Date(e.date);
-                return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
-            });
-            const pnlVals = equityData.map(e => e.cumulative_pnl);
-            
-            if (equityChart) {
-                equityChart.data.labels = dates;
-                equityChart.data.datasets[0].data = pnlVals;
-                equityChart.update();
-            } else {
-                const ctx = document.getElementById('equityChart').getContext('2d');
-                equityChart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: dates,
-                        datasets: [{
-                            label: 'Кумулятивный PnL (¢)',
-                            data: pnlVals,
-                            borderColor: '#10b981',
-                            backgroundColor: 'rgba(16, 185, 129, 0.05)',
-                            fill: true,
-                            tension: 0.2,
-                            borderWidth: 2,
-                            pointBackgroundColor: '#10b981',
-                            pointRadius: 3
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#9ca3af' } },
-                            x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
-                        },
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        let label = context.dataset.label || '';
-                                        if (label) {
-                                            label += ': ';
-                                        }
-                                        if (context.parsed.y !== null) {
-                                            label += context.parsed.y.toFixed(2) + '¢';
-                                        }
-                                        return label;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-        }
+        // 4. Рендерим системные оповещения
+        renderSystemAlerts(data.system_alerts);
     }
 
     // Регистрируем хэндлер обновления в глобальном цикле
