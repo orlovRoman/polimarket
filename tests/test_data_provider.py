@@ -434,13 +434,13 @@ def test_virtual_kpis(isolated_db):
     assert data['stats']['avg_pnl'] == pytest.approx(-0.005, abs=1e-4)
 
 def test_penny_resolved_includes_unanalyzed(isolated_db):
-    """Таблица завершенных penny stocks возвращает и неанализированные рынки с cheap_outcome."""
+    """Таблица завершенных penny stocks возвращает и неанализированные рынки с cheap_outcome и гипотетическим PnL."""
     with db_module.get_connection() as conn:
         conn.execute("""
-            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome, actual_outcome)
             VALUES 
-            ('res_null_yes', 'Res Null YES', 'http://yes', 0.05, 0.05, 0.05, 0.05, 'RESOLVED', NULL),
-            ('res_null_no', 'Res Null NO', 'http://no', 0.95, 0.95, 0.95, 0.95, 'RESOLVED', NULL)
+            ('res_null_yes', 'Res Null YES', 'http://yes', 0.05, 0.05, 0.05, 0.05, 'RESOLVED', NULL, 'YES'),
+            ('res_null_no', 'Res Null NO', 'http://no', 0.95, 0.95, 0.95, 0.95, 'RESOLVED', NULL, 'YES')
         """)
         
     data = data_provider.get_penny_stocks_dashboard()
@@ -449,10 +449,14 @@ def test_penny_resolved_includes_unanalyzed(isolated_db):
     r_yes = next(x for x in data['resolved'] if x['market_id'] == 'res_null_yes')
     assert r_yes['cheap_outcome'] == 'YES'
     assert r_yes['predicted_outcome'] is None
+    # 1.0 - 0.05 = 0.95
+    assert r_yes['pnl_realized'] == pytest.approx(0.95, abs=1e-4)
     
     r_no = next(x for x in data['resolved'] if x['market_id'] == 'res_null_no')
     assert r_no['cheap_outcome'] == 'NO'
     assert r_no['predicted_outcome'] is None
+    # 0.0 - (1.0 - 0.95) = -0.05
+    assert r_no['pnl_realized'] == pytest.approx(-0.05, abs=1e-4)
 
 
 def test_virtual_history_current_price(isolated_db):
@@ -490,6 +494,14 @@ def test_virtual_history_current_price(isolated_db):
     data = data_provider.get_penny_stocks_dashboard()
     vh = {x['market_id']: x for x in data['virtual_history']}
 
+    # Проверка правильности outcome в ответе
+    assert vh['m_active_yes']['outcome'] == 'YES'
+    assert vh['m_active_no']['outcome'] == 'NO'
+    assert vh['m_resolved_yes_win']['outcome'] == 'YES'
+    assert vh['m_resolved_yes_lose']['outcome'] == 'YES'
+    assert vh['m_deleted']['outcome'] == 'YES'
+
+    # Проверка изоляции расчета цены исхода
     assert vh['m_active_yes']['current_outcome_price'] == pytest.approx(0.08)
     assert vh['m_active_no']['current_outcome_price'] == pytest.approx(0.08)
     assert vh['m_resolved_yes_win']['current_outcome_price'] == pytest.approx(1.0)

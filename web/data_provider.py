@@ -254,6 +254,15 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 row_dict['current_price_outcome'] = curr
                 row_dict['max_price_seen_outcome'] = mx
                 row_dict['min_price_seen_outcome'] = mn
+
+            # Гипотетический PNL, если реальной сделки не было, но рынок разрешен
+            actual = row_dict['actual_outcome']
+            pnl_realized = row_dict['pnl_realized']
+            if pnl_realized is None and actual is not None and init is not None:
+                bought_outcome = (1.0 - init) if outcome_to_track == 'NO' else init
+                sold_outcome = 1.0 if actual == outcome_to_track else 0.0
+                row_dict['pnl_realized'] = round(sold_outcome - bought_outcome, 4)
+
             resolved.append(row_dict)
 
         # Виртуальный портфель
@@ -445,6 +454,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 row_dict['min_price_seen_outcome'] = None
 
             # Расчет текущей стоимости исхода сделки
+            outcome = row_dict['outcome']
             curr = row_dict['current_price']
             status = row_dict['market_status']
             actual_outcome = row_dict['actual_outcome']
