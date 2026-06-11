@@ -40,23 +40,17 @@ class MockKalshiAdapter(KalshiAdapter):
 # ── Баг #1: lambda closure ────────────────────────────────────
 
 def test_lambda_closure_captures_correct_limit():
-    """Проверяем, что fetch_fn захватывает limit по значению"""
-    captured_limits = []
-
-    def fake_get_raw_events(cache_key, fetch_fn, ttl_seconds):
-        captured_limits.append(fetch_fn())  # вызываем fetch_fn сейчас
-        return []
-
+    """Проверяем, что fetch_raw_events вызывается с правильным лимитом"""
     adapter = MockPolyAdapter()
-    adapter.fetch_raw_events = MagicMock(side_effect=lambda limit: limit)
+    adapter.fetch_raw_events = MagicMock(return_value=[])
 
-    with patch("services.polymarket_cache.get_raw_events", create=True, side_effect=fake_get_raw_events), \
-         patch("core.arbitrage_workflow.find_candidate_pairs", return_value=[]), \
+    with patch("core.arbitrage_workflow.find_candidate_pairs", return_value=[]), \
          patch("core.arbitrage_workflow.load_manual_pairs", return_value=[]):
         from core.arbitrage_workflow import run_cross_platform_scan
         run_cross_platform_scan(api_key="test", adapters=[adapter], poly_limit=42, dry_run=True)
 
-    assert 42 in captured_limits, "fetch_fn должна захватить poly_limit=42, а не другое значение"
+    adapter.fetch_raw_events.assert_called_once_with(limit=42)
+
 
 
 # ── Баг #2: дублирование в verified ──────────────────────────

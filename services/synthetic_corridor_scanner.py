@@ -8,7 +8,6 @@ from agents.polymarket_arbitrage_agent.src.synthetic.orderbook import fetch_real
 from agents.polymarket_arbitrage_agent.src.synthetic.sizing import compute_sizing
 from agents.polymarket_arbitrage_agent.src.synthetic.models import SyntheticCorridorSignal
 from agents.shared.python.db import save_synthetic_corridor, mark_synthetic_corridor_alerted
-from services.polymarket_cache import get_raw_events
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from services.http_utils import make_session_with_timeout, fetch_with_retry
 import config
@@ -29,11 +28,8 @@ def run_synthetic_corridor_scan(
     
     logger.info(f"[SCA-ДИАГ] min_volume={min_volume}, min_real_spread={min_real_spread_pct}%, min_exec={min_executable_contracts}")
     
-    raw = get_raw_events(
-        cache_key=f"poly_events_{poly_limit}",
-        fetch_fn=lambda: PolymarketAdapter.fetch_raw_events(limit=poly_limit),
-        ttl_seconds=config.POLY_EVENTS_CACHE_TTL_SECONDS,
-    )
+    raw = PolymarketAdapter.fetch_raw_events(limit=poly_limit)
+
     events = load_events_with_levels_from_raw(
         raw_events=raw,
         min_volume_per_market=min_volume,

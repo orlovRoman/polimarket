@@ -8,7 +8,7 @@ def test_corridor_funnel_logs_rejection_reasons():
     mock_violation.lower = MagicMock(market_id="lower_mkt")
     mock_violation.upper = MagicMock(market_id="upper_mkt")
     
-    with patch("services.synthetic_corridor_scanner.get_raw_events") as mock_events, \
+    with patch("services.synthetic_corridor_scanner.PolymarketAdapter.fetch_raw_events") as mock_events, \
          patch("services.synthetic_corridor_scanner.load_events_with_levels_from_raw") as mock_levels, \
          patch("services.synthetic_corridor_scanner.find_violations") as mock_v, \
          patch("services.synthetic_corridor_scanner.fetch_real_entry_prices") as mock_ob, \

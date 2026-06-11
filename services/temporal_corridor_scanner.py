@@ -7,7 +7,6 @@ from agents.polymarket_arbitrage_agent.src.temporal.orderbook import fetch_real_
 from agents.polymarket_arbitrage_agent.src.temporal.sizing import compute_sizing, compute_exit_rule
 from agents.polymarket_arbitrage_agent.src.temporal.models import TemporalCorridorSignal, TemporalLeg
 from agents.shared.python.db import save_temporal_corridor
-from services.polymarket_cache import get_raw_events
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from services.http_utils import make_session_with_timeout, fetch_with_retry
 import config
@@ -30,12 +29,9 @@ def run_temporal_corridor_scan(
 
     logger.info(f"[TC-ДИАГ] min_volume={min_volume}, min_real_spread={min_real_spread_pct}%, min_exec={min_executable_contracts}, min_quality={min_quality_score}")
 
-    # 1. Загрузка событий (/events API — группы готовы) через кэш
-    raw = get_raw_events(
-        cache_key=f"poly_events_{poly_limit}",
-        fetch_fn=lambda: PolymarketAdapter.fetch_raw_events(limit=poly_limit),
-        ttl_seconds=config.POLY_EVENTS_CACHE_TTL_SECONDS,
-    )
+    # 1. Загрузка событий (/events API — группы готовы)
+    raw = PolymarketAdapter.fetch_raw_events(limit=poly_limit)
+
     events = load_events_from_raw(
         raw_events=raw,
         min_markets=2,
