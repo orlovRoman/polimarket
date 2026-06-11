@@ -755,6 +755,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
                 priority=swing_signal.priority,
                 summary=swing_signal.summary,
                 details=swing_signal.details,
+                # У SwingSignal нет поля вероятности, поэтому используем confidence в качестве прокси
                 estimated_probability=swing_signal.confidence
             )
             save_signal(swing_as_signal)

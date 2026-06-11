@@ -235,3 +235,50 @@ def test_update_episodes_for_market(temp_db):
     assert rows[3]["agent_name"] == "SHADOW"
     assert rows[3]["summary"] == "Shadow disagree summary"
     assert rows[3]["outcome"] == "incorrect"
+
+
+def test_save_signal_zero_probability(temp_db):
+    """Проверяем, что при сохранении сигнала с estimated_probability=0.0 оно сохраняется как 0.0, а не confidence."""
+    from core.models import Signal
+    from agents.shared.python.db import save_signal
+    
+    # Создаем таблицу signals во временной БД
+    temp_db.execute("""
+        CREATE TABLE IF NOT EXISTS signals (
+            id TEXT PRIMARY KEY,
+            type TEXT,
+            market_id TEXT,
+            platform TEXT,
+            edge REAL,
+            confidence REAL,
+            priority TEXT,
+            summary TEXT,
+            details TEXT,
+            status TEXT,
+            created_at TIMESTAMP,
+            target_outcome TEXT,
+            estimated_probability REAL
+        )
+    """)
+    temp_db.commit()
+    
+    # 1. Сигнал с estimated_probability=0.0
+    sig = Signal(
+        id="sig-zero-prob",
+        type="SCOUT",
+        market_id="mkt-zero",
+        platform="polymarket",
+        edge=0.1,
+        confidence=0.8,
+        priority="medium",
+        summary="Zero prob summary",
+        details="{}",
+        estimated_probability=0.0
+    )
+    
+    save_signal(sig)
+    
+    cursor = temp_db.execute("SELECT estimated_probability FROM signals WHERE id = 'sig-zero-prob'")
+    row = cursor.fetchone()
+    assert row is not None
+    assert row["estimated_probability"] == 0.0

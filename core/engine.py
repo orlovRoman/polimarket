@@ -483,14 +483,14 @@ class CoreEngine:
             oc_score = compute_onchain_score(smart_money, target_outcome=target_outcome)
             
             # Корректируем edge детерминированно (без LLM)
-            if active_signal and signal and oc_score.confidence > 0.3:
+            if active_signal and signal and oc_score and getattr(oc_score, 'confidence', 0.0) > 0.3:
                 if oc_score.direction == "CONFIRM":
                     signal.edge = min(signal.edge * (1 + oc_score.score * 0.2), 0.95)
                 elif oc_score.direction == "CONTRA":
                     signal.edge = signal.edge * (1 - abs(oc_score.score) * 0.3)
             
             # В контекст уходит только аннотация — 1 строка, ~10 токенов
-            context.onchain_annotation = oc_score.annotation
+            context.onchain_annotation = getattr(oc_score, 'annotation', '')
             
             try:
                 scout_opinion = getattr(signal, 'details', '') or getattr(signal, 'signal_cause', '') if signal else ""
@@ -539,12 +539,13 @@ class CoreEngine:
                     from core.whale_gate import check_whale_gate
                     gate = check_whale_gate(oc_score)
                     if not gate.allow:
+                        gate_confidence = getattr(oc_score, 'confidence', 0.5) if oc_score else 0.5
                         from core.models import AgentOpinion
                         opinion_shadow = AgentOpinion(
                             agent_name="SHADOW",
                             market_id=m.id,
                             opinion=gate.reason,
-                            confidence=oc_score.confidence,
+                            confidence=gate_confidence,
                             agree=False,
                             orderbook_facts="Whale Gate active",
                             risk_assessment="Крупные кошельки торгуют против идеи",
@@ -559,12 +560,12 @@ class CoreEngine:
                                 event_type="signal_evaluated",
                                 market_id=m.id,
                                 market_title=m.title,
-                                summary=f"Agree=False, confidence={oc_score.confidence:.2%}, target={str(target_outcome)}, price={m.price:.2f} (Whale Gate: {gate.reason})",
+                                summary=f"Agree=False, confidence={gate_confidence:.2%}, target={str(target_outcome)}, price={m.price:.2f} (Whale Gate: {gate.reason})",
                                 context={
                                     "price": m.price,
                                     "target_outcome": str(target_outcome),
                                     "agree": False,
-                                    "confidence": oc_score.confidence,
+                                    "confidence": gate_confidence,
                                     "liquidity_risk": "HIGH",
                                     "opinion": gate.reason
                                 },

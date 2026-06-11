@@ -1468,8 +1468,11 @@ def save_signal(signal: Signal, details_obj=None, or_ignore: bool = False) -> bo
         estimated_prob = (
             details_obj.estimated_probability 
             if details_obj 
-            else getattr(signal, 'estimated_probability', None) 
-            or getattr(signal, 'confidence', 0.5)
+            else (
+                getattr(signal, 'estimated_probability', None) 
+                if getattr(signal, 'estimated_probability', None) is not None
+                else getattr(signal, 'confidence', 0.5)
+            )
         )
         
         if or_ignore:
