@@ -1030,6 +1030,10 @@ def get_unalerted_synthetic_corridors() -> list:
         return [dict(r) for r in cursor.fetchall()]
 
 def save_temporal_corridor(signal) -> None:
+    """Сохраняет сигнал временного коридора.
+    
+    signal.early_leg и signal.late_leg — объекты TemporalLeg с вложенными полями.
+    """
     with get_connection() as conn:
         conn.execute("""
             INSERT OR IGNORE INTO temporal_corridors (
@@ -1043,8 +1047,10 @@ def save_temporal_corridor(signal) -> None:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', CURRENT_TIMESTAMP, 0)
         """, (
             signal.signal_id, signal.event_slug, signal.event_title, signal.event_url,
-            signal.early_market_id, signal.early_question, signal.early_expiry.isoformat(), signal.early_cost,
-            signal.late_market_id, signal.late_question, signal.late_expiry.isoformat(), signal.late_cost,
+            signal.early_leg.market_id, signal.early_leg.question,
+            signal.early_leg.expiry.isoformat(), signal.early_leg.entry_cost,
+            signal.late_leg.market_id, signal.late_leg.question,
+            signal.late_leg.expiry.isoformat(), signal.late_leg.entry_cost,
             signal.date_gap_days, signal.theoretical_cost, signal.theoretical_spread_pct,
             signal.real_cost, signal.real_spread_pct, signal.early_stake_usd, signal.late_stake_usd,
             signal.early_contracts, signal.late_contracts, signal.ev_usd, signal.roi_pct,
