@@ -95,90 +95,107 @@ def _escape_like(pattern: str) -> str:
     """Экранирует спецсимволы для оператора SQL LIKE."""
     return pattern.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
-@_ensure_initializing
-def heal_db_resolutions():
+def heal_db_resolutions(conn: sqlite3.Connection):
     """
     Исправляет некорректные резолюции активных рынков (у которых close_time в будущем).
     Сбрасывает outcome в 'unknown' для рынков и возвращает их сигналы в статус 'PENDING'.
     """
     try:
-        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        with get_connection() as conn:
-            # 1. Находим все активные рынки, у которых outcome равен 'YES' или 'NO'
-            # (но при этом close_time в будущем)
-            rows = conn.execute("""
-                SELECT id, title, close_time, outcome 
-                FROM markets 
-                WHERE (outcome = 'YES' OR outcome = 'NO')
-                  AND datetime(close_time) > datetime(?)
-            """, (now_str,)).fetchall()
-            
-            if rows:
-                logger.info(f"[HealDB] Найден {len(rows)} активный рынок с некорректной резолюцией. Исцеляем...")
-                for r in rows:
-                    m_id = r["id"]
-                    logger.info(f"[HealDB] Сбрасываем резолюцию для активного рынка '{r['title']}' (ID: {m_id}, close_time: {r['close_time']})")
-                    
-                    # Сбрасываем outcome в 'unknown' в markets
-                    conn.execute("UPDATE markets SET outcome = 'unknown' WHERE id = ?", (m_id,))
-                    
-                    # Возвращаем сигналы этого рынка из WIN/LOSS в PENDING и очищаем поля резолюции
-                    sig_rows = conn.execute("SELECT id FROM signals WHERE market_id = ? AND status IN ('WIN', 'LOSS')", (m_id,)).fetchall()
-                    for sig in sig_rows:
-                        sig_id = sig["id"]
-                        try:
-                            conn.execute(f"SAVEPOINT heal_sig_{sig_id}")
-                            conn.execute("""
-                                UPDATE signals 
-                                SET status = 'PENDING', 
-                                    resolved_at = NULL, 
-                                    resolution_outcome = NULL, 
-                                    resolution_price = NULL, 
-                                    was_profitable = NULL, 
-                                    pnl_realized = NULL
-                                WHERE id = ?
-                            """, (sig_id,))
-                            conn.execute(f"RELEASE SAVEPOINT heal_sig_{sig_id}")
-                            logger.info(f"[HealDB] Сброшен сигнал {sig_id} обратно в PENDING")
-                        except sqlite3.IntegrityError:
-                            conn.execute(f"ROLLBACK TO SAVEPOINT heal_sig_{sig_id}")
-                            conn.execute(f"RELEASE SAVEPOINT heal_sig_{sig_id}")
-                            conn.execute("DELETE FROM signals WHERE id = ?", (sig_id,))
-                            logger.warning(f"[HealDB] Сигнал {sig_id} конфликтует с существующим PENDING сигналом для рынка {m_id}. Удаляем дубликат.")
-            
-            # 2. Удаляем тестовый мусор (рынки и сигналы, созданные тестами)
-            conn.execute("""
-                DELETE FROM signals 
-                WHERE market_id LIKE 'test_%' 
-                   OR market_id LIKE 'mkt_test_%' 
-                   OR market_id LIKE 'mkt_whale_test_%'
-                   OR market_id LIKE 'market_dedup_%'
-                   OR market_id LIKE 'trend_m%'
-                   OR market_id = 'market_1'
-            """)
-            
-            conn.execute("""
-                DELETE FROM markets 
-                WHERE id LIKE 'test_%' 
-                   OR id LIKE 'mkt_test_%' 
-                   OR id LIKE 'mkt_whale_test_%'
-                   OR id LIKE 'market_dedup_%'
-                   OR id LIKE 'trend_m%'
-                   OR id = 'market_1'
-            """)
-            
-            conn.execute("""
-                DELETE FROM compound_opportunities 
-                WHERE market_id LIKE 'mkt_test_%'
-                   OR id LIKE 'test_opp_%'
-            """)
-            
-            conn.commit()
+        # Выбираем все рынки, у которых исход равен 'YES' или 'NO'
+        rows = conn.execute("""
+            SELECT id, title, close_time, outcome 
+            FROM markets 
+            WHERE outcome = 'YES' OR outcome = 'NO'
+        """).fetchall()
+        
+        now_utc = datetime.now(timezone.utc)
+        active_rows = []
+        for r in rows:
+            close_time_str = r["close_time"]
+            if not close_time_str:
+                continue
+            try:
+                # Нормализуем формат даты
+                clean_str = close_time_str.strip()
+                if " " in clean_str and "T" not in clean_str:
+                    clean_str = clean_str.replace(" ", "T")
+                dt = datetime.fromisoformat(clean_str)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                if dt > now_utc:
+                    active_rows.append(r)
+            except Exception as parse_err:
+                logger.warning(f"[HealDB] Не удалось распарсить close_time '{close_time_str}' для рынка {r['id']}: {parse_err}")
+        
+        if active_rows:
+            logger.info(f"[HealDB] Найдено {len(active_rows)} активных рынков с некорректной резолюцией. Исцеляем...")
+            for r in active_rows:
+                m_id = r["id"]
+                logger.info(f"[HealDB] Сбрасываем резолюцию для активного рынка '{r['title']}' (ID: {m_id}, close_time: {r['close_time']})")
+                
+                # Сбрасываем outcome в 'unknown' в markets
+                conn.execute("UPDATE markets SET outcome = 'unknown' WHERE id = ?", (m_id,))
+                
+                # Возвращаем сигналы этого рынка из WIN/LOSS в PENDING и очищаем поля резолюции
+                sig_rows = conn.execute("SELECT id FROM signals WHERE market_id = ? AND status IN ('WIN', 'LOSS')", (m_id,)).fetchall()
+                for sig in sig_rows:
+                    sig_id = sig["id"]
+                    try:
+                        conn.execute(f"SAVEPOINT heal_sig_{sig_id}")
+                        conn.execute("""
+                            UPDATE signals 
+                            SET status = 'PENDING', 
+                                resolved_at = NULL, 
+                                resolution_outcome = NULL, 
+                                resolution_price = NULL, 
+                                was_profitable = NULL, 
+                                pnl_realized = NULL
+                            WHERE id = ?
+                        """, (sig_id,))
+                        conn.execute(f"RELEASE SAVEPOINT heal_sig_{sig_id}")
+                        logger.info(f"[HealDB] Сброшен сигнал {sig_id} обратно в PENDING")
+                    except sqlite3.IntegrityError:
+                        conn.execute(f"ROLLBACK TO SAVEPOINT heal_sig_{sig_id}")
+                        conn.execute(f"RELEASE SAVEPOINT heal_sig_{sig_id}")
+                        conn.execute("DELETE FROM signals WHERE id = ?", (sig_id,))
+                        logger.warning(f"[HealDB] Сигнал {sig_id} конфликтует с существующим PENDING сигналом для рынка {m_id}. Удаляем дубликат.")
     except Exception as e:
         logger.error(f"[HealDB] Ошибка при исцелении резолюций в БД: {e}", exc_info=True)
 
+def cleanup_test_data(conn: sqlite3.Connection):
+    """
+    Удаляет тестовый мусор (рынки, сигналы, compound_opportunities, созданные тестами) из базы данных.
+    """
+    logger.info("[DB] Очистка тестовых данных...")
+    conn.execute("""
+        DELETE FROM signals 
+        WHERE market_id LIKE 'test_%' 
+           OR market_id LIKE 'mkt_test_%' 
+           OR market_id LIKE 'mkt_whale_test_%'
+           OR market_id LIKE 'market_dedup_%'
+           OR market_id LIKE 'trend_m%'
+           OR market_id = 'market_1'
+    """)
+    
+    conn.execute("""
+        DELETE FROM markets 
+        WHERE id LIKE 'test_%' 
+           OR id LIKE 'mkt_test_%' 
+           OR id LIKE 'mkt_whale_test_%'
+           OR id LIKE 'market_dedup_%'
+           OR id LIKE 'trend_m%'
+           OR id = 'market_1'
+    """)
+    
+    conn.execute("""
+        DELETE FROM compound_opportunities 
+        WHERE market_id LIKE 'mkt_test_%'
+           OR id LIKE 'test_opp_%'
+    """)
+
 _db_init_lock = threading.Lock()
 
+@_ensure_initializing
 def init_db():
     """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
     str(DB_PATH)
@@ -195,8 +212,9 @@ def init_db():
             raise RuntimeError(f"Предыдущая попытка инициализации БД по адресу {DB_PATH} завершилась ошибкой. Повторная инициализация заблокирована.")
                 
         try:
-            _init_db_impl()
-            heal_db_resolutions()
+            with get_connection() as conn:
+                _init_db_impl(conn)
+                heal_db_resolutions(conn)
             _db_initialized = True
             logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
         except Exception as e:
@@ -204,13 +222,11 @@ def init_db():
             logger.error(f"init_db failed: {e}", exc_info=True)
             raise
 
-@_ensure_initializing
-def _init_db_impl():
+def _init_db_impl(conn: sqlite3.Connection):
     """Внутренняя реализация инициализации таблиц базы данных."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    
-    with get_connection() as conn:
-
+    if True:
+        if True:
             cursor = conn.cursor()
             
             # Таблица рынков
@@ -1416,7 +1432,11 @@ def save_market(market: Market):
                 close_time = excluded.close_time,
                 tokens = excluded.tokens,
                 volume = excluded.volume,
-                condition_id = excluded.condition_id
+                condition_id = excluded.condition_id,
+                outcome = CASE
+                    WHEN excluded.outcome != 'unknown' THEN excluded.outcome
+                    ELSE markets.outcome
+                END
         """, (market.id, market.platform, market.title, market.description, market.url, db_outcome, market.price, market.close_time.isoformat(), tokens_json, market.volume, market.condition_id))
 
 def get_market_from_db(market_id: str) -> Optional[dict]:

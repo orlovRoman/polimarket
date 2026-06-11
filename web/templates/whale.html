@@ -1,4 +1,29 @@
 <!-- whale.html -->
+<style>
+    .tab-btn {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        padding: 6px 12px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: all var(--transition-speed) ease;
+    }
+    .tab-btn:hover {
+        color: var(--text-primary);
+        background-color: rgba(255, 255, 255, 0.1);
+        border-color: var(--text-secondary);
+    }
+    .tab-btn[disabled] {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background-color: rgba(255, 255, 255, 0.02);
+        border-color: var(--border-color);
+    }
+</style>
+
 <div class="kpi-row">
     <div class="kpi-card">
         <div class="kpi-title">Win Rate (30д)</div>
@@ -30,37 +55,47 @@
 </div>
 
 <div class="table-card">
-    <div class="table-title">Последние 20 сигналов Whale Following</div>
+    <div class="table-title">Сигналы Whale Following</div>
     <table>
         <thead>
             <tr>
-                <th>ID</th>
-                <th>Рынок</th>
-                <th>Кошелёк</th>
-                <th>Прогноз</th>
-                <th>Цена входа</th>
-                <th>Исход</th>
-                <th>PnL</th>
-                <th>Время создания</th>
+                <th onclick="toggleSort('whale', 'market_title')" style="cursor:pointer; user-select:none;">Рынок<span id="sort-whale-market_title"></span></th>
+                <th onclick="toggleSort('whale', 'wallet_address')" style="cursor:pointer; user-select:none;">Кошелёк<span id="sort-whale-wallet_address"></span></th>
+                <th onclick="toggleSort('whale', 'target_outcome')" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-whale-target_outcome"></span></th>
+                <th onclick="toggleSort('whale', 'market_price_at_signal')" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-whale-market_price_at_signal"></span></th>
+                <th onclick="toggleSort('whale', 'status')" style="cursor:pointer; user-select:none;">Исход<span id="sort-whale-status"></span></th>
+                <th onclick="toggleSort('whale', 'pnl_realized')" style="cursor:pointer; user-select:none;">PnL<span id="sort-whale-pnl_realized"></span></th>
+                <th onclick="toggleSort('whale', 'created_at')" style="cursor:pointer; user-select:none;">Время создания<span id="sort-whale-created_at"></span></th>
             </tr>
         </thead>
         <tbody id="signals-tbody">
             <tr>
-                <td colspan="8" style="text-align: center;" class="text-muted">Загрузка сигналов...</td>
+                <td colspan="7" style="text-align: center;" class="text-muted">Загрузка сигналов...</td>
             </tr>
         </tbody>
     </table>
+    <div id="whale-pagination"></div>
 </div>
 
 <script>
     let equityChart = null;
+    let pagination = {
+        whale: { page: 1, limit: 50, total: 0 }
+    };
+    let sortState = {
+        whale: { col: 'created_at', dir: 'desc' }
+    };
+    let lastFetchedSignals = [];
 
     async function loadWhaleData() {
         const overview = await fetchJSON('/api/overview');
-        const signals = await fetchJSON('/api/signals?strategy=whale&days=30&limit=50');
+        const signalsResponse = await fetchJSON(`/api/signals?strategy=whale&page=${pagination.whale.page}&limit=${pagination.whale.limit}&days=all`);
         const equityData = await fetchJSON('/api/equity-curve?strategy=whale&days=30');
 
-        if (!overview || !signals) return;
+        if (!overview || !signalsResponse) return;
+
+        lastFetchedSignals = signalsResponse.signals || [];
+        pagination.whale.total = signalsResponse.total || 0;
 
         // 1. Рендерим KPI из overview
         const stats = overview['whale'];
@@ -70,61 +105,15 @@
             document.getElementById('kpi-count').textContent = stats.signals_count;
         }
 
-        // Вычисляем Brier Score и Avg Edge на лету
-        let brierSum = 0;
-        let brierCount = 0;
-        let edgeSum = 0;
-        let edgeCount = 0;
-
-        signals.forEach(sig => {
-            const p = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
-            if (p !== null && (sig.status === 'WIN' || sig.status === 'LOSS')) {
-                const outcome = sig.status === 'WIN' ? 1.0 : 0.0;
-                brierSum += (p - outcome) * (p - outcome);
-                brierCount++;
-            }
-            if (sig.edge !== null) {
-                edgeSum += sig.edge;
-                edgeCount++;
-            }
-        });
-
-        const avgBrier = brierCount > 0 ? (brierSum / brierCount) : null;
-        const avgEdge = edgeCount > 0 ? (edgeSum / edgeCount) : null;
-
-        document.getElementById('kpi-brier').textContent = formatBrier(avgBrier);
-        document.getElementById('kpi-edge').textContent = avgEdge !== null ? formatPercent(avgEdge) : '—';
+        // Рендерим Brier Score и Avg Edge, рассчитанные бэкендом
+        const dbStats = signalsResponse.stats || {};
+        document.getElementById('kpi-brier').textContent = formatBrier(dbStats.brier_score);
+        document.getElementById('kpi-edge').textContent = dbStats.avg_edge !== null ? formatPercent(dbStats.avg_edge) : '—';
 
         // 2. Рендерим таблицу сигналов
-        const tbody = document.getElementById('signals-tbody');
-        const displaySignals = signals.slice(0, 20);
-        if (displaySignals.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
-        } else {
-            tbody.innerHTML = displaySignals.map(sig => {
-                const prob = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
-                const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
-                
-                let walletCell = '<span class="text-muted">агрег.</span>';
-                if (sig.wallet_address) {
-                    const shortWallet = sig.wallet_address.slice(0, 6) + '...' + sig.wallet_address.slice(-4);
-                    walletCell = `<a href="https://polygonscan.com/address/${sig.wallet_address}" target="_blank" title="${sig.wallet_address}" style="color:var(--accent-purple); text-decoration:none; font-family:monospace; border-bottom:1px dashed var(--accent-purple);">${shortWallet}</a>`;
-                }
-
-                return `
-                    <tr>
-                        <td class="text-muted" style="font-size:0.8rem;">${sig.id.slice(0, 8)}...</td>
-                        <td><a href="${sig.market_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${sig.market_title}</a></td>
-                        <td>${walletCell}</td>
-                        <td><span class="badge ${sig.target_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${sig.target_outcome}</span> (${prob !== null ? formatPercent(prob) : '—'})</td>
-                        <td>${sig.market_price_at_signal !== null ? formatPercent(sig.market_price_at_signal) : '—'}</td>
-                        <td><span class="badge ${statusClass}">${sig.status}</span></td>
-                        <td>${formatPnL(sig.pnl_realized)}</td>
-                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(sig.created_at)}</td>
-                    </tr>
-                `;
-            }).join('');
-        }
+        renderWhaleTableOnly();
+        renderPaginationControls('whale-pagination', 'whale');
+        updateSortIndicators('whale');
 
         // 3. Строим кривую доходности
         if (equityData) {
@@ -170,6 +159,116 @@
                 });
             }
         }
+    }
+
+    function toggleSort(tableType, column) {
+        const state = sortState[tableType];
+        if (state.col === column) {
+            state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+            state.col = column;
+            state.dir = 'desc';
+        }
+        renderWhaleTableOnly();
+        updateSortIndicators(tableType);
+    }
+
+    function sortDataArray(arr, col, dir) {
+        arr.sort((a, b) => {
+            let valA = a[col];
+            let valB = b[col];
+
+            // Специальная обработка для процентов прогноза (прогноз + вероятность)
+            if (col === 'target_outcome') {
+                const probA = a.estimated_probability !== null ? a.estimated_probability : a.predicted_probability;
+                const probB = b.estimated_probability !== null ? b.estimated_probability : b.predicted_probability;
+                valA = (a.target_outcome || '') + (probA !== null ? probA : 0);
+                valB = (b.target_outcome || '') + (probB !== null ? probB : 0);
+            }
+
+            if (valA === null || valA === undefined) return 1;
+            if (valB === null || valB === undefined) return -1;
+
+            if (typeof valA === 'string') {
+                return dir === 'asc' 
+                    ? valA.localeCompare(valB) 
+                    : valB.localeCompare(valA);
+            }
+            return dir === 'asc' ? valA - valB : valB - valA;
+        });
+    }
+
+    function updateSortIndicators(tableType) {
+        const columns = ['market_title', 'wallet_address', 'target_outcome', 'market_price_at_signal', 'status', 'pnl_realized', 'created_at'];
+        columns.forEach(col => {
+            const el = document.getElementById(`sort-${tableType}-${col}`);
+            if (el) {
+                el.textContent = '';
+                el.style.color = '';
+            }
+        });
+
+        const activeState = sortState[tableType];
+        const el = document.getElementById(`sort-${tableType}-${activeState.col}`);
+        if (el) {
+            el.textContent = activeState.dir === 'asc' ? ' ▲' : ' ▼';
+            el.style.color = 'var(--accent-purple)';
+        }
+    }
+
+    function renderWhaleTableOnly() {
+        const tbody = document.getElementById('signals-tbody');
+        if (lastFetchedSignals.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
+            return;
+        }
+
+        let sortedSignals = [...lastFetchedSignals];
+        sortDataArray(sortedSignals, sortState.whale.col, sortState.whale.dir);
+
+        tbody.innerHTML = sortedSignals.map(sig => {
+            const prob = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
+            const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
+            
+            let walletCell = '<span class="text-muted">агрег.</span>';
+            if (sig.wallet_address) {
+                const shortWallet = sig.wallet_address.slice(0, 6) + '...' + sig.wallet_address.slice(-4);
+                walletCell = `<a href="https://polygonscan.com/address/${sig.wallet_address}" target="_blank" title="${sig.wallet_address}" style="color:var(--accent-purple); text-decoration:none; font-family:monospace; border-bottom:1px dashed var(--accent-purple);">${shortWallet}</a>`;
+            }
+
+            return `
+                <tr>
+                    <td><a href="${sig.market_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${sig.market_title}</a></td>
+                    <td>${walletCell}</td>
+                    <td><span class="badge ${sig.target_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${sig.target_outcome}</span> (${prob !== null ? formatPercent(prob) : '—'})</td>
+                    <td>${sig.market_price_at_signal !== null ? formatPercent(sig.market_price_at_signal) : '—'}</td>
+                    <td><span class="badge ${statusClass}">${sig.status}</span></td>
+                    <td>${formatPnL(sig.pnl_realized)}</td>
+                    <td class="text-muted" style="font-size:0.8rem;">${formatDate(sig.created_at)}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function renderPaginationControls(containerId, sectionKey) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        const p = pagination[sectionKey];
+        const totalPages = Math.max(1, Math.ceil(p.total / p.limit));
+        
+        container.innerHTML = `
+            <div class="pagination-controls" style="display:flex; justify-content:center; align-items:center; gap:12px; margin-top:16px; font-size:0.9rem;">
+                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page <= 1 ? 'disabled' : ''} onclick="changePage('${sectionKey}', ${p.page - 1})">← Назад</button>
+                <span class="text-muted">Страница <strong>${p.page}</strong> из <strong>${totalPages}</strong> (всего: ${p.total})</span>
+                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page >= totalPages ? 'disabled' : ''} onclick="changePage('${sectionKey}', ${p.page + 1})">Вперед →</button>
+            </div>
+        `;
+    }
+
+    async function changePage(sectionKey, newPage) {
+        pagination[sectionKey].page = newPage;
+        await loadWhaleData();
     }
 
     registerRefresh(loadWhaleData);

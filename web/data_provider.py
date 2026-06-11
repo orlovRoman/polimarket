@@ -546,23 +546,55 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'system_alerts': system_alerts
     }
 
-def get_strategy_signals(strategy: str, days: int = 30, limit: int = 50) -> list:
+def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 50, page: Optional[int] = None) -> Any:
     """Возвращает последние сигналы для конкретной стратегии вместе с названием рынков."""
     import json
     from agents.shared.python.db import get_connection
-    period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    
+    # 1. Формируем условия фильтрации
+    where_clauses = ["s.strategy_type = ?"]
+    params = [strategy]
+    
+    if days is not None:
+        period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        where_clauses.append("s.created_at >= ?")
+        params.append(period_start)
+        
+    where_str = " AND ".join(where_clauses)
+    
     with get_connection() as conn:
-        rows = conn.execute("""
+        # Сначала посчитаем total, если используется пагинация
+        total_count = 0
+        if page is not None:
+            count_query = f"""
+                SELECT COUNT(*) as cnt
+                FROM signals s
+                JOIN markets m ON s.market_id = m.id
+                WHERE {where_str}
+            """
+            total_count = conn.execute(count_query, params).fetchone()['cnt']
+            
+        # Теперь делаем выборку сигналов
+        query = f"""
             SELECT s.id, s.created_at, s.status, s.edge, s.confidence, s.pnl_realized, s.target_outcome,
                    s.estimated_probability, s.predicted_probability, s.market_price_at_signal,
                    s.details,
                    m.title as market_title, m.url as market_url
             FROM signals s
             JOIN markets m ON s.market_id = m.id
-            WHERE s.strategy_type = ? AND s.created_at >= ?
+            WHERE {where_str}
             ORDER BY s.created_at DESC
-            LIMIT ?
-        """, (strategy, period_start, limit)).fetchall()
+        """
+        
+        if page is not None:
+            offset = (page - 1) * limit
+            query += " LIMIT ? OFFSET ?"
+            query_params = params + [limit, offset]
+        else:
+            query += " LIMIT ?"
+            query_params = params + [limit]
+            
+        rows = conn.execute(query, query_params).fetchall()
         
         signals = []
         for r in rows:
@@ -579,6 +611,55 @@ def get_strategy_signals(strategy: str, days: int = 30, limit: int = 50) -> list
             if 'details' in row_dict:
                 del row_dict['details']
             signals.append(row_dict)
+            
+        if page is not None:
+            # Считаем brier_score и avg_edge по ВСЕМ сигналам данной стратегии
+            stats_query = """
+                SELECT 
+                    s.estimated_probability, s.predicted_probability, s.status, s.edge
+                FROM signals s
+                WHERE s.strategy_type = ?
+            """
+            stats_params = [strategy]
+            if days is not None:
+                stats_query += " AND s.created_at >= ?"
+                stats_params.append(period_start)
+                
+            stats_rows = conn.execute(stats_query, stats_params).fetchall()
+            
+            brier_sum = 0.0
+            brier_count = 0
+            edge_sum = 0.0
+            edge_count = 0
+            
+            for sr in stats_rows:
+                p = sr['estimated_probability'] if sr['estimated_probability'] is not None else sr['predicted_probability']
+                status = sr['status']
+                edge = sr['edge']
+                
+                if p is not None and status in ('WIN', 'LOSS'):
+                    outcome = 1.0 if status == 'WIN' else 0.0
+                    brier_sum += (p - outcome) ** 2
+                    brier_count += 1
+                    
+                if edge is not None:
+                    edge_sum += edge
+                    edge_count += 1
+                    
+            avg_brier = brier_sum / brier_count if brier_count > 0 else None
+            avg_edge = edge_sum / edge_count if edge_count > 0 else None
+            
+            total_stats = {
+                "brier_score": avg_brier,
+                "avg_edge": avg_edge
+            }
+            
+            return {
+                "signals": signals,
+                "total": total_count,
+                "stats": total_stats
+            }
+            
         return signals
 
 def get_auto_disable_candidates() -> list:

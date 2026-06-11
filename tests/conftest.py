@@ -41,3 +41,15 @@ def restore_db_paths_each_test(request):
         db_module._db_initialized = False  # Сбрасываем флаг инициализации для переподключения
         
     yield
+
+
+@pytest.fixture(autouse=True)
+def clean_database_garbage():
+    """Очищает тестовый мусор из базы данных после каждого теста."""
+    yield
+    import agents.shared.python.db as db_module
+    try:
+        with db_module.get_connection() as conn:
+            db_module.cleanup_test_data(conn)
+    except Exception:
+        pass

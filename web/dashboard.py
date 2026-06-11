@@ -105,15 +105,29 @@ async def api_signals(request):
         return web.json_response({"error": "strategy parameter is required"}, status=400)
     days_str = request.query.get("days", "30")
     limit_str = request.query.get("limit", "50")
-    try:
-        days = int(days_str)
-    except ValueError:
-        days = 30
+    page_str = request.query.get("page")
+    
+    if days_str == "all" or days_str == "None":
+        days = None
+    else:
+        try:
+            days = int(days_str)
+        except ValueError:
+            days = 30
+            
     try:
         limit = int(limit_str)
     except ValueError:
         limit = 50
-    data = await asyncio.to_thread(data_provider.get_strategy_signals, strategy, days, limit)
+        
+    page = None
+    if page_str:
+        try:
+            page = int(page_str)
+        except ValueError:
+            page = 1
+            
+    data = await asyncio.to_thread(data_provider.get_strategy_signals, strategy, days, limit, page)
     return web.json_response(data)
 
 async def api_corridors(request):
