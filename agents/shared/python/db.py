@@ -123,17 +123,28 @@ def heal_db_resolutions():
                     conn.execute("UPDATE markets SET outcome = 'unknown' WHERE id = ?", (m_id,))
                     
                     # Возвращаем сигналы этого рынка из WIN/LOSS в PENDING и очищаем поля резолюции
-                    res = conn.execute("""
-                        UPDATE signals 
-                        SET status = 'PENDING', 
-                            resolved_at = NULL, 
-                            resolution_outcome = NULL, 
-                            resolution_price = NULL, 
-                            was_profitable = NULL, 
-                            pnl_realized = NULL
-                        WHERE market_id = ? AND status IN ('WIN', 'LOSS')
-                    """, (m_id,))
-                    logger.info(f"[HealDB] Сброшено {res.rowcount} сигналов для рынка {m_id} обратно в PENDING")
+                    sig_rows = conn.execute("SELECT id FROM signals WHERE market_id = ? AND status IN ('WIN', 'LOSS')", (m_id,)).fetchall()
+                    for sig in sig_rows:
+                        sig_id = sig["id"]
+                        try:
+                            conn.execute(f"SAVEPOINT heal_sig_{sig_id}")
+                            conn.execute("""
+                                UPDATE signals 
+                                SET status = 'PENDING', 
+                                    resolved_at = NULL, 
+                                    resolution_outcome = NULL, 
+                                    resolution_price = NULL, 
+                                    was_profitable = NULL, 
+                                    pnl_realized = NULL
+                                WHERE id = ?
+                            """, (sig_id,))
+                            conn.execute(f"RELEASE SAVEPOINT heal_sig_{sig_id}")
+                            logger.info(f"[HealDB] Сброшен сигнал {sig_id} обратно в PENDING")
+                        except sqlite3.IntegrityError:
+                            conn.execute(f"ROLLBACK TO SAVEPOINT heal_sig_{sig_id}")
+                            conn.execute(f"RELEASE SAVEPOINT heal_sig_{sig_id}")
+                            conn.execute("DELETE FROM signals WHERE id = ?", (sig_id,))
+                            logger.warning(f"[HealDB] Сигнал {sig_id} конфликтует с существующим PENDING сигналом для рынка {m_id}. Удаляем дубликат.")
             
             # 2. Удаляем тестовый мусор (рынки и сигналы, созданные тестами)
             conn.execute("""
