@@ -20,10 +20,8 @@ class DynamicPath:
         self._last_path = None
 
     def _check_path_change(self):
-        import os
         current_path = str(config.DB_PATH)
-        db_exists_and_nonempty = os.path.exists(current_path) and os.path.getsize(current_path) > 0
-        if self._last_path != current_path or not db_exists_and_nonempty:
+        if self._last_path != current_path:
             self._last_path = current_path
             global _db_initialized, _db_init_failed
             _db_initialized = False
@@ -36,6 +34,9 @@ class DynamicPath:
     def __str__(self):
         self._check_path_change()
         return str(config.DB_PATH)
+
+    def __eq__(self, other):
+        return str(self) == str(other)
 
     @property
     def parent(self):
@@ -94,6 +95,77 @@ def _escape_like(pattern: str) -> str:
     """Экранирует спецсимволы для оператора SQL LIKE."""
     return pattern.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
+@_ensure_initializing
+def heal_db_resolutions():
+    """
+    Исправляет некорректные резолюции активных рынков (у которых close_time в будущем).
+    Сбрасывает outcome в 'unknown' для рынков и возвращает их сигналы в статус 'PENDING'.
+    """
+    try:
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        with get_connection() as conn:
+            # 1. Находим все активные рынки, у которых outcome равен 'YES' или 'NO'
+            # (но при этом close_time в будущем)
+            rows = conn.execute("""
+                SELECT id, title, close_time, outcome 
+                FROM markets 
+                WHERE (outcome = 'YES' OR outcome = 'NO')
+                  AND datetime(close_time) > datetime(?)
+            """, (now_str,)).fetchall()
+            
+            if rows:
+                logger.info(f"[HealDB] Найден {len(rows)} активный рынок с некорректной резолюцией. Исцеляем...")
+                for r in rows:
+                    m_id = r["id"]
+                    logger.info(f"[HealDB] Сбрасываем резолюцию для активного рынка '{r['title']}' (ID: {m_id}, close_time: {r['close_time']})")
+                    
+                    # Сбрасываем outcome в 'unknown' в markets
+                    conn.execute("UPDATE markets SET outcome = 'unknown' WHERE id = ?", (m_id,))
+                    
+                    # Возвращаем сигналы этого рынка из WIN/LOSS в PENDING и очищаем поля резолюции
+                    res = conn.execute("""
+                        UPDATE signals 
+                        SET status = 'PENDING', 
+                            resolved_at = NULL, 
+                            resolution_outcome = NULL, 
+                            resolution_price = NULL, 
+                            was_profitable = NULL, 
+                            pnl_realized = NULL
+                        WHERE market_id = ? AND status IN ('WIN', 'LOSS')
+                    """, (m_id,))
+                    logger.info(f"[HealDB] Сброшено {res.rowcount} сигналов для рынка {m_id} обратно в PENDING")
+            
+            # 2. Удаляем тестовый мусор (рынки и сигналы, созданные тестами)
+            conn.execute("""
+                DELETE FROM signals 
+                WHERE market_id LIKE 'test_%' 
+                   OR market_id LIKE 'mkt_test_%' 
+                   OR market_id LIKE 'mkt_whale_test_%'
+                   OR market_id LIKE 'market_dedup_%'
+                   OR market_id LIKE 'trend_m%'
+                   OR market_id = 'market_1'
+            """)
+            
+            conn.execute("""
+                DELETE FROM markets 
+                WHERE id LIKE 'test_%' 
+                   OR id LIKE 'mkt_test_%' 
+                   OR id LIKE 'mkt_whale_test_%'
+                   OR id LIKE 'market_dedup_%'
+                   OR id LIKE 'trend_m%'
+                   OR id = 'market_1'
+            """)
+            
+            conn.execute("""
+                DELETE FROM compound_opportunities 
+                WHERE market_id LIKE 'mkt_test_%'
+                   OR id LIKE 'test_opp_%'
+            """)
+            
+            conn.commit()
+    except Exception as e:
+        logger.error(f"[HealDB] Ошибка при исцелении резолюций в БД: {e}", exc_info=True)
+
 _db_init_lock = threading.Lock()
 
 def init_db():
@@ -113,6 +185,7 @@ def init_db():
                 
         try:
             _init_db_impl()
+            heal_db_resolutions()
             _db_initialized = True
             logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
         except Exception as e:
@@ -1310,10 +1383,30 @@ def save_market(market: Market):
     with get_connection() as conn:
         cursor = conn.cursor()
         tokens_json = json.dumps(market.tokens) if market.tokens else None
+        
+        # Резолюция в БД должна быть 'unknown' для всех рынков, которые еще активны (в будущем)
+        now_utc = datetime.now(timezone.utc)
+        close_time = market.close_time
+        if close_time.tzinfo is None:
+            close_time = close_time.replace(tzinfo=timezone.utc)
+            
+        db_outcome = 'unknown'
+        if close_time <= now_utc:
+            db_outcome = market.outcome if market.outcome else 'unknown'
+            
         cursor.execute("""
-            INSERT OR REPLACE INTO markets (id, platform, title, description, url, outcome, price, close_time, tokens, volume, condition_id)
+            INSERT INTO markets (id, platform, title, description, url, outcome, price, close_time, tokens, volume, condition_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (market.id, market.platform, market.title, market.description, market.url, market.outcome, market.price, market.close_time.isoformat(), tokens_json, market.volume, market.condition_id))
+            ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                description = excluded.description,
+                url = excluded.url,
+                price = excluded.price,
+                close_time = excluded.close_time,
+                tokens = excluded.tokens,
+                volume = excluded.volume,
+                condition_id = excluded.condition_id
+        """, (market.id, market.platform, market.title, market.description, market.url, db_outcome, market.price, market.close_time.isoformat(), tokens_json, market.volume, market.condition_id))
 
 def get_market_from_db(market_id: str) -> Optional[dict]:
     with get_connection() as conn:
