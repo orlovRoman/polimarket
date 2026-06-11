@@ -138,7 +138,7 @@ class SignalLogger:
                     "PENDING",
                     payload.created_at.isoformat(),
                     target_outcome,
-                    payload.market_price_at_signal,
+                    payload.predicted_probability,
                     payload.predicted_probability,
                     payload.market_price_at_signal,
                     payload.edge_at_signal,

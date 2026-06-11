@@ -1460,8 +1460,17 @@ def save_signal(signal: Signal, details_obj=None, or_ignore: bool = False) -> bo
         cursor = conn.cursor()
         details_str = details_obj.model_dump_json() if details_obj else signal.details
         
-        target_outcome = details_obj.target_outcome if details_obj else 'YES'
-        estimated_prob = details_obj.estimated_probability if details_obj else signal.confidence
+        target_outcome = (
+            details_obj.target_outcome 
+            if details_obj 
+            else getattr(signal, 'target_outcome', 'YES')
+        )
+        estimated_prob = (
+            details_obj.estimated_probability 
+            if details_obj 
+            else getattr(signal, 'estimated_probability', None) 
+            or getattr(signal, 'confidence', 0.5)
+        )
         
         if or_ignore:
             cursor.execute("""

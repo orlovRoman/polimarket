@@ -755,6 +755,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
                 priority=swing_signal.priority,
                 summary=swing_signal.summary,
                 details=swing_signal.details,
+                estimated_probability=swing_signal.confidence
             )
             save_signal(swing_as_signal)
         update_state(ideas_found=state.get("ideas_found", 0) + 1)

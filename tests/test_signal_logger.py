@@ -175,8 +175,8 @@ def test_log_penny_stocks_signal_and_resolution():
     assert row["strategy_type"] == "penny_stocks"
     assert row["market_price_at_signal"] == 0.05
     assert row["predicted_probability"] == 0.90
-    # Проверяем, что estimated_probability равен market_price_at_signal
-    assert row["estimated_probability"] == 0.05
+    # Проверяем, что estimated_probability равен predicted_probability
+    assert row["estimated_probability"] == 0.90
     conn.close()
 
     # 2. Запись резолюции (выигрышный исход YES)

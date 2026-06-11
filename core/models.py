@@ -61,6 +61,7 @@ class Signal(BaseModel):
     signal_risk: str = ""        # Главный риск
     signal_verdict: str = ""     # Итог
     oracle_risk: str = ""        # Оценка расплывчатости формулировки / рисков оракула
+    estimated_probability: Optional[float] = None
     
     status: Literal['PENDING', 'EXECUTED', 'REJECTED', 'ARCHIVED', 'EVALUATED'] = 'PENDING'
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

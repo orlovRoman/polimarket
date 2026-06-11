@@ -352,6 +352,7 @@ class ScoutAgent:
                     summary=summary,
                     details=f"Рекомендация: Покупать {target_outcome}\nОбоснование: {analysis.get('reasoning', '')}",
                     target_outcome=target_outcome,
+                    estimated_probability=est_prob,
                     # Новые поля
                     signal_cause=cause_phrase,
                     signal_risk=risk_phrase,
