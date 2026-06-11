@@ -140,8 +140,9 @@ def heal_db_resolutions(conn: sqlite3.Connection):
                 sig_rows = conn.execute("SELECT id FROM signals WHERE market_id = ? AND status IN ('WIN', 'LOSS')", (m_id,)).fetchall()
                 for sig in sig_rows:
                     sig_id = sig["id"]
+                    sp_name = f"heal_sig_{sig_id.replace('-', '_')}"
                     try:
-                        conn.execute(f"SAVEPOINT heal_sig_{sig_id}")
+                        conn.execute(f"SAVEPOINT {sp_name}")
                         conn.execute("""
                             UPDATE signals 
                             SET status = 'PENDING', 
@@ -152,11 +153,11 @@ def heal_db_resolutions(conn: sqlite3.Connection):
                                 pnl_realized = NULL
                             WHERE id = ?
                         """, (sig_id,))
-                        conn.execute(f"RELEASE SAVEPOINT heal_sig_{sig_id}")
+                        conn.execute(f"RELEASE SAVEPOINT {sp_name}")
                         logger.info(f"[HealDB] Сброшен сигнал {sig_id} обратно в PENDING")
                     except sqlite3.IntegrityError:
-                        conn.execute(f"ROLLBACK TO SAVEPOINT heal_sig_{sig_id}")
-                        conn.execute(f"RELEASE SAVEPOINT heal_sig_{sig_id}")
+                        conn.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+                        conn.execute(f"RELEASE SAVEPOINT {sp_name}")
                         conn.execute("DELETE FROM signals WHERE id = ?", (sig_id,))
                         logger.warning(f"[HealDB] Сигнал {sig_id} конфликтует с существующим PENDING сигналом для рынка {m_id}. Удаляем дубликат.")
     except Exception as e:

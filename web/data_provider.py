@@ -2,6 +2,7 @@
 import sqlite3
 import math
 from datetime import datetime, timedelta, timezone
+from typing import Optional, Any
 
 def get_status_emoji(sharpe: float | None, win_rate: float | None) -> str:
     """Определяет статус-эмодзи стратегии на основе Sharpe и win rate."""
