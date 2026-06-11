@@ -1,6 +1,6 @@
 import json
 import logging
-from agents.shared.python.db import get_connection, cleanup_stale_signals, save_agent_episode, update_episodes_for_market
+from agents.shared.python.db import get_connection, cleanup_stale_signals, save_agent_episode
 from agents.shared.adapters.polymarket import PolymarketAdapter
 
 logger = logging.getLogger("NexusPolyBot.ResolutionCheck")
@@ -84,10 +84,6 @@ def resolve_closed_markets():
                 
                 cursor.execute("UPDATE signals SET status = ? WHERE id = ?", (new_status, sig_id))
                 cursor.execute("UPDATE markets SET outcome = ? WHERE id = ?", (resolved_outcome, m_id))
-                try:
-                    update_episodes_for_market(m_id, resolved_outcome)
-                except Exception as ep_err:
-                    logger.error(f"Error updating episodes for market {m_id}: {ep_err}")
                 count_resolved += 1
                 logger.info(f"Signal {sig_id} resolved as {new_status} (Market: {row['title']})")
                 outcome_label = 'correct' if is_win else 'incorrect'

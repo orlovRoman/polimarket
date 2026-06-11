@@ -936,8 +936,6 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             logger.error(f"Не удалось отправить алерт об ошибке чекпоинта: {alert_err}")
 
 
-
-
 def process_arbitrage_signal(
     arb_signal,
     orderbook_a: dict,

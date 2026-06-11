@@ -8,7 +8,8 @@ from config import GOOGLE_API_KEY, SCAN_LIMIT_DEFAULT
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.python.db import (
     init_db, save_market, get_last_analyzed_price,
-    save_price_point, add_discussion_message, mark_market_analyzed
+    save_price_point, add_discussion_message, mark_market_analyzed,
+    save_agent_episode
 )
 from core.models import Market
 from agents.polymarket_mispricing_agent.src.agent import ScoutAgent
@@ -516,7 +517,6 @@ class CoreEngine:
                     logger.info(f"  [SHADOW fast-path] Авто-отклонение: {liq.reason}")
                     # Сохраняем эпизод fast-path авто-отклонения
                     try:
-                        from agents.shared.python.db import save_agent_episode
                         save_agent_episode(
                             agent_name="SHADOW",
                             event_type="signal_evaluated",
@@ -544,7 +544,7 @@ class CoreEngine:
                             agent_name="SHADOW",
                             market_id=m.id,
                             opinion=gate.reason,
-                            confidence=0.9,
+                            confidence=oc_score.confidence,
                             agree=False,
                             orderbook_facts="Whale Gate active",
                             risk_assessment="Крупные кошельки торгуют против идеи",
@@ -554,18 +554,17 @@ class CoreEngine:
                         logger.info(f"  [WHALE GATE] {gate.reason}")
                         # Сохраняем эпизод Whale Gate блокировки
                         try:
-                            from agents.shared.python.db import save_agent_episode
                             save_agent_episode(
                                 agent_name="SHADOW",
                                 event_type="signal_evaluated",
                                 market_id=m.id,
                                 market_title=m.title,
-                                summary=f"Agree=False, confidence=90.00%, target={str(target_outcome)}, price={m.price:.2f} (Whale Gate: {gate.reason})",
+                                summary=f"Agree=False, confidence={oc_score.confidence:.2%}, target={str(target_outcome)}, price={m.price:.2f} (Whale Gate: {gate.reason})",
                                 context={
                                     "price": m.price,
                                     "target_outcome": str(target_outcome),
                                     "agree": False,
-                                    "confidence": 0.9,
+                                    "confidence": oc_score.confidence,
                                     "liquidity_risk": "HIGH",
                                     "opinion": gate.reason
                                 },

@@ -34,7 +34,7 @@ def render_template(page_name: str) -> str:
 async def handle_favicon(request):
     favicon_path = Path(__file__).parent / "templates" / "favicon.png"
     if favicon_path.exists():
-        return web.FileResponse(favicon_path)
+        return web.FileResponse(favicon_path, headers={"Content-Type": "image/png"})
     return web.Response(status=404)
 
 async def handle_overview(request):
