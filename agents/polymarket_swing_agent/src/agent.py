@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
-from agents.shared.python.db import get_memory, get_agent_episodes, get_performance_summary
+from agents.shared.python.db import get_memory, get_agent_episodes, get_performance_summary, save_agent_episode
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 from agents.shared.python.llm_wrapper import with_retry
 
@@ -515,6 +515,27 @@ class SwingAgent:
                         f"Обоснование: {analysis.get('reasoning', '')}"
                     )
                 )
+                # Сохраняем эпизод SWING
+                try:
+                    save_agent_episode(
+                        agent_name="SWING",
+                        event_type="signal_evaluated",
+                        market_id=market.id,
+                        market_title=market.title,
+                        summary=f"Rec={recommendation.upper()}, confidence={analysis.get('confidence', 0.5):.2%}, target={target_outcome}, price={market.price:.2f}",
+                        context={
+                            "price": market.price,
+                            "target_outcome": target_outcome,
+                            "recommendation": recommendation,
+                            "confidence": analysis.get('confidence', 0.5),
+                            "asymmetry_score": asymmetry,
+                            "reasoning": analysis.get("reasoning", "")
+                        },
+                        outcome="unknown"
+                    )
+                except Exception as ep_err:
+                    print(f"[SWING] Ошибка сохранения эпизода: {ep_err}")
+
                 break
                 
             except json.JSONDecodeError as e:

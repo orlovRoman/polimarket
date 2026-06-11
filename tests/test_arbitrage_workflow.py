@@ -52,6 +52,35 @@ def test_lambda_closure_captures_correct_limit():
     adapter.fetch_raw_events.assert_called_once_with(limit=42)
 
 
+def test_scanners_use_instance_fetch():
+    """Проверяем, что сканеры используют инстанс-вызовы fetch_raw_events через poly_fetch"""
+    from services.synthetic_corridor_scanner import run_synthetic_corridor_scan
+    from services.temporal_corridor_scanner import run_temporal_corridor_scan
+    
+    with patch("services.synthetic_corridor_scanner.PolymarketAdapter") as MockAdapterClass, \
+         patch("services.synthetic_corridor_scanner.load_events_with_levels_from_raw", return_value=[]), \
+         patch("services.synthetic_corridor_scanner.find_violations", return_value=[]):
+        
+        mock_instance = MockAdapterClass.return_value
+        mock_instance.fetch_raw_events = MagicMock(return_value=[])
+        
+        run_synthetic_corridor_scan(poly_limit=15)
+        
+        MockAdapterClass.assert_called_once()
+        mock_instance.fetch_raw_events.assert_called_once_with(limit=15)
+
+    with patch("services.temporal_corridor_scanner.PolymarketAdapter") as MockAdapterClass, \
+         patch("services.temporal_corridor_scanner.load_events_from_raw", return_value=[]), \
+         patch("services.temporal_corridor_scanner.find_candidates", return_value=[]):
+        
+        mock_instance = MockAdapterClass.return_value
+        mock_instance.fetch_raw_events = MagicMock(return_value=[])
+        
+        run_temporal_corridor_scan(poly_limit=25)
+        
+        MockAdapterClass.assert_called_once()
+        mock_instance.fetch_raw_events.assert_called_once_with(limit=25)
+
 
 # ── Баг #2: дублирование в verified ──────────────────────────
 

@@ -5,7 +5,7 @@ from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
 from core.math_filter import math_pre_filter, FilterDecision
-from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes, get_performance_summary
+from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes, get_performance_summary, save_agent_episode
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 import logging
@@ -301,6 +301,27 @@ class ScoutAgent:
             
             edge = max(edge_yes, edge_no)
             target_outcome = "YES" if edge_yes > edge_no else "NO"
+
+            # Сохраняем эпизод SCOUT (всегда, когда выполнен ИИ-анализ)
+            try:
+                save_agent_episode(
+                    agent_name="SCOUT",
+                    event_type="signal_evaluated",
+                    market_id=market.id,
+                    market_title=market.title,
+                    summary=f"Edge={edge:.2%}, confidence={confidence:.2%}, target={target_outcome}, price={market.price:.2f}, prob={est_prob:.2f}",
+                    context={
+                        "price": market.price,
+                        "target_outcome": target_outcome,
+                        "estimate_probability": est_prob,
+                        "edge": edge,
+                        "confidence": confidence,
+                        "reasoning": analysis.get("reasoning", "")
+                    },
+                    outcome="unknown"
+                )
+            except Exception as ep_err:
+                logger.error(f"[SCOUT] Ошибка сохранения эпизода: {ep_err}")
             
             # Фильтруем по минимальному edge
             from core.config_provider import ConfigProvider

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from core.models import Market, AgentOpinion
 from core.context import MarketContext
-from agents.shared.python.db import get_agent_episodes, get_performance_summary
+from agents.shared.python.db import get_agent_episodes, get_performance_summary, save_agent_episode
 from agents.shared.python.llm_wrapper import with_retry
 
 class ShadowAgent:
@@ -234,6 +234,31 @@ class ShadowAgent:
             elif verdict and verdict not in op_text:
                 op_text += f"\nВердикт: {verdict}"
             
+            agree = analysis.get("agree", False)
+            confidence = float(analysis.get("confidence", 0.5))
+            target_outcome = "NO" if (scout_opinion and "NO" in scout_opinion) else "YES"
+            
+            # Сохраняем эпизод SHADOW (всегда при ИИ-анализе)
+            try:
+                save_agent_episode(
+                    agent_name="SHADOW",
+                    event_type="signal_evaluated",
+                    market_id=market.id,
+                    market_title=market.title,
+                    summary=f"Agree={agree}, confidence={confidence:.2%}, target={target_outcome}",
+                    context={
+                        "price": market.price,
+                        "target_outcome": target_outcome,
+                        "agree": agree,
+                        "confidence": confidence,
+                        "liquidity_risk": analysis.get("liquidity_risk", "medium"),
+                        "opinion": op_text
+                    },
+                    outcome="unknown"
+                )
+            except Exception as ep_err:
+                print(f"[SHADOW] Ошибка сохранения эпизода: {ep_err}")
+
             return AgentOpinion(
                 agent_name="SHADOW",
                 market_id=market.id,

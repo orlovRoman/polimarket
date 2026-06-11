@@ -48,6 +48,14 @@ async def test_html_routes_render_200(isolated_db):
             assert "<html" in html.lower()
 
 @pytest.mark.asyncio
+async def test_favicon_returns_200(isolated_db):
+    app = create_dashboard_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/favicon.ico")
+        assert resp.status == 200
+        assert resp.content_type == "image/png"
+
+@pytest.mark.asyncio
 async def test_api_buy_sell_routes(isolated_db):
     # Создаем тестовую запись
     with db_module.get_connection() as conn:

@@ -167,3 +167,71 @@ def test_cleanup_old_episodes(temp_db):
     rows = cursor.fetchall()
     assert len(rows) == 1
     assert rows[0]["event_type"] == "recent"
+
+def test_update_episodes_for_market(temp_db):
+    """Проверяем обновление outcome в agent_episodes на основе прогноза из context."""
+    import json
+    from agents.shared.python.db import update_episodes_for_market
+    
+    # 1. SCOUT эпизод
+    temp_db.execute("""
+        INSERT INTO agent_episodes (agent_name, event_type, market_id, market_title, summary, context, outcome)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "SCOUT", "signal_evaluated", "mkt-1", "Market 1", "Scout summary",
+        json.dumps({"target_outcome": "YES", "agree": True}), "unknown"
+    ))
+    
+    # 2. SWING эпизод
+    temp_db.execute("""
+        INSERT INTO agent_episodes (agent_name, event_type, market_id, market_title, summary, context, outcome)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "SWING", "signal_evaluated", "mkt-1", "Market 1", "Swing summary",
+        json.dumps({"target_outcome": "NO"}), "unknown"
+    ))
+    
+    # 3. SHADOW эпизод (agree = True)
+    temp_db.execute("""
+        INSERT INTO agent_episodes (agent_name, event_type, market_id, market_title, summary, context, outcome)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "SHADOW", "signal_evaluated", "mkt-1", "Market 1", "Shadow agree summary",
+        json.dumps({"target_outcome": "YES", "agree": True}), "unknown"
+    ))
+    
+    # 4. SHADOW эпизод (agree = False)
+    temp_db.execute("""
+        INSERT INTO agent_episodes (agent_name, event_type, market_id, market_title, summary, context, outcome)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "SHADOW", "signal_evaluated", "mkt-1", "Market 1", "Shadow disagree summary",
+        json.dumps({"target_outcome": "YES", "agree": False}), "unknown"
+    ))
+    
+    temp_db.commit()
+    
+    # Резолвим рынок как YES
+    update_episodes_for_market("mkt-1", "YES")
+    
+    # Считываем результаты
+    cursor = temp_db.execute("SELECT agent_name, summary, outcome FROM agent_episodes ORDER BY id ASC")
+    rows = cursor.fetchall()
+    
+    # SCOUT (target_outcome="YES", resolved="YES") -> correct
+    assert rows[0]["agent_name"] == "SCOUT"
+    assert rows[0]["outcome"] == "correct"
+    
+    # SWING (target_outcome="NO", resolved="YES") -> incorrect
+    assert rows[1]["agent_name"] == "SWING"
+    assert rows[1]["outcome"] == "incorrect"
+    
+    # SHADOW (agree=True, target_outcome="YES", resolved="YES") -> correct
+    assert rows[2]["agent_name"] == "SHADOW"
+    assert rows[2]["summary"] == "Shadow agree summary"
+    assert rows[2]["outcome"] == "correct"
+    
+    # SHADOW (agree=False, target_outcome="YES", resolved="YES") -> incorrect
+    assert rows[3]["agent_name"] == "SHADOW"
+    assert rows[3]["summary"] == "Shadow disagree summary"
+    assert rows[3]["outcome"] == "incorrect"

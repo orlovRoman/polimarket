@@ -514,6 +514,27 @@ class CoreEngine:
                         liquidity_risk=liq.liquidity_risk
                     )
                     logger.info(f"  [SHADOW fast-path] Авто-отклонение: {liq.reason}")
+                    # Сохраняем эпизод fast-path авто-отклонения
+                    try:
+                        from agents.shared.python.db import save_agent_episode
+                        save_agent_episode(
+                            agent_name="SHADOW",
+                            event_type="signal_evaluated",
+                            market_id=m.id,
+                            market_title=m.title,
+                            summary=f"Agree=False, confidence={liq.confidence:.2%}, target={str(target_outcome)}, price={m.price:.2f} (fast-path: {liq.reason})",
+                            context={
+                                "price": m.price,
+                                "target_outcome": str(target_outcome),
+                                "agree": False,
+                                "confidence": liq.confidence,
+                                "liquidity_risk": liq.liquidity_risk,
+                                "opinion": liq.reason
+                            },
+                            outcome="unknown"
+                        )
+                    except Exception as ep_err:
+                        logger.error(f"[SHADOW fast-path] Ошибка сохранения эпизода: {ep_err}")
                 else:
                     from core.whale_gate import check_whale_gate
                     gate = check_whale_gate(oc_score)
@@ -531,6 +552,27 @@ class CoreEngine:
                             liquidity_risk="HIGH"
                         )
                         logger.info(f"  [WHALE GATE] {gate.reason}")
+                        # Сохраняем эпизод Whale Gate блокировки
+                        try:
+                            from agents.shared.python.db import save_agent_episode
+                            save_agent_episode(
+                                agent_name="SHADOW",
+                                event_type="signal_evaluated",
+                                market_id=m.id,
+                                market_title=m.title,
+                                summary=f"Agree=False, confidence=90.00%, target={str(target_outcome)}, price={m.price:.2f} (Whale Gate: {gate.reason})",
+                                context={
+                                    "price": m.price,
+                                    "target_outcome": str(target_outcome),
+                                    "agree": False,
+                                    "confidence": 0.9,
+                                    "liquidity_risk": "HIGH",
+                                    "opinion": gate.reason
+                                },
+                                outcome="unknown"
+                            )
+                        except Exception as ep_err:
+                            logger.error(f"[SHADOW WhaleGate] Ошибка сохранения эпизода: {ep_err}")
                     else:
                         opinion_shadow = self.shadow.analyze_idea(context, combined_opinion, price_history=price_hist)
                 save_checkpoint(f"shadow_{m.id}", status="ok")

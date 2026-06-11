@@ -17,7 +17,7 @@ def resolve_pending_signals(limit: int = 50) -> int:
     
     Возвращает количество разрешённых сигналов.
     """
-    from agents.shared.python.db import get_connection
+    from agents.shared.python.db import get_connection, update_episodes_for_market
     from core.eval.signal_logger import SignalLogger
 
     # Находим PENDING-сигналы с истёкшим временем рынка
@@ -79,6 +79,10 @@ def resolve_pending_signals(limit: int = 50) -> int:
                 resolution_price=resolution_price,
                 resolved_at=datetime.now(timezone.utc)
             )
+            try:
+                update_episodes_for_market(row["market_id"], resolution_outcome)
+            except Exception as ep_err:
+                logger.error(f"[SignalResolver] Error updating episodes for market {row['market_id']}: {ep_err}")
             resolved_count += 1
             won = "✅ WIN" if target == resolution_outcome else "❌ LOSS"
             logger.info(

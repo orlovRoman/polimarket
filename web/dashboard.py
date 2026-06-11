@@ -31,6 +31,12 @@ def render_template(page_name: str) -> str:
 
 # === HTML хэндлеры ===
 
+async def handle_favicon(request):
+    favicon_path = Path(__file__).parent / "templates" / "favicon.png"
+    if favicon_path.exists():
+        return web.FileResponse(favicon_path)
+    return web.Response(status=404)
+
 async def handle_overview(request):
     html = await asyncio.to_thread(render_template, "overview.html")
     return web.Response(text=html, content_type="text/html")
@@ -605,6 +611,7 @@ def create_dashboard_app() -> web.Application:
     app = web.Application()
     
     # HTML маршруты
+    app.router.add_get("/favicon.ico", handle_favicon)
     app.router.add_get("/", handle_overview)
     app.router.add_get("/penny-stocks", handle_penny_stocks)
     app.router.add_get("/scout", handle_scout)

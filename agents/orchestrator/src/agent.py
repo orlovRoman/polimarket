@@ -56,12 +56,12 @@ class NexusAgent:
 
         facts_str = "\n".join(facts) if facts else "Нет сохранённых фактов."
 
-        # Добавляем последние 3 эпизода как контекст
+        # Добавляем последние 5 эпизодов как контекст
         try:
-            recent_episodes = get_agent_episodes("NEXUS", event_type="chat", limit=3)
+            recent_episodes = get_agent_episodes(agent_name=None, limit=5)
             if recent_episodes:
-                ep_lines = [f"  [{e['created_at'][:16]}] {e['agent_name']}: {e['summary']}" for e in recent_episodes]
-                facts_str += "\n\nПОСЛЕДНИЕ ДЕЙСТВИЯ СИСТЕМЫ:\n" + "\n".join(ep_lines)
+                ep_lines = [f"  [{e['created_at'][:16]}] {e['agent_name']} ({e['event_type']}): {e['summary']} | Исход: {e['outcome']}" for e in recent_episodes]
+                facts_str += "\n\nПОСЛЕДНИЕ ДЕЙСТВИЯ И РЕШЕНИЯ АГЕНТОВ:\n" + "\n".join(ep_lines)
         except Exception:
             pass
 

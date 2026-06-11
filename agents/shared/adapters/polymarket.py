@@ -220,12 +220,15 @@ class PolymarketAdapter(BaseMarketAdapter):
                 except (ValueError, TypeError):
                     volume = None
                 
+                slug_val = item.get('slug') or item.get('conditionId', '')
+                url_val = f"https://polymarket.com/market/{slug_val}" if slug_val else ""
+                
                 m = Market(
                     id=item["id"],
                     platform=self.name,
                     title=q_formatted,
                     description=desc_formatted,
-                    url=f"https://polymarket.com/market/{item.get('slug')}",
+                    url=url_val,
                     outcome=outcomes[0],
                     price=float(prices[0]),
                     close_time=close_time,
@@ -299,12 +302,15 @@ class PolymarketAdapter(BaseMarketAdapter):
                 except (ValueError, TypeError):
                     volume = None
                 
+                slug_val = item.get('slug') or item.get('conditionId', '')
+                url_val = f"https://polymarket.com/market/{slug_val}" if slug_val else ""
+                
                 m = Market(
                     id=item["id"],
                     platform=self.name,
                     title=q_formatted,
                     description=desc_formatted,
-                    url=f"https://polymarket.com/market/{item.get('slug')}",
+                    url=url_val,
                     outcome=outcomes[0],
                     price=float(prices[0]),
                     close_time=close_time,
@@ -383,12 +389,15 @@ class PolymarketAdapter(BaseMarketAdapter):
         except (ValueError, TypeError):
             volume = None
         
+        slug_val = item.get('slug') or item.get('conditionId', '')
+        url_val = f"https://polymarket.com/market/{slug_val}" if slug_val else ""
+        
         return Market(
             id=item["id"],
             platform=self.name,
             title=q_formatted,
             description=desc_formatted,
-            url=f"https://polymarket.com/market/{item.get('slug')}",
+            url=url_val,
             outcome=outcomes[0],
             price=float(prices[0]),
             close_time=close_time,

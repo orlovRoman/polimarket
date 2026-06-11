@@ -22,10 +22,13 @@ def run_resolution_cycle() -> dict:
     Возвращает статистику прогона: {resolved, skipped, errors}.
     """
     try:
-        from agents.shared.python.db import cleanup_stale_signals
+        from agents.shared.python.db import cleanup_stale_signals, cleanup_old_episodes
         cleanup_stale_signals()
+        deleted_episodes = cleanup_old_episodes(days=90)
+        if deleted_episodes > 0:
+            logger.info(f"[OutcomeTracker] Очищено старых эпизодов агентов (days=90): {deleted_episodes}")
     except Exception as e:
-        logger.error(f"[OutcomeTracker] Ошибка при очистке старых сигналов: {e}")
+        logger.error(f"[OutcomeTracker] Ошибка при очистке старых сигналов/эпизодов: {e}")
 
     stats = {"resolved": 0, "skipped": 0, "errors": 0}
     pending = _get_pending_with_closed_market()
@@ -188,7 +191,7 @@ def _resolve_signal(row: dict, resolution: str) -> None:
         new_status = 'ARCHIVED'
         outcome_label = 'unknown'
 
-    from agents.shared.python.db import save_agent_episode, get_memory, save_memory
+    from agents.shared.python.db import save_agent_episode, get_memory, save_memory, update_episodes_for_market
 
     # Сохраняем эпизод агента
     agent_name = (row.get("strategy_type") or 'SCOUT').upper()
@@ -247,6 +250,11 @@ def _resolve_signal(row: dict, resolution: str) -> None:
             SET outcome = ?
             WHERE id = ?
         """, (resolution, row["market_id"]))
+
+        try:
+            update_episodes_for_market(row["market_id"], resolution)
+        except Exception as ep_err:
+            logger.error(f"[OutcomeTracker] Error updating episodes for market {row['market_id']}: {ep_err}")
 
     logger.info(
         f"[OutcomeTracker] {row['id'][:8]}… → {resolution} "

@@ -953,6 +953,8 @@ def _init_db_impl(conn: sqlite3.Connection):
     if 'min_price_seen' not in hist_cols:
         cursor.execute("ALTER TABLE penny_virtual_trades_history ADD COLUMN min_price_seen REAL DEFAULT NULL")
 
+    conn.commit()
+
 
 # ─── Списки рынков: Игнорировать / Следить ──────────────────────────────────
 
@@ -2037,6 +2039,71 @@ def update_episode_outcome(episode_id: int, outcome: str):
             "UPDATE agent_episodes SET outcome = ? WHERE id = ?",
             (outcome, episode_id)
         )
+
+def update_episodes_for_market(market_id: str, resolved_outcome: str):
+    """
+    Обновляет outcome ('correct' / 'incorrect' / 'unresolved') во всех эпизодах для данного market_id.
+    Сравнивает прогноз агента из context с resolved_outcome.
+    """
+    if not market_id or not resolved_outcome:
+        return
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, agent_name, context FROM agent_episodes WHERE market_id = ? AND outcome = 'unknown'",
+            (market_id,)
+        )
+        episodes = cursor.fetchall()
+        for ep in episodes:
+            ep_id = ep["id"]
+            agent_name = ep["agent_name"]
+            context_str = ep["context"]
+            
+            outcome_val = "unknown"
+            if resolved_outcome.upper() not in ("YES", "NO"):
+                outcome_val = "unresolved"
+            else:
+                try:
+                    import json
+                    ctx = json.loads(context_str) if context_str else {}
+                    
+                    target = ctx.get("target_outcome")
+                    if not target:
+                        target = ctx.get("outcome") # fallback
+                        
+                    if target:
+                        target = target.upper()
+                        if agent_name in ("SCOUT", "SWING"):
+                            outcome_val = "correct" if target == resolved_outcome.upper() else "incorrect"
+                        elif agent_name == "SHADOW":
+                            agree = ctx.get("agree", False)
+                            if agree:
+                                outcome_val = "correct" if target == resolved_outcome.upper() else "incorrect"
+                            else:
+                                outcome_val = "correct" if target != resolved_outcome.upper() else "incorrect"
+                except Exception:
+                    # Если не удалось распарсить context, но это SCOUT/SWING и у нас есть сигнал в signals
+                    # с тем же market_id, мы можем попытаться взять target_outcome оттуда
+                    try:
+                        sig_row = conn.execute(
+                            "SELECT target_outcome FROM signals WHERE market_id = ? ORDER BY created_at DESC LIMIT 1",
+                            (market_id,)
+                        ).fetchone()
+                        if sig_row and sig_row["target_outcome"]:
+                            target = sig_row["target_outcome"].upper()
+                            if agent_name in ("SCOUT", "SWING"):
+                                outcome_val = "correct" if target == resolved_outcome.upper() else "incorrect"
+                            elif agent_name == "SHADOW":
+                                outcome_val = "correct" if target == resolved_outcome.upper() else "incorrect"
+                    except Exception:
+                        pass
+            
+            if outcome_val != "unknown":
+                conn.execute(
+                    "UPDATE agent_episodes SET outcome = ? WHERE id = ?",
+                    (outcome_val, ep_id)
+                )
 
 def get_agent_accuracy(agent_name: str) -> dict:
     """Возвращает статистику точности агента по завершённым эпизодам."""

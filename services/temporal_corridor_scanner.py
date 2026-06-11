@@ -31,7 +31,8 @@ def run_temporal_corridor_scan(
 
     # 1. Загрузка событий (/events API — группы готовы)
     from services.poly_fetch import fetch_poly_events
-    raw = fetch_poly_events(PolymarketAdapter, limit=poly_limit)
+    adapter = PolymarketAdapter()
+    raw = fetch_poly_events(adapter, limit=poly_limit)
 
     events = load_events_from_raw(
         raw_events=raw,

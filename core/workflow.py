@@ -935,52 +935,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             logger.error(f"Не удалось отправить алерт об ошибке чекпоинта: {alert_err}")
 
 
-    # Эпизодическая память агентов (Спринт 7)
-    from agents.shared.python.db import save_agent_episode
-    try:
-        if signal:
-            verdict_scout = getattr(signal, 'signal_verdict', None)
-            if verdict_scout is None:
-                verdict_scout = getattr(signal, 'trade_action', None)
-            if verdict_scout is None:
-                verdict_scout = 'buy'
-            save_agent_episode(
-                agent_name="SCOUT",
-                event_type="signal_evaluated",
-                summary=f"Opinion: {str(verdict_scout)[:80]} | Reason: {getattr(signal, 'signal_cause', getattr(signal, 'details', ''))}",
-                market_id=m.id,
-                market_title=m.title
-            )
-            
-        if swing_signal:
-            verdict_swing = getattr(swing_signal, 'swing_verdict', None)
-            if verdict_swing is None:
-                verdict_swing = getattr(swing_signal, 'recommendation', None)
-            if verdict_swing is None:
-                verdict_swing = 'buy'
-            save_agent_episode(
-                agent_name="SWING",
-                event_type="signal_evaluated",
-                summary=f"Opinion: {str(verdict_swing)[:80]} | Reason: {getattr(swing_signal, 'catalyst', getattr(swing_signal, 'catalyst_absence_reason', ''))}",
-                market_id=m.id,
-                market_title=m.title
-            )
-            
-        if opinion_shadow:
-            verdict_shadow = getattr(opinion_shadow, 'shadow_verdict', None)
-            if verdict_shadow is None:
-                verdict_shadow = getattr(opinion_shadow, 'opinion', None)
-            if verdict_shadow is None:
-                verdict_shadow = 'agree'
-            save_agent_episode(
-                agent_name="SHADOW",
-                event_type="signal_evaluated",
-                summary=f"Opinion: {str(verdict_shadow)[:80]} | Reason: {getattr(opinion_shadow, 'risk_assessment', getattr(opinion_shadow, 'orderbook_facts', ''))}",
-                market_id=m.id,
-                market_title=m.title
-            )
-    except Exception as e:
-        logger.error(f"[workflow] save_agent_episode failed for {m.id}: {e}")
+
 
 def process_arbitrage_signal(
     arb_signal,
