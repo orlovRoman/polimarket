@@ -547,7 +547,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'system_alerts': system_alerts
     }
 
-def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 50, page: Optional[int] = None) -> Any:
+def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 50, page: Optional[int] = None, sort_by: Optional[str] = None, sort_dir: Optional[str] = None) -> Any:
     """Возвращает последние сигналы для конкретной стратегии вместе с названием рынков."""
     import json
     from agents.shared.python.db import get_connection
@@ -562,6 +562,36 @@ def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 5
         params.append(period_start)
         
     where_str = " AND ".join(where_clauses)
+    
+    ALLOWED_SORT_COLS = {
+        'created_at': 's.created_at',
+        'market_title': 'm.title',
+        'wallet_address': "json_extract(s.details, '$.wallet_address')",
+        'target_outcome': 's.target_outcome',
+        'market_price_at_signal': 's.market_price_at_signal',
+        'status': 's.status',
+        'pnl_realized': 's.pnl_realized'
+    }
+
+    sort_dir_sql = "DESC"
+    if sort_dir and sort_dir.lower() == "asc":
+        sort_dir_sql = "ASC"
+
+    order_by_parts = []
+    if sort_by in ALLOWED_SORT_COLS:
+        col_sql = ALLOWED_SORT_COLS[sort_by]
+        if sort_by == 'target_outcome':
+            order_by_parts.append(f"s.target_outcome {sort_dir_sql}")
+            order_by_parts.append(f"COALESCE(s.estimated_probability, s.predicted_probability) {sort_dir_sql}")
+        else:
+            order_by_parts.append(f"{col_sql} {sort_dir_sql}")
+    else:
+        order_by_parts.append("s.created_at DESC")
+
+    if sort_by != 'created_at':
+        order_by_parts.append("s.created_at DESC")
+
+    order_by_str = ", ".join(order_by_parts)
     
     with get_connection() as conn:
         # Сначала посчитаем total, если используется пагинация
@@ -584,7 +614,7 @@ def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 5
             FROM signals s
             JOIN markets m ON s.market_id = m.id
             WHERE {where_str}
-            ORDER BY s.created_at DESC
+            ORDER BY {order_by_str}
         """
         
         if page is not None:

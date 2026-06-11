@@ -53,7 +53,8 @@ def run_cross_platform_scan(
         limit = poly_limit if adapter.name == "polymarket" else kalshi_limit
         try:
             if adapter.name == "polymarket":
-                raw = adapter.fetch_raw_events(limit=limit)
+                from services.poly_fetch import fetch_poly_events
+                raw = fetch_poly_events(adapter, limit=limit)
                 all_markets[adapter.name] = adapter.parse_events_to_markets(raw, limit)
             else:
                 all_markets[adapter.name] = adapter.list_markets(limit=limit)

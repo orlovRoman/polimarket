@@ -2,9 +2,9 @@ import sqlite3
 from pathlib import Path
 import asyncio
 
-db_path = Path("vault/database.sqlite")
+db_path = Path(__file__).parent.parent / "vault" / "database.sqlite"
 if not db_path.exists():
-    print("БД не найдена")
+    print(f"БД не найдена по пути {db_path}")
     exit(1)
 
 conn = sqlite3.connect(db_path)

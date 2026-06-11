@@ -30,7 +30,8 @@ def run_temporal_corridor_scan(
     logger.info(f"[TC-ДИАГ] min_volume={min_volume}, min_real_spread={min_real_spread_pct}%, min_exec={min_executable_contracts}, min_quality={min_quality_score}")
 
     # 1. Загрузка событий (/events API — группы готовы)
-    raw = PolymarketAdapter.fetch_raw_events(limit=poly_limit)
+    from services.poly_fetch import fetch_poly_events
+    raw = fetch_poly_events(PolymarketAdapter, limit=poly_limit)
 
     events = load_events_from_raw(
         raw_events=raw,

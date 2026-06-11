@@ -89,7 +89,7 @@
 
     async function loadWhaleData() {
         const overview = await fetchJSON('/api/overview');
-        const signalsResponse = await fetchJSON(`/api/signals?strategy=whale&page=${pagination.whale.page}&limit=${pagination.whale.limit}&days=all`);
+        const signalsResponse = await fetchJSON(`/api/signals?strategy=whale&page=${pagination.whale.page}&limit=${pagination.whale.limit}&days=all&sort_by=${sortState.whale.col}&sort_dir=${sortState.whale.dir}`);
         const equityData = await fetchJSON('/api/equity-curve?strategy=whale&days=30');
 
         if (!overview || !signalsResponse) return;
@@ -169,33 +169,9 @@
             state.col = column;
             state.dir = 'desc';
         }
-        renderWhaleTableOnly();
+        pagination[tableType].page = 1;
+        loadWhaleData();
         updateSortIndicators(tableType);
-    }
-
-    function sortDataArray(arr, col, dir) {
-        arr.sort((a, b) => {
-            let valA = a[col];
-            let valB = b[col];
-
-            // Специальная обработка для процентов прогноза (прогноз + вероятность)
-            if (col === 'target_outcome') {
-                const probA = a.estimated_probability !== null ? a.estimated_probability : a.predicted_probability;
-                const probB = b.estimated_probability !== null ? b.estimated_probability : b.predicted_probability;
-                valA = (a.target_outcome || '') + (probA !== null ? probA : 0);
-                valB = (b.target_outcome || '') + (probB !== null ? probB : 0);
-            }
-
-            if (valA === null || valA === undefined) return 1;
-            if (valB === null || valB === undefined) return -1;
-
-            if (typeof valA === 'string') {
-                return dir === 'asc' 
-                    ? valA.localeCompare(valB) 
-                    : valB.localeCompare(valA);
-            }
-            return dir === 'asc' ? valA - valB : valB - valA;
-        });
     }
 
     function updateSortIndicators(tableType) {
@@ -223,10 +199,7 @@
             return;
         }
 
-        let sortedSignals = [...lastFetchedSignals];
-        sortDataArray(sortedSignals, sortState.whale.col, sortState.whale.dir);
-
-        tbody.innerHTML = sortedSignals.map(sig => {
+        tbody.innerHTML = lastFetchedSignals.map(sig => {
             const prob = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
             const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
             

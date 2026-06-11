@@ -28,7 +28,8 @@ def run_synthetic_corridor_scan(
     
     logger.info(f"[SCA-ДИАГ] min_volume={min_volume}, min_real_spread={min_real_spread_pct}%, min_exec={min_executable_contracts}")
     
-    raw = PolymarketAdapter.fetch_raw_events(limit=poly_limit)
+    from services.poly_fetch import fetch_poly_events
+    raw = fetch_poly_events(PolymarketAdapter, limit=poly_limit)
 
     events = load_events_with_levels_from_raw(
         raw_events=raw,

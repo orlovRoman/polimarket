@@ -106,6 +106,8 @@ async def api_signals(request):
     days_str = request.query.get("days", "30")
     limit_str = request.query.get("limit", "50")
     page_str = request.query.get("page")
+    sort_by = request.query.get("sort_by")
+    sort_dir = request.query.get("sort_dir")
     
     if days_str == "all" or days_str == "None":
         days = None
@@ -127,7 +129,15 @@ async def api_signals(request):
         except ValueError:
             page = 1
             
-    data = await asyncio.to_thread(data_provider.get_strategy_signals, strategy, days, limit, page)
+    data = await asyncio.to_thread(
+        data_provider.get_strategy_signals,
+        strategy,
+        days,
+        limit,
+        page,
+        sort_by,
+        sort_dir
+    )
     return web.json_response(data)
 
 async def api_corridors(request):
