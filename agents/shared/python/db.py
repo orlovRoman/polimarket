@@ -1465,15 +1465,14 @@ def save_signal(signal: Signal, details_obj=None, or_ignore: bool = False) -> bo
             if details_obj 
             else getattr(signal, 'target_outcome', 'YES')
         )
-        estimated_prob = (
-            details_obj.estimated_probability 
-            if details_obj 
-            else (
-                getattr(signal, 'estimated_probability', None) 
-                if getattr(signal, 'estimated_probability', None) is not None
-                else getattr(signal, 'confidence', 0.5)
-            )
-        )
+        if details_obj:
+            estimated_prob = details_obj.estimated_probability
+        else:
+            signal_prob = getattr(signal, 'estimated_probability', None)
+            if signal_prob is not None:
+                estimated_prob = signal_prob
+            else:
+                estimated_prob = getattr(signal, 'confidence', 0.5)
         
         if or_ignore:
             cursor.execute("""
@@ -2019,9 +2018,9 @@ def save_agent_episode(
         return cursor.lastrowid
 
 def get_agent_episodes(
-    agent_name: str = None,
-    event_type: str = None,
-    outcome: str = None,
+    agent_name: str | None = None,
+    event_type: str | None = None,
+    outcome: str | None = None,
     limit: int = 10
 ) -> list:
     """Возвращает историю эпизодов агента с фильтрами."""
@@ -2104,9 +2103,7 @@ def update_episodes_for_market(market_id: str, resolved_outcome: str):
                         ).fetchone()
                         if sig_row and sig_row["target_outcome"]:
                             target = sig_row["target_outcome"].upper()
-                            if agent_name in ("SCOUT", "SWING"):
-                                outcome_val = "correct" if target == resolved_outcome.upper() else "incorrect"
-                            elif agent_name == "SHADOW":
+                            if agent_name in ("SCOUT", "SWING", "SHADOW"):
                                 outcome_val = "correct" if target == resolved_outcome.upper() else "incorrect"
                     except Exception:
                         pass

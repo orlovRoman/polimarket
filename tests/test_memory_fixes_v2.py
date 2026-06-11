@@ -281,4 +281,4 @@ def test_save_signal_zero_probability(temp_db):
     cursor = temp_db.execute("SELECT estimated_probability FROM signals WHERE id = 'sig-zero-prob'")
     row = cursor.fetchone()
     assert row is not None
-    assert row["estimated_probability"] == 0.0
+    assert row["estimated_probability"] == pytest.approx(0.0)
