@@ -25,27 +25,19 @@ def _lower_types(schema):
         return [_lower_types(item) for item in schema]
     return schema
 
-def convert_gemini_to_openai(payload: dict, model_name: str = "", strict_json: bool = True) -> dict:
-    """
-    Конвертирует payload из формата Google Gemini API в формат OpenAI (совместимый с Grok и OpenRouter).
-    """
-    openai_messages = []
-    
-    # 1. Извлекаем system instruction
-    system_instruction = ""
+def _extract_system_instruction(payload: dict) -> Optional[dict]:
     if "systemInstruction" in payload:
         parts = payload["systemInstruction"].get("parts", [])
         if parts:
-            system_instruction = parts[0].get("text", "")
-            
-    if system_instruction:
-        openai_messages.append({"role": "system", "content": system_instruction})
-        
-    # Словарь для маппинга tool_call_id
-    tool_call_ids = {}
+            text = parts[0].get("text", "")
+            if text:
+                return {"role": "system", "content": text}
+    return None
 
-    # 2. Извлекаем сообщения (историю диалога)
-    contents = payload.get("contents", [])
+def _convert_messages(contents: list) -> Tuple[list, dict]:
+    openai_messages = []
+    tool_call_ids = {}
+    
     for msg in contents:
         role = msg.get("role", "user")
         parts = msg.get("parts", [])
@@ -98,38 +90,36 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "", strict_json: b
             message_dict["tool_calls"] = tool_calls
 
         openai_messages.append(message_dict)
+        
+    return openai_messages, tool_call_ids
 
-    openai_payload = {
-        "model": model_name,
-        "messages": openai_messages
-    }
-    
-    # 3. Конвертация инструментов (tools)
-    if "tools" in payload:
-        openai_tools = []
-        for gemini_tool in payload["tools"]:
-            if "functionDeclarations" in gemini_tool:
-                for func in gemini_tool["functionDeclarations"]:
-                    # OpenAI требует lower-case для типов, Gemini обычно UPPERCASE (OBJECT, STRING)
-                    func_copy = json.loads(json.dumps(func))
-                    if "parameters" in func_copy:
-                        func_copy["parameters"] = _lower_types(func_copy["parameters"])
-                        
-                    openai_tools.append({
-                        "type": "function",
-                        "function": func_copy
-                    })
-        if openai_tools:
-            openai_payload["tools"] = openai_tools
-            
-    # 4. Настройка формата JSON, если требуется
+def _convert_tools(payload: dict) -> Optional[list]:
+    if "tools" not in payload:
+        return None
+    openai_tools = []
+    for gemini_tool in payload["tools"]:
+        if "functionDeclarations" in gemini_tool:
+            for func in gemini_tool["functionDeclarations"]:
+                # OpenAI требует lower-case для типов, Gemini обычно UPPERCASE (OBJECT, STRING)
+                func_copy = json.loads(json.dumps(func))
+                if "parameters" in func_copy:
+                    func_copy["parameters"] = _lower_types(func_copy["parameters"])
+                    
+                openai_tools.append({
+                    "type": "function",
+                    "function": func_copy
+                })
+    return openai_tools if openai_tools else None
+
+def _convert_response_format(payload: dict, strict_json: bool) -> Optional[dict]:
     gen_config = payload.get("generationConfig", {})
-    if gen_config.get("responseMimeType") == "application/json" or gen_config.get("response_mime_type") == "application/json":
+    mime_type = gen_config.get("responseMimeType") or gen_config.get("response_mime_type")
+    if mime_type == "application/json":
         if "responseSchema" in gen_config and strict_json:
             schema_copy = _lower_types(gen_config["responseSchema"])
             if isinstance(schema_copy, dict):
                 schema_copy["additionalProperties"] = False
-            openai_payload["response_format"] = {
+            return {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "structured_response",
@@ -138,9 +128,41 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "", strict_json: b
                 }
             }
         else:
-            # Cerebras и другие провайдеры не поддерживают strict json_schema — используем простой json_object
-            openai_payload["response_format"] = {"type": "json_object"}
-            
+            # Cerebras и другие не поддерживают strict json_schema — простой json_object
+            return {"type": "json_object"}
+    return None
+
+def convert_gemini_to_openai(payload: dict, model_name: str = "", strict_json: bool = True) -> dict:
+    """
+    Конвертирует payload из формата Google Gemini API в формат OpenAI (совместимый с Grok и OpenRouter).
+    """
+    openai_messages = []
+    
+    # 1. Извлекаем system instruction
+    sys_msg = _extract_system_instruction(payload)
+    if sys_msg:
+        openai_messages.append(sys_msg)
+        
+    # 2. Извлекаем сообщения (историю диалога)
+    contents = payload.get("contents", [])
+    converted_msgs, _ = _convert_messages(contents)
+    openai_messages.extend(converted_msgs)
+    
+    openai_payload = {
+        "model": model_name,
+        "messages": openai_messages
+    }
+    
+    # 3. Конвертация инструментов (tools)
+    tools = _convert_tools(payload)
+    if tools:
+        openai_payload["tools"] = tools
+        
+    # 4. Настройка формата JSON, если требуется
+    resp_format = _convert_response_format(payload, strict_json)
+    if resp_format:
+        openai_payload["response_format"] = resp_format
+        
     return openai_payload
 
 def convert_openai_to_gemini(openai_res: dict) -> dict:

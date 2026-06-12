@@ -232,9 +232,6 @@ class PolymarketAdapter(BaseMarketAdapter):
                 if close_time <= datetime.now(timezone.utc):
                     continue
                 
-                # Используем event_slug если есть (из events API), иначе берем slug самого рынка
-                url_slug = item.get("event_slug", item.get("slug"))
-                
                 # Форматируем заголовок и описание с ценами YES/NO
                 q_formatted, desc_formatted = self._format_market_prices(
                     item["question"],
@@ -319,8 +316,6 @@ class PolymarketAdapter(BaseMarketAdapter):
                 close_time = self._get_end_date(item)
                 if close_time <= datetime.now(timezone.utc):
                     continue
-                url_slug = item.get("event_slug", item.get("slug"))
-                
                 # Форматируем заголовок и описание с ценами YES/NO
                 q_formatted, desc_formatted = self._format_market_prices(
                     item["question"],
