@@ -903,7 +903,6 @@ def _init_db_impl(conn: sqlite3.Connection):
     """)
     # Таблица истории виртуальных сделок китов
     cursor.execute("""
-
         CREATE TABLE IF NOT EXISTS whale_virtual_trades_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             market_id TEXT NOT NULL,
@@ -2749,7 +2748,7 @@ def buy_virtual_whale_stock(market_id: str, price: float) -> None:
             WHERE market_id = ?
         """, (_round_price(price), market_id))
 
-def sell_virtual_whale_stock(market_id: str) -> None:
+def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) -> None:
     with get_connection() as conn:
         row = conn.execute("""
             SELECT title, url, initial_price, current_price, predicted_outcome, virtual_bought_price, virtual_bought_at, max_price_seen, min_price_seen
@@ -2760,7 +2759,7 @@ def sell_virtual_whale_stock(market_id: str) -> None:
         if row and row['virtual_bought_price'] is not None:
             v_bought = row['virtual_bought_price']
             v_bought_at = row['virtual_bought_at']
-            v_curr = row['current_price']
+            v_curr = sell_price if sell_price is not None else row['current_price']
             
             pred = row['predicted_outcome']
             if pred is not None:

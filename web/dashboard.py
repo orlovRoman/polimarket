@@ -356,15 +356,22 @@ async def api_sell_whale_stock(request):
             return web.json_response({"error": f"Invalid JSON body: {json_err}"}, status=400)
 
         market_id = body.get("market_id")
+        sell_price = body.get("sell_price")
         if not market_id:
             return web.json_response({"error": "market_id is required"}, status=400)
+            
+        if sell_price is not None:
+            try:
+                sell_price = float(sell_price)
+            except ValueError:
+                return web.json_response({"error": "sell_price must be a float"}, status=400)
             
     except (KeyError, TypeError) as req_err:
         return web.json_response({"error": f"Malformed request parameters: {req_err}"}, status=400)
 
     try:
         from agents.shared.python.db import sell_virtual_whale_stock
-        await asyncio.to_thread(sell_virtual_whale_stock, market_id)
+        await asyncio.to_thread(sell_virtual_whale_stock, market_id, sell_price)
         return web.json_response({"status": "ok"})
     except Exception as e:
         logger.exception("Error in api_sell_whale_stock")
@@ -736,6 +743,8 @@ def create_dashboard_app() -> web.Application:
     app.router.add_post("/api/penny-stocks/discover", api_discover_penny_stocks)
     app.router.add_post("/api/whale-stocks/buy", api_buy_whale_stock)
     app.router.add_post("/api/whale-stocks/sell", api_sell_whale_stock)
+    app.router.add_post("/api/whale-stocks/analyze", api_analyze_penny_stock)
+    app.router.add_get("/api/whale-stocks/analyze-status", api_analyze_status)
     app.router.add_post("/api/whale-stocks/discover", api_discover_whale_stocks)
     app.router.add_post("/api/delete-market", api_delete_market)
 

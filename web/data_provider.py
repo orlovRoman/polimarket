@@ -72,6 +72,9 @@ def get_overview_stats() -> dict:
             FROM penny_virtual_trades_history
         """).fetchone()
         if penny_pnl:
+            stats.setdefault('penny_stocks', {
+                'win_rate': None, 'pnl_7d': 0.0, 'pnl_30d': 0.0, 'sharpe': None, 'signals_count': 0, 'status_emoji': '🟡'
+            })
             stats['penny_stocks']['pnl_7d'] = round(penny_pnl['pnl_7d'] or 0.0, 2)
             stats['penny_stocks']['pnl_30d'] = round(penny_pnl['pnl_30d'] or 0.0, 2)
             stats['penny_stocks']['signals_count'] = penny_pnl['total']
@@ -85,6 +88,9 @@ def get_overview_stats() -> dict:
             FROM whale_virtual_trades_history
         """).fetchone()
         if whale_pnl:
+            stats.setdefault('whale', {
+                'win_rate': None, 'pnl_7d': 0.0, 'pnl_30d': 0.0, 'sharpe': None, 'signals_count': 0, 'status_emoji': '🟡'
+            })
             stats['whale']['pnl_7d'] = round(whale_pnl['pnl_7d'] or 0.0, 2)
             stats['whale']['pnl_30d'] = round(whale_pnl['pnl_30d'] or 0.0, 2)
             stats['whale']['signals_count'] = whale_pnl['total']
@@ -97,6 +103,9 @@ def get_overview_stats() -> dict:
             FROM penny_virtual_trades_history
         """).fetchone()
         if penny_wr and penny_wr['total'] > 0:
+            stats.setdefault('penny_stocks', {
+                'win_rate': None, 'pnl_7d': 0.0, 'pnl_30d': 0.0, 'sharpe': None, 'signals_count': 0, 'status_emoji': '🟡'
+            })
             stats['penny_stocks']['win_rate'] = penny_wr['wins'] / penny_wr['total']
 
         whale_wr = conn.execute("""
@@ -106,6 +115,9 @@ def get_overview_stats() -> dict:
             FROM whale_virtual_trades_history
         """).fetchone()
         if whale_wr and whale_wr['total'] > 0:
+            stats.setdefault('whale', {
+                'win_rate': None, 'pnl_7d': 0.0, 'pnl_30d': 0.0, 'sharpe': None, 'signals_count': 0, 'status_emoji': '🟡'
+            })
             stats['whale']['win_rate'] = whale_wr['wins'] / whale_wr['total']
 
         # 3. Обновляем статус-эмодзи

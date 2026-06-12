@@ -421,11 +421,11 @@
         }
     }
 
-    async function sellVirtual(marketId) {
+    async function sellVirtual(marketId, currentPrice) {
         const res = await fetch('/api/whale-stocks/sell', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ market_id: marketId })
+            body: JSON.stringify({ market_id: marketId, sell_price: currentPrice })
         });
         if (res.ok) {
             triggerRefresh();
@@ -743,13 +743,13 @@
         try {
             let res;
             if (forceReload) {
-                res = await fetch('/api/penny-stocks/analyze', {
+                res = await fetch('/api/whale-stocks/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ market_id: marketId })
                 });
             } else {
-                res = await fetch(`/api/penny-stocks/analyze-status?market_id=${marketId}`);
+                res = await fetch(`/api/whale-stocks/analyze-status?market_id=${marketId}`);
             }
 
             if (!res.ok) {
@@ -775,7 +775,7 @@
                         clearInterval(checkInterval);
                         return;
                     }
-                    const checkRes = await fetch(`/api/penny-stocks/analyze-status?market_id=${marketId}`);
+                    const checkRes = await fetch(`/api/whale-stocks/analyze-status?market_id=${marketId}`);
                     if (checkRes.ok) {
                         const checkData = await checkRes.json();
                         if (checkData.status === 'completed') {
@@ -963,7 +963,7 @@
                         <td>${formatPriceCents(row.current_outcome_price)}</td>
                         <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent}%)</span></td>
                         <td>
-                            <button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600;" onclick="sellVirtual('${row.market_id}')">Продать</button>
+                            <button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600;" onclick="sellVirtual('${row.market_id}', ${row.current_price})">Продать</button>
                         </td>
                     </tr>
                 `;

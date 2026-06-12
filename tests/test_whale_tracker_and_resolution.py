@@ -390,3 +390,46 @@ def test_new_whale_scanners_and_early_resolution():
         assert sig_series["status"] == "LOSS"
         assert sig_series["pnl_realized"] == pytest.approx(-10.0)
 
+
+def test_sell_virtual_whale_stock_with_custom_sell_price():
+    from agents.shared.python.db import add_whale_stock_to_monitoring, buy_virtual_whale_stock, sell_virtual_whale_stock, get_connection
+    import uuid
+
+    market_id = f"mkt_whale_sell_test_{uuid.uuid4().hex[:8]}"
+    
+    # 1. Добавляем рынок в мониторинг с начальной ценой 0.50 (исход YES)
+    add_whale_stock_to_monitoring(
+        market_id=market_id,
+        title="Will Custom Sell Price Test succeed?",
+        url="https://polymarket.com/custom-sell-test",
+        initial_price=0.50,
+        predicted_outcome="YES",
+        edge=0.10,
+        confidence=0.50
+    )
+    
+    # 2. Покупаем по цене 0.45
+    buy_virtual_whale_stock(market_id, 0.45)
+    
+    # 3. Продаем по цене 0.85, при этом в мониторинге current_price остаётся равен initial_price (0.50)
+    sell_virtual_whale_stock(market_id, sell_price=0.85)
+    
+    # 4. Проверяем историю виртуальных сделок
+    with get_connection() as conn:
+        trade = conn.execute("SELECT * FROM whale_virtual_trades_history WHERE market_id = ?", (market_id,)).fetchone()
+        assert trade is not None
+        assert trade["bought_price"] == pytest.approx(0.45)
+        # Так как направление YES, sold_outcome_price должна быть равна sell_price
+        assert trade["sold_price"] == pytest.approx(0.85)
+        assert trade["sold_outcome_price"] == pytest.approx(0.85)
+        # PnL = 0.85 - 0.45 = 0.40
+        assert trade["pnl_cents"] == pytest.approx(0.40)
+        assert trade["pnl_percent"] == pytest.approx(88.89, abs=0.01) # (0.40 / 0.45) * 100
+        
+        # Проверяем, что в мониторинге сбросились параметры покупки
+        monitoring = conn.execute("SELECT * FROM whale_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
+        assert monitoring is not None
+        assert monitoring["virtual_bought_price"] is None
+        assert monitoring["virtual_bought_at"] is None
+
+
