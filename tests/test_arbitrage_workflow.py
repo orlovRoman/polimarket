@@ -40,7 +40,9 @@ class MockKalshiAdapter(KalshiAdapter):
 # ── Баг #1: lambda closure ────────────────────────────────────
 
 def test_lambda_closure_captures_correct_limit():
-    """Проверяем, что fetch_raw_events вызывается с правильным лимитом"""
+    """Проверяем, что fetch_raw_events вызывается с правильным лимитом (500 из-за кэша)"""
+    from services.poly_fetch import _cache
+    _cache.clear()
     adapter = MockPolyAdapter()
     adapter.fetch_raw_events = MagicMock(return_value=[])
 
@@ -49,11 +51,13 @@ def test_lambda_closure_captures_correct_limit():
         from core.arbitrage_workflow import run_cross_platform_scan
         run_cross_platform_scan(api_key="test", adapters=[adapter], poly_limit=42, dry_run=True)
 
-    adapter.fetch_raw_events.assert_called_once_with(limit=42)
+    adapter.fetch_raw_events.assert_called_once_with(limit=500)
 
 
 def test_scanners_use_instance_fetch():
     """Проверяем, что сканеры используют инстанс-вызовы fetch_raw_events через poly_fetch"""
+    from services.poly_fetch import _cache
+    _cache.clear()
     from services.synthetic_corridor_scanner import run_synthetic_corridor_scan
     from services.temporal_corridor_scanner import run_temporal_corridor_scan
     
@@ -67,8 +71,9 @@ def test_scanners_use_instance_fetch():
         run_synthetic_corridor_scan(poly_limit=15)
         
         MockAdapterClass.assert_called_once()
-        mock_instance.fetch_raw_events.assert_called_once_with(limit=15)
+        mock_instance.fetch_raw_events.assert_called_once_with(limit=500)
 
+    _cache.clear()
     with patch("services.temporal_corridor_scanner.PolymarketAdapter") as MockAdapterClass, \
          patch("services.temporal_corridor_scanner.load_events_from_raw", return_value=[]), \
          patch("services.temporal_corridor_scanner.find_candidates", return_value=[]):
@@ -79,7 +84,7 @@ def test_scanners_use_instance_fetch():
         run_temporal_corridor_scan(poly_limit=25)
         
         MockAdapterClass.assert_called_once()
-        mock_instance.fetch_raw_events.assert_called_once_with(limit=25)
+        mock_instance.fetch_raw_events.assert_called_once_with(limit=500)
 
 
 # ── Баг #2: дублирование в verified ──────────────────────────
