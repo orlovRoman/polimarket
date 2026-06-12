@@ -231,8 +231,9 @@ class CoreEngine:
 
     def _run_team_discussion_inner(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
         import asyncio
-        loop = asyncio.new_event_loop()
+        loop = None
         try:
+            loop = asyncio.new_event_loop()
             from core.guards import LLMUnavailableError
             
             # ── АВТОРЕЗОЛЮЦИЯ: закрываем истёкшие PENDING-сигналы ──
@@ -336,7 +337,8 @@ class CoreEngine:
             log("\n✅ Обсуждение завершено.")
             return len(markets)
         finally:
-            loop.close()
+            if loop and not loop.is_closed():
+                loop.close()
 
     def _get_scan_limit(self) -> int:
         from agents.shared.python.db import get_memory
@@ -627,14 +629,16 @@ class CoreEngine:
             pre_orderbook = self._fetch_pre_orderbook(m)
 
             import asyncio
-            loop = kwargs.get("loop")
-            if not loop:
-                loop = asyncio.new_event_loop()
-                should_close_loop = True
-            else:
-                should_close_loop = False
-
+            loop = None
+            should_close_loop = False
             try:
+                loop = kwargs.get("loop")
+                if not loop:
+                    loop = asyncio.new_event_loop()
+                    should_close_loop = True
+                else:
+                    should_close_loop = False
+
                 signal, swing_signal, context = loop.run_until_complete(run_agent_evaluation(
                     m, self.scout, self.swing, _update_state,
                     adapter=self.adapter, trigger_type=trigger_type,
@@ -645,7 +649,7 @@ class CoreEngine:
                     run_id=kwargs.get("run_id")
                 ))
             finally:
-                if should_close_loop:
+                if should_close_loop and loop and not loop.is_closed():
                     loop.close()
 
             if context is None:

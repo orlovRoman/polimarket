@@ -947,7 +947,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # Статистика китов с пагинацией
         try:
-            whales_total = conn.execute("SELECT COUNT(*) as cnt FROM wallets").fetchone()['cnt']
+            row = conn.execute("SELECT COUNT(*) as cnt FROM wallets").fetchone()
+            whales_total = row['cnt'] if row else 0
             whales_offset = (whales_page - 1) * whales_limit
             whales_rows = conn.execute("""
                 SELECT 

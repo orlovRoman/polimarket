@@ -13,8 +13,10 @@ GAMMA_BASE = "https://gamma-api.polymarket.com"
 _cache: Dict[str, tuple] = {}
 _cache_lock = threading.Lock()
 CACHE_TTL = 300  # 5 минут
+_cache_call_count = 0
 
 def _cached_get(url: str) -> Optional[Any]:
+    global _cache_call_count
     now = time.time()
     with _cache_lock:
         if url in _cache:
@@ -26,12 +28,14 @@ def _cached_get(url: str) -> Optional[Any]:
             resp = client.get(url)
             if resp.status_code == 200:
                 data = resp.json()
+                now_write = time.time()  # свежий timestamp после HTTP
                 with _cache_lock:
-                    # Очищаем устаревшие записи перед вставкой новой
-                    expired = [k for k, (d, ts) in _cache.items() if now - ts >= CACHE_TTL]
-                    for k in expired:
-                        del _cache[k]
-                    _cache[url] = (data, now)
+                    _cache_call_count += 1
+                    if _cache_call_count % 50 == 0:
+                        expired = [k for k, (_, ts) in _cache.items() if now_write - ts >= CACHE_TTL]
+                        for k in expired:
+                            del _cache[k]
+                    _cache[url] = (data, now_write)
                 return data
     except Exception as e:
         logger.error(f"[OnChain] Ошибка запроса к {url}: {e}")
