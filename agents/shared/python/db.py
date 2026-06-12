@@ -74,7 +74,6 @@ def _ensure_initializing(fn):
 @contextmanager
 def get_connection():
     """Контекст-менеджер для SQLite-соединений с гарантированным закрытием."""
-    str(DB_PATH)
     global _db_initializing
     if not _db_initializing:
         init_db()
@@ -199,7 +198,6 @@ _db_init_lock = threading.Lock()
 @_ensure_initializing
 def init_db():
     """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
-    str(DB_PATH)
     global _db_initialized, _db_init_failed
     if _db_initialized:
         return

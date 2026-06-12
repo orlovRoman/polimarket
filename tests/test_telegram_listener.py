@@ -441,7 +441,7 @@ def test_handler_source_url_after_log_message():
     from services import telegram_listener
 
     source = inspect.getsource(telegram_listener)
-    handler_start = source.find("async def handler(event):")
+    handler_start = source.find("async def handle_incoming_telegram_message(")
     handler_body = source[handler_start:]
     assert handler_body.find("Получено новое сообщение из") < handler_body.find("source_url =")
 

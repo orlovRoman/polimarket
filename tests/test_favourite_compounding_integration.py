@@ -398,9 +398,9 @@ def test_save_and_get_compound_opportunity():
     
     assert len(matched) == 1
     assert matched[0]["title"] == "Test Opportunity Title"
-    assert matched[0]["price"] == 0.96
-    assert matched[0]["volume_usd"] == 12000.0
-    assert matched[0]["confidence"] == 0.8
+    assert matched[0]["price"] == pytest.approx(0.96)
+    assert matched[0]["volume_usd"] == pytest.approx(12000.0)
+    assert matched[0]["confidence"] == pytest.approx(0.8)
     assert matched[0]["outcome"] == "YES"
     assert matched[0]["status"] == "NEW"
 

@@ -250,9 +250,9 @@ def _check_same_event(title_a: str, title_b: str, allow_different_dates: bool = 
         # Предобработка: нормализуем тикеры ДО токенизации
         t = title.lower()
         t = re.sub(r's&p\s*500', 'sp', t)
-        t = re.sub(r's&p', 'sp', t)
-        t = re.sub(r'sp500', 'sp', t)
-        t = re.sub(r'spx', 'sp', t)
+        t = t.replace('s&p', 'sp')
+        t = t.replace('sp500', 'sp')
+        t = t.replace('spx', 'sp')
         
         words = set(re.findall(r'\b\w+\b', t)) - stopwords
         words = {aliases.get(w, w) for w in words}

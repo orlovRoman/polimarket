@@ -60,11 +60,11 @@ def test_wallet_tracker_ingestion():
         assert len(txs) == 2
         assert txs[0]["wallet_address"] == "0xWhaleA"
         assert txs[0]["outcome"] == "YES"
-        assert txs[0]["amount_usd"] == 700.0
+        assert txs[0]["amount_usd"] == pytest.approx(700.0)
 
         assert txs[1]["wallet_address"] == "0xWhaleB"
         assert txs[1]["outcome"] == "NO"
-        assert txs[1]["amount_usd"] == 1200.0
+        assert txs[1]["amount_usd"] == pytest.approx(1200.0)
 
 
 def test_wallet_win_rate_recalculation():
@@ -94,8 +94,8 @@ def test_wallet_win_rate_recalculation():
     with get_connection() as conn:
         wallet = conn.execute("SELECT * FROM wallets WHERE address = '0xWhaleWR'").fetchone()
         assert wallet is not None
-        assert wallet["win_rate"] == 0.667  # 2 победы из 3 сделок
-        assert wallet["total_profit"] == 2300.0
+        assert wallet["win_rate"] == pytest.approx(0.667, abs=0.001)  # 2 победы из 3 сделок
+        assert wallet["total_profit"] == pytest.approx(2300.0)
 
 
 def test_onchain_scorer():
@@ -109,7 +109,7 @@ def test_onchain_scorer():
         summary=""
     )
     score_low = compute_onchain_score(sm_low, "YES")
-    assert score_low.score == 0.0
+    assert score_low.score == pytest.approx(0.0)
     assert score_low.direction == "NEUTRAL"
 
     # 2. Высокое доминирование YES, нет известных китов
@@ -132,7 +132,7 @@ def test_onchain_scorer():
         # dom=0.9 -> raw_score = (0.9 - 0.5)*2 = 0.8
         # whale_boost: 0.15 (wr > 0.6)
         # final = 0.8 + 0.15 = 0.95
-        assert pytest.approx(score.score, 0.01) == 0.95
+        assert score.score == pytest.approx(0.95, abs=0.01)
         assert score.direction == "CONFIRM"
         assert score.whale_count == 1
         assert "SmartMoney: YES dom=90%" in score.annotation
@@ -188,8 +188,8 @@ def test_onchain_trend_alert():
     spikes = scan_volume_spikes(min_spike_ratio=3.0)
     assert len(spikes) == 1
     assert spikes[0]["market_id"] == "trend_m"
-    assert spikes[0]["vol_recent"] == 800.0
-    assert spikes[0]["vol_prev"] == 200.0
+    assert spikes[0]["vol_recent"] == pytest.approx(800.0)
+    assert spikes[0]["vol_prev"] == pytest.approx(200.0)
 
     msg = build_spike_message(spikes[0])
     assert "Ончейн-всплеск объёма" in msg
@@ -339,7 +339,7 @@ def test_new_whale_scanners_and_early_resolution():
     assert len(large_bets) == 1
     assert large_bets[0]["market_id"] == market_id_1
     assert large_bets[0]["wallet_address"] == "0xWhaleSingle"
-    assert large_bets[0]["amount_usd"] == 1500.0
+    assert large_bets[0]["amount_usd"] == pytest.approx(1500.0)
 
     # Проверяем, что сигнал записан в signals
     with get_connection() as conn:
@@ -361,7 +361,7 @@ def test_new_whale_scanners_and_early_resolution():
     assert len(series_bets) == 1
     assert series_bets[0]["market_id"] == market_id_2
     assert series_bets[0]["wallet_address"] == "0xWhaleSeries"
-    assert series_bets[0]["total_amount_usd"] == 2500.0
+    assert series_bets[0]["total_amount_usd"] == pytest.approx(2500.0)
 
     # Проверяем, что сигнал серии записан в signals
     with get_connection() as conn:
@@ -384,9 +384,9 @@ def test_new_whale_scanners_and_early_resolution():
     with get_connection() as conn:
         sig_single = conn.execute("SELECT status, pnl_realized FROM signals WHERE market_id = ? AND summary LIKE '%single%'", (market_id_1,)).fetchone()
         assert sig_single["status"] == "WIN"
-        assert sig_single["pnl_realized"] == 10.0
+        assert sig_single["pnl_realized"] == pytest.approx(10.0)
 
         sig_series = conn.execute("SELECT status, pnl_realized FROM signals WHERE market_id = ? AND summary LIKE '%series%'", (market_id_2,)).fetchone()
         assert sig_series["status"] == "LOSS"
-        assert sig_series["pnl_realized"] == -10.0
+        assert sig_series["pnl_realized"] == pytest.approx(-10.0)
 
