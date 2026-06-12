@@ -104,11 +104,11 @@ def test_get_penny_stocks_dashboard(isolated_db):
     # Вставляем Penny Stocks
     with db_module.get_connection() as conn:
         conn.execute("""
-            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            INSERT INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome, actual_outcome)
             VALUES 
-            ('penny_a', 'Penny A', 'http://a', 0.03, 0.04, 0.05, 0.03, 'ACTIVE', 'YES'),
-            ('penny_b', 'Penny B', 'http://b', 0.08, 0.02, 0.08, 0.02, 'RESOLVED', 'YES'),
-            ('penny_c', 'Penny C', 'http://c', 0.02, 0.02, 0.02, 0.02, 'ACTIVE', NULL)
+            ('penny_a', 'Penny A', 'http://a', 0.03, 0.04, 0.05, 0.03, 'ACTIVE', 'YES', NULL),
+            ('penny_b', 'Penny B', 'http://b', 0.08, 0.02, 0.08, 0.02, 'RESOLVED', 'YES', 'YES'),
+            ('penny_c', 'Penny C', 'http://c', 0.02, 0.02, 0.02, 0.02, 'ACTIVE', NULL, NULL)
         """)
         conn.execute("""
             INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at)
@@ -136,8 +136,8 @@ def test_get_penny_stocks_dashboard(isolated_db):
     assert data['resolved'][0]['title'] == 'Penny B'
     assert data['resolved'][0]['pnl_realized'] == -10.0
     assert data['stats']['resolved_count'] == 1
-    assert data['stats']['total_trades_pnl'] == -10.0
-    assert data['stats']['total_resolved_pnl'] == -10.0
+    assert data['manual_stats']['total_trades_pnl'] == -10.0
+    assert data['stats']['total_resolved_pnl'] == pytest.approx(0.92, abs=1e-4)
     assert data['price_distribution']['1-5¢'] == 2   # penny_a(0.03) + penny_c(0.02)
     assert data['price_distribution']['5-10¢'] == 0  # penny_b(0.08) - RESOLVED, больше не попадает в распределение активных
 
@@ -431,9 +431,9 @@ def test_virtual_kpis(isolated_db):
         
     data = data_provider.get_penny_stocks_dashboard()
     assert len(data['virtual_history']) == 2
-    assert data['stats']['win_rate'] == pytest.approx(0.5, abs=1e-4)
-    assert data['stats']['best_trade_pnl'] == pytest.approx(0.02, abs=1e-4)
-    assert data['stats']['avg_pnl'] == pytest.approx(-0.005, abs=1e-4)
+    assert data['manual_stats']['win_rate'] == pytest.approx(0.5, abs=1e-4)
+    assert data['manual_stats']['best_trade_pnl'] == pytest.approx(0.02, abs=1e-4)
+    assert data['manual_stats']['avg_pnl'] == pytest.approx(-0.005, abs=1e-4)
 
 def test_penny_resolved_includes_unanalyzed(isolated_db):
     """Таблица завершенных penny stocks возвращает и неанализированные рынки с cheap_outcome и гипотетическим PnL."""

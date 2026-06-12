@@ -67,20 +67,37 @@ def get_overview_stats() -> dict:
                 stats[stype]['pnl_30d'] = round(r['pnl_30d'] or 0.0, 2)
                 stats[stype]['signals_count'] = r['total']
 
-        # 2.5 Отдельно догружаем статистику для penny_stocks из виртуальной истории сделок.
-        # ВНИМАНИЕ: pnl_cents в БД хранит значение в долларах (долях доллара, например 0.05 = $0.05),
-        # поэтому напрямую суммируем и округляем до 2 знаков, так же как для других стратегий.
-        penny_pnl = conn.execute("""
+        # 2.5 Загружаем статистику для penny_stocks по авто-сигналам агентов из penny_stocks_monitoring.
+        penny_stats = conn.execute("""
             SELECT
                 COUNT(*) as total,
-                SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_cents ELSE 0.0 END) as pnl_7d,
-                SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_cents ELSE 0.0 END) as pnl_30d
-            FROM penny_virtual_trades_history
+                SUM(CASE WHEN resolved_at >= datetime('now', '-7 days') THEN 
+                    CASE 
+                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
+                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
+                        ELSE 0.0
+                    END
+                    ELSE 0.0
+                END) as pnl_7d,
+                SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') THEN 
+                    CASE 
+                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
+                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
+                        ELSE 0.0
+                    END
+                    ELSE 0.0
+                END) as pnl_30d,
+                SUM(CASE WHEN 
+                    (predicted_outcome = 'YES' AND actual_outcome = 'YES') OR 
+                    (predicted_outcome = 'NO' AND actual_outcome = 'NO') THEN 1 ELSE 0 END
+                ) as wins
+            FROM penny_stocks_monitoring
+            WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
         """).fetchone()
-        if penny_pnl:
-            stats['penny_stocks']['pnl_7d'] = round(penny_pnl['pnl_7d'] or 0.0, 2)
-            stats['penny_stocks']['pnl_30d'] = round(penny_pnl['pnl_30d'] or 0.0, 2)
-            stats['penny_stocks']['signals_count'] = penny_pnl['total']
+        if penny_stats:
+            stats['penny_stocks']['pnl_7d'] = round(penny_stats['pnl_7d'] or 0.0, 2)
+            stats['penny_stocks']['pnl_30d'] = round(penny_stats['pnl_30d'] or 0.0, 2)
+            stats['penny_stocks']['signals_count'] = penny_stats['total']
 
         # 2.6 Отдельно догружаем статистику для whale из виртуальной истории сделок китов.
         whale_pnl = conn.execute("""
@@ -96,14 +113,8 @@ def get_overview_stats() -> dict:
             stats['whale']['signals_count'] = whale_pnl['total']
 
         # 2.7 Рассчитываем win_rate для penny_stocks и whale
-        penny_wr = conn.execute("""
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins
-            FROM penny_virtual_trades_history
-        """).fetchone()
-        if penny_wr and penny_wr['total'] > 0:
-            stats['penny_stocks']['win_rate'] = penny_wr['wins'] / penny_wr['total']
+        if penny_stats and penny_stats['total'] > 0:
+            stats['penny_stocks']['win_rate'] = penny_stats['wins'] / penny_stats['total']
 
         whale_wr = conn.execute("""
             SELECT 
@@ -139,11 +150,20 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
     def get_curve_for_strategy(conn, stype):
         if stype == 'penny_stocks':
             rows = conn.execute("""
-                SELECT date(sold_at) as date, SUM(pnl_cents) as daily_pnl
-                FROM penny_virtual_trades_history
-                WHERE sold_at >= ?
-                GROUP BY date(sold_at)
-                ORDER BY date(sold_at) ASC
+                SELECT date(resolved_at) as date,
+                       SUM(
+                           CASE 
+                               WHEN predicted_outcome = 'YES' THEN 
+                                   (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
+                               WHEN predicted_outcome = 'NO' THEN 
+                                   (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
+                               ELSE 0.0
+                           END
+                       ) as daily_pnl
+                FROM penny_stocks_monitoring
+                WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL AND resolved_at >= ?
+                GROUP BY date(resolved_at)
+                ORDER BY date(resolved_at) ASC
             """, (period_start,)).fetchall()
         elif stype == 'whale':
             rows = conn.execute("""
@@ -304,8 +324,16 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 row_dict['max_price_seen_outcome'] = mx
                 row_dict['min_price_seen_outcome'] = mn
 
-            # Гипотетический PNL, если реальной сделки не было, но рынок разрешен
+            # Авто-PnL (сигналы агентов)
+            pnl_auto = None
             actual = row_dict['actual_outcome']
+            if pred is not None and actual is not None and init is not None:
+                bought_outcome = (1.0 - init) if pred == 'NO' else init
+                sold_outcome = 1.0 if actual == pred else 0.0
+                pnl_auto = round(sold_outcome - bought_outcome, 4)
+            row_dict['pnl_auto'] = pnl_auto
+
+            # Гипотетический PNL, если реальной сделки не было, но рынок разрешен
             pnl_realized = row_dict['pnl_realized']
             if pnl_realized is None and actual is not None and init is not None and outcome_to_track is not None:
                 bought_outcome = (1.0 - init) if outcome_to_track == 'NO' else init
@@ -360,26 +388,52 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         total_active = active_total
         total_resolved = resolved_total
 
-        # Статистика по истории виртуальных сделок
-        stats_row = conn.execute("""
+        # === 1. АВТО-СТАТИСТИКА (СИГНАЛЫ АГЕНТОВ) ===
+        # Выбираем завершенные авто-сигналы
+        auto_resolved_row = conn.execute("""
             SELECT
                 COUNT(*) as count,
-                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
-                MAX(pnl_cents) as best_pnl,
-                AVG(pnl_cents) as avg_pnl
-            FROM penny_virtual_trades_history
-            WHERE sold_at >= datetime('now', '-30 days')
+                SUM(CASE WHEN 
+                    (predicted_outcome = 'YES' AND actual_outcome = 'YES') OR 
+                    (predicted_outcome = 'NO' AND actual_outcome = 'NO') THEN 1 ELSE 0 END
+                ) as wins,
+                MAX(
+                    CASE 
+                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
+                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
+                        ELSE 0.0
+                    END
+                ) as best_pnl,
+                AVG(
+                    CASE 
+                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
+                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
+                        ELSE 0.0
+                    END
+                ) as avg_pnl,
+                SUM(
+                    CASE 
+                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
+                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
+                        ELSE 0.0
+                    END
+                ) as total_pnl
+            FROM penny_stocks_monitoring
+            WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
         """).fetchone()
 
-        win_rate = None
-        best_pnl = 0.0
-        avg_pnl = 0.0
-        if stats_row and stats_row['count'] and stats_row['count'] > 0:
-            win_rate = stats_row['wins'] / stats_row['count']
-            best_pnl = stats_row['best_pnl'] or 0.0
-            avg_pnl = stats_row['avg_pnl'] or 0.0
+        auto_win_rate = None
+        auto_best_pnl = 0.0
+        auto_avg_pnl = 0.0
+        auto_total_pnl = 0.0
+        if auto_resolved_row and auto_resolved_row['count'] > 0:
+            auto_win_rate = auto_resolved_row['wins'] / auto_resolved_row['count']
+            auto_best_pnl = auto_resolved_row['best_pnl'] or 0.0
+            auto_avg_pnl = auto_resolved_row['avg_pnl'] or 0.0
+            auto_total_pnl = auto_resolved_row['total_pnl'] or 0.0
 
-        avg_entry_row = conn.execute("""
+        # Средняя цена входа активных авто-сигналов
+        avg_entry_auto_row = conn.execute("""
             SELECT AVG(
                 CASE
                     WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price
@@ -387,72 +441,69 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 END
             ) as avg_entry
             FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE' AND (
-                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
-                (predicted_outcome = 'NO' AND initial_price >= 0.90) OR
-                (predicted_outcome IS NULL AND (initial_price <= 0.10 OR initial_price >= 0.90))
-            )
+            WHERE status = 'ACTIVE' AND predicted_outcome IS NOT NULL
         """).fetchone()
-        avg_entry = avg_entry_row['avg_entry'] if avg_entry_row else None
+        avg_entry_auto = avg_entry_auto_row['avg_entry'] if avg_entry_auto_row else None
 
+        # Всего активных с прогнозом
         total_active_predicted = conn.execute("""
             SELECT COUNT(*) as cnt
             FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE' AND predicted_outcome IS NOT NULL AND (
-                (predicted_outcome = 'YES' AND initial_price <= 0.10) OR
-                (predicted_outcome = 'NO' AND initial_price >= 0.90)
-            )
+            WHERE status = 'ACTIVE' AND predicted_outcome IS NOT NULL
         """).fetchone()['cnt']
-
-        # 1. Кумулятивный PnL по истории виртуальных сделок
-        trades_pnl_row = conn.execute("SELECT SUM(pnl_cents) as total_pnl FROM penny_virtual_trades_history").fetchone()
-        total_trades_pnl = trades_pnl_row['total_pnl'] if trades_pnl_row and trades_pnl_row['total_pnl'] is not None else 0.0
-
-        # 2. Кумулятивный PnL по всем закрытым (RESOLVED) penny-рынкам (реальный + гипотетический)
-        all_resolved_rows = conn.execute("""
-            SELECT p.initial_price, p.predicted_outcome, p.actual_outcome, h.pnl_cents as pnl_realized
-            FROM penny_stocks_monitoring p
-            LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents
-                FROM penny_virtual_trades_history
-                GROUP BY market_id
-            ) h ON p.market_id = h.market_id
-            WHERE p.status = 'RESOLVED' AND (
-                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
-                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
-                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
-            )
-        """).fetchall()
-
-        total_resolved_pnl = 0.0
-        for r in all_resolved_rows:
-            pnl_realized = r['pnl_realized']
-            if pnl_realized is not None:
-                total_resolved_pnl += pnl_realized
-            else:
-                actual = r['actual_outcome']
-                init = r['initial_price']
-                pred = r['predicted_outcome']
-                if actual is not None and init is not None:
-                    if pred is not None:
-                        outcome_to_track = pred
-                    else:
-                        outcome_to_track = 'NO' if init >= 0.90 else 'YES'
-                    
-                    bought_outcome = (1.0 - init) if outcome_to_track == 'NO' else init
-                    sold_outcome = 1.0 if actual == outcome_to_track else 0.0
-                    total_resolved_pnl += (sold_outcome - bought_outcome)
 
         stats = {
             'active_count': total_active,
             'active_predicted_count': total_active_predicted,
-            'resolved_count': total_resolved,
-            'win_rate': win_rate,
-            'avg_entry_price': avg_entry,
-            'best_trade_pnl': best_pnl,
-            'avg_pnl': avg_pnl,
-            'total_trades_pnl': round(total_trades_pnl, 4),
-            'total_resolved_pnl': round(total_resolved_pnl, 4)
+            'resolved_count': auto_resolved_row['count'] if auto_resolved_row else 0,
+            'win_rate': auto_win_rate,
+            'avg_entry_price': avg_entry_auto,
+            'best_trade_pnl': auto_best_pnl,
+            'avg_pnl': auto_avg_pnl,
+            'total_resolved_pnl': round(auto_total_pnl, 4)
+        }
+
+        # === 2. РУЧНАЯ СТАТИСТИКА (ВИРТУАЛЬНЫЕ СДЕЛКИ) ===
+        manual_stats_row = conn.execute("""
+            SELECT
+                COUNT(*) as count,
+                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
+                MAX(pnl_cents) as best_pnl,
+                AVG(pnl_cents) as avg_pnl,
+                SUM(pnl_cents) as total_pnl
+            FROM penny_virtual_trades_history
+        """).fetchone()
+
+        manual_win_rate = None
+        manual_best_pnl = 0.0
+        manual_avg_pnl = 0.0
+        manual_total_pnl = 0.0
+        if manual_stats_row and manual_stats_row['count'] > 0:
+            manual_win_rate = manual_stats_row['wins'] / manual_stats_row['count']
+            manual_best_pnl = manual_stats_row['best_pnl'] or 0.0
+            manual_avg_pnl = manual_stats_row['avg_pnl'] or 0.0
+            manual_total_pnl = manual_stats_row['total_pnl'] or 0.0
+
+        # Средняя цена входа в активном ручном портфеле
+        avg_entry_manual_row = conn.execute("""
+            SELECT AVG(
+                CASE
+                    WHEN predicted_outcome = 'NO' THEN 1.0 - virtual_bought_price
+                    ELSE virtual_bought_price
+                END
+            ) as avg_entry
+            FROM penny_stocks_monitoring
+            WHERE status = 'ACTIVE' AND virtual_bought_price IS NOT NULL
+        """).fetchone()
+        avg_entry_manual = avg_entry_manual_row['avg_entry'] if avg_entry_manual_row else None
+
+        manual_stats = {
+            'count': manual_stats_row['count'] if manual_stats_row else 0,
+            'win_rate': manual_win_rate,
+            'avg_entry_price': avg_entry_manual,
+            'best_trade_pnl': manual_best_pnl,
+            'avg_pnl': manual_avg_pnl,
+            'total_trades_pnl': round(manual_total_pnl, 4)
         }
 
         # Распределение цен входа
@@ -588,6 +639,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'portfolio': portfolio,
         'virtual_history': virtual_history,
         'stats': stats,
+        'manual_stats': manual_stats,
         'price_distribution': bins,
         'active_total': active_total,
         'resolved_total': resolved_total,

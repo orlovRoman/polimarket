@@ -16,6 +16,11 @@
     </button>
 </div>
 
+<div class="opinion-tabs" style="margin-bottom: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 12px; display: flex; gap: 8px;">
+    <button id="penny-tab-auto" class="opinion-tab-btn active" onclick="switchPennyTab('auto')">🤖 Авто-сигналы агентов</button>
+    <button id="penny-tab-manual" class="opinion-tab-btn" onclick="switchPennyTab('manual')">💼 Ручной портфель</button>
+</div>
+
 <div class="kpi-row">
     <div class="kpi-card">
         <div class="kpi-title">Всего в мониторинге</div>
@@ -47,7 +52,7 @@
     </div>
 </div>
 
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px;">
+<div id="top-grid" style="display: grid; grid-template-columns: 1fr; gap: 24px; margin-bottom: 32px;">
     <div class="chart-card" style="display: flex; flex-direction: column; height: 380px; padding: 24px;">
         <div class="chart-title" style="margin-bottom: 16px;">Системные оповещения</div>
         <div id="system-alerts-container" style="flex: 1; overflow-y: auto; padding-right: 4px;">
@@ -56,7 +61,7 @@
             </div>
         </div>
     </div>
-    <div class="table-card" style="height: 380px; margin-bottom: 0; display: flex; flex-direction: column; padding: 24px;">
+    <div id="portfolio-card" class="table-card" style="height: 380px; margin-bottom: 0; display: none; flex-direction: column; padding: 24px;">
         <div class="table-title" style="margin-bottom: 10px;">Виртуальный портфель</div>
         <div class="table-wrapper" style="min-height: 200px; max-height: 300px; margin-top: 0; overflow-y: auto;">
             <table>
@@ -109,7 +114,7 @@
     <div id="active-pagination"></div>
 </div>
 
-<div class="table-card">
+<div id="resolved-card" class="table-card">
     <div class="table-title">Завершенные penny stocks</div>
     <div class="table-wrapper">
         <table>
@@ -122,7 +127,7 @@
                     <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome"></span></th>
                     <th onclick="toggleSort('resolved', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome"></span></th>
                     <th onclick="toggleSort('resolved', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'pnl_realized')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_realized')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL<span id="sort-resolved-pnl_realized"></span></th>
+                    <th onclick="toggleSort('resolved', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl_auto"></span></th>
                     <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
                     <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
                     <th>Действие</th>
@@ -138,7 +143,7 @@
     <div id="resolved-pagination"></div>
 </div>
 
-<div class="table-card">
+<div id="history-card" class="table-card" style="display: none;">
     <div class="table-title">История виртуальных сделок</div>
     <div class="table-wrapper">
         <table>
@@ -708,11 +713,95 @@
         }
     }
 
+    let currentTab = 'auto';
     let sortState = {
         active: { col: 'added_at', dir: 'desc' },
         resolved: { col: 'resolved_at', dir: 'desc' }
     };
     let lastFetchedData = null;
+
+    function switchPennyTab(tab) {
+        currentTab = tab;
+        document.getElementById('penny-tab-auto').classList.toggle('active', tab === 'auto');
+        document.getElementById('penny-tab-manual').classList.toggle('active', tab === 'manual');
+        
+        // Переключаем отображение блоков
+        if (tab === 'auto') {
+            document.getElementById('portfolio-card').style.display = 'none';
+            document.getElementById('top-grid').style.gridTemplateColumns = '1fr';
+            document.getElementById('resolved-card').style.display = 'block';
+            document.getElementById('history-card').style.display = 'none';
+        } else {
+            document.getElementById('portfolio-card').style.display = 'flex';
+            document.getElementById('top-grid').style.gridTemplateColumns = '1fr 1fr';
+            document.getElementById('resolved-card').style.display = 'none';
+            document.getElementById('history-card').style.display = 'block';
+        }
+        
+        // Перерисовываем KPI и таблицы
+        if (lastFetchedData) {
+            updateKPIDisplay(lastFetchedData);
+            renderTablesOnly();
+            renderVirtualHistoryTable(lastFetchedData.virtual_history);
+        }
+    }
+
+    function updateKPIDisplay(data) {
+        const kpiActive = document.getElementById('kpi-active');
+        const kpiActivePred = document.getElementById('kpi-active-predicted');
+        const kpiWinrate = document.getElementById('kpi-winrate');
+        const kpiAvgentry = document.getElementById('kpi-avgentry');
+        const kpiBesttrade = document.getElementById('kpi-besttrade');
+        const kpiTradesPnl = document.getElementById('kpi-trades-pnl');
+        const kpiAllPnl = document.getElementById('kpi-all-pnl');
+
+        const cardTradesPnl = kpiTradesPnl.closest('.kpi-card');
+        const cardAllPnl = kpiAllPnl.closest('.kpi-card');
+
+        if (currentTab === 'auto') {
+            kpiActive.previousElementSibling.textContent = "Всего в мониторинге";
+            kpiActive.textContent = data.stats.active_count;
+
+            kpiActivePred.previousElementSibling.textContent = "С прогнозом";
+            kpiActivePred.textContent = data.stats.active_predicted_count || 0;
+
+            kpiWinrate.previousElementSibling.textContent = "Win Rate (Авто)";
+            kpiWinrate.textContent = data.stats.win_rate !== null ? formatPercent(data.stats.win_rate) : '—';
+
+            kpiAvgentry.previousElementSibling.textContent = "Ср. цена входа (Авто)";
+            kpiAvgentry.textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : '—';
+
+            kpiBesttrade.previousElementSibling.textContent = "Лучший авто-трейд";
+            kpiBesttrade.innerHTML = formatPnLCents(data.stats.best_trade_pnl);
+
+            cardTradesPnl.style.display = 'none';
+            
+            cardAllPnl.style.display = 'block';
+            kpiAllPnl.previousElementSibling.textContent = "Общий PnL (Авто)";
+            kpiAllPnl.innerHTML = formatPnL(data.stats.total_resolved_pnl);
+        } else {
+            kpiActive.previousElementSibling.textContent = "Открытых позиций";
+            kpiActive.textContent = data.portfolio.length;
+
+            kpiActivePred.previousElementSibling.textContent = "Всего сделок";
+            kpiActivePred.textContent = data.manual_stats.count;
+
+            kpiWinrate.previousElementSibling.textContent = "Win Rate (Ручной)";
+            kpiWinrate.textContent = data.manual_stats.win_rate !== null ? formatPercent(data.manual_stats.win_rate) : '—';
+
+            kpiAvgentry.previousElementSibling.textContent = "Ср. цена входа (Ручной)";
+            kpiAvgentry.textContent = data.manual_stats.avg_entry_price !== null ? formatPriceCents(data.manual_stats.avg_entry_price) : '—';
+
+            kpiBesttrade.previousElementSibling.textContent = "Лучший ручной трейд";
+            kpiBesttrade.innerHTML = formatPnLCents(data.manual_stats.best_trade_pnl);
+
+            cardTradesPnl.style.display = 'block';
+            kpiTradesPnl.previousElementSibling.textContent = "Общий PnL (Сделки)";
+            kpiTradesPnl.innerHTML = formatPnL(data.manual_stats.total_trades_pnl);
+
+            cardAllPnl.style.display = 'none';
+        }
+    }
 
     function toggleSort(tableType, column) {
         const state = sortState[tableType];
@@ -746,7 +835,7 @@
     function updateSortIndicators(tableType) {
         const columns = tableType === 'active' 
             ? ['title', 'initial_price_outcome', 'current_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'volume_2h', 'predicted_outcome', 'edge', 'added_at']
-            : ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_realized', 'edge', 'was_correct', 'resolved_at'];
+            : ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_auto', 'edge', 'was_correct', 'resolved_at'];
             
         columns.forEach(col => {
             const el = document.getElementById(`sort-${tableType}-${col}`);
@@ -844,9 +933,12 @@
                 const changeSign = changePct > 0 ? '+' : '';
                 
                 const buyPrice = Math.round((row.current_price ?? row.initial_price) * 100) / 100;
-                const actionBtn = row.virtual_bought_price !== null
-                    ? `<span class="badge badge-blue">В портфеле</span>`
-                    : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;
+                let actionBtn = '';
+                if (currentTab === 'manual') {
+                    actionBtn = row.virtual_bought_price !== null
+                        ? `<span class="badge badge-blue">В портфеле</span>`
+                        : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;
+                }
 
                 let analyzeBtnClass = 'badge-gray';
                 let analyzeBtnText = 'Анализ';
@@ -920,7 +1012,7 @@
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
                         <td>${outcomeBadge}</td>
                         <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
-                        <td>${row.pnl_realized !== null ? formatPnL(row.pnl_realized) : '—'}</td>
+                        <td>${row.pnl_auto !== null ? formatPnL(row.pnl_auto) : '—'}</td>
                         <td>${resultBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
                         <td>${deleteBtn}</td>
@@ -1014,13 +1106,7 @@
         runningAnalyses = data.running_analyses || [];
 
         // 1. Рендерим KPI
-        document.getElementById('kpi-active').textContent = data.stats.active_count;
-        document.getElementById('kpi-active-predicted').textContent = data.stats.active_predicted_count || 0;
-        document.getElementById('kpi-winrate').textContent = data.stats.win_rate !== null ? formatPercent(data.stats.win_rate) : '—';
-        document.getElementById('kpi-avgentry').textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : '—';
-        document.getElementById('kpi-besttrade').innerHTML = formatPnLCents(data.stats.best_trade_pnl);
-        document.getElementById('kpi-trades-pnl').innerHTML = formatPnL(data.stats.total_trades_pnl);
-        document.getElementById('kpi-all-pnl').innerHTML = formatPnL(data.stats.total_resolved_pnl);
+        updateKPIDisplay(data);
 
         // 2. Рендерим таблицу Виртуального портфеля
         const portfolioTbody = document.getElementById('portfolio-tbody');
