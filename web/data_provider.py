@@ -1,8 +1,11 @@
 # web/data_provider.py
 import sqlite3
 import math
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
+
+logger = logging.getLogger("NexusPolyBot.DataProvider")
 
 def get_status_emoji(sharpe: float | None, win_rate: float | None) -> str:
     """Определяет статус-эмодзи стратегии на основе Sharpe и win rate."""
@@ -87,10 +90,11 @@ def get_overview_stats() -> dict:
                     END
                     ELSE 0.0
                 END) as pnl_30d,
-                SUM(CASE WHEN 
+                SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') AND (
                     (predicted_outcome = 'YES' AND actual_outcome = 'YES') OR 
-                    (predicted_outcome = 'NO' AND actual_outcome = 'NO') THEN 1 ELSE 0 END
-                ) as wins
+                    (predicted_outcome = 'NO' AND actual_outcome = 'NO')
+                ) THEN 1 ELSE 0 END) as wins_30d,
+                SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as total_30d
             FROM penny_stocks_monitoring
             WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
         """).fetchone()
@@ -112,18 +116,19 @@ def get_overview_stats() -> dict:
             stats['whale']['pnl_30d'] = round(whale_pnl['pnl_30d'] or 0.0, 2)
             stats['whale']['signals_count'] = whale_pnl['total']
 
-        # 2.7 Рассчитываем win_rate для penny_stocks и whale
-        if penny_stats and penny_stats['total'] > 0:
-            stats['penny_stocks']['win_rate'] = penny_stats['wins'] / penny_stats['total']
+        # 2.7 Рассчитываем win_rate для penny_stocks и whale (за последние 30 дней)
+        if penny_stats and penny_stats['total_30d'] is not None and penny_stats['total_30d'] > 0:
+            stats['penny_stocks']['win_rate'] = (penny_stats['wins_30d'] or 0) / penny_stats['total_30d']
 
         whale_wr = conn.execute("""
             SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins
+                COUNT(*) as total_30d,
+                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins_30d
             FROM whale_virtual_trades_history
+            WHERE sold_at >= datetime('now', '-30 days')
         """).fetchone()
-        if whale_wr and whale_wr['total'] > 0:
-            stats['whale']['win_rate'] = whale_wr['wins'] / whale_wr['total']
+        if whale_wr and whale_wr['total_30d'] is not None and whale_wr['total_30d'] > 0:
+            stats['whale']['win_rate'] = (whale_wr['wins_30d'] or 0) / whale_wr['total_30d']
 
         # 3. Обновляем статус-эмодзи
         for stype, sdata in stats.items():
@@ -144,7 +149,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         days = 30
 
     from agents.shared.python.db import get_connection
-    strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks']
+    strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks', 'synthetic', 'temporal']
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
     def get_curve_for_strategy(conn, stype):
@@ -655,8 +660,6 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
     Собирает данные для дашборда Whale Following (активные, завершенные позиции, статистика, распределение).
     """
     from agents.shared.python.db import get_connection
-    import logging
-    logger = logging.getLogger("NexusPolyBot.DataProvider")
     
     with get_connection() as conn:
         # Подсчет общего количества активных
