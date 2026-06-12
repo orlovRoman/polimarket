@@ -106,28 +106,26 @@ class PolymarketAdapter(BaseMarketAdapter):
             
         return formatted_question, formatted_description
 
-    def _parse_outcome(self, item: dict, outcomes: list) -> str:
-        """
-        Пытается определить исход закрытого рынка по winner, tokens или outcomePrices.
-        Возвращает 'YES', 'NO' или default 'unknown'.
-        """
+    def _parse_outcome_by_winner(self, item: dict) -> Optional[str]:
         winner = item.get("winner")
         if winner and str(winner).upper() in ("YES", "NO"):
             return str(winner).upper()
-            
-        # Пытаемся по tokens
+        return None
+
+    def _parse_outcome_by_tokens(self, item: dict) -> Optional[str]:
         tokens_list = item.get("tokens", [])
-        if tokens_list:
-            for t in tokens_list:
-                try:
-                    if float(t.get("price", 0) or 0) >= 0.99:
-                        name = str(t.get("outcome", "")).upper()
-                        if name in ("YES", "NO"):
-                            return name
-                except Exception:
-                    continue
-                    
-        # Пытаемся по outcomePrices
+        for t in tokens_list:
+            try:
+                price_val = float(t.get("price", 0) or 0)
+                if price_val >= 0.99:
+                    name = str(t.get("outcome", "")).upper()
+                    if name in ("YES", "NO"):
+                        return name
+            except Exception:
+                continue
+        return None
+
+    def _parse_outcome_by_prices(self, item: dict) -> Optional[str]:
         from services.polymarket_client import parse_outcome_prices
         prices_float = parse_outcome_prices(item.get("outcomePrices"))
         if prices_float:
@@ -137,7 +135,25 @@ class PolymarketAdapter(BaseMarketAdapter):
                     return "YES" if max_idx == 0 else "NO"
             except Exception:
                 pass
-                
+        return None
+
+    def _parse_outcome(self, item: dict) -> str:
+        """
+        Пытается определить исход закрытого рынка по winner, tokens или outcomePrices.
+        Возвращает 'YES', 'NO' или default 'unknown'.
+        """
+        val = self._parse_outcome_by_winner(item)
+        if val:
+            return val
+            
+        val = self._parse_outcome_by_tokens(item)
+        if val:
+            return val
+            
+        val = self._parse_outcome_by_prices(item)
+        if val:
+            return val
+            
         return 'unknown'
     
     def _get_end_date(self, item: dict):
@@ -255,7 +271,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 
                 outcome_val = 'unknown'
                 if item.get("closed") is True or item.get("closed") == "true":
-                    outcome_val = self._parse_outcome(item, outcomes)
+                    outcome_val = self._parse_outcome(item)
                     
                 m = Market(
                     id=item["id"],
@@ -339,7 +355,7 @@ class PolymarketAdapter(BaseMarketAdapter):
                 
                 outcome_val = 'unknown'
                 if item.get("closed") is True or item.get("closed") == "true":
-                    outcome_val = self._parse_outcome(item, outcomes)
+                    outcome_val = self._parse_outcome(item)
                     
                 m = Market(
                     id=item["id"],
@@ -430,7 +446,7 @@ class PolymarketAdapter(BaseMarketAdapter):
         
         outcome_val = 'unknown'
         if item.get("closed") is True or item.get("closed") == "true":
-            outcome_val = self._parse_outcome(item, outcomes)
+            outcome_val = self._parse_outcome(item)
             
         return Market(
             id=item["id"],
