@@ -94,6 +94,50 @@ def _escape_like(pattern: str) -> str:
     """Экранирует спецсимволы для оператора SQL LIKE."""
     return pattern.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
+def _is_market_active(close_time_str: str, now_utc: datetime) -> bool:
+    """Проверяет, активен ли рынок (close_time в будущем)."""
+    if not close_time_str:
+        return False
+    try:
+        clean_str = close_time_str.strip()
+        if " " in clean_str and "T" not in clean_str:
+            clean_str = clean_str.replace(" ", "T")
+        dt = datetime.fromisoformat(clean_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt > now_utc
+    except Exception:
+        return False
+
+def _reset_market_signals_to_pending(conn: sqlite3.Connection, m_id: str):
+    """Сбрасывает сигналы рынка из WIN/LOSS обратно в PENDING."""
+    sig_rows = conn.execute(
+        "SELECT id FROM signals WHERE market_id = ? AND status IN ('WIN', 'LOSS')",
+        (m_id,)
+    ).fetchall()
+    for sig in sig_rows:
+        sig_id = sig["id"]
+        sp_name = f"heal_sig_{sig_id.replace('-', '_')}"
+        try:
+            conn.execute(f"SAVEPOINT {sp_name}")
+            conn.execute("""
+                UPDATE signals 
+                SET status = 'PENDING', 
+                    resolved_at = NULL, 
+                    resolution_outcome = NULL, 
+                    resolution_price = NULL, 
+                    was_profitable = NULL, 
+                    pnl_realized = NULL
+                WHERE id = ?
+            """, (sig_id,))
+            conn.execute(f"RELEASE SAVEPOINT {sp_name}")
+            logger.info(f"[HealDB] Сброшен сигнал {sig_id} обратно в PENDING")
+        except sqlite3.IntegrityError:
+            conn.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+            conn.execute(f"RELEASE SAVEPOINT {sp_name}")
+            conn.execute("DELETE FROM signals WHERE id = ?", (sig_id,))
+            logger.warning(f"[HealDB] Сигнал {sig_id} конфликтует с существующим PENDING сигналом для рынка {m_id}. Удаляем дубликат.")
+
 def heal_db_resolutions(conn: sqlite3.Connection):
     """
     Исправляет некорректные резолюции активных рынков (у которых close_time в будущем).
@@ -111,17 +155,8 @@ def heal_db_resolutions(conn: sqlite3.Connection):
         active_rows = []
         for r in rows:
             close_time_str = r["close_time"]
-            if not close_time_str:
-                continue
             try:
-                # Нормализуем формат даты
-                clean_str = close_time_str.strip()
-                if " " in clean_str and "T" not in clean_str:
-                    clean_str = clean_str.replace(" ", "T")
-                dt = datetime.fromisoformat(clean_str)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                if dt > now_utc:
+                if _is_market_active(close_time_str, now_utc):
                     active_rows.append(r)
             except Exception as parse_err:
                 logger.warning(f"[HealDB] Не удалось распарсить close_time '{close_time_str}' для рынка {r['id']}: {parse_err}")
@@ -135,30 +170,8 @@ def heal_db_resolutions(conn: sqlite3.Connection):
                 # Сбрасываем outcome в 'unknown' в markets
                 conn.execute("UPDATE markets SET outcome = 'unknown' WHERE id = ?", (m_id,))
                 
-                # Возвращаем сигналы этого рынка из WIN/LOSS в PENDING и очищаем поля резолюции
-                sig_rows = conn.execute("SELECT id FROM signals WHERE market_id = ? AND status IN ('WIN', 'LOSS')", (m_id,)).fetchall()
-                for sig in sig_rows:
-                    sig_id = sig["id"]
-                    sp_name = f"heal_sig_{sig_id.replace('-', '_')}"
-                    try:
-                        conn.execute(f"SAVEPOINT {sp_name}")
-                        conn.execute("""
-                            UPDATE signals 
-                            SET status = 'PENDING', 
-                                resolved_at = NULL, 
-                                resolution_outcome = NULL, 
-                                resolution_price = NULL, 
-                                was_profitable = NULL, 
-                                pnl_realized = NULL
-                            WHERE id = ?
-                        """, (sig_id,))
-                        conn.execute(f"RELEASE SAVEPOINT {sp_name}")
-                        logger.info(f"[HealDB] Сброшен сигнал {sig_id} обратно в PENDING")
-                    except sqlite3.IntegrityError:
-                        conn.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-                        conn.execute(f"RELEASE SAVEPOINT {sp_name}")
-                        conn.execute("DELETE FROM signals WHERE id = ?", (sig_id,))
-                        logger.warning(f"[HealDB] Сигнал {sig_id} конфликтует с существующим PENDING сигналом для рынка {m_id}. Удаляем дубликат.")
+                # Возвращаем сигналы этого рынка из WIN/LOSS в PENDING
+                _reset_market_signals_to_pending(conn, m_id)
     except Exception as e:
         logger.error(f"[HealDB] Ошибка при исцелении резолюций в БД: {e}", exc_info=True)
 
@@ -2052,6 +2065,44 @@ def update_episode_outcome(episode_id: int, outcome: str):
             (outcome, episode_id)
         )
 
+def _evaluate_episode_outcome(agent_name: str, context_str: str, resolved_outcome: str, market_id: str, conn: sqlite3.Connection) -> str:
+    """Определяет правильность прогноза агента на основе контекста или сигналов."""
+    resolved_upper = resolved_outcome.upper()
+    if resolved_upper not in ("YES", "NO"):
+        return "unresolved"
+
+    try:
+        import json
+        ctx = json.loads(context_str) if context_str else {}
+        target = ctx.get("target_outcome") or ctx.get("outcome")
+        if target:
+            target_upper = target.upper()
+            if agent_name in ("SCOUT", "SWING"):
+                return "correct" if target_upper == resolved_upper else "incorrect"
+            elif agent_name == "SHADOW":
+                agree = ctx.get("agree", False)
+                if agree:
+                    return "correct" if target_upper == resolved_upper else "incorrect"
+                else:
+                    return "correct" if target_upper != resolved_upper else "incorrect"
+    except Exception:
+        pass
+
+    # Fallback: пробуем получить target_outcome из signals
+    try:
+        sig_row = conn.execute(
+            "SELECT target_outcome FROM signals WHERE market_id = ? ORDER BY created_at DESC LIMIT 1",
+            (market_id,)
+        ).fetchone()
+        if sig_row and sig_row["target_outcome"]:
+            target_upper = sig_row["target_outcome"].upper()
+            if agent_name in ("SCOUT", "SWING", "SHADOW"):
+                return "correct" if target_upper == resolved_upper else "incorrect"
+    except Exception:
+        pass
+
+    return "unknown"
+
 def update_episodes_for_market(market_id: str, resolved_outcome: str):
     """
     Обновляет outcome ('correct' / 'incorrect' / 'unresolved') во всех эпизодах для данного market_id.
@@ -2068,51 +2119,17 @@ def update_episodes_for_market(market_id: str, resolved_outcome: str):
         )
         episodes = cursor.fetchall()
         for ep in episodes:
-            ep_id = ep["id"]
-            agent_name = ep["agent_name"]
-            context_str = ep["context"]
-            
-            outcome_val = "unknown"
-            if resolved_outcome.upper() not in ("YES", "NO"):
-                outcome_val = "unresolved"
-            else:
-                try:
-                    import json
-                    ctx = json.loads(context_str) if context_str else {}
-                    
-                    target = ctx.get("target_outcome")
-                    if not target:
-                        target = ctx.get("outcome") # fallback
-                        
-                    if target:
-                        target = target.upper()
-                        if agent_name in ("SCOUT", "SWING"):
-                            outcome_val = "correct" if target == resolved_outcome.upper() else "incorrect"
-                        elif agent_name == "SHADOW":
-                            agree = ctx.get("agree", False)
-                            if agree:
-                                outcome_val = "correct" if target == resolved_outcome.upper() else "incorrect"
-                            else:
-                                outcome_val = "correct" if target != resolved_outcome.upper() else "incorrect"
-                except Exception:
-                    # Если не удалось распарсить context, но это SCOUT/SWING и у нас есть сигнал в signals
-                    # с тем же market_id, мы можем попытаться взять target_outcome оттуда
-                    try:
-                        sig_row = conn.execute(
-                            "SELECT target_outcome FROM signals WHERE market_id = ? ORDER BY created_at DESC LIMIT 1",
-                            (market_id,)
-                        ).fetchone()
-                        if sig_row and sig_row["target_outcome"]:
-                            target = sig_row["target_outcome"].upper()
-                            if agent_name in ("SCOUT", "SWING", "SHADOW"):
-                                outcome_val = "correct" if target == resolved_outcome.upper() else "incorrect"
-                    except Exception:
-                        pass
-            
+            outcome_val = _evaluate_episode_outcome(
+                ep["agent_name"],
+                ep["context"],
+                resolved_outcome,
+                market_id,
+                conn
+            )
             if outcome_val != "unknown":
                 conn.execute(
                     "UPDATE agent_episodes SET outcome = ? WHERE id = ?",
-                    (outcome_val, ep_id)
+                    (outcome_val, ep["id"])
                 )
 
 def get_agent_accuracy(agent_name: str) -> dict:
