@@ -75,6 +75,56 @@ class ArbitrageAgent:
         "expected_pnl_pct", "risk_level",
     ]
 
+    def _create_math_arbitrage_signal(
+        self,
+        market_a: Market,
+        market_b: Market,
+        mf,
+        match_score: float,
+    ) -> CrossArbitrageSignal:
+        if mf.arbitrage_type in ("complementary_overpriced",):
+            action_a, action_b = "BUY_NO", "BUY_NO"
+        elif mf.arbitrage_type in ("complementary_underpriced",):
+            action_a, action_b = "BUY_YES", "BUY_YES"
+        elif mf.arbitrage_type == "monotonicity_violation":
+            action_a, action_b = "BUY_YES", "BUY_NO"
+        elif mf.arbitrage_type == "price_divergence":
+            action_a = "BUY_YES" if market_a.price < market_b.price else "SKIP"
+            action_b = "BUY_YES" if market_b.price < market_a.price else "SKIP"
+        else:
+            action_a, action_b = "BUY_YES", "SELL_YES"
+
+        arbitrage_type = "logical_contradiction" if mf.arbitrage_type in [
+            "monotonicity_violation",
+            "complementary_overpriced",
+            "complementary_underpriced"
+        ] else mf.arbitrage_type
+
+        return CrossArbitrageSignal(
+            market_a_id=market_a.id,
+            market_a_platform=market_a.platform,
+            market_a_title=market_a.title,
+            market_a_price=market_a.price,
+            market_a_url=market_a.url,
+            market_b_id=market_b.id,
+            market_b_platform=market_b.platform,
+            market_b_title=market_b.title,
+            market_b_price=market_b.price,
+            market_b_url=market_b.url,
+            has_arbitrage=True,
+            arbitrage_type=arbitrage_type,
+            spread_percent=mf.spread_pct,
+            reasoning=mf.reasoning,
+            trade_instruction=mf.trade_instruction,
+            match_score=match_score,
+            action_a=action_a,
+            action_b=action_b,
+            entry_price_a_cents=round(market_a.price * 100, 1),
+            entry_price_b_cents=round(market_b.price * 100, 1),
+            expected_pnl_pct=round(mf.spread_pct - 2.0, 1),
+            risk_level="LOW",
+        )
+
     # ─── Режим 1: Внутриплатформенный арбитраж (по корреляции) ──────────────
 
     @with_retry(max_attempts=3, initial_backoff=2.0)
@@ -99,43 +149,8 @@ class ArbitrageAgent:
         
         if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
             print(f"[MATH-FILTER] [CONFIRMED] ({mf.arbitrage_type}): spread={mf.spread_pct:.1f}%")
-            
-            if mf.arbitrage_type in ("complementary_overpriced",):
-                action_a, action_b = "BUY_NO", "BUY_NO"
-            elif mf.arbitrage_type in ("complementary_underpriced",):
-                action_a, action_b = "BUY_YES", "BUY_YES"
-            elif mf.arbitrage_type == "monotonicity_violation":
-                action_a, action_b = "BUY_YES", "BUY_NO"
-            elif mf.arbitrage_type == "price_divergence":
-                action_a = "BUY_YES" if market_a.price < market_b.price else "SKIP"
-                action_b = "BUY_YES" if market_b.price < market_a.price else "SKIP"
-            else:
-                action_a, action_b = "BUY_YES", "SELL_YES"
-
-            return CrossArbitrageSignal(
-                market_a_id=market_a.id,
-                market_a_platform=market_a.platform,
-                market_a_title=market_a.title,
-                market_a_price=market_a.price,
-                market_a_url=market_a.url,
-                market_b_id=market_b.id,
-                market_b_platform=market_b.platform,
-                market_b_title=market_b.title,
-                market_b_price=market_b.price,
-                market_b_url=market_b.url,
-                has_arbitrage=True,
-                arbitrage_type="logical_contradiction" if mf.arbitrage_type in ["monotonicity_violation", "complementary_overpriced", "complementary_underpriced"] else mf.arbitrage_type,
-                spread_percent=mf.spread_pct,
-                reasoning=mf.reasoning,
-                trade_instruction=mf.trade_instruction,
-                match_score=float(score) / 100.0 if score > 1 else float(score),
-                action_a=action_a,
-                action_b=action_b,
-                entry_price_a_cents=round(market_a.price * 100, 1),
-                entry_price_b_cents=round(market_b.price * 100, 1),
-                expected_pnl_pct=round(mf.spread_pct - 2.0, 1),
-                risk_level="LOW",
-            )
+            m_score = float(score) / 100.0 if score > 1 else float(score)
+            return self._create_math_arbitrage_signal(market_a, market_b, mf, m_score)
         # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
 
         # === GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
@@ -266,43 +281,7 @@ class ArbitrageAgent:
         
         if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
             print(f"[MATH-FILTER] [CONFIRMED] ({mf.arbitrage_type}): spread={mf.spread_pct:.1f}%")
-
-            if mf.arbitrage_type in ("complementary_overpriced",):
-                action_a, action_b = "BUY_NO", "BUY_NO"
-            elif mf.arbitrage_type in ("complementary_underpriced",):
-                action_a, action_b = "BUY_YES", "BUY_YES"
-            elif mf.arbitrage_type == "monotonicity_violation":
-                action_a, action_b = "BUY_YES", "BUY_NO"
-            elif mf.arbitrage_type == "price_divergence":
-                action_a = "BUY_YES" if market_a.price < market_b.price else "SKIP"
-                action_b = "BUY_YES" if market_b.price < market_a.price else "SKIP"
-            else:
-                action_a, action_b = "BUY_YES", "SELL_YES"
-
-            return CrossArbitrageSignal(
-                market_a_id=market_a.id,
-                market_a_platform=market_a.platform,
-                market_a_title=market_a.title,
-                market_a_price=market_a.price,
-                market_a_url=market_a.url,
-                market_b_id=market_b.id,
-                market_b_platform=market_b.platform,
-                market_b_title=market_b.title,
-                market_b_price=market_b.price,
-                market_b_url=market_b.url,
-                has_arbitrage=True,
-                arbitrage_type="logical_contradiction" if mf.arbitrage_type in ["monotonicity_violation", "complementary_overpriced", "complementary_underpriced"] else mf.arbitrage_type,
-                spread_percent=mf.spread_pct,
-                reasoning=mf.reasoning,
-                trade_instruction=mf.trade_instruction,
-                match_score=match_score,
-                action_a=action_a,
-                action_b=action_b,
-                entry_price_a_cents=round(market_a.price * 100, 1),
-                entry_price_b_cents=round(market_b.price * 100, 1),
-                expected_pnl_pct=round(mf.spread_pct - 2.0, 1),
-                risk_level="LOW",
-            )
+            return self._create_math_arbitrage_signal(market_a, market_b, mf, match_score)
         # mf.decision == AMBIGUOUS → продолжаем в LLM ниже
 
         # === GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
