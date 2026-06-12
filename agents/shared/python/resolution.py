@@ -48,14 +48,29 @@ def resolve_closed_markets():
                 if not closed:
                     continue
                     
-                outcome_prices = json.loads(item.get("outcomePrices", "[]"))
+                raw_prices = item.get("outcomePrices")
+                if not raw_prices:
+                    continue
+                try:
+                    if isinstance(raw_prices, str):
+                        outcome_prices = json.loads(raw_prices)
+                    else:
+                        outcome_prices = raw_prices
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
                 if not outcome_prices:
                     continue
-                
+
                 try:
-                    winner_index = outcome_prices.index("1")
-                except ValueError:
-                    # Если рынка закрыт, но победитель еще не определен
+                    prices_float = [float(p) for p in outcome_prices]
+                    winner_index = next(
+                        (i for i, p in enumerate(prices_float) if p >= 0.99),
+                        None
+                    )
+                    if winner_index is None:
+                        continue
+                except (ValueError, TypeError):
                     continue
                 
                 # Извлекаем target (по умолчанию считаем что YES = индекс 0)

@@ -62,7 +62,8 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
 
             from core.eval.signal_logger import SignalLogger, StrategyType
             logger_eval = SignalLogger()
-            row_price = row["price"] if row["price"] is not None else 0.5
+            m_price = row["price"] if row["price"] is not None else 0.5
+            row_price = m_price if side == "YES" else (1.0 - m_price)
             ts = int(datetime.now(timezone.utc).timestamp())
             logger_eval.log_signal(
                 signal_id=f"sig-whale-{row['market_id']}-{ts}",
@@ -103,7 +104,8 @@ def scan_large_single_bets() -> list[dict]:
                     t.outcome,
                     t.price,
                     m.title,
-                    m.url
+                    m.url,
+                    m.price as market_price
                 FROM trader_transactions t
                 JOIN markets m ON t.market_id = m.id
                 WHERE t.timestamp > datetime('now', '-2 hours')
@@ -124,7 +126,16 @@ def scan_large_single_bets() -> list[dict]:
         
         try:
             side = row["outcome"]
-            row_price = row["price"] if row["price"] is not None else 0.5
+            m_price = row["market_price"] if row["market_price"] is not None else 0.5
+            
+            if row["price"] is not None:
+                entry_price = row["price"]
+                price_yes = row["price"] if side == "YES" else (1.0 - row["price"])
+            else:
+                price_yes = m_price
+                entry_price = price_yes if side == "YES" else (1.0 - price_yes)
+                
+            row_price = price_yes
             prob = min(0.97, row_price + 0.12) if side == "YES" else max(0.03, (1.0 - row_price) + 0.12)
             
             from core.eval.signal_logger import SignalLogger, StrategyType
@@ -140,8 +151,8 @@ def scan_large_single_bets() -> list[dict]:
                 strategy_type=StrategyType.WHALE,
                 market_id=row['market_id'],
                 predicted_probability=prob,
-                market_price_at_signal=row_price,
-                edge_at_signal=max(-1.0, min(1.0, prob - row_price)),
+                market_price_at_signal=entry_price,
+                edge_at_signal=max(-1.0, min(1.0, prob - entry_price)),
                 metadata={
                     "target_outcome": side,
                     "priority": "medium",
@@ -176,7 +187,8 @@ def scan_wallet_series() -> list[dict]:
                     SUM(CASE WHEN t.outcome = 'NO' THEN t.amount_usd ELSE 0.0 END) as no_vol,
                     AVG(t.price) as avg_price,
                     m.title,
-                    m.url
+                    m.url,
+                    m.price as market_price
                 FROM trader_transactions t
                 JOIN markets m ON t.market_id = m.id
                 WHERE t.timestamp > datetime('now', '-1 hour')
@@ -198,7 +210,16 @@ def scan_wallet_series() -> list[dict]:
         
         try:
             side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
-            row_price = row["avg_price"] if row["avg_price"] is not None else 0.5
+            m_price = row["market_price"] if row["market_price"] is not None else 0.5
+            
+            if row["avg_price"] is not None:
+                entry_price = row["avg_price"]
+                price_yes = row["avg_price"] if side == "YES" else (1.0 - row["avg_price"])
+            else:
+                price_yes = m_price
+                entry_price = price_yes if side == "YES" else (1.0 - price_yes)
+                
+            row_price = price_yes
             prob = min(0.97, row_price + 0.12) if side == "YES" else max(0.03, (1.0 - row_price) + 0.12)
             
             from core.eval.signal_logger import SignalLogger, StrategyType
@@ -213,8 +234,8 @@ def scan_wallet_series() -> list[dict]:
                 strategy_type=StrategyType.WHALE,
                 market_id=row['market_id'],
                 predicted_probability=prob,
-                market_price_at_signal=row_price,
-                edge_at_signal=max(-1.0, min(1.0, prob - row_price)),
+                market_price_at_signal=entry_price,
+                edge_at_signal=max(-1.0, min(1.0, prob - entry_price)),
                 metadata={
                     "target_outcome": side,
                     "priority": "medium",

@@ -50,7 +50,11 @@ def get_market_resolution(market_id: str) -> Optional[str]:
         outcome_prices_str = data.get("outcomePrices")
         if outcome_prices_str:
             try:
-                outcome_prices = json.loads(outcome_prices_str)
+                if isinstance(outcome_prices_str, str):
+                    outcome_prices = json.loads(outcome_prices_str)
+                else:
+                    outcome_prices = outcome_prices_str
+                    
                 if outcome_prices:
                     prices_float = [float(p) for p in outcome_prices]
                     winner_index = next(

@@ -106,6 +106,44 @@ class PolymarketAdapter(BaseMarketAdapter):
             
         return formatted_question, formatted_description
 
+    def _parse_outcome(self, item: dict, outcomes: list) -> str:
+        """
+        Пытается определить исход закрытого рынка по winner, tokens или outcomePrices.
+        Возвращает 'YES', 'NO' или default outcomes[0].
+        """
+        winner = item.get("winner")
+        if winner and str(winner).upper() in ("YES", "NO"):
+            return str(winner).upper()
+            
+        # Пытаемся по tokens
+        tokens_list = item.get("tokens", [])
+        if tokens_list:
+            for t in tokens_list:
+                try:
+                    if float(t.get("price", 0) or 0) >= 0.99:
+                        name = str(t.get("outcome", "")).upper()
+                        if name in ("YES", "NO"):
+                            return name
+                except Exception:
+                    continue
+                    
+        # Пытаемся по outcomePrices
+        raw_prices = item.get("outcomePrices")
+        if raw_prices:
+            try:
+                if isinstance(raw_prices, str):
+                    prices_list = json.loads(raw_prices)
+                else:
+                    prices_list = raw_prices
+                if prices_list:
+                    prices_float = [float(p) for p in prices_list]
+                    max_idx = prices_float.index(max(prices_float))
+                    if prices_float[max_idx] >= 0.99:
+                        return "YES" if max_idx == 0 else "NO"
+            except Exception:
+                pass
+                
+        return outcomes[0] if outcomes else 'unknown'
     
     def _get_end_date(self, item: dict):
         """
@@ -223,13 +261,17 @@ class PolymarketAdapter(BaseMarketAdapter):
                 slug_val = item.get('slug') or item.get('conditionId', '')
                 url_val = f"https://polymarket.com/market/{slug_val}" if slug_val else ""
                 
+                outcome_val = 'unknown'
+                if item.get("closed") is True or item.get("closed") == "true":
+                    outcome_val = self._parse_outcome(item, outcomes)
+                    
                 m = Market(
                     id=item["id"],
                     platform=self.name,
                     title=q_formatted,
                     description=desc_formatted,
                     url=url_val,
-                    outcome=outcomes[0],
+                    outcome=outcome_val,
                     price=float(prices[0]),
                     close_time=close_time,
                     tokens=tokens,
@@ -305,13 +347,17 @@ class PolymarketAdapter(BaseMarketAdapter):
                 slug_val = item.get('slug') or item.get('conditionId', '')
                 url_val = f"https://polymarket.com/market/{slug_val}" if slug_val else ""
                 
+                outcome_val = 'unknown'
+                if item.get("closed") is True or item.get("closed") == "true":
+                    outcome_val = self._parse_outcome(item, outcomes)
+                    
                 m = Market(
                     id=item["id"],
                     platform=self.name,
                     title=q_formatted,
                     description=desc_formatted,
                     url=url_val,
-                    outcome=outcomes[0],
+                    outcome=outcome_val,
                     price=float(prices[0]),
                     close_time=close_time,
                     tokens=tokens,
@@ -392,13 +438,17 @@ class PolymarketAdapter(BaseMarketAdapter):
         slug_val = item.get('slug') or item.get('conditionId', '')
         url_val = f"https://polymarket.com/market/{slug_val}" if slug_val else ""
         
+        outcome_val = 'unknown'
+        if item.get("closed") is True or item.get("closed") == "true":
+            outcome_val = self._parse_outcome(item, outcomes)
+            
         return Market(
             id=item["id"],
             platform=self.name,
             title=q_formatted,
             description=desc_formatted,
             url=url_val,
-            outcome=outcomes[0],
+            outcome=outcome_val,
             price=float(prices[0]),
             close_time=close_time,
             tokens=tokens,
