@@ -489,12 +489,14 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         avg_entry_manual_row = conn.execute("""
             SELECT AVG(
                 CASE
-                    WHEN predicted_outcome = 'NO' OR (predicted_outcome IS NULL AND initial_price >= 0.90) THEN 1.0 - virtual_bought_price
+                    WHEN predicted_outcome = 'NO' THEN 1.0 - virtual_bought_price
                     ELSE virtual_bought_price
                 END
             ) as avg_entry
             FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE' AND virtual_bought_price IS NOT NULL
+            WHERE status = 'ACTIVE' 
+              AND virtual_bought_price IS NOT NULL
+              AND predicted_outcome IS NOT NULL
         """).fetchone()
         avg_entry_manual = avg_entry_manual_row['avg_entry'] if avg_entry_manual_row else None
 

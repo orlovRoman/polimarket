@@ -775,8 +775,8 @@
             kpiBesttrade.innerHTML = formatPnL(data.stats.best_trade_pnl);
 
             cardTradesPnl.style.display = 'block';
-            kpiTradesPnl.previousElementSibling.textContent = "Всего завершено";
-            kpiTradesPnl.textContent = data.stats.resolved_count;
+            kpiTradesPnl.previousElementSibling.textContent = "Сигналов завершено";
+            kpiTradesPnl.textContent = data.stats.auto_resolved_count;
             
             cardAllPnl.style.display = 'block';
             kpiAllPnl.previousElementSibling.textContent = "Общий PnL (Авто)";
