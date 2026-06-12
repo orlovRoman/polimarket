@@ -613,7 +613,7 @@ async def _run_analysis_in_background_impl(market_id: str):
                 "_ts": time.time()
             }
 
-async def api_analyze_penny_stock(request):
+async def api_analyze_market(request):
     _cleanup_stale_jobs()
     try:
         body = await request.json()
@@ -681,7 +681,7 @@ async def api_analyze_penny_stock(request):
     except asyncio.QueueFull:
         return web.json_response({"error": "Очередь анализов переполнена. Пожалуйста, подождите завершения текущих задач."}, status=429)
 
-async def api_analyze_status(request):
+async def api_analyze_market_status(request):
     _cleanup_stale_jobs()
     market_id = request.query.get("market_id")
     if not market_id:
@@ -738,13 +738,13 @@ def create_dashboard_app() -> web.Application:
     # POST API маршруты (виртуальный портфель и ручной анализ)
     app.router.add_post("/api/penny-stocks/buy", api_buy_penny_stock)
     app.router.add_post("/api/penny-stocks/sell", api_sell_penny_stock)
-    app.router.add_post("/api/penny-stocks/analyze", api_analyze_penny_stock)
-    app.router.add_get("/api/penny-stocks/analyze-status", api_analyze_status)
+    app.router.add_post("/api/penny-stocks/analyze", api_analyze_market)
+    app.router.add_get("/api/penny-stocks/analyze-status", api_analyze_market_status)
     app.router.add_post("/api/penny-stocks/discover", api_discover_penny_stocks)
     app.router.add_post("/api/whale-stocks/buy", api_buy_whale_stock)
     app.router.add_post("/api/whale-stocks/sell", api_sell_whale_stock)
-    app.router.add_post("/api/whale-stocks/analyze", api_analyze_penny_stock)
-    app.router.add_get("/api/whale-stocks/analyze-status", api_analyze_status)
+    app.router.add_post("/api/whale-stocks/analyze", api_analyze_market)
+    app.router.add_get("/api/whale-stocks/analyze-status", api_analyze_market_status)
     app.router.add_post("/api/whale-stocks/discover", api_discover_whale_stocks)
     app.router.add_post("/api/delete-market", api_delete_market)
 
