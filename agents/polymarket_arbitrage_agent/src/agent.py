@@ -94,11 +94,16 @@ class ArbitrageAgent:
         else:
             action_a, action_b = "BUY_YES", "SELL_YES"
 
-        arbitrage_type = "logical_contradiction" if mf.arbitrage_type in [
-            "monotonicity_violation",
-            "complementary_overpriced",
-            "complementary_underpriced"
-        ] else mf.arbitrage_type
+        if action_a == "SKIP" and action_b == "SKIP":
+            has_arbitrage = False
+            arbitrage_type = "none"
+        else:
+            has_arbitrage = True
+            arbitrage_type = "logical_contradiction" if mf.arbitrage_type in [
+                "monotonicity_violation",
+                "complementary_overpriced",
+                "complementary_underpriced"
+            ] else mf.arbitrage_type
 
         return CrossArbitrageSignal(
             market_a_id=market_a.id,
@@ -111,7 +116,7 @@ class ArbitrageAgent:
             market_b_title=market_b.title,
             market_b_price=market_b.price,
             market_b_url=market_b.url,
-            has_arbitrage=True,
+            has_arbitrage=has_arbitrage,
             arbitrage_type=arbitrage_type,
             spread_percent=mf.spread_pct,
             reasoning=mf.reasoning,

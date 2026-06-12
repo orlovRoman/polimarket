@@ -74,3 +74,21 @@ def test_spread_is_from_math_not_llm(agent):
         result = agent.analyze_correlation(a, b, "complementary", 80)
     assert result.spread_percent == pytest.approx(30.0, abs=0.1)
     mock_llm.assert_not_called()
+
+def test_create_math_arbitrage_signal_skip_both(agent):
+    a = make_market("Test Market A", 0.50, platform="polymarket", mid="1")
+    b = make_market("Test Market B", 0.50, platform="polymarket", mid="2")
+    
+    class MockMathFilterResult:
+        arbitrage_type = "price_divergence"
+        spread_pct = 0.0
+        reasoning = "Same prices"
+        trade_instruction = "None"
+        
+    mf = MockMathFilterResult()
+    result = agent._create_math_arbitrage_signal(a, b, mf, match_score=1.0)
+    
+    assert result.has_arbitrage is False
+    assert result.arbitrage_type == "none"
+    assert result.action_a == "SKIP"
+    assert result.action_b == "SKIP"
