@@ -5,6 +5,83 @@ from agents.shared.python.db import get_connection, is_alert_already_sent, mark_
 
 logger = logging.getLogger("NexusPolyBot.OnchainTrend")
 
+def _log_whale_signal_to_eval(
+    market_id: str,
+    side: str,
+    prob: float,
+    entry_price: float,
+    summary_msg: str,
+    metadata_extra: dict,
+    is_single: bool = False,
+    is_series: bool = False
+):
+    try:
+        from core.eval.signal_logger import SignalLogger, StrategyType
+        logger_eval = SignalLogger()
+        ts = int(datetime.now(timezone.utc).timestamp())
+        
+        if is_single:
+            sig_id = f"sig-whale-single-{market_id}-{metadata_extra.get('wallet_address', '')[:8]}-{int(metadata_extra.get('amount_usd', 0))}-{ts}"
+        elif is_series:
+            sig_id = f"sig-whale-series-{market_id}-{metadata_extra.get('wallet_address', '')[:8]}-{ts}"
+        else:
+            sig_id = f"sig-whale-{market_id}-{ts}"
+
+        metadata = {
+            "target_outcome": side,
+            "priority": "medium",
+            "summary": summary_msg,
+            "platform": "polymarket"
+        }
+        metadata.update(metadata_extra)
+        
+        logger_eval.log_signal(
+            signal_id=sig_id,
+            strategy_type=StrategyType.WHALE,
+            market_id=market_id,
+            predicted_probability=prob,
+            market_price_at_signal=entry_price,
+            edge_at_signal=max(-1.0, min(1.0, prob - entry_price)),
+            metadata=metadata
+        )
+    except Exception as e:
+        logger.error(f"[OnchainTrend] Ошибка логирования Whale-сигнала в Evaluation Engine: {e}", exc_info=True)
+
+def _process_spike_row(row: dict) -> Optional[dict]:
+    alert_key = f"onchain_spike_{row['market_id']}"
+    if is_alert_already_sent(alert_key, ttl_hours=2):
+        return None
+        
+    mark_alert_sent(alert_key, "onchain_spike")
+    
+    try:
+        total_vol = row['yes_vol'] + row['no_vol']
+        ratio_yes = row['yes_vol'] / total_vol if total_vol > 0 else 0.5
+        side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
+        prob = ratio_yes if side == "YES" else (1.0 - ratio_yes)
+        prob = max(0.0, min(1.0, prob))
+
+        m_price = row["price"] if row["price"] is not None else 0.5
+        entry_price = m_price if side == "YES" else (1.0 - m_price)
+
+        _log_whale_signal_to_eval(
+            market_id=row['market_id'],
+            side=side,
+            prob=prob,
+            entry_price=entry_price,
+            summary_msg=f"Whale volume spike: {row['title']}",
+            metadata_extra={
+                "wallet_address": row.get("top_wallet"),
+                "yes_vol": row['yes_vol'],
+                "no_vol": row['no_vol'],
+                "vol_recent": row['vol_recent'],
+                "vol_prev": row['vol_prev']
+            }
+        )
+    except Exception as e:
+        logger.error(f"[OnchainTrend] Ошибка обработки строки spike: {e}", exc_info=True)
+    return dict(row)
+
 def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
     """
     SQL-only: находит рынки с аномальным ростом ончейн-объёма.
@@ -46,49 +123,50 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
 
     spikes = []
     for row in rows:
-        alert_key = f"onchain_spike_{row['market_id']}"
-        if is_alert_already_sent(alert_key, ttl_hours=2):
-            continue
-        spikes.append(dict(row))
-        mark_alert_sent(alert_key, "onchain_spike")
-        
-        # Запись в Evaluation Engine
-        try:
-            total_vol = row['yes_vol'] + row['no_vol']
-            ratio_yes = row['yes_vol'] / total_vol if total_vol > 0 else 0.5
-            side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
-            prob = ratio_yes if side == "YES" else (1.0 - ratio_yes)
-            prob = max(0.0, min(1.0, prob))
-
-            from core.eval.signal_logger import SignalLogger, StrategyType
-            logger_eval = SignalLogger()
-            m_price = row["price"] if row["price"] is not None else 0.5
-            entry_price = m_price if side == "YES" else (1.0 - m_price)
-            price_yes = m_price if side == "YES" else (1.0 - m_price)
-            ts = int(datetime.now(timezone.utc).timestamp())
-            logger_eval.log_signal(
-                signal_id=f"sig-whale-{row['market_id']}-{ts}",
-                strategy_type=StrategyType.WHALE,
-                market_id=row['market_id'],
-                predicted_probability=prob,
-                market_price_at_signal=entry_price,
-                edge_at_signal=max(-1.0, min(1.0, prob - entry_price)),
-                metadata={
-                    "target_outcome": side,
-                    "priority": "medium",
-                    "summary": f"Whale volume spike: {row['title']}",
-                    "platform": "polymarket",
-                    "wallet_address": row.get("top_wallet"),
-                    "yes_vol": row['yes_vol'],
-                    "no_vol": row['no_vol'],
-                    "vol_recent": row['vol_recent'],
-                    "vol_prev": row['vol_prev']
-                }
-            )
-        except Exception as e:
-            logger.error(f"[OnchainTrend] Ошибка логирования Whale-сигнала в Evaluation Engine: {e}", exc_info=True)
+        processed = _process_spike_row(row)
+        if processed:
+            spikes.append(processed)
     return spikes
 
+def _process_single_bet_row(row: dict) -> Optional[dict]:
+    alert_key = f"whale_single_bet_{row['market_id']}_{row['wallet_address']}_{row['amount_usd']:.0f}"
+    if is_alert_already_sent(alert_key, ttl_hours=2):
+        return None
+        
+    mark_alert_sent(alert_key, "whale_single_bet")
+    
+    try:
+        side = row["outcome"]
+        m_price = row["market_price"] if row["market_price"] is not None else 0.5
+        
+        if row["price"] is not None:
+            entry_price = row["price"]
+            price_yes = row["price"] if side == "YES" else (1.0 - row["price"])
+        else:
+            price_yes = m_price
+            entry_price = price_yes if side == "YES" else (1.0 - price_yes)
+            
+        prob = min(0.97, price_yes + 0.12) if side == "YES" else max(0.03, (1.0 - price_yes) + 0.12)
+        
+        summary_msg = f"Whale single bet: ${row['amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
+        logger.info(f"[OnchainTrend] {summary_msg}")
+        
+        _log_whale_signal_to_eval(
+            market_id=row['market_id'],
+            side=side,
+            prob=prob,
+            entry_price=entry_price,
+            summary_msg=summary_msg,
+            metadata_extra={
+                "wallet_address": row['wallet_address'],
+                "amount_usd": row['amount_usd'],
+                "reason": "large_single_bet"
+            },
+            is_single=True
+        )
+    except Exception as e:
+        logger.error(f"[OnchainTrend] Ошибка обработки строки крупной сделки: {e}", exc_info=True)
+    return dict(row)
 
 def scan_large_single_bets() -> list[dict]:
     """
@@ -118,57 +196,51 @@ def scan_large_single_bets() -> list[dict]:
 
     signals = []
     for row in rows:
-        alert_key = f"whale_single_bet_{row['market_id']}_{row['wallet_address']}_{row['amount_usd']:.0f}"
-        if is_alert_already_sent(alert_key, ttl_hours=2):
-            continue
-            
-        signals.append(dict(row))
-        mark_alert_sent(alert_key, "whale_single_bet")
-        
-        try:
-            side = row["outcome"]
-            m_price = row["market_price"] if row["market_price"] is not None else 0.5
-            
-            if row["price"] is not None:
-                entry_price = row["price"]
-                price_yes = row["price"] if side == "YES" else (1.0 - row["price"])
-            else:
-                price_yes = m_price
-                entry_price = price_yes if side == "YES" else (1.0 - price_yes)
-                
-            row_price = price_yes
-            prob = min(0.97, row_price + 0.12) if side == "YES" else max(0.03, (1.0 - row_price) + 0.12)
-            
-            from core.eval.signal_logger import SignalLogger, StrategyType
-            logger_eval = SignalLogger()
-            
-            # Детализированное описание для логов
-            summary_msg = f"Whale single bet: ${row['amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
-            logger.info(f"[OnchainTrend] {summary_msg}")
-            
-            ts = int(datetime.now(timezone.utc).timestamp())
-            logger_eval.log_signal(
-                signal_id=f"sig-whale-single-{row['market_id']}-{row['wallet_address'][:8]}-{int(row['amount_usd'])}-{ts}",
-                strategy_type=StrategyType.WHALE,
-                market_id=row['market_id'],
-                predicted_probability=prob,
-                market_price_at_signal=entry_price,
-                edge_at_signal=max(-1.0, min(1.0, prob - entry_price)),
-                metadata={
-                    "target_outcome": side,
-                    "priority": "medium",
-                    "summary": summary_msg,
-                    "platform": "polymarket",
-                    "wallet_address": row['wallet_address'],
-                    "amount_usd": row['amount_usd'],
-                    "reason": "large_single_bet"
-                }
-            )
-        except Exception as e:
-            logger.error(f"[OnchainTrend] Ошибка логирования крупной сделки: {e}", exc_info=True)
-            
+        processed = _process_single_bet_row(row)
+        if processed:
+            signals.append(processed)
     return signals
 
+def _process_wallet_series_row(row: dict) -> Optional[dict]:
+    alert_key = f"whale_series_{row['market_id']}_{row['wallet_address']}"
+    if is_alert_already_sent(alert_key, ttl_hours=2):
+        return None
+        
+    mark_alert_sent(alert_key, "whale_series")
+    
+    try:
+        side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
+        m_price = row["market_price"] if row["market_price"] is not None else 0.5
+        
+        if row["avg_price"] is not None:
+            entry_price = row["avg_price"]
+            price_yes = row["avg_price"] if side == "YES" else (1.0 - row["avg_price"])
+        else:
+            price_yes = m_price
+            entry_price = price_yes if side == "YES" else (1.0 - price_yes)
+            
+        prob = min(0.97, price_yes + 0.12) if side == "YES" else max(0.03, (1.0 - price_yes) + 0.12)
+        
+        summary_msg = f"Whale wallet series: {row['tx_count']} trades, total ${row['total_amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
+        logger.info(f"[OnchainTrend] {summary_msg}")
+        
+        _log_whale_signal_to_eval(
+            market_id=row['market_id'],
+            side=side,
+            prob=prob,
+            entry_price=entry_price,
+            summary_msg=summary_msg,
+            metadata_extra={
+                "wallet_address": row['wallet_address'],
+                "total_amount_usd": row['total_amount_usd'],
+                "tx_count": row['tx_count'],
+                "reason": "wallet_series"
+            },
+            is_series=True
+        )
+    except Exception as e:
+        logger.error(f"[OnchainTrend] Ошибка обработки строки серии сделок: {e}", exc_info=True)
+    return dict(row)
 
 def scan_wallet_series() -> list[dict]:
     """
@@ -202,55 +274,9 @@ def scan_wallet_series() -> list[dict]:
 
     signals = []
     for row in rows:
-        alert_key = f"whale_series_{row['market_id']}_{row['wallet_address']}"
-        if is_alert_already_sent(alert_key, ttl_hours=2):
-            continue
-            
-        signals.append(dict(row))
-        mark_alert_sent(alert_key, "whale_series")
-        
-        try:
-            side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
-            m_price = row["market_price"] if row["market_price"] is not None else 0.5
-            
-            if row["avg_price"] is not None:
-                entry_price = row["avg_price"]
-                price_yes = row["avg_price"] if side == "YES" else (1.0 - row["avg_price"])
-            else:
-                price_yes = m_price
-                entry_price = price_yes if side == "YES" else (1.0 - price_yes)
-                
-            row_price = price_yes
-            prob = min(0.97, row_price + 0.12) if side == "YES" else max(0.03, (1.0 - row_price) + 0.12)
-            
-            from core.eval.signal_logger import SignalLogger, StrategyType
-            logger_eval = SignalLogger()
-            
-            summary_msg = f"Whale wallet series: {row['tx_count']} trades, total ${row['total_amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
-            logger.info(f"[OnchainTrend] {summary_msg}")
-            
-            ts = int(datetime.now(timezone.utc).timestamp())
-            logger_eval.log_signal(
-                signal_id=f"sig-whale-series-{row['market_id']}-{row['wallet_address'][:8]}-{ts}",
-                strategy_type=StrategyType.WHALE,
-                market_id=row['market_id'],
-                predicted_probability=prob,
-                market_price_at_signal=entry_price,
-                edge_at_signal=max(-1.0, min(1.0, prob - entry_price)),
-                metadata={
-                    "target_outcome": side,
-                    "priority": "medium",
-                    "summary": summary_msg,
-                    "platform": "polymarket",
-                    "wallet_address": row['wallet_address'],
-                    "total_amount_usd": row['total_amount_usd'],
-                    "tx_count": row['tx_count'],
-                    "reason": "wallet_series"
-                }
-            )
-        except Exception as e:
-            logger.error(f"[OnchainTrend] Ошибка логирования серии сделок: {e}", exc_info=True)
-            
+        processed = _process_wallet_series_row(row)
+        if processed:
+            signals.append(processed)
     return signals
 
 
