@@ -141,17 +141,12 @@ def load_events_with_levels_from_raw(
         total_yes_prob = sum(m.price_yes for m in leveled)
         logger.debug(f"[SCA] '{event.get('title','')[:50]}': leveled={len(leveled)}, sum_yes={total_yes_prob:.2f}, units={event_units}")
 
-        # Проверяем наличие нарушения монотонности (потенциального арбитража)
-        has_violation = False
+        # Проверяем наличие нарушения монотонности (потенциального арбитража) — O(n)
         sorted_leveled = sorted(leveled, key=lambda m: m.numeric_level)
-        for i in range(len(sorted_leveled)):
-            for j in range(i + 1, len(sorted_leveled)):
-                if sorted_leveled[i].numeric_level < sorted_leveled[j].numeric_level:
-                    if sorted_leveled[i].price_yes < sorted_leveled[j].price_yes:
-                        has_violation = True
-                        break
-            if has_violation:
-                break
+        has_violation = any(
+            sorted_leveled[i].price_yes < sorted_leveled[i + 1].price_yes
+            for i in range(len(sorted_leveled) - 1)
+        )
 
         # Фильтр: отсекаем взаимоисключающие рынки (mutually exclusive)
         # Если есть нарушение монотонности (арбитраж), пропускаем событие в детектор в любом случае.
