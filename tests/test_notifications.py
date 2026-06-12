@@ -144,6 +144,7 @@ class FakeTemporalSignal:
     pnl_s1_before_early = -5.0
     pnl_s2_in_corridor = 22.0
     pnl_s3_never = -8.0
+    is_guaranteed_arbitrage = False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -223,6 +224,17 @@ class TestTemporalCorridorFormat:
         result = n.format_temporal_corridor_alert(sig)
 
         assert "1%" in result
+
+    def test_guaranteed_arbitrage_header(self):
+        """Если is_guaranteed_arbitrage=True → заголовок содержит 'БЕЗРИСКОВЫЙ АРБИТРАЖ'."""
+        import services.notifications as n
+
+        sig = FakeTemporalSignal()
+        sig.is_guaranteed_arbitrage = True
+        result = n.format_temporal_corridor_alert(sig)
+
+        assert "БЕЗРИСКОВЫЙ АРБИТРАЖ" in result
+        assert "Guaranteed Arbitrage" in result
 
 
 # ──────────────────────────────────────────────────────────────────────────────

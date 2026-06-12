@@ -56,5 +56,6 @@ class TemporalCorridorSignal(BaseModel):
     # Детерминированный план выхода
     exit_rule: str
 
+    is_guaranteed_arbitrage: bool = False
     created_at: datetime
     signal_type: str = "TEMPORAL_CORRIDOR"

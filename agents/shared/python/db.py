@@ -394,6 +394,7 @@ def _init_db_impl(conn: sqlite3.Connection):
             
             quality_score REAL,
             exit_rule TEXT,
+            is_guaranteed_arbitrage INTEGER DEFAULT 0,
             
             status TEXT DEFAULT 'ACTIVE',
             created_at TIMESTAMP,
@@ -940,6 +941,8 @@ def _init_db_impl(conn: sqlite3.Connection):
     temp_cols = {row[1] for row in cursor.execute("PRAGMA table_info(temporal_corridors)").fetchall()}
     if 'status' not in temp_cols:
         cursor.execute("ALTER TABLE temporal_corridors ADD COLUMN status TEXT DEFAULT 'ACTIVE'")
+    if 'is_guaranteed_arbitrage' not in temp_cols:
+        cursor.execute("ALTER TABLE temporal_corridors ADD COLUMN is_guaranteed_arbitrage INTEGER DEFAULT 0")
 
     # Миграция: status в cross_arbitrage_signals
     cross_cols = {row[1] for row in cursor.execute("PRAGMA table_info(cross_arbitrage_signals)").fetchall()}
@@ -1144,8 +1147,8 @@ def save_temporal_corridor(signal) -> None:
                 date_gap_days, theoretical_cost, theoretical_spread_pct,
                 real_cost, real_spread_pct, early_stake_usd, late_stake_usd,
                 early_contracts, late_contracts, ev_usd, roi_pct,
-                quality_score, exit_rule, status, created_at, alerted
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', CURRENT_TIMESTAMP, 0)
+                quality_score, exit_rule, is_guaranteed_arbitrage, status, created_at, alerted
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', CURRENT_TIMESTAMP, 0)
         """, (
             signal.signal_id, signal.event_slug, signal.event_title, signal.event_url,
             signal.early_leg.market_id, signal.early_leg.question,
@@ -1155,7 +1158,7 @@ def save_temporal_corridor(signal) -> None:
             signal.date_gap_days, signal.theoretical_cost, signal.theoretical_spread_pct,
             signal.real_cost, signal.real_spread_pct, signal.early_stake_usd, signal.late_stake_usd,
             signal.early_contracts, signal.late_contracts, signal.ev_usd, signal.roi_pct,
-            signal.quality_score, signal.exit_rule
+            signal.quality_score, signal.exit_rule, int(signal.is_guaranteed_arbitrage)
         ))
 
 def get_unalerted_temporal_corridors() -> list:

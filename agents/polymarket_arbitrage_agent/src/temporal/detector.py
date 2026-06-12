@@ -25,6 +25,7 @@ class CorridorCandidate:
     yes_cost: float          # = p_late
     theoretical_cost: float  # = no_cost + yes_cost
     theoretical_spread_pct: float  # = (1 - theoretical_cost) * 100
+    is_guaranteed_arbitrage: bool = False
 
 
 def find_candidates(
@@ -91,6 +92,7 @@ def find_candidates(
                     yes_cost=round(yes_cost, 4),
                     theoretical_cost=round(theoretical_cost, 6),
                     theoretical_spread_pct=round(spread_pct, 3),
+                    is_guaranteed_arbitrage=p_late < p_early,
                 ))
 
     # Лучший спред первым
@@ -120,8 +122,11 @@ def compute_quality_score(
     liquidity_score = min(executable_contracts / min_executable, 1.0)
 
     # Вероятность коридора
-    # Нормировка на 0.3 (если вероятность коридора 30%+, считаем это отличным шансом для двойной выплаты и даем макс. балл)
-    corridor_score = min(max(p_in_corridor / 0.3, 0.0), 1.0)
+    # Если p_in_corridor < 0 — это безрисковый арбитраж (guaranteed arbitrage), даём максимальный балл
+    if p_in_corridor < 0:
+        corridor_score = 1.0
+    else:
+        corridor_score = min(max(p_in_corridor / 0.3, 0.0), 1.0)
 
     score = (
         0.35 * spread_score +

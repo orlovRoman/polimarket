@@ -323,6 +323,8 @@ def send_synthetic_corridor_alerts() -> None:
 
 def format_temporal_corridor_alert(signal) -> str:
     p_corridor_str = f"P(коридор)=<b>{signal.p_in_corridor*100:.0f}%</b> | " if signal.p_in_corridor > 0 else ""
+    is_arb = getattr(signal, "is_guaranteed_arbitrage", False)
+    header = "⚡ <b>БЕЗРИСКОВЫЙ АРБИТРАЖ (Guaranteed Arbitrage)</b>" if is_arb else "🕐 <b>Временной коридор (Temporal Arbitrage)</b>"
     
     def _format_dt(dt) -> str:
         from datetime import datetime
@@ -335,7 +337,7 @@ def format_temporal_corridor_alert(signal) -> str:
         return dt.strftime('%d %b') if hasattr(dt, 'strftime') else str(dt)
         
     return (
-        f"🕐 <b>Временной коридор (Temporal Arbitrage)</b>\n\n"
+        f"{header}\n\n"
         f"📍 <b>{signal.event_title[:50]}</b>\n"
         f"📅 NO до <b>{_format_dt(signal.early_leg.expiry)}</b> ({signal.early_leg.entry_cost*100:.0f}¢)\n"
         f"📅 YES до <b>{_format_dt(signal.late_leg.expiry)}</b> ({signal.late_leg.entry_cost*100:.0f}¢)\n"
@@ -381,6 +383,7 @@ def send_temporal_corridor_alerts() -> None:
             pnl_s1_before_early: float
             pnl_s2_in_corridor: float
             pnl_s3_never: float
+            is_guaranteed_arbitrage: bool = False
 
         for row in new_signals_data:
             signal_id = row["signal_id"]
@@ -414,7 +417,8 @@ def send_temporal_corridor_alerts() -> None:
                 exit_rule=row.get("exit_rule", ""),
                 pnl_s1_before_early=row.get("late_contracts", 0.0) - total_stake,
                 pnl_s2_in_corridor=row.get("early_contracts", 0.0) + row.get("late_contracts", 0.0) - total_stake,
-                pnl_s3_never=row.get("early_contracts", 0.0) - total_stake
+                pnl_s3_never=row.get("early_contracts", 0.0) - total_stake,
+                is_guaranteed_arbitrage=bool(row.get("is_guaranteed_arbitrage", 0))
             )
 
             text = format_temporal_corridor_alert(sig)

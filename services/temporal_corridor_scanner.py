@@ -165,6 +165,7 @@ def run_temporal_corridor_scan(
 
             quality_score=quality,
             exit_rule=exit_rule,
+            is_guaranteed_arbitrage=c.is_guaranteed_arbitrage,
             created_at=datetime.now(timezone.utc),
         )
 
@@ -197,12 +198,19 @@ def run_temporal_corridor_scan(
 
         found.append(signal)
 
-        logger.info(
-            f"[TC] ✅ {c.event.event_title[:45]} | "
-            f"gap={c.date_gap_days}d | "
-            f"теор={c.theoretical_spread_pct:.1f}% реал={ob['real_spread_pct']:.1f}% | "
-            f"EV=${sizing['ev_usd']:.2f} | Q={quality:.2f}"
-        )
+        if c.is_guaranteed_arbitrage:
+            logger.info(
+                f"[TC] ⚡ GUARANTEED ARB: {c.event.event_title[:45]} | "
+                f"p_early={c.p_early} > p_late={c.p_late} | "
+                f"min_PnL=+{(1.0 - ob['real_cost']) * 100:.1f}%"
+            )
+        else:
+            logger.info(
+                f"[TC] ✅ {c.event.event_title[:45]} | "
+                f"gap={c.date_gap_days}d | "
+                f"теор={c.theoretical_spread_pct:.1f}% реал={ob['real_spread_pct']:.1f}% | "
+                f"EV=${sizing['ev_usd']:.2f} | Q={quality:.2f}"
+            )
 
     logger.info(f"[TC] Воронка: {stats}")
     logger.info(f"[TC] Итого сигналов: {len(found)}")

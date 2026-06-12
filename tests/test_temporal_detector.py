@@ -52,6 +52,7 @@ def test_find_candidates_hormuz_example():
     assert c.yes_cost == 0.20
     assert c.theoretical_cost == 0.90
     assert c.theoretical_spread_pct == 10.0  # 1.0 - 0.90 = 0.10 -> 10%
+    assert c.is_guaranteed_arbitrage is True
 
 
 def test_quality_score():
@@ -73,4 +74,13 @@ def test_quality_score():
     )
     # 0.35*0.5 + 0.25*0.5 + 0.25*0.5 + 0.15*0.5 = 0.5
     assert score2 == pytest.approx(0.5)
+
+    # Безрисковый арбитраж (p_in_corridor < 0) -> corridor_score = 1.0
+    score_arb = compute_quality_score(
+        real_spread_pct=6.0,  # > 5.0 -> 1.0
+        date_gap_days=45,     # [30, 90] -> 1.0
+        executable_contracts=100.0, # > 10 -> 1.0
+        p_in_corridor=-0.1    # < 0 -> 1.0 (guaranteed arb)
+    )
+    assert score_arb == pytest.approx(1.0)
 
