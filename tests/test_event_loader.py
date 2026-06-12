@@ -59,13 +59,22 @@ def test_unit_normalization():
         ]
     }
     
-    events = load_events_with_levels_from_raw([mixed_event], min_markets_per_event=2, min_cumulative_sum=1.005)
+    events = load_events_with_levels_from_raw(
+        [mixed_event], 
+        min_markets_per_event=2, 
+        min_volume_per_market=1000, 
+        min_cumulative_sum=1.005
+    )
     
     assert len(events) == 1
     assert events[0].event_slug == "mixed-units-event"
     
     markets = events[0].markets
     assert len(markets) == 2
+    
+    # Проверяем сумму вероятностей YES (0.6 + 0.5 = 1.1)
+    total_yes = sum(m.price_yes for m in markets)
+    assert abs(total_yes - 1.1) < 1e-6
     
     # Сортируем рынки по numeric_level
     sorted_m = sorted(markets, key=lambda m: m.numeric_level)
@@ -76,4 +85,5 @@ def test_unit_normalization():
     
     assert sorted_m[1].level_unit == "T"
     assert abs(sorted_m[1].numeric_level - 1.2) < 1e-6
+
 

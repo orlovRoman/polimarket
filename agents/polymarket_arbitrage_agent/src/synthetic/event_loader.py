@@ -1,7 +1,7 @@
 import json
 import logging
 import requests
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 logger = logging.getLogger(f"NexusPolyBot.{__name__}")
 from datetime import datetime
@@ -122,12 +122,14 @@ def load_events_with_levels_from_raw(
         if len(financial_units) > 1:
             # Приводим к максимальной единице из присутствующих
             target_unit = max(financial_units, key=lambda u: UNIT_MULTIPLIERS[u])
+            normalized = []
             for m in leveled:
                 if m.level_unit in UNIT_MULTIPLIERS and m.level_unit != target_unit:
-                    m_from = UNIT_MULTIPLIERS[m.level_unit]
-                    m_to = UNIT_MULTIPLIERS[target_unit]
-                    m.numeric_level = m.numeric_level * (m_from / m_to)
-                    m.level_unit = target_unit
+                    scale = UNIT_MULTIPLIERS[m.level_unit] / UNIT_MULTIPLIERS[target_unit]
+                    normalized.append(replace(m, numeric_level=m.numeric_level * scale, level_unit=target_unit))
+                else:
+                    normalized.append(m)
+            leveled = normalized
             # Обновляем набор единиц после нормализации
             event_units = set(m.level_unit for m in leveled)
 
