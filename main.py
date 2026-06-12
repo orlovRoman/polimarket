@@ -511,7 +511,118 @@ async def scheduled_penny_monitor():
     except Exception as e:
         logger.error(f"Ошибка в мониторинге Penny Stocks: {e}", exc_info=True)
 
+async def scheduled_whale_discovery():
+    try:
+        logger.info(">>> Запуск автоматического поиска китов (Whale Following)...")
+        from services.onchain_trend_alert import scan_volume_spikes, scan_large_single_bets, scan_wallet_series
+        import asyncio
+        
+        await asyncio.to_thread(scan_volume_spikes)
+        await asyncio.to_thread(scan_large_single_bets)
+        await asyncio.to_thread(scan_wallet_series)
+        
+        logger.info("<<< Поиск китов (Whale Following) завершен.")
+    except Exception as e:
+        logger.error(f"Ошибка при автоматическом поиске китов: {e}", exc_info=True)
+
+async def scheduled_whale_monitor():
+    try:
+        logger.info(">>> Запуск мониторинга Whale Following...")
+        from agents.shared.python.db import (
+            get_active_whale_stocks,
+            update_whale_stock_price,
+            mark_whale_spike_sent,
+            resolve_whale_stock
+        )
+        from services.outcome_tracker import _fetch_resolution
+        from core.singleton import get_core_engine
+        import asyncio
+        
+        active_stocks = get_active_whale_stocks()
+        if not active_stocks:
+            logger.info("Нет активных Whale Stocks для мониторинга.")
+            return
+            
+        engine = get_core_engine()
+        
+        for stock in active_stocks:
+            m_id = stock["market_id"]
+            
+            from datetime import datetime, timezone
+            try:
+                market_obj = engine.adapter.get_market(m_id)
+            except Exception:
+                market_obj = None
+                
+            if market_obj:
+                current_price = market_obj.price
+                volume_2h = getattr(market_obj, 'volume', 0.0)
+                update_whale_stock_price(m_id, current_price, volume_2h)
+                
+                init_price = stock["initial_price"]
+                price_growth = 0.0
+                if init_price > 0:
+                    price_growth = (current_price - init_price) / init_price
+                    
+                if not stock["spike_alert_sent"] and price_growth >= 1.0:
+                    mark_whale_spike_sent(m_id)
+                    msg = (
+                        f"⚡️ <b>РЕЗКИЙ ВСПЛЕСК на Whale Following!</b>\n\n"
+                        f"📍 <b>{stock['title']}</b>\n"
+                        f"📈 Цена: {int(round(init_price*100))}¢ -> <b>{int(round(current_price*100))}¢</b> (рост на {price_growth*100:.0f}%!)\n"
+                        f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
+                    )
+                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔍 Проанализировать рынок", callback_data=f"analyze_mkt_{m_id}")]
+                    ])
+                    await bot.send_message(
+                        AUTHORIZED_CHAT_ID, 
+                        msg, 
+                        parse_mode="HTML", 
+                        disable_web_page_preview=True,
+                        reply_markup=keyboard
+                    )
+                    await asyncio.sleep(1)
+            
+            close_time_passed = False
+            resolution_result = None
+            if market_obj:
+                if market_obj.close_time:
+                    close_time_passed = market_obj.close_time < datetime.now(timezone.utc)
+            else:
+                try:
+                    res = await asyncio.to_thread(_fetch_resolution, m_id)
+                    if res in ("YES", "NO"):
+                        resolution_result = res
+                        close_time_passed = True
+                except Exception:
+                    pass
+
+            if close_time_passed:
+                if not resolution_result:
+                    resolution_result = await asyncio.to_thread(_fetch_resolution, m_id)
+                if resolution_result in ("YES", "NO"):
+                    resolve_whale_stock(m_id, resolution_result)
+                    pred = stock["predicted_outcome"]
+                    result_str = "УСПЕШНО 🎉" if pred and pred.upper() == resolution_result else "НЕ СОВПАЛО ❌"
+                    msg = (
+                        f"🔔 <b>Закрытие рынка Whale Following!</b>\n\n"
+                        f"📍 <b>{stock['title']}</b>\n"
+                        f"🎯 Прогноз бота: <b>{pred}</b>\n"
+                        f"✅ Исход Polymarket: <b>{resolution_result}</b>\n"
+                        f"🏆 Результат: <b>{result_str}</b>\n"
+                        f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
+                    )
+                    await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+                    await asyncio.sleep(1)
+                    
+        logger.info("<<< Мониторинг Whale Following завершен.")
+    except Exception as e:
+        logger.error(f"Ошибка в мониторинге Whale Following: {e}", exc_info=True)
+
 async def scheduled_favourite_compounding():
+
     """Сканирует рынки на Favourite Compounding и проверяет Exit-сигналы каждые 15 минут."""
     from telegram.bot import _favourite_compound_lock, _scan_lock, _penny_scan_lock
     if _favourite_compound_lock.locked() or _scan_lock.locked() or _penny_scan_lock.locked():
@@ -749,6 +860,25 @@ async def start_system():
         replace_existing=True,
         misfire_grace_time=600
     )
+
+    scheduler.add_job(
+        scheduled_whale_discovery,
+        trigger="interval",
+        minutes=30,
+        id="whale_discovery_job",
+        replace_existing=True,
+        misfire_grace_time=1800
+    )
+
+    scheduler.add_job(
+        scheduled_whale_monitor,
+        trigger="interval",
+        minutes=10,
+        id="whale_monitor_job",
+        replace_existing=True,
+        misfire_grace_time=600
+    )
+
 
     #Outcome Tracker — авторезолюция сигналов каждые 2 часа
     scheduler.add_job(

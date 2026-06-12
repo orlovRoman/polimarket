@@ -202,3 +202,46 @@ async def test_penny_stocks_active_predicted_count(isolated_db):
         null_row = next(r for r in data["active"] if r["market_id"] == "pm_null")
         assert null_row["predicted_outcome"] is None
         assert null_row["cheap_outcome"] == "YES"  # 0.05 < 0.90
+
+
+@pytest.mark.asyncio
+async def test_whale_stocks_html_route(isolated_db):
+    app = create_dashboard_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/whale")
+        assert resp.status == 200
+        text = await resp.text()
+        assert "Поиск активности китов" in text
+
+@pytest.mark.asyncio
+async def test_whale_stocks_buy_sell_api(isolated_db):
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO whale_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            VALUES ('whale_api', 'Whale API', 'http://api', 0.25, 0.35, 0.35, 0.25, 'ACTIVE', 'YES')
+        """)
+        
+    app = create_dashboard_app()
+    async with TestClient(TestServer(app)) as client:
+        # Покупаем
+        resp = await client.post("/api/whale-stocks/buy", json={"market_id": "whale_api", "price": 0.25})
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["status"] == "ok"
+        
+        # Проверяем в БД
+        rows = db_module.get_active_whale_stocks()
+        item = next(r for r in rows if r['market_id'] == 'whale_api')
+        assert item['virtual_bought_price'] == pytest.approx(0.25)
+        
+        # Продаем
+        resp = await client.post("/api/whale-stocks/sell", json={"market_id": "whale_api"})
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["status"] == "ok"
+        
+        # Проверяем в БД
+        rows = db_module.get_active_whale_stocks()
+        item = next(r for r in rows if r['market_id'] == 'whale_api')
+        assert item['virtual_bought_price'] is None
+

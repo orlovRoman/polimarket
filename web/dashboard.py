@@ -297,7 +297,109 @@ async def api_discover_penny_stocks(request):
         logger.exception("Error in api_discover_penny_stocks")
         return web.json_response({"error": str(e)}, status=500)
 
+async def api_whale_stocks(request):
+    active_page = get_int_query(request, "active_page", 1)
+    active_limit = get_int_query(request, "active_limit", 50)
+    resolved_page = get_int_query(request, "resolved_page", 1)
+    resolved_limit = get_int_query(request, "resolved_limit", 50)
+    history_page = get_int_query(request, "history_page", 1)
+    history_limit = get_int_query(request, "history_limit", 50)
+    
+    data = await asyncio.to_thread(
+        data_provider.get_whale_stocks_dashboard,
+        active_page=active_page,
+        active_limit=active_limit,
+        resolved_page=resolved_page,
+        resolved_limit=resolved_limit,
+        history_page=history_page,
+        history_limit=history_limit
+    )
+    with _jobs_lock:
+        running_ids = [mid for mid, job in analysis_jobs.items() if job.get("status") == "running"]
+    data["running_analyses"] = running_ids
+    return web.json_response(data)
+
+async def api_buy_whale_stock(request):
+    try:
+        try:
+            body = await request.json()
+        except Exception as json_err:
+            return web.json_response({"error": f"Invalid JSON body: {json_err}"}, status=400)
+
+        market_id = body.get("market_id")
+        price_val = body.get("price")
+        
+        if not market_id or price_val is None:
+            return web.json_response({"error": "market_id and price are required"}, status=400)
+            
+        try:
+            price = float(price_val)
+        except (ValueError, TypeError) as num_err:
+            return web.json_response({"error": f"Invalid price format: {num_err}"}, status=400)
+            
+    except (KeyError, TypeError) as req_err:
+        return web.json_response({"error": f"Malformed request parameters: {req_err}"}, status=400)
+
+    try:
+        from agents.shared.python.db import buy_virtual_whale_stock
+        await asyncio.to_thread(buy_virtual_whale_stock, market_id, price)
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in api_buy_whale_stock")
+        return web.json_response({"error": f"Internal server error: {e}"}, status=500)
+
+async def api_sell_whale_stock(request):
+    try:
+        try:
+            body = await request.json()
+        except Exception as json_err:
+            return web.json_response({"error": f"Invalid JSON body: {json_err}"}, status=400)
+
+        market_id = body.get("market_id")
+        if not market_id:
+            return web.json_response({"error": "market_id is required"}, status=400)
+            
+    except (KeyError, TypeError) as req_err:
+        return web.json_response({"error": f"Malformed request parameters: {req_err}"}, status=400)
+
+    try:
+        from agents.shared.python.db import sell_virtual_whale_stock
+        await asyncio.to_thread(sell_virtual_whale_stock, market_id)
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in api_sell_whale_stock")
+        return web.json_response({"error": f"Internal server error: {e}"}, status=500)
+
+async def api_discover_whale_stocks(request):
+    try:
+        from services.onchain_trend_alert import scan_volume_spikes, scan_large_single_bets, scan_wallet_series
+        from telegram.bot import bot, AUTHORIZED_CHAT_ID
+        
+        spikes = await asyncio.to_thread(scan_volume_spikes) or []
+        bets = await asyncio.to_thread(scan_large_single_bets) or []
+        series = await asyncio.to_thread(scan_wallet_series) or []
+        
+        total_discovered = len(spikes) + len(bets) + len(series)
+        
+        if total_discovered > 0:
+            msg = (
+                f"🐳 <b>Принудительный поиск Whale Following</b>\n\n"
+                f"С дашборда запрошен принудительный поиск активности китов.\n"
+                f"Обнаружено сигналов: <b>{total_discovered}</b> (всплески: {len(spikes)}, крупные ставки: {len(bets)}, серии сделок: {len(series)})."
+            )
+            try:
+                await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+            except Exception as tg_err:
+                logger.error(f"Failed to send Telegram notification: {tg_err}")
+                
+        return web.json_response({"status": "ok", "discovered": total_discovered})
+        
+    except Exception as e:
+        logger.exception("Error in api_discover_whale_stocks")
+        return web.json_response({"error": str(e)}, status=500)
+
 # === Фоновый запуск анализа ===
+
 
 analysis_jobs = {}
 _background_tasks = set()
@@ -621,6 +723,7 @@ def create_dashboard_app() -> web.Application:
     # JSON API маршруты
     app.router.add_get("/api/overview", api_overview)
     app.router.add_get("/api/penny-stocks", api_penny_stocks)
+    app.router.add_get("/api/whale-stocks", api_whale_stocks)
     app.router.add_get("/api/equity-curve", api_equity_curve)
     app.router.add_get("/api/signals", api_signals)
     app.router.add_get("/api/corridors", api_corridors)
@@ -631,7 +734,11 @@ def create_dashboard_app() -> web.Application:
     app.router.add_post("/api/penny-stocks/analyze", api_analyze_penny_stock)
     app.router.add_get("/api/penny-stocks/analyze-status", api_analyze_status)
     app.router.add_post("/api/penny-stocks/discover", api_discover_penny_stocks)
+    app.router.add_post("/api/whale-stocks/buy", api_buy_whale_stock)
+    app.router.add_post("/api/whale-stocks/sell", api_sell_whale_stock)
+    app.router.add_post("/api/whale-stocks/discover", api_discover_whale_stocks)
     app.router.add_post("/api/delete-market", api_delete_market)
+
     
     logger.info("Application routes successfully registered.")
     

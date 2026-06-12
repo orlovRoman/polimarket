@@ -76,9 +76,42 @@ def get_overview_stats() -> dict:
             stats['penny_stocks']['pnl_30d'] = round(penny_pnl['pnl_30d'] or 0.0, 2)
             stats['penny_stocks']['signals_count'] = penny_pnl['total']
 
+        # 2.6 Отдельно догружаем статистику для whale из виртуальной истории сделок китов.
+        whale_pnl = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_cents ELSE 0.0 END) as pnl_7d,
+                SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_cents ELSE 0.0 END) as pnl_30d
+            FROM whale_virtual_trades_history
+        """).fetchone()
+        if whale_pnl:
+            stats['whale']['pnl_7d'] = round(whale_pnl['pnl_7d'] or 0.0, 2)
+            stats['whale']['pnl_30d'] = round(whale_pnl['pnl_30d'] or 0.0, 2)
+            stats['whale']['signals_count'] = whale_pnl['total']
+
+        # 2.7 Рассчитываем win_rate для penny_stocks и whale
+        penny_wr = conn.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins
+            FROM penny_virtual_trades_history
+        """).fetchone()
+        if penny_wr and penny_wr['total'] > 0:
+            stats['penny_stocks']['win_rate'] = penny_wr['wins'] / penny_wr['total']
+
+        whale_wr = conn.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins
+            FROM whale_virtual_trades_history
+        """).fetchone()
+        if whale_wr and whale_wr['total'] > 0:
+            stats['whale']['win_rate'] = whale_wr['wins'] / whale_wr['total']
+
         # 3. Обновляем статус-эмодзи
         for stype, sdata in stats.items():
             sdata['status_emoji'] = get_status_emoji(sdata['sharpe'], sdata['win_rate'])
+
 
     return stats
 
@@ -106,6 +139,14 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
                 GROUP BY date(sold_at)
                 ORDER BY date(sold_at) ASC
             """, (period_start,)).fetchall()
+        elif stype == 'whale':
+            rows = conn.execute("""
+                SELECT date(sold_at) as date, SUM(pnl_cents) as daily_pnl
+                FROM whale_virtual_trades_history
+                WHERE sold_at >= ?
+                GROUP BY date(sold_at)
+                ORDER BY date(sold_at) ASC
+            """, (period_start,)).fetchall()
         else:
             rows = conn.execute("""
                 SELECT date(resolved_at) as date, SUM(pnl_realized) as daily_pnl
@@ -116,6 +157,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
                 GROUP BY date(resolved_at)
                 ORDER BY date(resolved_at) ASC
             """, (stype, period_start)).fetchall()
+
 
         cumulative = 0.0
         curve = []
@@ -547,7 +589,371 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'system_alerts': system_alerts
     }
 
+def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100) -> dict:
+    """
+    Собирает данные для дашборда Whale Following (активные, завершенные позиции, статистика, распределение).
+    """
+    from agents.shared.python.db import get_connection
+    import logging
+    logger = logging.getLogger("NexusPolyBot.DataProvider")
+    
+    with get_connection() as conn:
+        # Подсчет общего количества активных
+        active_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM whale_stocks_monitoring p
+            WHERE p.status = 'ACTIVE'
+        """).fetchone()['cnt']
+
+        # Активные позиции с пагинацией
+        active_offset = (active_page - 1) * active_limit
+        active_rows = conn.execute("""
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.volume_2h, p.predicted_outcome, p.edge, p.confidence, p.added_at, p.virtual_bought_price
+            FROM whale_stocks_monitoring p
+            WHERE p.status = 'ACTIVE'
+            ORDER BY p.added_at DESC
+            LIMIT ? OFFSET ?
+        """, (active_limit, active_offset)).fetchall()
+
+        active = []
+        for r in active_rows:
+            row_dict = dict(r)
+            pred = row_dict['predicted_outcome']
+            init = row_dict['initial_price']
+            curr = row_dict['current_price']
+            mx = row_dict['max_price_seen']
+            mn = row_dict['min_price_seen']
+
+            outcome_to_track = pred if pred is not None else 'YES'
+            row_dict['cheap_outcome'] = outcome_to_track
+
+            if outcome_to_track == 'NO':
+                row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
+                row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
+                row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
+                row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4) if mx is not None else None
+            else:
+                row_dict['initial_price_outcome'] = init
+                row_dict['current_price_outcome'] = curr
+                row_dict['max_price_seen_outcome'] = mx
+                row_dict['min_price_seen_outcome'] = mn
+            active.append(row_dict)
+
+        # Подсчет общего количества завершенных
+        resolved_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM whale_stocks_monitoring p
+            WHERE p.status = 'RESOLVED'
+        """).fetchone()['cnt']
+
+        # Завершенные позиции с пагинацией
+        resolved_offset = (resolved_page - 1) * resolved_limit
+        resolved_rows = conn.execute("""
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
+                   h.pnl_cents as pnl_realized
+            FROM whale_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                FROM whale_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED'
+            ORDER BY p.resolved_at DESC
+            LIMIT ? OFFSET ?
+        """, (resolved_limit, resolved_offset)).fetchall()
+
+        resolved = []
+        for r in resolved_rows:
+            row_dict = dict(r)
+            pred = row_dict['predicted_outcome']
+            init = row_dict['initial_price']
+            curr = row_dict['current_price']
+            mx = row_dict['max_price_seen']
+            mn = row_dict['min_price_seen']
+
+            outcome_to_track = pred if pred is not None else 'YES'
+            row_dict['cheap_outcome'] = outcome_to_track
+
+            if outcome_to_track == 'NO':
+                row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
+                row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
+                row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
+                row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4) if mx is not None else None
+            else:
+                row_dict['initial_price_outcome'] = init
+                row_dict['current_price_outcome'] = curr
+                row_dict['max_price_seen_outcome'] = mx
+                row_dict['min_price_seen_outcome'] = mn
+
+            # Гипотетический PNL
+            actual = row_dict['actual_outcome']
+            pnl_realized = row_dict['pnl_realized']
+            if pnl_realized is None and actual is not None and init is not None:
+                bought_outcome = (1.0 - init) if outcome_to_track == 'NO' else init
+                sold_outcome = 1.0 if actual == outcome_to_track else 0.0
+                row_dict['pnl_realized'] = round(sold_outcome - bought_outcome, 4)
+
+            resolved.append(row_dict)
+
+        # Виртуальный портфель
+        portfolio_rows = conn.execute("""
+            SELECT market_id, title, url, initial_price, current_price, predicted_outcome, edge, confidence, virtual_bought_price, virtual_bought_at
+            FROM whale_stocks_monitoring
+            WHERE status = 'ACTIVE' AND virtual_bought_price IS NOT NULL
+            ORDER BY virtual_bought_at DESC
+        """).fetchall()
+
+        portfolio = []
+        for r in portfolio_rows:
+            row_dict = dict(r)
+            pred = row_dict['predicted_outcome']
+            init = row_dict['initial_price']
+            v_bought = row_dict['virtual_bought_price']
+            v_curr = row_dict['current_price']
+
+            outcome_to_track = pred if pred is not None else 'YES'
+            row_dict['cheap_outcome'] = outcome_to_track
+
+            if outcome_to_track == 'NO':
+                bought_outcome = 1.0 - v_bought if v_bought is not None else None
+                curr_outcome = 1.0 - v_curr if v_curr is not None else None
+            else:
+                bought_outcome = v_bought
+                curr_outcome = v_curr
+
+            pnl_cents = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
+            pnl_percent = (pnl_cents / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
+
+            row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
+            row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
+            row_dict['pnl_cents'] = round(pnl_cents, 4)
+            row_dict['pnl_percent'] = round(pnl_percent, 2)
+
+            portfolio.append(row_dict)
+
+        total_active = active_total
+        total_resolved = resolved_total
+
+        # Статистика по истории виртуальных сделок
+        stats_row = conn.execute("""
+            SELECT
+                COUNT(*) as count,
+                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
+                MAX(pnl_cents) as best_pnl,
+                AVG(pnl_cents) as avg_pnl
+            FROM whale_virtual_trades_history
+            WHERE sold_at >= datetime('now', '-30 days')
+        """).fetchone()
+
+        win_rate = None
+        best_pnl = 0.0
+        avg_pnl = 0.0
+        if stats_row and stats_row['count'] and stats_row['count'] > 0:
+            win_rate = stats_row['wins'] / stats_row['count']
+            best_pnl = stats_row['best_pnl'] or 0.0
+            avg_pnl = stats_row['avg_pnl'] or 0.0
+
+        avg_entry_row = conn.execute("""
+            SELECT AVG(
+                CASE
+                    WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price
+                    ELSE initial_price
+                END
+            ) as avg_entry
+            FROM whale_stocks_monitoring
+            WHERE status = 'ACTIVE'
+        """).fetchone()
+        avg_entry = avg_entry_row['avg_entry'] if avg_entry_row else None
+
+        total_active_predicted = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM whale_stocks_monitoring
+            WHERE status = 'ACTIVE' AND predicted_outcome IS NOT NULL
+        """).fetchone()['cnt']
+
+        # 1. Кумулятивный PnL
+        trades_pnl_row = conn.execute("SELECT SUM(pnl_cents) as total_pnl FROM whale_virtual_trades_history").fetchone()
+        total_trades_pnl = trades_pnl_row['total_pnl'] if trades_pnl_row and trades_pnl_row['total_pnl'] is not None else 0.0
+
+        # 2. Кумулятивный PnL по всем закрытым whale-рынкам
+        all_resolved_rows = conn.execute("""
+            SELECT p.initial_price, p.predicted_outcome, p.actual_outcome, h.pnl_cents as pnl_realized
+            FROM whale_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                FROM whale_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED'
+        """).fetchall()
+
+        total_resolved_pnl = 0.0
+        for r in all_resolved_rows:
+            pnl_realized = r['pnl_realized']
+            if pnl_realized is not None:
+                total_resolved_pnl += pnl_realized
+            else:
+                actual = r['actual_outcome']
+                init = r['initial_price']
+                pred = r['predicted_outcome']
+                if actual is not None and init is not None:
+                    outcome_to_track = pred if pred is not None else 'YES'
+                    bought_outcome = (1.0 - init) if outcome_to_track == 'NO' else init
+                    sold_outcome = 1.0 if actual == outcome_to_track else 0.0
+                    total_resolved_pnl += (sold_outcome - bought_outcome)
+
+        stats = {
+            'active_count': total_active,
+            'active_predicted_count': total_active_predicted,
+            'resolved_count': total_resolved,
+            'win_rate': win_rate,
+            'avg_entry_price': avg_entry,
+            'best_trade_pnl': best_pnl,
+            'avg_pnl': avg_pnl,
+            'total_trades_pnl': round(total_trades_pnl, 4),
+            'total_resolved_pnl': round(total_resolved_pnl, 4)
+        }
+
+        # Распределение цен входа
+        all_prices_rows = conn.execute("""
+            SELECT
+                CASE
+                    WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price
+                    ELSE initial_price
+                END as outcome_initial_price
+            FROM whale_stocks_monitoring
+            WHERE status = 'ACTIVE'
+        """).fetchall()
+        bins = {
+            '1-20¢': 0,
+            '20-40¢': 0,
+            '40-60¢': 0,
+            '60-80¢': 0,
+            '80+¢': 0
+        }
+        for r in all_prices_rows:
+            p = r['outcome_initial_price']
+            if p is None:
+                continue
+            if p < 0.20:
+                bins['1-20¢'] += 1
+            elif p < 0.40:
+                bins['20-40¢'] += 1
+            elif p < 0.60:
+                bins['40-60¢'] += 1
+            elif p < 0.80:
+                bins['60-80¢'] += 1
+            else:
+                bins['80+¢'] += 1
+
+        history_total = conn.execute("SELECT COUNT(*) as cnt FROM whale_virtual_trades_history").fetchone()['cnt']
+        history_offset = (history_page - 1) * history_limit
+
+        history_rows = conn.execute("""
+            SELECT 
+                h.id, 
+                h.market_id, 
+                h.title, 
+                h.url, 
+                h.outcome, 
+                h.bought_price, 
+                h.bought_outcome_price, 
+                h.sold_price, 
+                h.sold_outcome_price, 
+                h.pnl_cents, 
+                h.pnl_percent, 
+                h.bought_at, 
+                h.sold_at, 
+                h.max_price_seen, 
+                h.min_price_seen,
+                m.current_price,
+                m.status as market_status,
+                m.actual_outcome
+            FROM whale_virtual_trades_history h
+            LEFT JOIN (
+                SELECT market_id, current_price, status, actual_outcome
+                FROM whale_stocks_monitoring
+                GROUP BY market_id
+            ) m ON h.market_id = m.market_id
+            ORDER BY h.sold_at DESC
+            LIMIT ? OFFSET ?
+        """, (history_limit, history_offset)).fetchall()
+        
+        virtual_history = []
+        for r in history_rows:
+            row_dict = dict(r)
+            outcome = row_dict['outcome']
+            mx = row_dict['max_price_seen']
+            mn = row_dict['min_price_seen']
+            if mx is not None and mn is not None:
+                if outcome == 'NO':
+                    row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4)
+                    row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4)
+                else:
+                    row_dict['max_price_seen_outcome'] = mx
+                    row_dict['min_price_seen_outcome'] = mn
+            else:
+                row_dict['max_price_seen_outcome'] = None
+                row_dict['min_price_seen_outcome'] = None
+
+            curr = row_dict['current_price']
+            status = row_dict['market_status']
+            actual_outcome = row_dict['actual_outcome']
+            current_outcome_price = None
+
+            if status == 'ACTIVE' and curr is not None:
+                if outcome == 'NO':
+                    current_outcome_price = round(1.0 - curr, 4)
+                else:
+                    current_outcome_price = curr
+            elif status == 'RESOLVED':
+                if actual_outcome is not None:
+                    current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
+
+            row_dict['current_outcome_price'] = current_outcome_price
+            virtual_history.append(row_dict)
+
+        # Последние алерты по транзакциям китов для оповещений
+        system_alerts = []
+        try:
+            alerts_rows = conn.execute("""
+                SELECT market_id, created_at, metadata
+                FROM signals
+                WHERE strategy_type = 'whale'
+                ORDER BY created_at DESC
+                LIMIT 30
+            """).fetchall()
+            for r in alerts_rows:
+                import json
+                meta = {}
+                try:
+                    if r['metadata']:
+                        meta = json.loads(r['metadata'])
+                except Exception:
+                    pass
+                system_alerts.append({
+                    'market_id': r['market_id'],
+                    'analyzed_at': r['created_at'],
+                    'title': meta.get('summary') or f"Whale transaction on {r['market_id']}"
+                })
+        except Exception as e:
+            logger.warning(f"[DataProvider] signals whale alerts недоступны: {e}")
+
+    return {
+        'active': active,
+        'resolved': resolved,
+        'portfolio': portfolio,
+        'virtual_history': virtual_history,
+        'stats': stats,
+        'price_distribution': bins,
+        'active_total': active_total,
+        'resolved_total': resolved_total,
+        'history_total': history_total,
+        'system_alerts': system_alerts
+    }
+
 def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 50, page: Optional[int] = None, sort_by: Optional[str] = None, sort_dir: Optional[str] = None) -> Any:
+
     """Возвращает последние сигналы для конкретной стратегии вместе с названием рынков."""
     import json
     from agents.shared.python.db import get_connection

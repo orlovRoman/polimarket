@@ -12,6 +12,8 @@ def _log_whale_signal_to_eval(
     entry_price: float,
     summary_msg: str,
     metadata_extra: dict,
+    title: str = None,
+    url: str = None,
     is_single: bool = False,
     is_series: bool = False
 ):
@@ -44,10 +46,41 @@ def _log_whale_signal_to_eval(
             edge_at_signal=max(-1.0, min(1.0, prob - entry_price)),
             metadata=metadata
         )
+
+        # Сохраняем в мониторинг виртуального портфеля
+        try:
+            from agents.shared.python.db import add_whale_stock_to_monitoring
+            edge = max(-1.0, min(1.0, prob - entry_price))
+            
+            title_val = title
+            url_val = url
+            if not title_val or not url_val:
+                with get_connection() as conn:
+                    m_row = conn.execute("SELECT title, url FROM markets WHERE id = ?", (market_id,)).fetchone()
+                    if m_row:
+                        title_val = title_val or m_row['title']
+                        url_val = url_val or m_row['url']
+            
+            yes_price = entry_price if side == "YES" else (1.0 - entry_price)
+
+            add_whale_stock_to_monitoring(
+                market_id=market_id,
+                title=title_val or f"Market {market_id}",
+                url=url_val or "",
+                initial_price=yes_price,
+                predicted_outcome=side,
+                edge=edge,
+                confidence=0.5
+            )
+        except Exception as db_e:
+            logger.error(f"[OnchainTrend] Ошибка сохранения Whale-сигнала в мониторинг: {db_e}", exc_info=True)
+            
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка логирования Whale-сигнала в Evaluation Engine: {e}", exc_info=True)
 
+
 def _process_spike_row(row: dict) -> Optional[dict]:
+    row = dict(row)
     alert_key = f"onchain_spike_{row['market_id']}"
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
@@ -76,8 +109,11 @@ def _process_spike_row(row: dict) -> Optional[dict]:
                 "no_vol": row['no_vol'],
                 "vol_recent": row['vol_recent'],
                 "vol_prev": row['vol_prev']
-            }
+            },
+            title=row.get('title'),
+            url=row.get('url')
         )
+
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка обработки строки spike: {e}", exc_info=True)
     return dict(row)
@@ -129,6 +165,7 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
     return spikes
 
 def _process_single_bet_row(row: dict) -> Optional[dict]:
+    row = dict(row)
     alert_key = f"whale_single_bet_{row['market_id']}_{row['wallet_address']}_{row['amount_usd']:.0f}"
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
@@ -162,8 +199,11 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
                 "amount_usd": row['amount_usd'],
                 "reason": "large_single_bet"
             },
+            title=row.get('title'),
+            url=row.get('url'),
             is_single=True
         )
+
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка обработки строки крупной сделки: {e}", exc_info=True)
     return dict(row)
@@ -202,6 +242,7 @@ def scan_large_single_bets() -> list[dict]:
     return signals
 
 def _process_wallet_series_row(row: dict) -> Optional[dict]:
+    row = dict(row)
     alert_key = f"whale_series_{row['market_id']}_{row['wallet_address']}"
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
@@ -236,8 +277,11 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
                 "tx_count": row['tx_count'],
                 "reason": "wallet_series"
             },
+            title=row.get('title'),
+            url=row.get('url'),
             is_series=True
         )
+
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка обработки строки серии сделок: {e}", exc_info=True)
     return dict(row)

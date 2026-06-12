@@ -1,165 +1,444 @@
 <!-- whale.html -->
 <style>
-    .tab-btn {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid var(--border-color);
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    .opinion-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding-bottom: 8px;
+    }
+    .opinion-tab-btn {
+        background: none;
+        border: none;
         color: var(--text-secondary);
         padding: 6px 12px;
-        font-size: 0.9rem;
-        font-weight: 500;
         cursor: pointer;
+        font-weight: 500;
+        font-size: 0.9rem;
         border-radius: 4px;
-        transition: all var(--transition-speed) ease;
+        transition: all 0.2s;
     }
-    .tab-btn:hover {
+    .opinion-tab-btn:hover {
         color: var(--text-primary);
-        background-color: rgba(255, 255, 255, 0.1);
-        border-color: var(--text-secondary);
+        background: rgba(255, 255, 255, 0.03);
     }
-    .tab-btn[disabled] {
-        opacity: 0.5;
-        cursor: not-allowed;
-        background-color: rgba(255, 255, 255, 0.02);
-        border-color: var(--border-color);
+    .opinion-tab-btn.active {
+        color: #8b5cf6;
+        background: rgba(139, 92, 246, 0.1);
+    }
+    .opinion-pane {
+        display: none;
+    }
+    .opinion-pane.active {
+        display: block;
+    }
+    .opinion-content {
+        background: rgba(255, 255, 255, 0.01);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 16px;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        color: var(--text-secondary);
+        max-height: 350px;
+        overflow-y: auto;
+    }
+    .pulse-animation {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: .5; }
     }
 </style>
 
+<div class="table-card" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px;">
+    <div>
+        <h3 style="margin: 0 0 4px 0; font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">Поиск активности китов</h3>
+        <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">Принудительно запустить сканирование Polymarket для поиска ончейн-активности крупных кошельков (Whales)</p>
+    </div>
+    <button id="btn-discover" onclick="discoverWhaleMarkets()" class="badge badge-purple" style="border: none; cursor: pointer; font-weight: 600; padding: 10px 20px; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; border-radius: 6px; transition: all 0.2s;">
+        <span id="btn-discover-spinner" style="display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s linear infinite;"></span>
+        <span id="btn-discover-text">Сканировать ончейн-активность</span>
+    </button>
+</div>
+
 <div class="kpi-row">
+    <div class="kpi-card">
+        <div class="kpi-title">Всего в мониторинге</div>
+        <div class="kpi-value" id="kpi-active">0</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">С прогнозом</div>
+        <div class="kpi-value" id="kpi-active-predicted">0</div>
+    </div>
     <div class="kpi-card">
         <div class="kpi-title">Win Rate (30д)</div>
         <div class="kpi-value" id="kpi-winrate">—</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-title">Brier Score</div>
-        <div class="kpi-value" id="kpi-brier">—</div>
+        <div class="kpi-title">Ср. цена входа</div>
+        <div class="kpi-value" id="kpi-avgentry">—</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-title">Sharpe Ratio</div>
-        <div class="kpi-value" id="kpi-sharpe">—</div>
+        <div class="kpi-title">Лучший трейд</div>
+        <div class="kpi-value" id="kpi-besttrade">$0.00</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-title">Ср. Edge</div>
-        <div class="kpi-value" id="kpi-edge">—</div>
+        <div class="kpi-title">Общий PnL (Сделки)</div>
+        <div class="kpi-value" id="kpi-trades-pnl">$0.00</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-title">Всего сигналов</div>
-        <div class="kpi-value" id="kpi-count">0</div>
+        <div class="kpi-title">Общий PnL (Все рынки)</div>
+        <div class="kpi-value" id="kpi-all-pnl">$0.00</div>
     </div>
 </div>
 
-<div class="chart-card" style="height: 380px; margin-bottom: 32px;">
-    <div class="chart-title">Кривая доходности (Whale Following)</div>
-    <div style="height: calc(100% - 40px);">
-        <canvas id="equityChart"></canvas>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px;">
+    <div class="chart-card" style="display: flex; flex-direction: column; height: 380px; padding: 24px;">
+        <div class="chart-title" style="margin-bottom: 16px;">Системные оповещения (Whales)</div>
+        <div id="system-alerts-container" style="flex: 1; overflow-y: auto; padding-right: 4px;">
+            <div id="system-alerts-list" style="display: flex; flex-direction: column; gap: 10px;">
+                <div class="text-muted" style="text-align: center; padding: 20px;">Нет новых оповещений</div>
+            </div>
+        </div>
+    </div>
+    <div class="table-card" style="height: 380px; margin-bottom: 0; display: flex; flex-direction: column; padding: 24px;">
+        <div class="table-title" style="margin-bottom: 10px;">Виртуальный портфель</div>
+        <div class="table-wrapper" style="min-height: 200px; max-height: 300px; margin-top: 0; overflow-y: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Рынок</th>
+                        <th>Направление</th>
+                        <th>Вход</th>
+                        <th>Текущая</th>
+                        <th>PnL</th>
+                        <th>Действие</th>
+                    </tr>
+                </thead>
+                <tbody id="portfolio-tbody">
+                    <tr>
+                        <td colspan="7" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
 <div class="table-card">
-    <div class="table-title">Сигналы Whale Following</div>
-    <table>
-        <thead>
-            <tr>
-                <th onclick="toggleSort('whale', 'market_title')" style="cursor:pointer; user-select:none;">Рынок<span id="sort-whale-market_title"></span></th>
-                <th onclick="toggleSort('whale', 'wallet_address')" style="cursor:pointer; user-select:none;">Кошелёк<span id="sort-whale-wallet_address"></span></th>
-                <th onclick="toggleSort('whale', 'target_outcome')" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-whale-target_outcome"></span></th>
-                <th onclick="toggleSort('whale', 'market_price_at_signal')" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-whale-market_price_at_signal"></span></th>
-                <th onclick="toggleSort('whale', 'status')" style="cursor:pointer; user-select:none;">Исход<span id="sort-whale-status"></span></th>
-                <th onclick="toggleSort('whale', 'pnl_realized')" style="cursor:pointer; user-select:none;">PnL<span id="sort-whale-pnl_realized"></span></th>
-                <th onclick="toggleSort('whale', 'created_at')" style="cursor:pointer; user-select:none;">Время создания<span id="sort-whale-created_at"></span></th>
-            </tr>
-        </thead>
-        <tbody id="signals-tbody">
-            <tr>
-                <td colspan="7" style="text-align: center;" class="text-muted">Загрузка сигналов...</td>
-            </tr>
-        </tbody>
-    </table>
-    <div id="whale-pagination"></div>
+    <div class="table-title">Активные позиции мониторинга китов</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th onclick="toggleSort('active', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-active-title"></span></th>
+                    <th onclick="toggleSort('active', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-active-initial_price_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'current_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'current_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Текущая<span id="sort-active-current_price_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-active-max_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-active-min_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'volume_2h')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'volume_2h')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Объем (2ч)<span id="sort-active-volume_2h"></span></th>
+                    <th onclick="toggleSort('active', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-active-predicted_outcome"></span></th>
+                    <th onclick="toggleSort('active', 'added_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'added_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Добавлен<span id="sort-active-added_at"></span></th>
+                    <th>Действие</th>
+                </tr>
+            </thead>
+            <tbody id="active-positions-tbody">
+                <tr>
+                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="active-pagination"></div>
+</div>
+
+<div class="table-card">
+    <div class="table-title">Завершенные рынки китов</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
+                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome"></span></th>
+                    <th onclick="toggleSort('resolved', 'pnl_realized')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_realized')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL<span id="sort-resolved-pnl_realized"></span></th>
+                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
+                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
+                    <th>Действие</th>
+                </tr>
+            </thead>
+            <tbody id="resolved-positions-tbody">
+                <tr>
+                    <td colspan="11" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="resolved-pagination"></div>
+</div>
+
+<div class="table-card">
+    <div class="table-title">История виртуальных сделок китов</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Рынок</th>
+                    <th>Направление</th>
+                    <th>Вход</th>
+                    <th>Выход</th>
+                    <th>Текущая</th>
+                    <th>Максимум</th>
+                    <th>Минимум</th>
+                    <th>PnL</th>
+                    <th>Дата покупки</th>
+                    <th>Дата продажи</th>
+                </tr>
+            </thead>
+            <tbody id="virtual-history-tbody">
+                <tr>
+                    <td colspan="11" style="text-align: center;" class="text-muted">История пуста</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="history-pagination"></div>
+</div>
+
+<style>
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(11, 15, 25, 0.85);
+        backdrop-filter: blur(12px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+    }
+    .modal-overlay.active {
+        opacity: 1;
+    }
+    .modal-card {
+        background: rgba(17, 24, 39, 0.95);
+        border: 1px solid rgba(139, 92, 246, 0.25);
+        border-radius: 16px;
+        width: 90%;
+        max-width: 750px;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        transform: translateY(20px);
+        transition: transform 0.25s ease;
+    }
+    .modal-overlay.active .modal-card {
+        transform: translateY(0);
+    }
+    .modal-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid rgba(55, 65, 81, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .modal-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .modal-close {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 1.75rem;
+        cursor: pointer;
+        line-height: 1;
+        transition: color 0.2s;
+    }
+    .modal-close:hover {
+        color: var(--text-primary);
+    }
+    .modal-body {
+        padding: 24px;
+        overflow-y: auto;
+        flex-grow: 1;
+    }
+</style>
+
+<!-- Модалка анализа рынка -->
+<div id="modal-market" class="modal-overlay" style="display: none;" onclick="closeAnalysisModal()">
+    <div class="modal-card" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h4 class="modal-title" id="modal-market-title">Анализ рынка</h4>
+            <button class="modal-close" onclick="closeAnalysisModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-market-body">
+            <div style="text-align: center; padding: 40px 0;">
+                <div class="spinner" style="margin: 0 auto 20px auto; border-top-color: #8b5cf6;"></div>
+                <div style="font-weight: 500;">Загрузка отчетов агентов...</div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
-    let equityChart = null;
-    let pagination = {
-        whale: { page: 1, limit: 50, total: 0 }
-    };
-    let sortState = {
-        whale: { col: 'created_at', dir: 'desc' }
-    };
-    let lastFetchedSignals = [];
+    let runningAnalyses = [];
 
-    async function loadWhaleData() {
-        const overview = await fetchJSON('/api/overview');
-        const signalsResponse = await fetchJSON(`/api/signals?strategy=whale&page=${pagination.whale.page}&limit=${pagination.whale.limit}&days=all&sort_by=${sortState.whale.col}&sort_dir=${sortState.whale.dir}`);
-        const equityData = await fetchJSON('/api/equity-curve?strategy=whale&days=30');
+    function formatDate(dateStr) {
+        if (!dateStr) return '—';
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit'
+        }) + ' ' + d.toLocaleTimeString('ru-RU', {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
 
-        if (!overview || !signalsResponse) return;
+    function formatPercent(val) {
+        if (val === null || val === undefined) return '—';
+        return (val * 100).toFixed(1) + '%';
+    }
 
-        lastFetchedSignals = signalsResponse.signals || [];
-        pagination.whale.total = signalsResponse.total || 0;
-
-        // 1. Рендерим KPI из overview
-        const stats = overview['whale'];
-        if (stats) {
-            document.getElementById('kpi-winrate').textContent = stats.win_rate !== null ? formatPercent(stats.win_rate) : '—';
-            document.getElementById('kpi-sharpe').textContent = stats.sharpe !== null ? stats.sharpe.toFixed(2) : '—';
-            document.getElementById('kpi-count').textContent = stats.signals_count;
+    function formatPriceCents(val) {
+        if (val === null || val === undefined) return "—";
+        const cents = val * 100;
+        if (Math.abs(cents) < 1.0 && cents !== 0) {
+            return `${cents.toFixed(2)}¢`;
         }
+        const strVal = cents.toFixed(2);
+        if (strVal.endsWith('.00')) {
+            return `${cents.toFixed(0)}¢`;
+        }
+        if (strVal.endsWith('0')) {
+            return `${cents.toFixed(1)}¢`;
+        }
+        return `${cents.toFixed(2)}¢`;
+    }
 
-        // Рендерим Brier Score и Avg Edge, рассчитанные бэкендом
-        const dbStats = signalsResponse.stats || {};
-        document.getElementById('kpi-brier').textContent = formatBrier(dbStats.brier_score);
-        document.getElementById('kpi-edge').textContent = dbStats.avg_edge !== null ? formatPercent(dbStats.avg_edge) : '—';
+    function formatPnLCents(val) {
+        if (val === null || val === undefined) return "0¢";
+        const cents = val * 100;
+        const sign = cents > 0 ? "+" : "";
+        let color = "";
+        if (cents > 0) {
+            color = "text-green";
+        } else if (cents < 0) {
+            color = "text-red";
+        }
+        
+        let centsStr = cents.toFixed(2);
+        if (centsStr.endsWith('.00')) {
+            centsStr = cents.toFixed(0);
+        } else if (centsStr.endsWith('0')) {
+            centsStr = cents.toFixed(1);
+        }
+        return `<span class="${color}">${sign}${centsStr}¢</span>`;
+    }
 
-        // 2. Рендерим таблицу сигналов
-        renderWhaleTableOnly();
-        renderPaginationControls('whale-pagination', 'whale');
-        updateSortIndicators('whale');
-
-        // 3. Строим кривую доходности
-        if (equityData) {
-            const dates = equityData.map(e => {
-                const d = new Date(e.date);
-                return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+    async function discoverWhaleMarkets() {
+        const btn = document.getElementById('btn-discover');
+        const spinner = document.getElementById('btn-discover-spinner');
+        const text = document.getElementById('btn-discover-text');
+        
+        if (btn.disabled) return;
+        
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+        btn.style.cursor = 'not-allowed';
+        spinner.style.display = 'inline-block';
+        text.textContent = 'Импортируем...';
+        
+        try {
+            const res = await fetch('/api/whale-stocks/discover', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
             });
-            const pnlVals = equityData.map(e => e.cumulative_pnl);
-
-            if (equityChart) {
-                equityChart.data.labels = dates;
-                equityChart.data.datasets[0].data = pnlVals;
-                equityChart.update();
+            if (res.ok) {
+                const data = await res.json();
+                alert(`Поиск завершен! Найдено активностей китов: ${data.discovered}`);
+                triggerRefresh();
             } else {
-                const ctx = document.getElementById('equityChart').getContext('2d');
-                equityChart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: dates,
-                        datasets: [{
-                            label: 'Кумулятивный PnL ($)',
-                            data: pnlVals,
-                            borderColor: '#ec4899',
-                            backgroundColor: 'rgba(236, 72, 153, 0.05)',
-                            fill: true,
-                            tension: 0.2,
-                            borderWidth: 2,
-                            pointBackgroundColor: '#ec4899',
-                            pointRadius: 3
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#9ca3af' } },
-                            x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
-                        },
-                        plugins: {
-                            legend: { display: false }
-                        }
-                    }
-                });
+                const err = await res.json();
+                alert(`Ошибка поиска: ${err.error || 'Unknown error'}`);
             }
+        } catch (e) {
+            console.error("Ошибка сети при импорте:", e);
+            alert("Ошибка сети при импорте");
+        } finally {
+            btn.disabled = false;
+            btn.style.opacity = '';
+            btn.style.cursor = 'pointer';
+            spinner.style.display = 'none';
+            text.textContent = 'Сканировать ончейн-активность';
         }
     }
+
+    async function buyVirtual(marketId, price) {
+        if (price === undefined || price === null) {
+            console.error("Ошибка покупки: не указана цена покупки (price равен null или undefined)");
+            alert("Не удалось определить цену покупки. Пожалуйста, обновите страницу.");
+            return;
+        }
+        try {
+            const res = await fetch('/api/whale-stocks/buy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ market_id: marketId, price: price })
+            });
+            if (res.ok) {
+                triggerRefresh();
+            } else {
+                const err = await res.json();
+                console.error("Ошибка покупки:", err.error || res.statusText);
+                alert("Ошибка при покупке: " + (err.error || "неизвестная ошибка"));
+            }
+        } catch (e) {
+            console.error("Сетевая ошибка при покупке:", e);
+            alert("Сетевая ошибка при покупке");
+        }
+    }
+
+    async function sellVirtual(marketId) {
+        const res = await fetch('/api/whale-stocks/sell', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ market_id: marketId })
+        });
+        if (res.ok) {
+            triggerRefresh();
+        } else {
+            console.error("Ошибка продажи");
+        }
+    }
+
+    let sortState = {
+        active: { col: 'added_at', dir: 'desc' },
+        resolved: { col: 'resolved_at', dir: 'desc' }
+    };
+    let lastFetchedData = null;
 
     function toggleSort(tableType, column) {
         const state = sortState[tableType];
@@ -169,13 +448,32 @@
             state.col = column;
             state.dir = 'desc';
         }
-        pagination[tableType].page = 1;
-        loadWhaleData();
+        renderTablesOnly();
         updateSortIndicators(tableType);
     }
 
+    function sortDataArray(arr, col, dir) {
+        arr.sort((a, b) => {
+            let valA = a[col];
+            let valB = b[col];
+            
+            if (valA === null || valA === undefined) return 1;
+            if (valB === null || valB === undefined) return -1;
+            
+            if (typeof valA === 'string') {
+                return dir === 'asc' 
+                    ? valA.localeCompare(valB) 
+                    : valB.localeCompare(valA);
+            }
+            return dir === 'asc' ? valA - valB : valB - valA;
+        });
+    }
+
     function updateSortIndicators(tableType) {
-        const columns = ['market_title', 'wallet_address', 'target_outcome', 'market_price_at_signal', 'status', 'pnl_realized', 'created_at'];
+        const columns = tableType === 'active' 
+            ? ['title', 'initial_price_outcome', 'current_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'volume_2h', 'predicted_outcome', 'added_at']
+            : ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_realized', 'resolved_at'];
+            
         columns.forEach(col => {
             const el = document.getElementById(`sort-${tableType}-${col}`);
             if (el) {
@@ -183,7 +481,7 @@
                 el.style.color = '';
             }
         });
-
+        
         const activeState = sortState[tableType];
         const el = document.getElementById(`sort-${tableType}-${activeState.col}`);
         if (el) {
@@ -192,35 +490,30 @@
         }
     }
 
-    function renderWhaleTableOnly() {
-        const tbody = document.getElementById('signals-tbody');
-        if (lastFetchedSignals.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
-            return;
-        }
+    let pagination = {
+        active: { page: 1, limit: 50, total: 0 },
+        resolved: { page: 1, limit: 50, total: 0 },
+        history: { page: 1, limit: 50, total: 0 }
+    };
 
-        tbody.innerHTML = lastFetchedSignals.map(sig => {
-            const prob = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
-            const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
-            
-            let walletCell = '<span class="text-muted">агрег.</span>';
-            if (sig.wallet_address) {
-                const shortWallet = sig.wallet_address.slice(0, 6) + '...' + sig.wallet_address.slice(-4);
-                walletCell = `<a href="https://polygonscan.com/address/${sig.wallet_address}" target="_blank" title="${sig.wallet_address}" style="color:var(--accent-purple); text-decoration:none; font-family:monospace; border-bottom:1px dashed var(--accent-purple);">${shortWallet}</a>`;
+    async function deleteMarket(tableName, recordId) {
+        if (!confirm('Вы уверены, что хотите скрыть этот рынок из мониторинга?')) return;
+        try {
+            const res = await fetch('/api/delete-market', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table_name: tableName, record_id: recordId })
+            });
+            const ret = await res.json();
+            if (ret.status === 'ok') {
+                showToast('Рынок скрыт');
+                await loadWhaleStocksData();
+            } else {
+                alert('Ошибка: ' + (ret.error || 'не удалось удалить'));
             }
-
-            return `
-                <tr>
-                    <td><a href="${sig.market_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${sig.market_title}</a></td>
-                    <td>${walletCell}</td>
-                    <td><span class="badge ${sig.target_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${sig.target_outcome}</span> (${prob !== null ? formatPercent(prob) : '—'})</td>
-                    <td>${sig.market_price_at_signal !== null ? formatPercent(sig.market_price_at_signal) : '—'}</td>
-                    <td><span class="badge ${statusClass}">${sig.status}</span></td>
-                    <td>${formatPnL(sig.pnl_realized)}</td>
-                    <td class="text-muted" style="font-size:0.8rem;">${formatDate(sig.created_at)}</td>
-                </tr>
-            `;
-        }).join('');
+        } catch (err) {
+            alert('Ошибка запроса: ' + err);
+        }
     }
 
     function renderPaginationControls(containerId, sectionKey) {
@@ -232,17 +525,463 @@
         
         container.innerHTML = `
             <div class="pagination-controls" style="display:flex; justify-content:center; align-items:center; gap:12px; margin-top:16px; font-size:0.9rem;">
-                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page <= 1 ? 'disabled' : ''} onclick="changePage('${sectionKey}', ${p.page - 1})">← Назад</button>
+                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page <= 1 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} onclick="changePage('${sectionKey}', ${p.page - 1})">← Назад</button>
                 <span class="text-muted">Страница <strong>${p.page}</strong> из <strong>${totalPages}</strong> (всего: ${p.total})</span>
-                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page >= totalPages ? 'disabled' : ''} onclick="changePage('${sectionKey}', ${p.page + 1})">Вперед →</button>
+                <button class="tab-btn" style="padding:6px 12px; border-radius:4px;" ${p.page >= totalPages ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} onclick="changePage('${sectionKey}', ${p.page + 1})">Вперед →</button>
+            </div>
+        `;
+    }
+     
+    async function changePage(sectionKey, newPage) {
+        pagination[sectionKey].page = newPage;
+        await loadWhaleStocksData();
+    }
+
+    function renderTablesOnly() {
+        if (!lastFetchedData) return;
+        
+        let activeData = [...lastFetchedData.active];
+        sortDataArray(activeData, sortState.active.col, sortState.active.dir);
+        renderActiveTable(activeData);
+        
+        let resolvedData = [...lastFetchedData.resolved];
+        resolvedData.forEach(row => {
+            row.was_correct = row.predicted_outcome === row.actual_outcome;
+        });
+        sortDataArray(resolvedData, sortState.resolved.col, sortState.resolved.dir);
+        renderResolvedTable(resolvedData);
+    }
+
+    function renderActiveTable(activeList) {
+        const activeTbody = document.getElementById('active-positions-tbody');
+        if (activeList.length === 0) {
+            activeTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
+        } else {
+            activeTbody.innerHTML = activeList.map((row, index) => {
+                const changePct = row.initial_price_outcome > 0 ? ((row.current_price_outcome - row.initial_price_outcome) / row.initial_price_outcome * 100) : 0;
+                let changeClass = '';
+                if (changePct > 0) {
+                    changeClass = 'text-green';
+                } else if (changePct < 0) {
+                    changeClass = 'text-red';
+                }
+                const changeSign = changePct > 0 ? '+' : '';
+                
+                const buyPrice = Math.round((row.current_price ?? row.initial_price) * 100) / 100;
+                const actionBtn = row.virtual_bought_price !== null
+                    ? `<span class="badge badge-blue">В портфеле</span>`
+                    : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;
+
+                let analyzeBtnClass = 'badge-gray';
+                let analyzeBtnText = 'Анализ';
+                let analyzeBtnPulse = '';
+                
+                if (row.is_analyzed) {
+                    analyzeBtnClass = 'badge-purple';
+                } else if (runningAnalyses.includes(row.market_id)) {
+                    analyzeBtnClass = 'badge-orange';
+                    analyzeBtnText = 'Анализ (идет...)';
+                    analyzeBtnPulse = 'pulse-animation';
+                }
+
+                const analyzeBtn = `<button class="badge ${analyzeBtnClass} ${analyzeBtnPulse}" style="border:none; cursor:pointer; font-weight:600; margin-left:4px;" onclick="showAnalysis('${row.market_id}')">${analyzeBtnText}</button>`;
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; margin-left:4px; background-color:#ef4444; color:#fff;" onclick="deleteMarket('whale_stocks_monitoring', '${row.market_id}')">🗑️</button>`;
+
+                let outcomeBadge = '';
+                if (row.predicted_outcome !== null) {
+                    outcomeBadge = `<span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span>`;
+                } else {
+                    outcomeBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.cheap_outcome}</span>`;
+                }
+
+                const rowStyle = row.is_analyzed ? 'style="background-color: rgba(139, 92, 246, 0.08);"' : '';
+                const globalIndex = (pagination.active.page - 1) * pagination.active.limit + index + 1;
+                return `
+                    <tr ${rowStyle}>
+                        <td>${globalIndex}</td>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${formatPriceCents(row.initial_price_outcome)}</td>
+                        <td>${formatPriceCents(row.current_price_outcome)} <span class="${changeClass}" style="font-size:0.8rem; margin-left:4px;">(${changeSign}${changePct.toFixed(1)}%)</span></td>
+                        <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
+                        <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
+                        <td>$${Math.round(row.volume_2h)}</td>
+                        <td>${outcomeBadge}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.added_at)}</td>
+                        <td><div style="display: flex; gap: 6px; align-items: center; white-space: nowrap;">${actionBtn}${analyzeBtn}${deleteBtn}</div></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    function renderResolvedTable(resolvedList) {
+        const resolvedTbody = document.getElementById('resolved-positions-tbody');
+        if (resolvedList.length === 0) {
+            resolvedTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
+        } else {
+            resolvedTbody.innerHTML = resolvedList.map((row, index) => {
+                const targetOutcome = row.predicted_outcome !== null ? row.predicted_outcome : row.cheap_outcome;
+                const wasCorrect = targetOutcome === row.actual_outcome;
+                const resultBadge = wasCorrect 
+                    ? '<span class="badge badge-green">✅ WIN</span>' 
+                    : '<span class="badge badge-red">❌ LOSS</span>';
+                
+                let outcomeBadge = '';
+                if (row.predicted_outcome !== null) {
+                    outcomeBadge = `<span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span>`;
+                } else {
+                    outcomeBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.cheap_outcome}</span>`;
+                }
+
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('whale_stocks_monitoring', '${row.market_id}')">🗑️</button>`;
+                const globalIndex = (pagination.resolved.page - 1) * pagination.resolved.limit + index + 1;
+                return `
+                    <tr>
+                        <td>${globalIndex}</td>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-secondary); text-decoration:none;">${row.title}</a></td>
+                        <td>${formatPriceCents(row.initial_price_outcome)}</td>
+                        <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
+                        <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
+                        <td>${outcomeBadge}</td>
+                        <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
+                        <td>${row.pnl_realized !== null ? formatPnL(row.pnl_realized) : '—'}</td>
+                        <td>${resultBadge}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
+                        <td>${deleteBtn}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    function renderVirtualHistoryTable(historyList) {
+        const historyTbody = document.getElementById('virtual-history-tbody');
+        if (!historyList || historyList.length === 0) {
+            historyTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">История пуста</td></tr>`;
+        } else {
+            historyTbody.innerHTML = historyList.map((row, index) => {
+                let pnlClass = '';
+                if (row.pnl_cents > 0) {
+                    pnlClass = 'text-green';
+                } else if (row.pnl_cents < 0) {
+                    pnlClass = 'text-red';
+                }
+                const pnlSign = row.pnl_cents > 0 ? '+' : '';
+                
+                let directionBadge = '';
+                if (row.outcome === 'YES') {
+                    directionBadge = `<span class="badge badge-green">YES</span>`;
+                } else if (row.outcome === 'NO') {
+                    directionBadge = `<span class="badge badge-red">NO</span>`;
+                } else {
+                    directionBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.outcome}</span>`;
+                }
+                
+                const globalIndex = (pagination.history.page - 1) * pagination.history.limit + index + 1;
+                return `
+                    <tr>
+                        <td>${globalIndex}</td>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${directionBadge}</td>
+                        <td>${formatPriceCents(row.bought_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.bought_price)})</span></td>
+                        <td>${formatPriceCents(row.sold_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.sold_price)})</span></td>
+                        <td>${row.current_outcome_price !== null && row.current_outcome_price !== undefined ? formatPriceCents(row.current_outcome_price) : '—'}</td>
+                        <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
+                        <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
+                        <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent.toFixed(2)}%)</span></td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.bought_at)}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.sold_at)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    function renderSystemAlerts(alertsList) {
+        const container = document.getElementById('system-alerts-list');
+        if (!alertsList || alertsList.length === 0) {
+            container.innerHTML = `<div class="text-muted" style="text-align: center; padding: 20px;">Нет новых оповещений</div>`;
+        } else {
+            container.innerHTML = alertsList.map(alert => {
+                const date = new Date(alert.analyzed_at);
+                const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+                return `
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 12px;">
+                        <span class="badge badge-purple" style="font-size: 0.75rem; padding: 2px 6px;">WHALE</span>
+                        <div style="flex: 1;">
+                            <div style="color: var(--text-primary); font-size: 0.9rem; font-weight: 500;">Активность кошелька</div>
+                            <div style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 2px;">
+                                ${alert.title}
+                            </div>
+                        </div>
+                        <div class="text-muted" style="font-size: 0.75rem; text-align: right; white-space: nowrap;">
+                            ${dateStr}, ${timeStr}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    async function showAnalysis(marketId, forceReload = false) {
+        const modal = document.getElementById('modal-market');
+        const body = document.getElementById('modal-market-body');
+        const title = document.getElementById('modal-market-title');
+        
+        modal.style.display = 'flex';
+        setTimeout(() => modal.classList.add('active'), 10);
+        
+        title.textContent = 'Загрузка...';
+        body.innerHTML = `
+            <div style="text-align:center; padding:40px 0;">
+                <div class="spinner" style="margin:0 auto 20px auto; border-top-color:#8b5cf6;"></div>
+                <div style="font-weight:500;">Сбор мнений агентов...</div>
+            </div>
+        `;
+        
+        try {
+            let res;
+            if (forceReload) {
+                res = await fetch('/api/penny-stocks/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ market_id: marketId })
+                });
+            } else {
+                res = await fetch(`/api/penny-stocks/analyze-status?market_id=${marketId}`);
+            }
+
+            if (!res.ok) {
+                const err = await res.json();
+                renderError(err.error || 'Server error', marketId);
+                return;
+            }
+
+            const data = await res.json();
+            if (data.status === 'running' || data.status === 'queued') {
+                title.textContent = 'Анализ рынка';
+                body.innerHTML = `
+                    <div style="text-align:center; padding:40px 0;">
+                        <div class="spinner" style="margin:0 auto 20px auto; border-top-color:#f59e0b; animation: spin 1s linear infinite;"></div>
+                        <div style="font-weight:600; margin-bottom:8px; font-size:1.05rem;">Анализ в процессе</div>
+                        <div class="text-muted" style="font-size:0.9rem; margin-bottom:20px;">Запущен процесс LLM-валидации. Это может занять до 1-2 минут...</div>
+                        <button class="badge" style="border:1px solid var(--border-color); background:none; color:var(--text-primary); padding:8px 16px; cursor:pointer;" onclick="closeAnalysisModal()">Закрыть модалку (процесс продолжится)</button>
+                    </div>
+                `;
+                
+                const checkInterval = setInterval(async () => {
+                    if (modal.style.display === 'none') {
+                        clearInterval(checkInterval);
+                        return;
+                    }
+                    const checkRes = await fetch(`/api/penny-stocks/analyze-status?market_id=${marketId}`);
+                    if (checkRes.ok) {
+                        const checkData = await checkRes.json();
+                        if (checkData.status === 'completed') {
+                            clearInterval(checkInterval);
+                            renderOpinions(checkData.opinions, checkData.market_title, marketId);
+                        } else if (checkData.status === 'failed') {
+                            clearInterval(checkInterval);
+                            renderError(checkData.error || 'Ошибка в воркере', marketId);
+                        }
+                    }
+                }, 5000);
+            } else if (data.status === 'completed') {
+                renderOpinions(data.opinions, data.market_title, marketId);
+            } else {
+                renderOpinions([], data.market_title || 'Анализ', marketId);
+            }
+        } catch (e) {
+            console.error("Ошибка при получении мнений:", e);
+            renderError("Не удалось подключиться к серверу.", marketId);
+        }
+    }
+
+    function renderOpinions(opinions, marketTitle, marketId) {
+        const titleEl = document.getElementById('modal-market-title');
+        const bodyEl = document.getElementById('modal-market-body');
+        
+        titleEl.textContent = marketTitle || 'Анализ рынка';
+
+        if (!opinions || opinions.length === 0) {
+            bodyEl.innerHTML = `
+                <div style="text-align:center; padding:30px 0;">
+                    <div style="font-size:2.5rem; margin-bottom:12px;">🤷‍♂️</div>
+                    <div style="font-weight:600; margin-bottom:8px;">Мнения агентов отсутствуют</div>
+                    <div class="text-muted" style="font-size:0.9rem; margin-bottom:20px;">Агенты не сформулировали отчет для этого рынка.</div>
+                    <button class="badge badge-purple" style="border:none; padding:8px 16px; cursor:pointer;" onclick="showAnalysis('${marketId}', true)">Запустить анализ</button>
+                </div>
+            `;
+            return;
+        }
+
+        const scout = opinions.find(o => o.agent_name === 'SCOUT');
+        const swing = opinions.find(o => o.agent_name === 'SWING');
+        const shadow = opinions.find(o => o.agent_name === 'SHADOW');
+
+        const tabs = [];
+        const panes = [];
+
+        if (scout) {
+            tabs.push({ id: 'scout', name: '🧠 SCOUT' });
+            panes.push({ id: 'scout', content: scout.opinion });
+        }
+        if (swing) {
+            tabs.push({ id: 'swing', name: '🏄 SWING' });
+            panes.push({ id: 'swing', content: swing.opinion });
+        }
+        if (shadow) {
+            const agreement = shadow.agree ? '<span class="text-green" style="font-weight:700;">✅ СОГЛАСЕН</span>' : '<span class="text-red" style="font-weight:700;">❌ ПРОТИВ</span>';
+            const detail = `Статус: ${agreement} (Уверенность: ${shadow.confidence})\n\n${shadow.opinion}`;
+            tabs.push({ id: 'shadow', name: '🛡️ SHADOW' });
+            panes.push({ id: 'shadow', content: detail });
+        }
+
+        if (tabs.length === 0) {
+            bodyEl.innerHTML = `<div class="text-muted">Мнения не содержат текстовых данных.</div>`;
+            return;
+        }
+
+        const tabHtml = tabs.map((t, idx) => `
+            <button class="opinion-tab-btn ${idx === 0 ? 'active' : ''}" onclick="switchOpinionTab(event, '${t.id}')">
+                ${t.name}
+            </button>
+        `).join('');
+
+        const paneHtml = panes.map((p, idx) => `
+            <div id="pane-${p.id}" class="opinion-pane ${idx === 0 ? 'active' : ''}">
+                <div class="opinion-content">${escapeHtml(p.content)}</div>
+            </div>
+        `).join('');
+
+        bodyEl.innerHTML = `
+            <div class="opinion-tabs">
+                ${tabHtml}
+            </div>
+            <div>
+                ${paneHtml}
+            </div>
+            <div style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+                <span class="text-muted" style="font-size:0.8rem;">Анализ сохранен в памяти системы</span>
+                <button class="badge badge-purple" style="border:none; padding:8px 16px; cursor:pointer;" onclick="showAnalysis('${marketId}', true)">Переанализировать</button>
             </div>
         `;
     }
 
-    async function changePage(sectionKey, newPage) {
-        pagination[sectionKey].page = newPage;
-        await loadWhaleData();
+    function switchOpinionTab(event, tabId) {
+        const tabButtons = event.currentTarget.parentNode.querySelectorAll('.opinion-tab-btn');
+        tabButtons.forEach(btn => btn.classList.remove('active'));
+        
+        const panes = event.currentTarget.parentNode.parentNode.querySelectorAll('.opinion-pane');
+        panes.forEach(pane => pane.classList.remove('active'));
+
+        event.currentTarget.classList.add('active');
+        document.getElementById(`pane-${tabId}`).classList.add('active');
     }
 
-    registerRefresh(loadWhaleData);
+    function renderError(errorMsg, marketId) {
+        const bodyEl = document.getElementById('modal-market-body');
+        bodyEl.innerHTML = `
+            <div style="text-align:center; padding:30px 0;">
+                <div style="font-size:2.5rem; margin-bottom:12px; color:var(--accent-red);">⚠️</div>
+                <div style="font-weight:600; margin-bottom:8px; font-size:1.05rem;">Ошибка анализа</div>
+                <div class="text-muted" style="font-size:0.9rem; margin-bottom:20px; max-width:500px; margin-left:auto; margin-right:auto; line-height:1.5;">${escapeHtml(errorMsg)}</div>
+                <div style="display:flex; justify-content:center; gap:12px;">
+                    <button class="badge badge-purple" style="border:none; padding:8px 16px; cursor:pointer;" onclick="showAnalysis('${marketId}', true)">Попробовать снова</button>
+                    <button class="badge" style="border:1px solid var(--border-color); background:none; color:var(--text-primary); padding:8px 16px; cursor:pointer;" onclick="closeAnalysisModal()">Закрыть</button>
+                </div>
+            </div>
+        `;
+    }
+
+    function escapeHtml(text) {
+        if (!text) return "";
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function closeAnalysisModal() {
+        const modal = document.getElementById('modal-market');
+        modal.classList.remove('active');
+        setTimeout(() => modal.style.display = 'none', 250);
+    }
+
+    async function loadWhaleStocksData() {
+        const url = `/api/whale-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&resolved_page=${pagination.resolved.page}&resolved_limit=${pagination.resolved.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}`;
+        const data = await fetchJSON(url);
+
+        if (!data) return;
+
+        lastFetchedData = data;
+        pagination.active.total = data.active_total || 0;
+        pagination.resolved.total = data.resolved_total || 0;
+        pagination.history.total = data.history_total || 0;
+
+        runningAnalyses = data.running_analyses || [];
+
+        // 1. KPI
+        document.getElementById('kpi-active').textContent = data.stats.active_count;
+        document.getElementById('kpi-active-predicted').textContent = data.stats.active_predicted_count || 0;
+        document.getElementById('kpi-winrate').textContent = data.stats.win_rate !== null ? formatPercent(data.stats.win_rate) : '—';
+        document.getElementById('kpi-avgentry').textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : '—';
+        document.getElementById('kpi-besttrade').innerHTML = formatPnLCents(data.stats.best_trade_pnl);
+        document.getElementById('kpi-trades-pnl').innerHTML = formatPnL(data.stats.total_trades_pnl);
+        document.getElementById('kpi-all-pnl').innerHTML = formatPnL(data.stats.total_resolved_pnl);
+
+        // 2. Портфель
+        const portfolioTbody = document.getElementById('portfolio-tbody');
+        if (!data.portfolio || data.portfolio.length === 0) {
+            portfolioTbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Портфель пуст</td></tr>`;
+        } else {
+            portfolioTbody.innerHTML = data.portfolio.map((row, index) => {
+                let pnlClass = '';
+                if (row.pnl_cents > 0) {
+                    pnlClass = 'text-green';
+                } else if (row.pnl_cents < 0) {
+                    pnlClass = 'text-red';
+                }
+                const pnlSign = row.pnl_cents > 0 ? '+' : '';
+                
+                let directionBadge = '';
+                if (row.predicted_outcome !== null) {
+                    directionBadge = `<span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span>`;
+                } else {
+                    directionBadge = `<span class="badge badge-gray" style="background-color: #374151; color: #d1d5db;">${row.cheap_outcome}</span>`;
+                }
+
+                return `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${directionBadge}</td>
+                        <td>${formatPriceCents(row.bought_outcome_price)}</td>
+                        <td>${formatPriceCents(row.current_outcome_price)}</td>
+                        <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent}%)</span></td>
+                        <td>
+                            <button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600;" onclick="sellVirtual('${row.market_id}')">Продать</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 3. Таблицы с сортировкой
+        renderTablesOnly();
+        renderVirtualHistoryTable(data.virtual_history);
+        renderPaginationControls('active-pagination', 'active');
+        renderPaginationControls('resolved-pagination', 'resolved');
+        renderPaginationControls('history-pagination', 'history');
+        updateSortIndicators('active');
+        updateSortIndicators('resolved');
+
+        // 4. Оповещения
+        renderSystemAlerts(data.system_alerts);
+    }
+
+    registerRefresh(loadWhaleStocksData);
 </script>
