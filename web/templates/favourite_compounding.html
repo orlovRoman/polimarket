@@ -1,0 +1,554 @@
+<!-- favourite_compounding.html -->
+<style>
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+
+<div class="table-card" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px;">
+    <div>
+        <h3 style="margin: 0 0 4px 0; font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">Стратегия: Favourite Compounding</h3>
+        <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">Автоматическое реинвестирование на исходах-фаворитах (цена &ge; 95¢) с высокой степенью определенности и валидацией от LLM.</p>
+    </div>
+</div>
+
+<div class="opinion-tabs" style="margin-bottom: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 12px; display: flex; gap: 8px;">
+    <button id="compound-tab-auto" class="opinion-tab-btn active" onclick="switchCompoundTab('auto')">🤖 Авто-сигналы агентов</button>
+    <button id="compound-tab-manual" class="opinion-tab-btn" onclick="switchCompoundTab('manual')">💼 Ручной портфель</button>
+</div>
+
+<div class="kpi-row">
+    <div class="kpi-card">
+        <div class="kpi-title" id="kpi-active-title">Всего в мониторинге</div>
+        <div class="kpi-value" id="kpi-active">0</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title" id="kpi-resolved-title">Сигналов завершено</div>
+        <div class="kpi-value" id="kpi-resolved-count">0</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Win Rate</div>
+        <div class="kpi-value" id="kpi-winrate">—</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Ср. цена входа</div>
+        <div class="kpi-value" id="kpi-avgentry">—</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Лучший трейд</div>
+        <div class="kpi-value" id="kpi-besttrade">$0.00</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title" id="kpi-avg-pnl-title">Ср. PnL</div>
+        <div class="kpi-value" id="kpi-avg-pnl">$0.00</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title" id="kpi-total-pnl-title">Общий PnL</div>
+        <div class="kpi-value" id="kpi-total-pnl">$0.00</div>
+    </div>
+</div>
+
+<div id="top-grid" style="display: none; grid-template-columns: 1fr; gap: 24px; margin-bottom: 32px;">
+    <div id="portfolio-card" class="table-card" style="height: 380px; margin-bottom: 0; display: flex; flex-direction: column; padding: 24px;">
+        <div class="table-title" style="margin-bottom: 10px;">Виртуальный портфель</div>
+        <div class="table-wrapper" style="min-height: 200px; max-height: 300px; margin-top: 0; overflow-y: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Рынок</th>
+                        <th>Направление</th>
+                        <th>Вход</th>
+                        <th>Текущая</th>
+                        <th>PnL</th>
+                        <th>Действие</th>
+                    </tr>
+                </thead>
+                <tbody id="portfolio-tbody">
+                    <tr>
+                        <td colspan="7" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="table-card">
+    <div class="table-title">Активные compound-возможности</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th onclick="toggleSort('active', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-active-title"></span></th>
+                    <th onclick="toggleSort('active', 'price')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'price')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена фаворита<span id="sort-active-price"></span></th>
+                    <th onclick="toggleSort('active', 'volume_usd')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'volume_usd')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Объем (USD)<span id="sort-active-volume_usd"></span></th>
+                    <th onclick="toggleSort('active', 'roi_net_pct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'roi_net_pct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Net ROI<span id="sort-active-roi_net_pct"></span></th>
+                    <th onclick="toggleSort('active', 'confidence')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'confidence')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Уверенность LLM<span id="sort-active-confidence"></span></th>
+                    <th>Направление</th>
+                    <th>Обоснование</th>
+                    <th onclick="toggleSort('active', 'close_time')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'close_time')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Дата закрытия<span id="sort-active-close_time"></span></th>
+                    <th>Действие</th>
+                </tr>
+            </thead>
+            <tbody id="active-positions-tbody">
+                <tr>
+                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="active-pagination"></div>
+</div>
+
+<div id="resolved-card" class="table-card">
+    <div class="table-title">Завершенные compound-рынки (Авто-сигналы)</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
+                    <th onclick="toggleSort('resolved', 'price')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'price')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-price"></span></th>
+                    <th>Направление</th>
+                    <th>Исход Polymarket</th>
+                    <th onclick="toggleSort('resolved', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl_auto"></span></th>
+                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
+                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
+                    <th>Действие</th>
+                </tr>
+            </thead>
+            <tbody id="resolved-positions-tbody">
+                <tr>
+                    <td colspan="9" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="resolved-pagination"></div>
+</div>
+
+<div id="history-card" class="table-card" style="display: none;">
+    <div class="table-title">История виртуальных сделок (Ручной портфель)</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Рынок</th>
+                    <th>Направление</th>
+                    <th>Вход</th>
+                    <th>Выход</th>
+                    <th>PnL (USD)</th>
+                    <th>Дата покупки</th>
+                    <th>Дата продажи</th>
+                </tr>
+            </thead>
+            <tbody id="virtual-history-tbody">
+                <tr>
+                    <td colspan="8" style="text-align: center;" class="text-muted">История пуста</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="history-pagination"></div>
+</div>
+
+<script>
+    let pagination = {
+        active: { page: 1, limit: 50, total: 0 },
+        resolved: { page: 1, limit: 50, total: 0 },
+        history: { page: 1, limit: 50, total: 0 }
+    };
+
+    function formatDate(dateStr) {
+        if (!dateStr) return "—";
+        try {
+            const date = new Date(dateStr.replace(" ", "T"));
+            return date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        } catch (e) {
+            return dateStr;
+        }
+    }
+
+    function formatPriceCents(val) {
+        if (val === null || val === undefined) return "—";
+        const cents = val * 100;
+        return `${cents.toFixed(1)}¢`;
+    }
+
+    function formatPnLUnit(val) {
+        if (val === null || val === undefined) return "—";
+        const cents = val * 100;
+        const sign = cents > 0 ? "+" : "";
+        const color = cents > 0 ? "text-green" : (cents < 0 ? "text-red" : "");
+        return `<span class="${color}">${sign}${cents.toFixed(2)}¢</span>`;
+    }
+
+    function formatPnLUSD(val) {
+        if (val === null || val === undefined) return "—";
+        const sign = val > 0 ? "+" : "";
+        const color = val > 0 ? "text-green" : (val < 0 ? "text-red" : "");
+        return `<span class="${color}">${sign}$${val.toFixed(2)}</span>`;
+    }
+
+    async function buyVirtual(oppId, price) {
+        if (price === undefined || price === null) {
+            alert("Не удалось определить цену покупки.");
+            return;
+        }
+        try {
+            const res = await fetch('/api/favourite-compounding/buy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ opp_id: oppId, price: price })
+            });
+            if (res.ok) {
+                triggerRefresh();
+            } else {
+                const err = await res.json();
+                alert("Ошибка при покупке: " + (err.error || "неизвестная ошибка"));
+            }
+        } catch (e) {
+            console.error("Сетевая ошибка при покупке:", e);
+            alert("Сетевая ошибка при покупке");
+        }
+    }
+
+    async function sellVirtual(oppId, price) {
+        if (price === undefined || price === null) {
+            alert("Не удалось определить цену продажи.");
+            return;
+        }
+        try {
+            const res = await fetch('/api/favourite-compounding/sell', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ opp_id: oppId, price: price })
+            });
+            if (res.ok) {
+                triggerRefresh();
+            } else {
+                const err = await res.json();
+                alert("Ошибка при продаже: " + (err.error || "неизвестная ошибка"));
+            }
+        } catch (e) {
+            console.error("Сетевая ошибка при продаже:", e);
+            alert("Сетевая ошибка при продаже");
+        }
+    }
+
+    let currentTab = 'auto';
+    let sortState = {
+        active: { col: 'close_time', dir: 'asc' },
+        resolved: { col: 'resolved_at', dir: 'desc' }
+    };
+    let lastFetchedData = null;
+
+    function switchCompoundTab(tab) {
+        currentTab = tab;
+        document.getElementById('compound-tab-auto').classList.toggle('active', tab === 'auto');
+        document.getElementById('compound-tab-manual').classList.toggle('active', tab === 'manual');
+        
+        if (tab === 'auto') {
+            document.getElementById('top-grid').style.display = 'none';
+            document.getElementById('resolved-card').style.display = 'block';
+            document.getElementById('history-card').style.display = 'none';
+        } else {
+            document.getElementById('top-grid').style.display = 'grid';
+            document.getElementById('resolved-card').style.display = 'none';
+            document.getElementById('history-card').style.display = 'block';
+        }
+        
+        if (lastFetchedData) {
+            updateKPIDisplay(lastFetchedData);
+            renderTablesOnly();
+            renderVirtualHistoryTable(lastFetchedData.virtual_history);
+        }
+    }
+
+    function updateKPIDisplay(data) {
+        const kpiActiveTitle = document.getElementById('kpi-active-title');
+        const kpiActive = document.getElementById('kpi-active');
+        const kpiResolvedTitle = document.getElementById('kpi-resolved-title');
+        const kpiResolvedCount = document.getElementById('kpi-resolved-count');
+        const kpiWinrate = document.getElementById('kpi-winrate');
+        const kpiAvgEntry = document.getElementById('kpi-avgentry');
+        const kpiBestTrade = document.getElementById('kpi-besttrade');
+        const kpiAvgPnLTitle = document.getElementById('kpi-avg-pnl-title');
+        const kpiAvgPnL = document.getElementById('kpi-avg-pnl');
+        const kpiTotalPnLTitle = document.getElementById('kpi-total-pnl-title');
+        const kpiTotalPnL = document.getElementById('kpi-total-pnl');
+
+        if (currentTab === 'auto') {
+            kpiActiveTitle.textContent = "Всего в мониторинге";
+            kpiActive.textContent = data.stats.active_count;
+            kpiResolvedTitle.textContent = "Сигналов завершено";
+            kpiResolvedCount.textContent = data.stats.auto_resolved_count;
+            
+            const wr = data.stats.win_rate;
+            kpiWinrate.textContent = wr !== null ? `${(wr * 100).toFixed(1)}%` : "—";
+            kpiAvgEntry.textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : "—";
+            
+            const best = data.stats.best_trade_pnl;
+            kpiBestTrade.innerHTML = formatPnLUnit(best);
+            kpiAvgPnLTitle.textContent = "Ср. PnL сигнала";
+            kpiAvgPnL.innerHTML = formatPnLUnit(data.stats.avg_pnl);
+            kpiTotalPnLTitle.textContent = "Общий PnL сигналов";
+            kpiTotalPnL.innerHTML = formatPnLUnit(data.stats.total_resolved_pnl);
+        } else {
+            kpiActiveTitle.textContent = "Активных сделок";
+            kpiActive.textContent = data.portfolio ? data.portfolio.length : 0;
+            kpiResolvedTitle.textContent = "Сделок завершено";
+            kpiResolvedCount.textContent = data.manual_stats.count;
+            
+            const wr = data.manual_stats.win_rate;
+            kpiWinrate.textContent = wr !== null ? `${(wr * 100).toFixed(1)}%` : "—";
+            kpiAvgEntry.textContent = data.manual_stats.avg_entry_price !== null ? formatPriceCents(data.manual_stats.avg_entry_price) : "—";
+            
+            kpiBestTrade.innerHTML = formatPnLUSD(data.manual_stats.best_trade_pnl);
+            kpiAvgPnLTitle.textContent = "Ср. PnL сделки";
+            kpiAvgPnL.innerHTML = formatPnLUSD(data.manual_stats.avg_pnl);
+            kpiTotalPnLTitle.textContent = "Общий PnL сделок";
+            kpiTotalPnL.innerHTML = formatPnLUSD(data.manual_stats.total_trades_pnl);
+        }
+    }
+
+    function toggleSort(tableType, column) {
+        if (sortState[tableType].col === column) {
+            sortState[tableType].dir = sortState[tableType].dir === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortState[tableType].col = column;
+            sortState[tableType].dir = 'asc';
+        }
+        renderTablesOnly();
+        updateSortIndicators(tableType);
+    }
+
+    function sortDataArray(arr, col, dir) {
+        arr.sort((a, b) => {
+            let valA = a[col];
+            let valB = b[col];
+            if (valA === null || valA === undefined) return 1;
+            if (valB === null || valB === undefined) return -1;
+            if (typeof valA === 'string') {
+                return dir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            } else {
+                return dir === 'asc' ? valA - valB : valB - valA;
+            }
+        });
+    }
+
+    function updateSortIndicators(tableType) {
+        const state = sortState[tableType];
+        const columns = tableType === 'active' 
+            ? ['title', 'price', 'volume_usd', 'roi_net_pct', 'confidence', 'close_time']
+            : ['title', 'price', 'pnl_auto', 'was_correct', 'resolved_at'];
+            
+        columns.forEach(col => {
+            const el = document.getElementById(`sort-${tableType}-${col}`);
+            if (el) {
+                if (state.col === col) {
+                    el.textContent = state.dir === 'asc' ? ' 🔼' : ' 🔽';
+                } else {
+                    el.textContent = '';
+                }
+            }
+        });
+    }
+
+    async function deleteMarket(tableName, recordId) {
+        if (!confirm("Вы действительно хотите удалить эту запись из мониторинга?")) return;
+        try {
+            const res = await fetch('/api/delete-market', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table_name: tableName, record_id: recordId })
+            });
+            if (res.ok) {
+                triggerRefresh();
+            } else {
+                alert("Не удалось удалить запись");
+            }
+        } catch (e) {
+            console.error("Ошибка при удалении:", e);
+        }
+    }
+
+    function renderPaginationControls(containerId, sectionKey) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        const state = pagination[sectionKey];
+        const totalPages = Math.ceil(state.total / state.limit) || 1;
+        
+        let html = `<div class="pagination-container" style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:16px;">`;
+        html += `<span style="font-size:0.85rem; color:var(--text-secondary);">Страница ${state.page} из ${totalPages} (${state.total} записей)</span>`;
+        html += `<button class="badge badge-gray" style="border:none; cursor:${state.page > 1 ? 'pointer' : 'not-allowed'};" ${state.page > 1 ? '' : 'disabled'} onclick="changePage('${sectionKey}', ${state.page - 1})">Назад</button>`;
+        html += `<button class="badge badge-gray" style="border:none; cursor:${state.page < totalPages ? 'pointer' : 'not-allowed'};" ${state.page < totalPages ? '' : 'disabled'} onclick="changePage('${sectionKey}', ${state.page + 1})">Вперед</button>`;
+        html += `</div>`;
+        container.innerHTML = html;
+    }
+
+    async function changePage(sectionKey, newPage) {
+        pagination[sectionKey].page = newPage;
+        await loadCompoundingData();
+    }
+
+    function renderTablesOnly() {
+        if (!lastFetchedData) return;
+        
+        let activeData = [...lastFetchedData.active];
+        sortDataArray(activeData, sortState.active.col, sortState.active.dir);
+        renderActiveTable(activeData);
+        
+        let resolvedData = [...lastFetchedData.resolved];
+        resolvedData.forEach(row => {
+            row.was_correct = row.outcome === row.actual_outcome;
+        });
+        sortDataArray(resolvedData, sortState.resolved.col, sortState.resolved.dir);
+        renderResolvedTable(resolvedData);
+    }
+
+    function renderActiveTable(activeList) {
+        const activeTbody = document.getElementById('active-positions-tbody');
+        if (activeList.length === 0) {
+            activeTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет активных возможностей</td></tr>`;
+        } else {
+            activeTbody.innerHTML = activeList.map((row, index) => {
+                let actionBtn = '';
+                if (currentTab === 'manual') {
+                    actionBtn = row.virtual_bought_price !== null
+                        ? `<span class="badge badge-blue">В портфеле</span>`
+                        : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.id}', ${row.price})">Купить</button>`;
+                }
+
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; margin-left:4px; background-color:#ef4444; color:#fff;" onclick="deleteMarket('compound_opportunities', '${row.id}')">🗑️</button>`;
+
+                let directionBadge = `<span class="badge ${row.outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.outcome}</span>`;
+                const globalIndex = (pagination.active.page - 1) * pagination.active.limit + index + 1;
+                
+                return `
+                    <tr>
+                        <td>${globalIndex}</td>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${formatPriceCents(row.price)}</td>
+                        <td>$${Math.round(row.volume_usd).toLocaleString('ru-RU')}</td>
+                        <td>+${row.roi_net_pct ? row.roi_net_pct.toFixed(1) : 0}%</td>
+                        <td>${row.confidence ? (row.confidence * 100).toFixed(0) : 0}%</td>
+                        <td>${directionBadge}</td>
+                        <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${row.obviousness_reason || ''}">${row.obviousness_reason || '—'}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.close_time)}</td>
+                        <td><div style="display: flex; gap: 6px; align-items: center; white-space: nowrap;">${actionBtn}${deleteBtn}</div></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    function renderResolvedTable(resolvedList) {
+        const resolvedTbody = document.getElementById('resolved-positions-tbody');
+        if (resolvedList.length === 0) {
+            resolvedTbody.innerHTML = `<tr><td colspan="9" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
+        } else {
+            resolvedTbody.innerHTML = resolvedList.map((row, index) => {
+                const wasCorrect = row.outcome === row.actual_outcome;
+                const resultBadge = wasCorrect 
+                    ? '<span class="badge badge-green">✅ WIN</span>' 
+                    : '<span class="badge badge-red">❌ LOSS</span>';
+                
+                let directionBadge = `<span class="badge ${row.outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.outcome}</span>`;
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('compound_opportunities', '${row.id}')">🗑️</button>`;
+                const globalIndex = (pagination.resolved.page - 1) * pagination.resolved.limit + index + 1;
+                return `
+                    <tr>
+                        <td>${globalIndex}</td>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-secondary); text-decoration:none;">${row.title}</a></td>
+                        <td>${formatPriceCents(row.price)}</td>
+                        <td>${directionBadge}</td>
+                        <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
+                        <td>${row.pnl_auto !== null ? formatPnLUnit(row.pnl_auto) : '—'}</td>
+                        <td>${resultBadge}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
+                        <td>${deleteBtn}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    function renderVirtualHistoryTable(historyList) {
+        const historyTbody = document.getElementById('virtual-history-tbody');
+        if (!historyList || historyList.length === 0) {
+            historyTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">История пуста</td></tr>`;
+        } else {
+            historyTbody.innerHTML = historyList.map((row, index) => {
+                let directionBadge = `<span class="badge ${row.outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.outcome}</span>`;
+                const globalIndex = (pagination.history.page - 1) * pagination.history.limit + index + 1;
+                return `
+                    <tr>
+                        <td>${globalIndex}</td>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${directionBadge}</td>
+                        <td>${formatPriceCents(row.bought_outcome_price)}</td>
+                        <td>${formatPriceCents(row.sold_outcome_price)}</td>
+                        <td>${formatPnLUSD(row.pnl_usd)} <span style="font-size:0.8rem; margin-left:4px;">(${row.pnl_percent > 0 ? '+' : ''}${row.pnl_percent}%)</span></td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.bought_at)}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.sold_at)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    async function loadCompoundingData() {
+        const url = `/api/favourite-compounding?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&resolved_page=${pagination.resolved.page}&resolved_limit=${pagination.resolved.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}`;
+        const data = await fetchJSON(url);
+
+        if (!data) return;
+
+        lastFetchedData = data;
+        pagination.active.total = data.active_total || 0;
+        pagination.resolved.total = data.resolved_total || 0;
+        pagination.history.total = data.history_total || 0;
+
+        // 1. Рендерим KPI
+        updateKPIDisplay(data);
+
+        // 2. Рендерим таблицу Виртуального портфеля
+        const portfolioTbody = document.getElementById('portfolio-tbody');
+        if (!data.portfolio || data.portfolio.length === 0) {
+            portfolioTbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Портфель пуст</td></tr>`;
+        } else {
+            portfolioTbody.innerHTML = data.portfolio.map((row, index) => {
+                let directionBadge = `<span class="badge ${row.outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.outcome}</span>`;
+                return `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${directionBadge}</td>
+                        <td>${formatPriceCents(row.bought_outcome_price)}</td>
+                        <td>${formatPriceCents(row.current_outcome_price)}</td>
+                        <td>${formatPnLUSD(row.pnl_usd)} (${row.pnl_percent > 0 ? '+' : ''}${row.pnl_percent}%)</td>
+                        <td>
+                            <button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600;" onclick="sellVirtual('${row.id}', ${row.price})">Продать</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 3. Рендерим таблицы с сортировкой
+        renderTablesOnly();
+        renderVirtualHistoryTable(data.virtual_history);
+        renderPaginationControls('active-pagination', 'active');
+        renderPaginationControls('resolved-pagination', 'resolved');
+        renderPaginationControls('history-pagination', 'history');
+        updateSortIndicators('active');
+        updateSortIndicators('resolved');
+    }
+
+    // Регистрируем хэндлер обновления в глобальном цикле
+    registerRefresh(loadCompoundingData);
+</script>

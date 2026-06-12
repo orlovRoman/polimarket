@@ -536,6 +536,12 @@
                     Penny Stocks
                 </a>
             </li>
+            <li class="sidebar-item" id="nav-compound">
+                <a href="/favourite-compounding">
+                    <svg viewBox="0 0 24 24"><path d="M23 6l-9.5 9.5-5-5L1 18"></path><polyline points="17 6 23 6 23 12"></polyline></svg>
+                    Favourite Compounding
+                </a>
+            </li>
             <li class="sidebar-item" id="nav-scout">
                 <a href="/scout">
                     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -591,6 +597,9 @@
         } else if (path === '/penny-stocks') {
             document.getElementById('nav-penny').classList.add('active');
             document.getElementById('page-title').textContent = 'Стратегия: Penny Stocks';
+        } else if (path === '/favourite-compounding') {
+            document.getElementById('nav-compound').classList.add('active');
+            document.getElementById('page-title').textContent = 'Стратегия: Favourite Compounding';
         } else if (path === '/scout') {
             document.getElementById('nav-scout').classList.add('active');
             document.getElementById('page-title').textContent = 'Стратегия: Scout (LLM)';

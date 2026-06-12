@@ -1301,3 +1301,245 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
         'temporal_total': temporal_total,
         'cross_total': cross_total
     }
+
+
+def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100) -> dict:
+    """
+    Собирает данные для дашборда Favourite Compounding (активные, завершенные позиции, статистика, ручной портфель, история ручных сделок).
+    """
+    from agents.shared.python.db import get_connection
+    with get_connection() as conn:
+        # Подсчет общего количества активных
+        active_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM compound_opportunities
+            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT', 'ALERTED_EXIT')
+        """).fetchone()['cnt']
+
+        # Активные позиции с пагинацией
+        active_offset = (active_page - 1) * active_limit
+        active_rows = conn.execute("""
+            SELECT id, market_id, title, url, price, volume_usd, close_time, hours_left,
+                   spread_pct, roi_net_pct, confidence, obviousness_reason, status,
+                   virtual_bought_price, virtual_bought_at, outcome
+            FROM compound_opportunities
+            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT', 'ALERTED_EXIT')
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """, (active_limit, active_offset)).fetchall()
+
+        active = [dict(r) for r in active_rows]
+
+        # Подсчет общего количества завершенных
+        resolved_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM compound_opportunities
+            WHERE status = 'RESOLVED'
+        """).fetchone()['cnt']
+
+        # Завершенные позиции (все, авто-сигналы) с пагинацией
+        resolved_offset = (resolved_page - 1) * resolved_limit
+        resolved_rows = conn.execute("""
+            SELECT o.id, o.market_id, o.title, o.url, o.price, o.volume_usd, o.close_time,
+                   o.confidence, o.obviousness_reason, o.status, o.actual_outcome, o.outcome,
+                   o.resolved_at, o.exit_price, o.pnl_usd as pnl_auto,
+                   h.pnl_usd as pnl_realized
+            FROM compound_opportunities o
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_usd) as pnl_usd
+                FROM compound_virtual_trades_history
+                GROUP BY market_id
+            ) h ON o.market_id = h.market_id
+            WHERE o.status = 'RESOLVED'
+            ORDER BY o.resolved_at DESC
+            LIMIT ? OFFSET ?
+        """, (resolved_limit, resolved_offset)).fetchall()
+
+        resolved = []
+        for r in resolved_rows:
+            row_dict = dict(r)
+            price = row_dict['price']
+            outcome = row_dict['outcome']
+            actual = row_dict['actual_outcome']
+            
+            # Авто-PnL (сигналы агентов) рассчитывается на 1 акцию: (1.0 if actual == outcome else 0.0) - price
+            pnl_auto = None
+            if actual is not None and price is not None and outcome is not None:
+                pnl_auto = round((1.0 if actual == outcome else 0.0) - price, 4)
+            row_dict['pnl_auto'] = pnl_auto
+
+            # Гипотетический ручной PnL в USD, если реальной сделки не было, но рынок разрешен (со стейком 50.0)
+            pnl_realized = row_dict['pnl_realized']
+            if pnl_realized is None and actual is not None and price is not None and outcome is not None:
+                stake = 50.0
+                if actual == outcome:
+                    pnl_realized = stake * (1.0 - price) / price * (1.0 - 0.02)
+                else:
+                    pnl_realized = -stake
+                row_dict['pnl_realized'] = round(pnl_realized, 2)
+
+            resolved.append(row_dict)
+
+        # Виртуальный портфель (активный)
+        portfolio_rows = conn.execute("""
+            SELECT id, market_id, title, url, price, volume_usd, close_time, confidence,
+                   virtual_bought_price, virtual_bought_at, outcome
+            FROM compound_opportunities
+            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT', 'ALERTED_EXIT')
+              AND virtual_bought_price IS NOT NULL
+            ORDER BY virtual_bought_at DESC
+        """).fetchall()
+
+        portfolio = []
+        for r in portfolio_rows:
+            row_dict = dict(r)
+            v_bought = row_dict['virtual_bought_price']
+            v_curr = row_dict['price']
+            
+            stake = 50.0
+            pnl_usd = 0.0
+            if v_bought is not None and v_curr is not None:
+                pnl_usd = stake * (v_curr - v_bought) / v_bought
+                if pnl_usd > 0:
+                    pnl_usd = pnl_usd * (1.0 - 0.02)
+            pnl_percent = (pnl_usd / stake) * 100 if stake > 0 else 0.0
+
+            row_dict['bought_outcome_price'] = round(v_bought, 4) if v_bought is not None else None
+            row_dict['current_outcome_price'] = round(v_curr, 4) if v_curr is not None else None
+            row_dict['pnl_usd'] = round(pnl_usd, 2)
+            row_dict['pnl_percent'] = round(pnl_percent, 2)
+
+            portfolio.append(row_dict)
+
+        # === 1. АВТО-СТАТИСТИКА (СИГНАЛЫ АГЕНТОВ) ===
+        auto_resolved_row = conn.execute("""
+            SELECT
+                COUNT(*) as count,
+                SUM(CASE WHEN actual_outcome = outcome THEN 1 ELSE 0 END) as wins,
+                MAX(
+                    (CASE WHEN actual_outcome = outcome THEN 1.0 ELSE 0.0 END) - price
+                ) as best_pnl,
+                AVG(
+                    (CASE WHEN actual_outcome = outcome THEN 1.0 ELSE 0.0 END) - price
+                ) as avg_pnl,
+                SUM(
+                    (CASE WHEN actual_outcome = outcome THEN 1.0 ELSE 0.0 END) - price
+                ) as total_pnl
+            FROM compound_opportunities
+            WHERE status = 'RESOLVED'
+        """).fetchone()
+
+        auto_win_rate = None
+        auto_best_pnl = 0.0
+        auto_avg_pnl = 0.0
+        auto_total_pnl = 0.0
+        if auto_resolved_row and auto_resolved_row['count'] > 0:
+            auto_win_rate = auto_resolved_row['wins'] / auto_resolved_row['count']
+            auto_best_pnl = auto_resolved_row['best_pnl'] or 0.0
+            auto_avg_pnl = auto_resolved_row['avg_pnl'] or 0.0
+            auto_total_pnl = auto_resolved_row['total_pnl'] or 0.0
+
+        avg_entry_auto_row = conn.execute("""
+            SELECT AVG(price) as avg_entry
+            FROM compound_opportunities
+            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT', 'ALERTED_EXIT')
+        """).fetchone()
+        avg_entry_auto = avg_entry_auto_row['avg_entry'] if avg_entry_auto_row else None
+
+        stats = {
+            'active_count': active_total,
+            'active_predicted_count': active_total,
+            'resolved_count': resolved_total,
+            'auto_resolved_count': auto_resolved_row['count'] if auto_resolved_row else 0,
+            'win_rate': auto_win_rate,
+            'avg_entry_price': avg_entry_auto,
+            'best_trade_pnl': auto_best_pnl,
+            'avg_pnl': auto_avg_pnl,
+            'total_resolved_pnl': round(auto_total_pnl, 4)
+        }
+
+        # === 2. РУЧНАЯ СТАТИСТИКА (ВИРТУАЛЬНЫЕ СДЕЛКИ) ===
+        manual_stats_row = conn.execute("""
+            SELECT
+                COUNT(*) as count,
+                SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
+                MAX(pnl_usd) as best_pnl,
+                AVG(pnl_usd) as avg_pnl,
+                SUM(pnl_usd) as total_pnl
+            FROM compound_virtual_trades_history
+        """).fetchone()
+
+        manual_win_rate = None
+        manual_best_pnl = 0.0
+        manual_avg_pnl = 0.0
+        manual_total_pnl = 0.0
+        if manual_stats_row and manual_stats_row['count'] > 0:
+            manual_win_rate = manual_stats_row['wins'] / manual_stats_row['count']
+            manual_best_pnl = manual_stats_row['best_pnl'] or 0.0
+            manual_avg_pnl = manual_stats_row['avg_pnl'] or 0.0
+            manual_total_pnl = manual_stats_row['total_pnl'] or 0.0
+
+        avg_entry_manual_row = conn.execute("""
+            SELECT AVG(virtual_bought_price) as avg_entry
+            FROM compound_opportunities
+            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT', 'ALERTED_EXIT')
+              AND virtual_bought_price IS NOT NULL
+        """).fetchone()
+        avg_entry_manual = avg_entry_manual_row['avg_entry'] if avg_entry_manual_row else None
+
+        manual_stats = {
+            'count': manual_stats_row['count'] if manual_stats_row else 0,
+            'win_rate': manual_win_rate,
+            'avg_entry_price': avg_entry_manual,
+            'best_trade_pnl': manual_best_pnl,
+            'avg_pnl': manual_avg_pnl,
+            'total_trades_pnl': round(manual_total_pnl, 2)
+        }
+
+        # Подсчет истории виртуальных сделок
+        history_total = conn.execute("SELECT COUNT(*) as cnt FROM compound_virtual_trades_history").fetchone()['cnt']
+
+        history_offset = (history_page - 1) * history_limit
+        history_rows = conn.execute("""
+            SELECT 
+                h.id, 
+                h.market_id, 
+                h.title, 
+                h.url, 
+                h.outcome, 
+                h.bought_price, 
+                h.bought_outcome_price, 
+                h.sold_price, 
+                h.sold_outcome_price, 
+                h.pnl_usd, 
+                h.pnl_percent, 
+                h.bought_at, 
+                h.sold_at, 
+                h.max_price_seen, 
+                h.min_price_seen,
+                m.price as current_price,
+                m.status as market_status,
+                m.actual_outcome
+            FROM compound_virtual_trades_history h
+            LEFT JOIN (
+                SELECT market_id, price, status, actual_outcome
+                FROM compound_opportunities
+                GROUP BY market_id
+            ) m ON h.market_id = m.market_id
+            ORDER BY h.sold_at DESC
+            LIMIT ? OFFSET ?
+        """, (history_limit, history_offset)).fetchall()
+
+        virtual_history = [dict(r) for r in history_rows]
+
+    return {
+        'active': active,
+        'resolved': resolved,
+        'portfolio': portfolio,
+        'stats': stats,
+        'manual_stats': manual_stats,
+        'virtual_history': virtual_history,
+        'active_total': active_total,
+        'resolved_total': resolved_total,
+        'history_total': history_total
+    }

@@ -399,43 +399,56 @@ def _resolve_compound_outcomes() -> int:
     cfg = get_compound_settings()
     virtual_stake = cfg.get("virtual_stake", 50.0)
     
-    # Находим позиции, купленные пользователем
+    cfg = get_compound_settings()
+    virtual_stake = cfg.get("virtual_stake", 50.0)
+    
+    # Находим активные позиции, которые были авто-куплены или вручную куплены
     active_opps = get_active_compound_opportunities()
-    bought = [o for o in active_opps if o["status"] in ("BOUGHT", "ALERTED_EXIT")]
+    to_resolve = [o for o in active_opps if o["status"] in ("BOUGHT", "ALERTED_EXIT") or o["virtual_bought_price"] is not None]
     resolved_count = 0
 
-    for opp in bought:
+    for opp in to_resolve:
         res = _fetch_resolution(opp["market_id"])
         if res not in ("YES", "NO"):
             continue
             
-        # Рассчитываем PnL по правилам оракула
-        price = opp["price"]
-        target_outcome = opp.get("outcome", "YES")
-        was_correct = res == target_outcome
-        
-        if was_correct:
-            contracts = virtual_stake / price
-            pnl = contracts * (1.0 - price) * (1.0 - ROICalculator.POLY_FEE_PCT)
-        else:
-            pnl = -virtual_stake
+        # 1. Если это ручная сделка в виртуальном портфеле, разрешаем её
+        if opp["virtual_bought_price"] is not None:
+            from agents.shared.python.db import resolve_compound_opportunity_manual_portfolio
+            resolve_compound_opportunity_manual_portfolio(opp["id"], res)
             
-        pnl = round(pnl, 2)
-        
-        # Обновляем таблицу compound_opportunities
-        resolve_compound_opportunity(opp["id"], res, pnl)
-        
-        # Разрешаем соответствующий сигнал в signals (чтобы обновились strategy_metrics)
-        with get_connection() as conn:
-            sig_row = conn.execute(
-                "SELECT * FROM signals WHERE market_id = ? AND strategy_type = 'FAVOURITE_COMPOUND' "
-                "ORDER BY created_at DESC LIMIT 1",
-                (opp["market_id"],)
-            ).fetchone()
-            if sig_row:
-                _resolve_signal(dict(sig_row), res)
+        # 2. Если это авто-сделка, разрешаем её
+        if opp["status"] in ("BOUGHT", "ALERTED_EXIT"):
+            price = opp["price"]
+            target_outcome = opp.get("outcome", "YES")
+            was_correct = res == target_outcome
+            
+            if was_correct:
+                contracts = virtual_stake / price
+                pnl = contracts * (1.0 - price) * (1.0 - ROICalculator.POLY_FEE_PCT)
+            else:
+                pnl = -virtual_stake
                 
-        logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} PnL=${pnl:.2f}")
+            pnl = round(pnl, 2)
+            
+            # Обновляем таблицу compound_opportunities
+            resolve_compound_opportunity(opp["id"], res, pnl)
+            
+            # Разрешаем соответствующий сигнал в signals (чтобы обновились strategy_metrics)
+            with get_connection() as conn:
+                sig_row = conn.execute(
+                    "SELECT * FROM signals WHERE market_id = ? AND strategy_type = 'FAVOURITE_COMPOUND' "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (opp["market_id"],)
+                ).fetchone()
+                if sig_row:
+                    _resolve_signal(dict(sig_row), res)
+            logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} Auto PnL=${pnl:.2f}")
+        else:
+            # Если куплена только вручную, всё равно закрываем саму возможность
+            resolve_compound_opportunity(opp["id"], res, None)
+            logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} (только ручная сделка)")
+            
         resolved_count += 1
 
     return resolved_count

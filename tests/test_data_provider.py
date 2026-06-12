@@ -555,4 +555,99 @@ def test_get_whale_stocks_dashboard(isolated_db):
     assert data['price_distribution']['40-60¢'] == 1 # whale_c(0.50)
 
 
+def test_get_compounding_dashboard_empty(isolated_db):
+    data = data_provider.get_compounding_dashboard()
+    assert data['active'] == []
+    assert data['resolved'] == []
+    assert data['portfolio'] == []
+    assert data['stats']['active_count'] == 0
+    assert data['manual_stats']['count'] == 0
+
+
+def test_compounding_buy_and_sell(isolated_db):
+    # Вставляем одну активную возможность
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, outcome)
+            VALUES ('opp_1', 'mkt_1', 'Test Compound 1', 'http://url1', 0.96, 10000.0, '2026-06-15 12:00:00', 48.0, 4.1, 0.85, 'NEW', 'YES')
+        """)
+
+    # 1. Покупаем
+    from agents.shared.python.db import buy_virtual_compound_opportunity, sell_virtual_compound_opportunity
+    buy_virtual_compound_opportunity('opp_1', 0.96)
+
+    # Проверяем, что в портфеле появилась запись
+    data = data_provider.get_compounding_dashboard()
+    assert len(data['portfolio']) == 1
+    assert data['portfolio'][0]['bought_outcome_price'] == pytest.approx(0.96)
+    assert data['portfolio'][0]['pnl_usd'] == pytest.approx(0.0)
+
+    # 2. Продаем по цене 0.98
+    sell_virtual_compound_opportunity('opp_1', 0.98)
+
+    # Проверяем, что в портфеле пусто, а в истории есть запись с PnL
+    data = data_provider.get_compounding_dashboard()
+    assert len(data['portfolio']) == 0
+    assert len(data['virtual_history']) == 1
+    
+    trade = data['virtual_history'][0]
+    assert trade['market_id'] == 'mkt_1'
+    assert trade['outcome'] == 'YES'
+    assert trade['bought_price'] == pytest.approx(0.96)
+    assert trade['sold_price'] == pytest.approx(0.98)
+    
+    # Расчет ожидаемого PnL:
+    # bought_price = 0.96, sold_price = 0.98
+    # stake = 50.0
+    # raw_pnl = 50.0 * (0.98 - 0.96) / 0.96 = 1.04166
+    # pnl_after_fee = 1.04166 * (1.0 - 0.02) = 1.02083 => 1.02
+    assert trade['pnl_usd'] == pytest.approx(1.02, abs=1e-2)
+
+
+def test_compounding_resolve_manual_and_auto(isolated_db):
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, outcome, virtual_bought_price, virtual_bought_at)
+            VALUES 
+            ('opp_win', 'mkt_win', 'Win Opp', 'http://win', 0.96, 12000.0, '2026-06-15 12:00:00', 48.0, 4.1, 0.85, 'BOUGHT', 'YES', 0.96, '2026-06-12 12:00:00'),
+            ('opp_lose', 'mkt_lose', 'Lose Opp', 'http://lose', 0.95, 12000.0, '2026-06-15 12:00:00', 48.0, 4.1, 0.85, 'NEW', 'YES', 0.95, '2026-06-12 12:00:00')
+        """)
+
+    from services.outcome_tracker import _resolve_compound_outcomes
+    from unittest.mock import patch
+
+    def mock_fetch(market_id):
+        if market_id == 'mkt_win':
+            return 'YES'
+        if market_id == 'mkt_lose':
+            return 'NO'
+        return None
+
+    with patch('services.outcome_tracker._fetch_resolution', side_effect=mock_fetch):
+        resolved_count = _resolve_compound_outcomes()
+        assert resolved_count == 2
+
+    with db_module.get_connection() as conn:
+        win_trade = conn.execute("SELECT * FROM compound_virtual_trades_history WHERE market_id = 'mkt_win'").fetchone()
+        assert win_trade is not None
+        assert win_trade['pnl_usd'] == pytest.approx(2.04, abs=1e-2)
+        assert win_trade['pnl_percent'] == pytest.approx(4.08, abs=1e-2)
+
+        lose_trade = conn.execute("SELECT * FROM compound_virtual_trades_history WHERE market_id = 'mkt_lose'").fetchone()
+        assert lose_trade is not None
+        assert lose_trade['pnl_usd'] == pytest.approx(-50.0)
+        assert lose_trade['pnl_percent'] == pytest.approx(-100.0)
+
+        opp_win = conn.execute("SELECT * FROM compound_opportunities WHERE id = 'opp_win'").fetchone()
+        assert opp_win['status'] == 'RESOLVED'
+        assert opp_win['virtual_bought_price'] is None
+        assert opp_win['actual_outcome'] == 'YES'
+        assert opp_win['pnl_usd'] == pytest.approx(2.04, abs=1e-2)
+
+        opp_lose = conn.execute("SELECT * FROM compound_opportunities WHERE id = 'opp_lose'").fetchone()
+        assert opp_lose['status'] == 'RESOLVED'
+        assert opp_lose['virtual_bought_price'] is None
+        assert opp_lose['pnl_usd'] is None
+
+
 

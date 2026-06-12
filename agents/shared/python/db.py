@@ -986,6 +986,31 @@ def _init_db_impl(conn: sqlite3.Connection):
     cols = [col[1] for col in cursor.fetchall()]
     if "outcome" not in cols:
         cursor.execute("ALTER TABLE compound_opportunities ADD COLUMN outcome TEXT DEFAULT 'YES'")
+    if "virtual_bought_price" not in cols:
+        cursor.execute("ALTER TABLE compound_opportunities ADD COLUMN virtual_bought_price REAL DEFAULT NULL")
+    if "virtual_bought_at" not in cols:
+        cursor.execute("ALTER TABLE compound_opportunities ADD COLUMN virtual_bought_at TIMESTAMP DEFAULT NULL")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS compound_virtual_trades_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            market_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            bought_price REAL NOT NULL,
+            bought_outcome_price REAL NOT NULL,
+            sold_price REAL NOT NULL,
+            sold_outcome_price REAL NOT NULL,
+            pnl_usd REAL NOT NULL,
+            pnl_percent REAL NOT NULL,
+            bought_at TIMESTAMP,
+            sold_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            max_price_seen REAL DEFAULT NULL,
+            min_price_seen REAL DEFAULT NULL,
+            FOREIGN KEY (market_id) REFERENCES markets (id)
+        )
+    """)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS compound_settings (
@@ -3014,6 +3039,100 @@ def resolve_compound_opportunity(opp_id: str, outcome: str, pnl_usd: float, exit
                 resolved_at=datetime('now')
             WHERE id=?
         """, (outcome, pnl_usd, exit_price, opp_id))
+
+def buy_virtual_compound_opportunity(opp_id: str, price: float) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE compound_opportunities
+            SET virtual_bought_price = ?,
+                virtual_bought_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (_round_price(price), opp_id))
+
+def sell_virtual_compound_opportunity(opp_id: str, price: float) -> None:
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT market_id, title, url, outcome, virtual_bought_price, virtual_bought_at
+            FROM compound_opportunities
+            WHERE id = ?
+        """, (opp_id,)).fetchone()
+        
+        if row and row['virtual_bought_price'] is not None:
+            v_bought = row['virtual_bought_price']
+            v_bought_at = row['virtual_bought_at']
+            v_sold = _round_price(price)
+            
+            cfg = get_compound_settings()
+            virtual_stake = cfg.get("virtual_stake", 50.0)
+            
+            pnl_usd = virtual_stake * (v_sold - v_bought) / v_bought
+            if pnl_usd > 0:
+                pnl_usd = pnl_usd * (1.0 - 0.02)  # POLY_FEE_PCT
+            pnl_percent = (pnl_usd / virtual_stake) * 100
+            
+            conn.execute("""
+                INSERT INTO compound_virtual_trades_history (
+                    market_id, title, url, outcome, bought_price, bought_outcome_price, 
+                    sold_price, sold_outcome_price, pnl_usd, pnl_percent, bought_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                row['market_id'], row['title'], row['url'], row['outcome'],
+                v_bought, v_bought, v_sold, v_sold,
+                round(pnl_usd, 2), round(pnl_percent, 2), v_bought_at
+            ))
+            
+        conn.execute("""
+            UPDATE compound_opportunities
+            SET virtual_bought_price = NULL,
+                virtual_bought_at = NULL
+            WHERE id = ?
+        """, (opp_id,))
+
+def resolve_compound_opportunity_manual_portfolio(opp_id: str, actual_outcome: str) -> None:
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT market_id, title, url, outcome, virtual_bought_price, virtual_bought_at
+            FROM compound_opportunities
+            WHERE id = ?
+        """, (opp_id,)).fetchone()
+        
+        if row and row['virtual_bought_price'] is not None:
+            v_bought = row['virtual_bought_price']
+            v_bought_at = row['virtual_bought_at']
+            outcome = row['outcome']
+            
+            # При разрешении оракулом цена исхода 1.0 (если победа) или 0.0 (если проигрыш)
+            exit_outcome_price = 1.0 if actual_outcome == outcome else 0.0
+            
+            cfg = get_compound_settings()
+            virtual_stake = cfg.get("virtual_stake", 50.0)
+            
+            if actual_outcome == outcome:
+                # Победа
+                pnl_usd = virtual_stake * (1.0 - v_bought) / v_bought * (1.0 - 0.02)
+            else:
+                # Проигрыш
+                pnl_usd = -virtual_stake
+                
+            pnl_percent = (pnl_usd / virtual_stake) * 100
+            
+            conn.execute("""
+                INSERT INTO compound_virtual_trades_history (
+                    market_id, title, url, outcome, bought_price, bought_outcome_price, 
+                    sold_price, sold_outcome_price, pnl_usd, pnl_percent, bought_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                row['market_id'], row['title'], row['url'], outcome,
+                v_bought, v_bought, exit_outcome_price, exit_outcome_price,
+                round(pnl_usd, 2), round(pnl_percent, 2), v_bought_at
+            ))
+            
+        conn.execute("""
+            UPDATE compound_opportunities
+            SET virtual_bought_price = NULL,
+                virtual_bought_at = NULL
+            WHERE id = ?
+        """, (opp_id,))
 
 def get_compound_settings() -> dict:
     with get_connection() as conn:

@@ -45,6 +45,10 @@ async def handle_penny_stocks(request):
     html = await asyncio.to_thread(render_template, "penny_stocks.html")
     return web.Response(text=html, content_type="text/html")
 
+async def handle_favourite_compounding(request):
+    html = await asyncio.to_thread(render_template, "favourite_compounding.html")
+    return web.Response(text=html, content_type="text/html")
+
 async def handle_scout(request):
     html = await asyncio.to_thread(render_template, "scout.html")
     return web.Response(text=html, content_type="text/html")
@@ -92,6 +96,25 @@ async def api_penny_stocks(request):
     with _jobs_lock:
         running_ids = [mid for mid, job in analysis_jobs.items() if job.get("status") == "running"]
     data["running_analyses"] = running_ids
+    return web.json_response(data)
+
+async def api_favourite_compounding(request):
+    active_page = get_int_query(request, "active_page", 1)
+    active_limit = get_int_query(request, "active_limit", 50)
+    resolved_page = get_int_query(request, "resolved_page", 1)
+    resolved_limit = get_int_query(request, "resolved_limit", 50)
+    history_page = get_int_query(request, "history_page", 1)
+    history_limit = get_int_query(request, "history_limit", 50)
+    
+    data = await asyncio.to_thread(
+        data_provider.get_compounding_dashboard,
+        active_page=active_page,
+        active_limit=active_limit,
+        resolved_page=resolved_page,
+        resolved_limit=resolved_limit,
+        history_page=history_page,
+        history_limit=history_limit
+    )
     return web.json_response(data)
 
 async def api_equity_curve(request):
@@ -232,6 +255,64 @@ async def api_sell_penny_stock(request):
         return web.json_response({"status": "ok"})
     except Exception as e:
         logger.exception("Error in api_sell_penny_stock")
+        return web.json_response({"error": f"Internal server error: {e}"}, status=500)
+
+async def api_buy_compound_opportunity(request):
+    try:
+        try:
+            body = await request.json()
+        except Exception as json_err:
+            return web.json_response({"error": f"Invalid JSON body: {json_err}"}, status=400)
+
+        opp_id = body.get("opp_id")
+        price_val = body.get("price")
+        
+        if not opp_id or price_val is None:
+            return web.json_response({"error": "opp_id and price are required"}, status=400)
+            
+        try:
+            price = float(price_val)
+        except (ValueError, TypeError) as num_err:
+            return web.json_response({"error": f"Invalid price format: {num_err}"}, status=400)
+            
+    except (KeyError, TypeError) as req_err:
+        return web.json_response({"error": f"Malformed request parameters: {req_err}"}, status=400)
+
+    try:
+        from agents.shared.python.db import buy_virtual_compound_opportunity
+        await asyncio.to_thread(buy_virtual_compound_opportunity, opp_id, price)
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in api_buy_compound_opportunity")
+        return web.json_response({"error": f"Internal server error: {e}"}, status=500)
+
+async def api_sell_compound_opportunity(request):
+    try:
+        try:
+            body = await request.json()
+        except Exception as json_err:
+            return web.json_response({"error": f"Invalid JSON body: {json_err}"}, status=400)
+
+        opp_id = body.get("opp_id")
+        price_val = body.get("price")
+        
+        if not opp_id or price_val is None:
+            return web.json_response({"error": "opp_id and price are required"}, status=400)
+            
+        try:
+            price = float(price_val)
+        except (ValueError, TypeError) as num_err:
+            return web.json_response({"error": f"Invalid price format: {num_err}"}, status=400)
+            
+    except (KeyError, TypeError) as req_err:
+        return web.json_response({"error": f"Malformed request parameters: {req_err}"}, status=400)
+
+    try:
+        from agents.shared.python.db import sell_virtual_compound_opportunity
+        await asyncio.to_thread(sell_virtual_compound_opportunity, opp_id, price)
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in api_sell_compound_opportunity")
         return web.json_response({"error": f"Internal server error: {e}"}, status=500)
 
 async def api_discover_penny_stocks(request):
@@ -727,6 +808,7 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/favicon.ico", handle_favicon)
     app.router.add_get("/", handle_overview)
     app.router.add_get("/penny-stocks", handle_penny_stocks)
+    app.router.add_get("/favourite-compounding", handle_favourite_compounding)
     app.router.add_get("/scout", handle_scout)
     app.router.add_get("/whale", handle_whale)
     app.router.add_get("/corridors", handle_corridors)
@@ -734,6 +816,7 @@ def create_dashboard_app() -> web.Application:
     # JSON API маршруты
     app.router.add_get("/api/overview", api_overview)
     app.router.add_get("/api/penny-stocks", api_penny_stocks)
+    app.router.add_get("/api/favourite-compounding", api_favourite_compounding)
     app.router.add_get("/api/whale-stocks", api_whale_stocks)
     app.router.add_get("/api/equity-curve", api_equity_curve)
     app.router.add_get("/api/signals", api_signals)
@@ -745,6 +828,8 @@ def create_dashboard_app() -> web.Application:
     app.router.add_post("/api/penny-stocks/analyze", api_analyze_market)
     app.router.add_get("/api/penny-stocks/analyze-status", api_analyze_market_status)
     app.router.add_post("/api/penny-stocks/discover", api_discover_penny_stocks)
+    app.router.add_post("/api/favourite-compounding/buy", api_buy_compound_opportunity)
+    app.router.add_post("/api/favourite-compounding/sell", api_sell_compound_opportunity)
     app.router.add_post("/api/whale-stocks/buy", api_buy_whale_stock)
     app.router.add_post("/api/whale-stocks/sell", api_sell_whale_stock)
     app.router.add_post("/api/whale-stocks/analyze", api_analyze_market)
