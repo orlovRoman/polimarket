@@ -128,10 +128,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
     """
     try:
         days = int(days)
-        if days <= 0:
-            days = 30
-        else:
-            days = min(days, 365)
+        days = max(1, min(days, 365))
     except (ValueError, TypeError):
         days = 30
 
@@ -949,31 +946,36 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             logger.warning(f"[DataProvider] signals whale alerts недоступны: {e}")
 
         # Статистика китов с пагинацией
-        whales_total = conn.execute("SELECT COUNT(*) as cnt FROM wallets").fetchone()['cnt']
-        whales_offset = (whales_page - 1) * whales_limit
-        whales_rows = conn.execute("""
-            SELECT 
-                w.address,
-                w.alias,
-                w.win_rate,
-                w.total_profit,
-                w.is_insider,
-                COUNT(t.id) as tx_count,
-                COALESCE(SUM(t.amount_usd), 0.0) as total_vol
-            FROM wallets w
-            LEFT JOIN trader_transactions t ON w.address = t.wallet_address
-            GROUP BY w.address
-            ORDER BY total_vol DESC, tx_count DESC
-            LIMIT ? OFFSET ?
-        """, (whales_limit, whales_offset)).fetchall()
-        
-        whales = []
-        for r in whales_rows:
-            r_dict = dict(r)
-            r_dict['total_vol'] = round(r_dict['total_vol'], 2)
-            r_dict['win_rate'] = round(r_dict['win_rate'], 4) if r_dict['win_rate'] is not None else 0.0
-            r_dict['total_profit'] = round(r_dict['total_profit'], 2) if r_dict['total_profit'] is not None else 0.0
-            whales.append(r_dict)
+        try:
+            whales_total = conn.execute("SELECT COUNT(*) as cnt FROM wallets").fetchone()['cnt']
+            whales_offset = (whales_page - 1) * whales_limit
+            whales_rows = conn.execute("""
+                SELECT 
+                    w.address,
+                    w.alias,
+                    w.win_rate,
+                    w.total_profit,
+                    w.is_insider,
+                    COUNT(t.id) as tx_count,
+                    COALESCE(SUM(t.amount_usd), 0.0) as total_vol
+                FROM wallets w
+                LEFT JOIN trader_transactions t ON w.address = t.wallet_address
+                GROUP BY w.address
+                ORDER BY total_vol DESC, tx_count DESC
+                LIMIT ? OFFSET ?
+            """, (whales_limit, whales_offset)).fetchall()
+            
+            whales = []
+            for r in whales_rows:
+                r_dict = dict(r)
+                r_dict['total_vol'] = round(r_dict['total_vol'], 2)
+                r_dict['win_rate'] = round(r_dict['win_rate'], 4) if r_dict['win_rate'] is not None else 0.0
+                r_dict['total_profit'] = round(r_dict['total_profit'], 2) if r_dict['total_profit'] is not None else 0.0
+                whales.append(r_dict)
+        except Exception as e:
+            logger.warning(f"[DataProvider] wallets table query failed: {e}")
+            whales = []
+            whales_total = 0
 
     return {
         'active': active,

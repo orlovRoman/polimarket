@@ -230,108 +230,113 @@ class CoreEngine:
             return self._run_team_discussion_inner(log_callback, summary_callback, category, market_id, state_callback, **kwargs)
 
     def _run_team_discussion_inner(self, log_callback=None, summary_callback=None, category=None, market_id=None, state_callback=None, **kwargs):
-        from core.guards import LLMUnavailableError
-        
-        # ── АВТОРЕЗОЛЮЦИЯ: закрываем истёкшие PENDING-сигналы ──
+        import asyncio
+        loop = asyncio.new_event_loop()
         try:
-            from services.signal_resolver import resolve_pending_signals
-            n_resolved = resolve_pending_signals()
-            if n_resolved:
-                logger.info(f"[Engine] Авторезолюция: закрыто {n_resolved} сигналов перед сканированием")
-        except Exception as _e:
-            logger.warning(f"[Engine] Авторезолюция не выполнена: {_e}")
-        # ────────────────────────────────────────────────────────
-        
-        if summary_callback is None:
-            summary_callback = send_telegram_alert
+            from core.guards import LLMUnavailableError
+            
+            # ── АВТОРЕЗОЛЮЦИЯ: закрываем истёкшие PENDING-сигналы ──
+            try:
+                from services.signal_resolver import resolve_pending_signals
+                n_resolved = resolve_pending_signals()
+                if n_resolved:
+                    logger.info(f"[Engine] Авторезолюция: закрыто {n_resolved} сигналов перед сканированием")
+            except Exception as _e:
+                logger.warning(f"[Engine] Авторезолюция не выполнена: {_e}")
+            # ────────────────────────────────────────────────────────
+            
+            if summary_callback is None:
+                summary_callback = send_telegram_alert
 
-        def log(msg):
-            logger.info(msg)
-            if log_callback:
-                try: log_callback(msg)
-                except Exception as e: logger.error(f"log_callback error: {e}")
+            def log(msg):
+                logger.info(msg)
+                if log_callback:
+                    try: log_callback(msg)
+                    except Exception as e: logger.error(f"log_callback error: {e}")
 
-        scan_limit = self._get_scan_limit()
+            scan_limit = self._get_scan_limit()
 
-        def _update_state(**kwargs):
-            self.update_state(**kwargs)
-            if state_callback:
-                try: state_callback(self.state)
-                except Exception as e: logger.error(f"state_callback error: {e}")
+            def _update_state(**kwargs):
+                self.update_state(**kwargs)
+                if state_callback:
+                    try: state_callback(self.state)
+                    except Exception as e: logger.error(f"state_callback error: {e}")
 
-        _update_state(category=category or "Авто-микс", stage="Скрининг рынков", total_markets=0, ideas_found=0)
+            _update_state(category=category or "Авто-микс", stage="Скрининг рынков", total_markets=0, ideas_found=0)
 
-        # 1. Скрининг
-        try:
-            screened_market_ids = run_screening(self.adapter, self.nexus, category, market_id, summary_callback)
-        except LLMUnavailableError as e:
-            agent_name = getattr(e, "agent_name", "NEXUS")
-            log(f"🔴 LLM API недоступен для агента {agent_name} во время скрининга.")
-            if summary_callback:
-                try:
-                    reply_markup = {
-                        "inline_keyboard": [
-                            [{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]
-                        ]
-                    }
-                    text = f"🔴 <b>LLM недоступна у агента {agent_name}</b>. Сканирование остановлено. Попробуйте позже."
-                    if _callback_accepts_reply_markup(summary_callback):
-                        summary_callback(text, reply_markup=reply_markup)
-                    else:
-                        summary_callback(text)
-                except Exception as cb_err:
-                    logger.error(f"summary_callback error: {cb_err}")
-            _update_state(stage="Ошибка (LLM недоступна)")
-            raise e
+            # 1. Скрининг
+            try:
+                screened_market_ids = run_screening(self.adapter, self.nexus, category, market_id, summary_callback)
+            except LLMUnavailableError as e:
+                agent_name = getattr(e, "agent_name", "NEXUS")
+                log(f"🔴 LLM API недоступен для агента {agent_name} во время скрининга.")
+                if summary_callback:
+                    try:
+                        reply_markup = {
+                            "inline_keyboard": [
+                                [{"text": f"🔄 Сменить модель для {agent_name}", "callback_data": f"set_model_{agent_name}"}]
+                            ]
+                        }
+                        text = f"🔴 <b>LLM недоступна у агента {agent_name}</b>. Сканирование остановлено. Попробуйте позже."
+                        if _callback_accepts_reply_markup(summary_callback):
+                            summary_callback(text, reply_markup=reply_markup)
+                        else:
+                            summary_callback(text)
+                    except Exception as cb_err:
+                        logger.error(f"summary_callback error: {cb_err}")
+                _update_state(stage="Ошибка (LLM недоступна)")
+                raise e
 
-        # 2. Отбор
-        cat_msg = f" в категории '{category}'" if category else " (авто-микс)"
-        if market_id: cat_msg = f" (точечный анализ {market_id})"
-        log(f"\n--- 1. Поиск новых рынков{cat_msg} ---")
-        _update_state(stage="Отбор рынков")
-        
-        markets = self._select_markets(screened_market_ids, scan_limit, category, market_id, log)
+            # 2. Отбор
+            cat_msg = f" в категории '{category}'" if category else " (авто-микс)"
+            if market_id: cat_msg = f" (точечный анализ {market_id})"
+            log(f"\n--- 1. Поиск новых рынков{cat_msg} ---")
+            _update_state(stage="Отбор рынков")
+            
+            markets = self._select_markets(screened_market_ids, scan_limit, category, market_id, log)
 
-        if not markets:
-            _update_state(stage="Нет рынков")
-            raise NoMarketsFoundError(f"Нет активных рынков для анализа{cat_msg}.")
+            if not markets:
+                _update_state(stage="Нет рынков")
+                raise NoMarketsFoundError(f"Нет активных рынков для анализа{cat_msg}.")
 
-        for m in markets: save_market(m)
+            for m in markets: save_market(m)
 
-        # 3. Обсуждение
-        log(f"\n--- 2. Обсуждение идей (SCOUT + SWING + SHADOW) ---")
-        
-        processed_ids = self._run_math_gate_sync(markets, summary_callback)
+            # 3. Обсуждение
+            log(f"\n--- 2. Обсуждение идей (SCOUT + SWING + SHADOW) ---")
+            
+            processed_ids = self._run_math_gate_sync(markets, summary_callback)
 
-        import uuid
-        run_id = str(uuid.uuid4())[:8]
+            import uuid
+            run_id = str(uuid.uuid4())[:8]
 
-        remaining_markets = [m for m in markets if m.id not in processed_ids]
-        _update_state(
-            total_markets=len(remaining_markets),
-            current_market_index=0,
-            stage="Обсуждение (SCOUT + SWING + SHADOW)"
-        )
-        
-        for i, m in enumerate(remaining_markets, 1):
-            import config
-            if getattr(config, "shutdown_requested", False):
-                log("🛑 Прерывание сканирования: запрошена остановка системы.")
-                break
-            self._process_single_market(m, i, summary_callback, _update_state, log, market_id=market_id, category=category, run_id=run_id, **kwargs)
-                
-        _update_state(
-            stage="Завершено",
-            current_market_index=0,
-            total_markets=0,
-            current_market_title="",
-            current_market_url="",
-            scout_status="⏳ Ожидает",
-            swing_status="⏳ Ожидает",
-            shadow_status="⏳ Ожидает",
-        )
-        log("\n✅ Обсуждение завершено.")
-        return len(markets)
+            remaining_markets = [m for m in markets if m.id not in processed_ids]
+            _update_state(
+                total_markets=len(remaining_markets),
+                current_market_index=0,
+                stage="Обсуждение (SCOUT + SWING + SHADOW)"
+            )
+            
+            for i, m in enumerate(remaining_markets, 1):
+                import config
+                if getattr(config, "shutdown_requested", False):
+                    log("🛑 Прерывание сканирования: запрошена остановка системы.")
+                    break
+                self._process_single_market(m, i, summary_callback, _update_state, log, market_id=market_id, category=category, run_id=run_id, loop=loop, **kwargs)
+                    
+            _update_state(
+                stage="Завершено",
+                current_market_index=0,
+                total_markets=0,
+                current_market_title="",
+                current_market_url="",
+                scout_status="⏳ Ожидает",
+                swing_status="⏳ Ожидает",
+                shadow_status="⏳ Ожидает",
+            )
+            log("\n✅ Обсуждение завершено.")
+            return len(markets)
+        finally:
+            loop.close()
 
     def _get_scan_limit(self) -> int:
         from agents.shared.python.db import get_memory
@@ -622,7 +627,13 @@ class CoreEngine:
             pre_orderbook = self._fetch_pre_orderbook(m)
 
             import asyncio
-            loop = asyncio.new_event_loop()
+            loop = kwargs.get("loop")
+            if not loop:
+                loop = asyncio.new_event_loop()
+                should_close_loop = True
+            else:
+                should_close_loop = False
+
             try:
                 signal, swing_signal, context = loop.run_until_complete(run_agent_evaluation(
                     m, self.scout, self.swing, _update_state,
@@ -634,7 +645,8 @@ class CoreEngine:
                     run_id=kwargs.get("run_id")
                 ))
             finally:
-                loop.close()
+                if should_close_loop:
+                    loop.close()
 
             if context is None:
                 logger.info(f"  Рынок {m.id} пропущен (дедупликация)")

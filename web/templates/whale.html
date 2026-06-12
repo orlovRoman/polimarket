@@ -347,8 +347,9 @@
 
     function formatWhaleAddress(address) {
         if (!address) return '—';
-        const display = address.substring(0, 6) + '...' + address.substring(address.length - 4);
-        return `<a href="https://polymarket.com/profile/${address}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary); font-family: monospace;">${display}</a>`;
+        const safe = address.replace(/[<>"'&]/g, c => ({'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','&':'&amp;'}[c]));
+        const display = safe.substring(0, 6) + '...' + safe.substring(safe.length - 4);
+        return `<a href="https://polymarket.com/profile/${safe}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary); font-family: monospace;">${display}</a>`;
     }
 
     function formatPercent(val) {

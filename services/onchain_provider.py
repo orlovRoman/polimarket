@@ -27,6 +27,10 @@ def _cached_get(url: str) -> Optional[Any]:
             if resp.status_code == 200:
                 data = resp.json()
                 with _cache_lock:
+                    # Очищаем устаревшие записи перед вставкой новой
+                    expired = [k for k, (d, ts) in _cache.items() if now - ts >= CACHE_TTL]
+                    for k in expired:
+                        del _cache[k]
                     _cache[url] = (data, now)
                 return data
     except Exception as e:
