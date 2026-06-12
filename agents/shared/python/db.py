@@ -207,20 +207,22 @@ def cleanup_test_data(conn: sqlite3.Connection):
     """)
 
 _db_init_lock = threading.Lock()
+_last_initialized_path = None
 
 @_ensure_initializing
 def init_db():
-    """Инициализация таблиц базы данных. Thread-safe, вызывается один раз."""
-    global _db_initialized, _db_init_failed
-    if _db_initialized:
+    """Инициализация таблиц базы данных. Thread-safe, вызывается при смене пути или один раз."""
+    global _db_initialized, _db_init_failed, _last_initialized_path
+    current_path = str(DB_PATH)
+    if _db_initialized and _last_initialized_path == current_path:
         return
-    if _db_init_failed:
+    if _db_init_failed and _last_initialized_path == current_path:
         raise RuntimeError(f"Предыдущая попытка инициализации БД по адресу {DB_PATH} завершилась ошибкой. Повторная инициализация заблокирована.")
             
     with _db_init_lock:
-        if _db_initialized:  # double-check после получения лока
+        if _db_initialized and _last_initialized_path == current_path:
             return
-        if _db_init_failed:
+        if _db_init_failed and _last_initialized_path == current_path:
             raise RuntimeError(f"Предыдущая попытка инициализации БД по адресу {DB_PATH} завершилась ошибкой. Повторная инициализация заблокирована.")
                 
         try:
@@ -228,10 +230,13 @@ def init_db():
                 _init_db_impl(conn)
                 heal_db_resolutions(conn)
             _db_initialized = True
+            _db_init_failed = False
+            _last_initialized_path = current_path
             logger.info(f"База данных инициализирована по адресу: {DB_PATH}")
         except Exception as e:
             _db_init_failed = True
-            logger.error(f"init_db failed: {e}", exc_info=True)
+            _last_initialized_path = current_path
+            logger.error(f"init_db failed for {DB_PATH}: {e}", exc_info=True)
             raise
 
 def _init_db_impl(conn: sqlite3.Connection):
