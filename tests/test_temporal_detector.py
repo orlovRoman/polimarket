@@ -72,7 +72,7 @@ def test_quality_score():
         executable_contracts=5.0,  # 5/10 = 0.5
         p_in_corridor=0.15    # 0.5
     )
-    # 0.35*0.5 + 0.25*0.5 + 0.25*0.5 + 0.15*0.5 = 0.5
+    # Весовые коэффициенты: 0.35, 0.25, 0.25, 0.15 дает итоговый score = 0.5
     assert score2 == pytest.approx(0.5)
 
     # Безрисковый арбитраж (p_in_corridor < 0) -> corridor_score = 1.0

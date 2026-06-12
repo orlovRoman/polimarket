@@ -128,12 +128,12 @@ def load_events_with_levels_from_raw(
         
         # Нормализуем денежные единицы (K, M, B, T), если они смешаны
         UNIT_MULTIPLIERS = {'T': 1e12, 'B': 1e9, 'M': 1e6, 'K': 1e3}
-        event_units = set(m.level_unit for m in leveled)
+        event_units = {m.level_unit for m in leveled}
         financial_units = event_units.intersection(UNIT_MULTIPLIERS.keys())
         
         if len(financial_units) > 1:
             # Приводим к максимальной единице из присутствующих
-            target_unit = max(financial_units, key=lambda u: UNIT_MULTIPLIERS[u])
+            target_unit = max(financial_units, key=UNIT_MULTIPLIERS.get)
             normalized = []
             for m in leveled:
                 if m.level_unit in UNIT_MULTIPLIERS and m.level_unit != target_unit:
@@ -143,7 +143,7 @@ def load_events_with_levels_from_raw(
                     normalized.append(m)
             leveled = normalized
             # Обновляем набор единиц после нормализации
-            event_units = set(m.level_unit for m in leveled)
+            event_units = {m.level_unit for m in leveled}
 
         # Проверяем что все уровни имеют одну единицу — иначе сравнение некорректно
         if len(event_units) > 1:

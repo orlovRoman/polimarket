@@ -102,7 +102,7 @@ def load_events_from_raw(
                     token_yes=tokens[0] if tokens else None,
                     token_no=tokens[1] if len(tokens) > 1 else None,
                 ))
-            except (KeyError, ValueError, TypeError, json.JSONDecodeError) as e:
+            except (KeyError, ValueError, TypeError) as e:
                 logger.debug(f"[TC-PARSER] Ошибка парсинга рынка {m.get('id','?')}: {e}")
                 continue
 

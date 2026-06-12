@@ -110,6 +110,9 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 LOG_PATH = LOGS_DIR / "main.log"
 AGENT_REPORTS_PATH = LOGS_DIR / "agent_reports.log"
 
+TEMPORAL_LOG_NAME = "temporal_corridor.log"
+SYNTHETIC_LOG_NAME = "synthetic_corridor.log"
+
 def setup_logger(name="NexusPolyBot"):
     log = logging.getLogger(name)
     if log.handlers:
@@ -123,12 +126,12 @@ def setup_logger(name="NexusPolyBot"):
     
     # Handler 1: основной лог или лог стратегии
     STRATEGY_LOG_MAP = {
-        "TemporalCorridor": "temporal_corridor.log",
-        "temporal.loader": "temporal_corridor.log",
-        "temporal.detector": "temporal_corridor.log",
-        "SyntheticCorridor": "synthetic_corridor.log",
-        "synthetic.event_loader": "synthetic_corridor.log",
-        "synthetic.detector": "synthetic_corridor.log",
+        "TemporalCorridor": TEMPORAL_LOG_NAME,
+        "temporal.loader": TEMPORAL_LOG_NAME,
+        "temporal.detector": TEMPORAL_LOG_NAME,
+        "SyntheticCorridor": SYNTHETIC_LOG_NAME,
+        "synthetic.event_loader": SYNTHETIC_LOG_NAME,
+        "synthetic.detector": SYNTHETIC_LOG_NAME,
     }
     
     strategy_log = next(
