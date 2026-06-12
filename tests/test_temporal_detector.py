@@ -84,3 +84,81 @@ def test_quality_score():
     )
     assert score_arb == pytest.approx(1.0)
 
+
+def test_save_temporal_corridor():
+    from agents.shared.python.db import init_db, save_temporal_corridor, get_connection
+    from agents.polymarket_arbitrage_agent.src.temporal.models import TemporalCorridorSignal, TemporalLeg
+    from datetime import datetime, timezone
+
+    init_db()
+
+    early_leg = TemporalLeg(
+        market_id="early_test",
+        question="early?",
+        market_url="http://early",
+        expiry=datetime.now(timezone.utc),
+        price_yes=0.7,
+        ask_price=0.3,
+        side="NO",
+        entry_cost=0.3,
+        token_id="token_early",
+        volume=5000.0
+    )
+
+    late_leg = TemporalLeg(
+        market_id="late_test",
+        question="late?",
+        market_url="http://late",
+        expiry=datetime.now(timezone.utc),
+        price_yes=0.55,
+        ask_price=0.55,
+        side="YES",
+        entry_cost=0.55,
+        token_id="token_late",
+        volume=5000.0
+    )
+
+    signal = TemporalCorridorSignal(
+        signal_id="early_test__late_test",
+        event_slug="test-event",
+        event_title="Test Event",
+        event_url="http://test",
+        early_leg=early_leg,
+        late_leg=late_leg,
+        date_gap_days=30,
+        p_early=0.7,
+        p_late=0.55,
+        p_in_corridor=-0.15,
+        p_before_early=0.7,
+        p_never=0.45,
+        theoretical_cost=0.85,
+        real_cost=0.85,
+        theoretical_spread_pct=15.0,
+        real_spread_pct=15.0,
+        pnl_s1_before_early=10.0,
+        pnl_s2_in_corridor=100.0,
+        pnl_s3_never=10.0,
+        early_stake_usd=50.0,
+        late_stake_usd=50.0,
+        early_contracts=100.0,
+        late_contracts=100.0,
+        ev_usd=15.0,
+        roi_pct=15.0,
+        quality_score=0.9,
+        exit_rule="exit",
+        is_guaranteed_arbitrage=True,
+        created_at=datetime.now(timezone.utc)
+    )
+
+    # Должно выполниться без ProgrammingError
+    save_temporal_corridor(signal)
+
+    # Проверим, что сохранилось корректно
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT * FROM temporal_corridors WHERE signal_id = 'early_test__late_test'").fetchone()
+        assert row is not None
+        assert row["is_guaranteed_arbitrage"] == 1
+        assert row["event_title"] == "Test Event"
+
+

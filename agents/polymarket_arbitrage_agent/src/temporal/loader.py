@@ -73,7 +73,7 @@ def load_events_from_raw(
                     continue
 
                 close_time = _parse_dt(m)
-                if close_time <= now:
+                if close_time is None or close_time <= now:
                     continue
 
                 prices = json.loads(m.get("outcomePrices", "[]"))
