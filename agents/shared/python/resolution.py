@@ -48,30 +48,25 @@ def resolve_closed_markets():
                 if not closed:
                     continue
                     
-                raw_prices = item.get("outcomePrices")
-                if not raw_prices:
-                    continue
-                try:
-                    if isinstance(raw_prices, str):
-                        outcome_prices = json.loads(raw_prices)
-                    else:
-                        outcome_prices = raw_prices
-                except (json.JSONDecodeError, TypeError):
+                from services.polymarket_client import parse_outcome_prices
+                prices_float = parse_outcome_prices(item.get("outcomePrices"))
+                if not prices_float:
                     continue
 
-                if not outcome_prices:
+                winner_index = next(
+                    (i for i, p in enumerate(prices_float) if p >= 0.99),
+                    None
+                )
+                if winner_index is None:
                     continue
 
-                try:
-                    prices_float = [float(p) for p in outcome_prices]
-                    winner_index = next(
-                        (i for i, p in enumerate(prices_float) if p >= 0.99),
-                        None
-                    )
-                    if winner_index is None:
-                        continue
-                except (ValueError, TypeError):
-                    continue
+                # Извлекаем outcomes
+                outcomes = item.get("outcomes", [])
+                if isinstance(outcomes, str):
+                    try:
+                        outcomes = json.loads(outcomes)
+                    except Exception:
+                        outcomes = []
                 
                 # Извлекаем target (по умолчанию считаем что YES = индекс 0)
                 # Поскольку target_outcome не хранится прямо, а всегда подразумевается YES для первого токена в боте
@@ -95,7 +90,13 @@ def resolve_closed_markets():
                     is_win = True
                     
                 new_status = 'WIN' if is_win else 'LOSS'
-                resolved_outcome = 'YES' if winner_index == 0 else 'NO'
+                
+                if outcomes:
+                    if winner_index >= len(outcomes):
+                        continue
+                    resolved_outcome = outcomes[winner_index]
+                else:
+                    resolved_outcome = 'YES' if winner_index == 0 else 'NO'
                 
                 cursor.execute("UPDATE signals SET status = ? WHERE id = ?", (new_status, sig_id))
                 cursor.execute("UPDATE markets SET outcome = ? WHERE id = ?", (resolved_outcome, m_id))

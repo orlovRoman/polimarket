@@ -109,7 +109,7 @@ class PolymarketAdapter(BaseMarketAdapter):
     def _parse_outcome(self, item: dict, outcomes: list) -> str:
         """
         Пытается определить исход закрытого рынка по winner, tokens или outcomePrices.
-        Возвращает 'YES', 'NO' или default outcomes[0].
+        Возвращает 'YES', 'NO' или default 'unknown'.
         """
         winner = item.get("winner")
         if winner and str(winner).upper() in ("YES", "NO"):
@@ -128,22 +128,17 @@ class PolymarketAdapter(BaseMarketAdapter):
                     continue
                     
         # Пытаемся по outcomePrices
-        raw_prices = item.get("outcomePrices")
-        if raw_prices:
+        from services.polymarket_client import parse_outcome_prices
+        prices_float = parse_outcome_prices(item.get("outcomePrices"))
+        if prices_float:
             try:
-                if isinstance(raw_prices, str):
-                    prices_list = json.loads(raw_prices)
-                else:
-                    prices_list = raw_prices
-                if prices_list:
-                    prices_float = [float(p) for p in prices_list]
-                    max_idx = prices_float.index(max(prices_float))
-                    if prices_float[max_idx] >= 0.99:
-                        return "YES" if max_idx == 0 else "NO"
+                max_idx = prices_float.index(max(prices_float))
+                if prices_float[max_idx] >= 0.99:
+                    return "YES" if max_idx == 0 else "NO"
             except Exception:
                 pass
                 
-        return outcomes[0] if outcomes else 'unknown'
+        return 'unknown'
     
     def _get_end_date(self, item: dict):
         """

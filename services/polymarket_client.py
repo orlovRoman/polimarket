@@ -10,6 +10,21 @@ from typing import Optional
 
 logger = logging.getLogger("NexusPolyBot.PolymarketClient")
 
+def parse_outcome_prices(raw_prices) -> list[float]:
+    """Парсит outcomePrices из строки или списка в список float."""
+    if not raw_prices:
+        return []
+    try:
+        if isinstance(raw_prices, str):
+            prices_list = json.loads(raw_prices)
+        else:
+            prices_list = raw_prices
+        if prices_list:
+            return [float(p) for p in prices_list]
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return []
+
 def get_market_resolution(market_id: str) -> Optional[str]:
     """
     Запрашивает статус рынка из Polymarket API.
@@ -47,24 +62,14 @@ def get_market_resolution(market_id: str) -> Optional[str]:
         if not closed:
             return None
 
-        outcome_prices_str = data.get("outcomePrices")
-        if outcome_prices_str:
-            try:
-                if isinstance(outcome_prices_str, str):
-                    outcome_prices = json.loads(outcome_prices_str)
-                else:
-                    outcome_prices = outcome_prices_str
-                    
-                if outcome_prices:
-                    prices_float = [float(p) for p in outcome_prices]
-                    winner_index = next(
-                        (i for i, p in enumerate(prices_float) if p >= 0.99),
-                        None
-                    )
-                    if winner_index is not None:
-                        return "YES" if winner_index == 0 else "NO"
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
+        prices_float = parse_outcome_prices(data.get("outcomePrices"))
+        if prices_float:
+            winner_index = next(
+                (i for i, p in enumerate(prices_float) if p >= 0.99),
+                None
+            )
+            if winner_index is not None:
+                return "YES" if winner_index == 0 else "NO"
                 
         return None
     except Exception as e:

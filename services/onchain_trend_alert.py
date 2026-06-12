@@ -63,15 +63,17 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
             from core.eval.signal_logger import SignalLogger, StrategyType
             logger_eval = SignalLogger()
             m_price = row["price"] if row["price"] is not None else 0.5
-            row_price = m_price if side == "YES" else (1.0 - m_price)
+            entry_price = m_price if side == "YES" else (1.0 - m_price)
+            price_yes = m_price if side == "YES" else (1.0 - m_price)
+            row_price = price_yes
             ts = int(datetime.now(timezone.utc).timestamp())
             logger_eval.log_signal(
                 signal_id=f"sig-whale-{row['market_id']}-{ts}",
                 strategy_type=StrategyType.WHALE,
                 market_id=row['market_id'],
                 predicted_probability=prob,
-                market_price_at_signal=row_price,
-                edge_at_signal=max(-1.0, min(1.0, prob - row_price)),
+                market_price_at_signal=entry_price,
+                edge_at_signal=max(-1.0, min(1.0, prob - entry_price)),
                 metadata={
                     "target_outcome": side,
                     "priority": "medium",
