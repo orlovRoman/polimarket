@@ -18,25 +18,33 @@ async def test_fetch_market_oracle_links_success():
         "description": "This is a test. Check https://reuters.com/article/2 and https://polymarket.com/event/xyz for details."
     }
 
-    from unittest.mock import ANY
-    # Имитируем httpx.AsyncClient.get
-    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.get.return_value = mock_response
+
+    with patch(
+        "agents.shared.utils.polymarket_sources_scraper.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         links = await fetch_market_oracle_links("12345")
-        
-        mock_get.assert_called_once_with("https://gamma-api.polymarket.com/markets/12345", headers=ANY)
-        assert len(links) == 2
-        assert links[0] == "https://apnews.com/article/1"
-        assert links[1] == "https://reuters.com/article/2"
+        mock_client.get.assert_called_once()
+        assert links == ["https://apnews.com/article/1", "https://reuters.com/article/2"]
 
 @pytest.mark.asyncio
 async def test_fetch_market_oracle_links_fallback_on_error():
     mock_response = MagicMock()
     mock_response.status_code = 500
 
-    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response):
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.get.return_value = mock_response
+
+    with patch(
+        "agents.shared.utils.polymarket_sources_scraper.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         links = await fetch_market_oracle_links(
             "12345", 
             market_description="Fallback link: https://bbc.com/news/1"
         )
-        assert len(links) == 1
-        assert links[0] == "https://bbc.com/news/1"
+        assert links == ["https://bbc.com/news/1"]

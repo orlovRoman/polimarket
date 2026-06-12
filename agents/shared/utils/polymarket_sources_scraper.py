@@ -67,6 +67,8 @@ async def fetch_market_oracle_links(market_id: str, market_description: Optional
                             link_clean = "https://" + link_clean
                         if is_valid_external_url(link_clean):
                             links.append(link_clean)
+                        if len(links) >= 2:
+                            break
             else:
                 logger.warning(f"[sources_scraper] Gamma API вернул статус {resp.status_code} для рынка {market_id}")
     except Exception as e:
@@ -81,6 +83,8 @@ async def fetch_market_oracle_links(market_id: str, market_description: Optional
                 link_clean = "https://" + link_clean
             if is_valid_external_url(link_clean):
                 links.append(link_clean)
+            if len(links) >= 2:
+                break
 
     # Очищаем дубликаты с сохранением порядка
     unique_links = []

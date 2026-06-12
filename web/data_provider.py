@@ -1370,7 +1370,9 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
 
             # Гипотетический ручной PnL в USD, если реальной сделки не было, но рынок разрешен (со стейком 50.0)
             pnl_realized = row_dict['pnl_realized']
-            if pnl_realized is None and actual is not None and price is not None and outcome is not None:
+            if pnl_realized is not None:
+                row_dict['pnl_is_hypothetical'] = False
+            elif actual is not None and price is not None and outcome is not None:
                 stake = 50.0
                 if actual == outcome:
                     pnl_realized = stake * (1.0 - price) / price * (1.0 - 0.02)
@@ -1379,7 +1381,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
                 row_dict['pnl_realized'] = round(pnl_realized, 2)
                 row_dict['pnl_is_hypothetical'] = True
             else:
-                row_dict['pnl_is_hypothetical'] = False
+                row_dict['pnl_is_hypothetical'] = None  # рынок не разрешен
 
             resolved.append(row_dict)
 
