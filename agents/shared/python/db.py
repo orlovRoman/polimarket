@@ -874,6 +874,7 @@ def _init_db_impl(conn: sqlite3.Connection):
             resolved_at TIMESTAMP,
             virtual_bought_price REAL DEFAULT NULL,
             virtual_bought_at TIMESTAMP DEFAULT NULL,
+            wallet_address TEXT DEFAULT NULL,
             FOREIGN KEY (market_id) REFERENCES markets (id)
         )
     """)
@@ -933,12 +934,16 @@ def _init_db_impl(conn: sqlite3.Connection):
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('virtual_stake', '100.0')")
 
     # Миграция: добавляем поля виртуального портфеля в penny_stocks_monitoring
-
     penny_cols = {row[1] for row in cursor.execute("PRAGMA table_info(penny_stocks_monitoring)").fetchall()}
     if 'virtual_bought_price' not in penny_cols:
         cursor.execute("ALTER TABLE penny_stocks_monitoring ADD COLUMN virtual_bought_price REAL DEFAULT NULL")
     if 'virtual_bought_at' not in penny_cols:
         cursor.execute("ALTER TABLE penny_stocks_monitoring ADD COLUMN virtual_bought_at TIMESTAMP DEFAULT NULL")
+
+    # Миграция: добавляем wallet_address в мониторинг китов
+    whale_cols = {row[1] for row in cursor.execute("PRAGMA table_info(whale_stocks_monitoring)").fetchall()}
+    if 'wallet_address' not in whale_cols:
+        cursor.execute("ALTER TABLE whale_stocks_monitoring ADD COLUMN wallet_address TEXT DEFAULT NULL")
 
     # Миграция: удаление некорректных legacy записей из мониторинга
     cursor.execute("""
@@ -2700,27 +2705,29 @@ def update_whale_settings(settings: dict) -> None:
             )
 
 def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_price: float,
-                                  predicted_outcome: str = None, edge: float = None, confidence: float = None) -> None:
+                                  predicted_outcome: str = None, edge: float = None, confidence: float = None,
+                                  wallet_address: str = None) -> None:
     init_p = _round_price(initial_price)
     with get_connection() as conn:
         conn.execute("""
             INSERT INTO whale_stocks_monitoring
             (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
-             predicted_outcome, edge, confidence, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+             predicted_outcome, edge, confidence, status, wallet_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
             ON CONFLICT(market_id) DO UPDATE SET
                 predicted_outcome = CASE WHEN excluded.predicted_outcome IS NOT NULL THEN excluded.predicted_outcome ELSE predicted_outcome END,
                 edge = CASE WHEN excluded.edge IS NOT NULL THEN excluded.edge ELSE edge END,
-                confidence = CASE WHEN excluded.confidence IS NOT NULL THEN excluded.confidence ELSE confidence END
+                confidence = CASE WHEN excluded.confidence IS NOT NULL THEN excluded.confidence ELSE confidence END,
+                wallet_address = CASE WHEN excluded.wallet_address IS NOT NULL THEN excluded.wallet_address ELSE wallet_address END
         """, (market_id, title, url, init_p, init_p, init_p, init_p,
-              predicted_outcome, edge, confidence))
+              predicted_outcome, edge, confidence, wallet_address))
 
 def get_active_whale_stocks() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
                    volume_2h, predicted_outcome, edge, confidence, status, spike_alert_sent, added_at,
-                   virtual_bought_price, virtual_bought_at
+                   virtual_bought_price, virtual_bought_at, wallet_address
             FROM whale_stocks_monitoring
             WHERE status = 'ACTIVE'
             ORDER BY added_at DESC

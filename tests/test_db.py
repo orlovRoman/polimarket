@@ -338,3 +338,30 @@ class TestAlertSentDatetimeBug:
         # Этот вызов не должен бросать ValueError
         res = db_module.is_alert_already_sent(alert_key, ttl_hours=12)
         assert res is False
+
+
+# ─────────────────────────────────────────────
+# Тест whale_stocks_monitoring с wallet_address
+# ─────────────────────────────────────────────
+
+class TestWhaleStocksMonitoringWalletAddress:
+    def test_whale_stock_monitoring_saves_wallet_address(self, db_module):
+        """Проверяем, что add_whale_stock_to_monitoring сохраняет и get_active_whale_stocks возвращает wallet_address."""
+        market_id = "test_whale_market_1"
+        title = "Test Whale Market"
+        url = "http://test_whale"
+        initial_price = 0.5
+        wallet_address = "0x1234567890123456789012345678901234567890"
+
+        db_module.add_whale_stock_to_monitoring(
+            market_id=market_id,
+            title=title,
+            url=url,
+            initial_price=initial_price,
+            wallet_address=wallet_address
+        )
+
+        active_stocks = db_module.get_active_whale_stocks()
+        found = [s for s in active_stocks if s['market_id'] == market_id]
+        assert len(found) == 1
+        assert found[0]['wallet_address'] == wallet_address

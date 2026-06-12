@@ -128,7 +128,10 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
     """
     try:
         days = int(days)
-        days = max(1, min(days, 365))
+        if days <= 0:
+            days = 30
+        else:
+            days = min(days, 365)
     except (ValueError, TypeError):
         days = 30
 
@@ -595,7 +598,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'system_alerts': system_alerts
     }
 
-def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100) -> dict:
+def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100, whales_page=1, whales_limit=10) -> dict:
     """
     Собирает данные для дашборда Whale Following (активные, завершенные позиции, статистика, распределение).
     """
@@ -614,7 +617,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         # Активные позиции с пагинацией
         active_offset = (active_page - 1) * active_limit
         active_rows = conn.execute("""
-            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.volume_2h, p.predicted_outcome, p.edge, p.confidence, p.added_at, p.virtual_bought_price
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.volume_2h, p.predicted_outcome, p.edge, p.confidence, p.added_at, p.virtual_bought_price, p.wallet_address
             FROM whale_stocks_monitoring p
             WHERE p.status = 'ACTIVE'
             ORDER BY p.added_at DESC
@@ -655,7 +658,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         # Завершенные позиции с пагинацией
         resolved_offset = (resolved_page - 1) * resolved_limit
         resolved_rows = conn.execute("""
-            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
                    h.pnl_cents as pnl_realized
             FROM whale_stocks_monitoring p
             LEFT JOIN (
@@ -703,7 +706,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # Виртуальный портфель
         portfolio_rows = conn.execute("""
-            SELECT market_id, title, url, initial_price, current_price, predicted_outcome, edge, confidence, virtual_bought_price, virtual_bought_at
+            SELECT market_id, title, url, initial_price, current_price, predicted_outcome, edge, confidence, virtual_bought_price, virtual_bought_at, wallet_address
             FROM whale_stocks_monitoring
             WHERE status = 'ACTIVE' AND virtual_bought_price IS NOT NULL
             ORDER BY virtual_bought_at DESC
@@ -945,6 +948,33 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         except Exception as e:
             logger.warning(f"[DataProvider] signals whale alerts недоступны: {e}")
 
+        # Статистика китов с пагинацией
+        whales_total = conn.execute("SELECT COUNT(*) as cnt FROM wallets").fetchone()['cnt']
+        whales_offset = (whales_page - 1) * whales_limit
+        whales_rows = conn.execute("""
+            SELECT 
+                w.address,
+                w.alias,
+                w.win_rate,
+                w.total_profit,
+                w.is_insider,
+                COUNT(t.id) as tx_count,
+                COALESCE(SUM(t.amount_usd), 0.0) as total_vol
+            FROM wallets w
+            LEFT JOIN trader_transactions t ON w.address = t.wallet_address
+            GROUP BY w.address
+            ORDER BY total_vol DESC, tx_count DESC
+            LIMIT ? OFFSET ?
+        """, (whales_limit, whales_offset)).fetchall()
+        
+        whales = []
+        for r in whales_rows:
+            r_dict = dict(r)
+            r_dict['total_vol'] = round(r_dict['total_vol'], 2)
+            r_dict['win_rate'] = round(r_dict['win_rate'], 4) if r_dict['win_rate'] is not None else 0.0
+            r_dict['total_profit'] = round(r_dict['total_profit'], 2) if r_dict['total_profit'] is not None else 0.0
+            whales.append(r_dict)
+
     return {
         'active': active,
         'resolved': resolved,
@@ -955,7 +985,9 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'active_total': active_total,
         'resolved_total': resolved_total,
         'history_total': history_total,
-        'system_alerts': system_alerts
+        'system_alerts': system_alerts,
+        'whales': whales,
+        'whales_total': whales_total
     }
 
 def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 50, page: Optional[int] = None, sort_by: Optional[str] = None, sort_dir: Optional[str] = None) -> Any:

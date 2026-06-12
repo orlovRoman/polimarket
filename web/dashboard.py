@@ -304,6 +304,8 @@ async def api_whale_stocks(request):
     resolved_limit = get_int_query(request, "resolved_limit", 50)
     history_page = get_int_query(request, "history_page", 1)
     history_limit = get_int_query(request, "history_limit", 50)
+    whales_page = get_int_query(request, "whales_page", 1)
+    whales_limit = get_int_query(request, "whales_limit", 10)
     
     data = await asyncio.to_thread(
         data_provider.get_whale_stocks_dashboard,
@@ -312,7 +314,9 @@ async def api_whale_stocks(request):
         resolved_page=resolved_page,
         resolved_limit=resolved_limit,
         history_page=history_page,
-        history_limit=history_limit
+        history_limit=history_limit,
+        whales_page=whales_page,
+        whales_limit=whales_limit
     )
     with _jobs_lock:
         running_ids = [mid for mid, job in analysis_jobs.items() if job.get("status") == "running"]

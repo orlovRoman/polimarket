@@ -117,6 +117,7 @@
                         <th>#</th>
                         <th>Рынок</th>
                         <th>Направление</th>
+                        <th>Кит</th>
                         <th>Вход</th>
                         <th>Текущая</th>
                         <th>PnL</th>
@@ -125,7 +126,7 @@
                 </thead>
                 <tbody id="portfolio-tbody">
                     <tr>
-                        <td colspan="7" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                        <td colspan="8" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                     </tr>
                 </tbody>
             </table>
@@ -141,6 +142,7 @@
                 <tr>
                     <th>#</th>
                     <th onclick="toggleSort('active', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-active-title"></span></th>
+                    <th>Кит</th>
                     <th onclick="toggleSort('active', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-active-initial_price_outcome"></span></th>
                     <th onclick="toggleSort('active', 'current_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'current_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Текущая<span id="sort-active-current_price_outcome"></span></th>
                     <th onclick="toggleSort('active', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('active', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-active-max_price_seen_outcome"></span></th>
@@ -153,7 +155,7 @@
             </thead>
             <tbody id="active-positions-tbody">
                 <tr>
-                    <td colspan="10" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="11" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
@@ -169,6 +171,7 @@
                 <tr>
                     <th>#</th>
                     <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
+                    <th>Кит</th>
                     <th onclick="toggleSort('resolved', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome"></span></th>
                     <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome"></span></th>
                     <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome"></span></th>
@@ -182,7 +185,7 @@
             </thead>
             <tbody id="resolved-positions-tbody">
                 <tr>
-                    <td colspan="11" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="12" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
@@ -217,6 +220,31 @@
         </table>
     </div>
     <div id="history-pagination"></div>
+</div>
+
+<div class="table-card">
+    <div class="table-title">Статистика кошельков китов</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Адрес кошелька</th>
+                    <th>Alias</th>
+                    <th>Win Rate (30д)</th>
+                    <th>Общий профит</th>
+                    <th>Сделок в БД</th>
+                    <th>Общий объем сделок</th>
+                </tr>
+            </thead>
+            <tbody id="whales-tbody">
+                <tr>
+                    <td colspan="7" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="whales-pagination"></div>
 </div>
 
 <style>
@@ -315,6 +343,12 @@
             hour: '2-digit',
             minute: '2-digit'
         });
+    }
+
+    function formatWhaleAddress(address) {
+        if (!address) return '—';
+        const display = address.substring(0, 6) + '...' + address.substring(address.length - 4);
+        return `<a href="https://polymarket.com/profile/${address}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary); font-family: monospace;">${display}</a>`;
     }
 
     function formatPercent(val) {
@@ -493,7 +527,8 @@
     let pagination = {
         active: { page: 1, limit: 50, total: 0 },
         resolved: { page: 1, limit: 50, total: 0 },
-        history: { page: 1, limit: 50, total: 0 }
+        history: { page: 1, limit: 50, total: 0 },
+        whales: { page: 1, limit: 10, total: 0 }
     };
 
     async function deleteMarket(tableName, recordId) {
@@ -555,7 +590,7 @@
     function renderActiveTable(activeList) {
         const activeTbody = document.getElementById('active-positions-tbody');
         if (activeList.length === 0) {
-            activeTbody.innerHTML = `<tr><td colspan="10" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
+            activeTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">Нет активных позиций</td></tr>`;
         } else {
             activeTbody.innerHTML = activeList.map((row, index) => {
                 const changePct = row.initial_price_outcome > 0 ? ((row.current_price_outcome - row.initial_price_outcome) / row.initial_price_outcome * 100) : 0;
@@ -600,6 +635,7 @@
                     <tr ${rowStyle}>
                         <td>${globalIndex}</td>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
+                        <td>${formatWhaleAddress(row.wallet_address)}</td>
                         <td>${formatPriceCents(row.initial_price_outcome)}</td>
                         <td>${formatPriceCents(row.current_price_outcome)} <span class="${changeClass}" style="font-size:0.8rem; margin-left:4px;">(${changeSign}${changePct.toFixed(1)}%)</span></td>
                         <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
@@ -617,7 +653,7 @@
     function renderResolvedTable(resolvedList) {
         const resolvedTbody = document.getElementById('resolved-positions-tbody');
         if (resolvedList.length === 0) {
-            resolvedTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
+            resolvedTbody.innerHTML = `<tr><td colspan="12" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
         } else {
             resolvedTbody.innerHTML = resolvedList.map((row, index) => {
                 const targetOutcome = row.predicted_outcome !== null ? row.predicted_outcome : row.cheap_outcome;
@@ -639,6 +675,7 @@
                     <tr>
                         <td>${globalIndex}</td>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-secondary); text-decoration:none;">${row.title}</a></td>
+                        <td>${formatWhaleAddress(row.wallet_address)}</td>
                         <td>${formatPriceCents(row.initial_price_outcome)}</td>
                         <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
@@ -912,7 +949,7 @@
     }
 
     async function loadWhaleStocksData() {
-        const url = `/api/whale-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&resolved_page=${pagination.resolved.page}&resolved_limit=${pagination.resolved.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}`;
+        const url = `/api/whale-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&resolved_page=${pagination.resolved.page}&resolved_limit=${pagination.resolved.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}&whales_page=${pagination.whales.page}&whales_limit=${pagination.whales.limit}`;
         const data = await fetchJSON(url);
 
         if (!data) return;
@@ -921,6 +958,7 @@
         pagination.active.total = data.active_total || 0;
         pagination.resolved.total = data.resolved_total || 0;
         pagination.history.total = data.history_total || 0;
+        pagination.whales.total = data.whales_total || 0;
 
         runningAnalyses = data.running_analyses || [];
 
@@ -936,7 +974,7 @@
         // 2. Портфель
         const portfolioTbody = document.getElementById('portfolio-tbody');
         if (!data.portfolio || data.portfolio.length === 0) {
-            portfolioTbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Портфель пуст</td></tr>`;
+            portfolioTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Портфель пуст</td></tr>`;
         } else {
             portfolioTbody.innerHTML = data.portfolio.map((row, index) => {
                 let pnlClass = '';
@@ -959,6 +997,7 @@
                         <td>${index + 1}</td>
                         <td><a href="${row.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${row.title}</a></td>
                         <td>${directionBadge}</td>
+                        <td>${formatWhaleAddress(row.wallet_address)}</td>
                         <td>${formatPriceCents(row.bought_outcome_price)}</td>
                         <td>${formatPriceCents(row.current_outcome_price)}</td>
                         <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent}%)</span></td>
@@ -976,11 +1015,47 @@
         renderPaginationControls('active-pagination', 'active');
         renderPaginationControls('resolved-pagination', 'resolved');
         renderPaginationControls('history-pagination', 'history');
+        renderWhalesTable(data.whales);
+        renderPaginationControls('whales-pagination', 'whales');
         updateSortIndicators('active');
         updateSortIndicators('resolved');
 
         // 4. Оповещения
         renderSystemAlerts(data.system_alerts);
+    }
+
+    function renderWhalesTable(whalesList) {
+        const whalesTbody = document.getElementById('whales-tbody');
+        if (!whalesList || whalesList.length === 0) {
+            whalesTbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Нет данных по китам</td></tr>`;
+        } else {
+            whalesTbody.innerHTML = whalesList.map((row, index) => {
+                const globalIndex = (pagination.whales.page - 1) * pagination.whales.limit + index + 1;
+                const aliasStr = row.alias ? row.alias : '—';
+                const winRateStr = row.win_rate !== null ? (row.win_rate * 100).toFixed(1) + '%' : '—';
+                let profitClass = '';
+                if (row.total_profit > 0) {
+                    profitClass = 'text-green';
+                } else if (row.total_profit < 0) {
+                    profitClass = 'text-red';
+                }
+                const profitSign = row.total_profit > 0 ? '+' : '';
+                const profitStr = row.total_profit !== null ? `$${row.total_profit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '—';
+                const profitSpan = row.total_profit !== null ? `<span class="${profitClass}">${profitSign}${profitStr}</span>` : '—';
+
+                return `
+                    <tr>
+                        <td>${globalIndex}</td>
+                        <td>${formatWhaleAddress(row.address)}</td>
+                        <td>${aliasStr}</td>
+                        <td>${winRateStr}</td>
+                        <td>${profitSpan}</td>
+                        <td>${row.tx_count}</td>
+                        <td>$${row.total_vol.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
     }
 
     registerRefresh(loadWhaleStocksData);

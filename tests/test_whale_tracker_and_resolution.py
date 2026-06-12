@@ -370,6 +370,16 @@ def test_new_whale_scanners_and_early_resolution():
         assert sig_series["status"] == "PENDING"
         assert sig_series["target_outcome"] == "NO"
 
+    # Проверяем, что в whale_stocks_monitoring записались адреса китов
+    with get_connection() as conn:
+        monitoring_1 = conn.execute("SELECT wallet_address FROM whale_stocks_monitoring WHERE market_id = ?", (market_id_1,)).fetchone()
+        assert monitoring_1 is not None
+        assert monitoring_1["wallet_address"] == "0xWhaleSingle"
+
+        monitoring_2 = conn.execute("SELECT wallet_address FROM whale_stocks_monitoring WHERE market_id = ?", (market_id_2,)).fetchone()
+        assert monitoring_2 is not None
+        assert monitoring_2["wallet_address"] == "0xWhaleSeries"
+
     # 4. Проверяем досрочную резолюцию сигналов
     # Изменим исходы рынков в БД на "YES" (досрочное разрешение)
     with get_connection() as conn:

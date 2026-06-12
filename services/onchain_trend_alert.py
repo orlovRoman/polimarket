@@ -70,7 +70,8 @@ def _log_whale_signal_to_eval(
                 initial_price=yes_price,
                 predicted_outcome=side,
                 edge=edge,
-                confidence=0.5
+                confidence=0.5,
+                wallet_address=metadata_extra.get("wallet_address")
             )
         except Exception as db_e:
             logger.error(f"[OnchainTrend] Ошибка сохранения Whale-сигнала в мониторинг: {db_e}", exc_info=True)
