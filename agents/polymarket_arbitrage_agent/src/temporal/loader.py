@@ -57,6 +57,7 @@ def load_events_from_raw(
     stats = {"total": 0, "few_markets": 0, "low_volume": 0, "few_dates": 0, "passed": 0}
     result: list[PolyEvent] = []
 
+    now = datetime.now(timezone.utc)
     for event in raw_events:
         stats["total"] += 1
         raw_markets = event.get("markets", [])
@@ -67,13 +68,21 @@ def load_events_from_raw(
         markets: list[EventMarket] = []
         for m in raw_markets:
             try:
+                # Фильтруем закрытые или разрешенные рынки
+                if m.get("closed") is True or m.get("closed") == "true" or m.get("resolved") is True:
+                    continue
+
+                close_time = _parse_dt(m)
+                if close_time <= now:
+                    continue
+
                 prices = json.loads(m.get("outcomePrices", "[]"))
                 if not prices:
                     continue
 
-                volume = float(
-                    m.get("volumeNum", 0) or m.get("volume", 0) or 0
-                )
+                # volumeNum — это объем всего события, volume — объем конкретного рынка
+                volume_raw = m.get("volume") or m.get("volumeNum") or 0
+                volume = float(volume_raw) if volume_raw else 0.0
                 if volume < min_volume:
                     logger.debug(f"[TC-PARSER] Пропущен рынок {m.get('id','?')}: volume={volume} < {min_volume}")
                     continue
@@ -89,7 +98,7 @@ def load_events_from_raw(
                     price_yes=price_yes,
                     price_no=price_no,
                     volume=volume,
-                    close_time=_parse_dt(m),
+                    close_time=close_time,
                     token_yes=tokens[0] if tokens else None,
                     token_no=tokens[1] if len(tokens) > 1 else None,
                 ))

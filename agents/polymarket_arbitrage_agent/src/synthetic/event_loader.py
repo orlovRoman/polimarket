@@ -4,7 +4,7 @@ import requests
 from dataclasses import dataclass, field, replace
 
 logger = logging.getLogger(f"NexusPolyBot.{__name__}")
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from agents.shared.utils.parsers import parse_numeric_level
@@ -63,6 +63,7 @@ def load_events_with_levels_from_raw(
     stats = {"total": 0, "few_markets": 0, "no_levels": 0, "mixed_units": 0, "low_sum": 0, "passed": 0}
     result: list[PolyEvent] = []
     
+    now = datetime.now(timezone.utc)
     for event in raw_events:
         stats["total"] += 1
         raw_markets = event.get("markets", [])
@@ -74,8 +75,19 @@ def load_events_with_levels_from_raw(
         
         for m in raw_markets:
             try:
+                # Фильтруем закрытые или разрешенные рынки
+                if m.get("closed") is True or m.get("closed") == "true" or m.get("resolved") is True:
+                    continue
+
+                end_date = _parse_date(m)
+                if end_date and end_date <= now:
+                    continue
+
                 prices = json.loads(m.get("outcomePrices", "[]"))
-                volume = float(m.get("volumeNum", 0) or m.get("volume", 0) or 0)
+                
+                # volumeNum — это объем всего события, volume — объем конкретного рынка
+                volume_raw = m.get("volume") or m.get("volumeNum") or 0
+                volume = float(volume_raw) if volume_raw else 0.0
                 
                 if not prices or volume < min_volume_per_market:
                     continue
@@ -98,7 +110,7 @@ def load_events_with_levels_from_raw(
                     price_yes=price_yes,
                     price_no=price_no,
                     volume=volume,
-                    end_date=_parse_date(m),
+                    end_date=end_date,
                     token_yes=token_yes,
                     token_no=token_no,
                     numeric_level=numeric_level,

@@ -33,6 +33,9 @@ def run_temporal_corridor_scan(
     from services.poly_fetch import fetch_poly_events
     adapter = PolymarketAdapter()
     raw = fetch_poly_events(adapter, limit=poly_limit)
+    logger.info(f"[TC-ДИАГ] Загружено сырых событий: {len(raw)}")
+    multi = [e for e in raw if len(e.get("markets", [])) >= 2]
+    logger.info(f"[TC-ДИАГ] Из них multi-market (>=2): {len(multi)}")
 
     events = load_events_from_raw(
         raw_events=raw,
@@ -66,7 +69,7 @@ def run_temporal_corridor_scan(
 
         if not ob:
             stats["no_orderbook"] += 1
-            logger.debug(f"[TC] Ордербук недоступен: {c.early.market_id}")
+            logger.debug(f"[TC] Ордербук недоступен для пары: early={c.early.market_id}, late={c.late.market_id}")
             continue
 
         if ob["real_spread_pct"] < min_real_spread_pct:

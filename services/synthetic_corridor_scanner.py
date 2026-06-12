@@ -31,6 +31,9 @@ def run_synthetic_corridor_scan(
     from services.poly_fetch import fetch_poly_events
     adapter = PolymarketAdapter()
     raw = fetch_poly_events(adapter, limit=poly_limit)
+    logger.info(f"[SCA-ДИАГ] Загружено сырых событий: {len(raw)}")
+    multi = [e for e in raw if len(e.get("markets", [])) >= 2]
+    logger.info(f"[SCA-ДИАГ] Из них multi-market (>=2): {len(multi)}")
 
     events = load_events_with_levels_from_raw(
         raw_events=raw,
