@@ -772,9 +772,11 @@
             kpiAvgentry.textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : '—';
 
             kpiBesttrade.previousElementSibling.textContent = "Лучший авто-трейд";
-            kpiBesttrade.innerHTML = formatPnLCents(data.stats.best_trade_pnl);
+            kpiBesttrade.innerHTML = formatPnL(data.stats.best_trade_pnl);
 
-            cardTradesPnl.style.display = 'none';
+            cardTradesPnl.style.display = 'block';
+            kpiTradesPnl.previousElementSibling.textContent = "Всего завершено";
+            kpiTradesPnl.textContent = data.stats.resolved_count;
             
             cardAllPnl.style.display = 'block';
             kpiAllPnl.previousElementSibling.textContent = "Общий PnL (Авто)";

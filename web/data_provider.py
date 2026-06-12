@@ -455,7 +455,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         stats = {
             'active_count': total_active,
             'active_predicted_count': total_active_predicted,
-            'resolved_count': auto_resolved_row['count'] if auto_resolved_row else 0,
+            'resolved_count': total_resolved,
+            'auto_resolved_count': auto_resolved_row['count'] if auto_resolved_row else 0,
             'win_rate': auto_win_rate,
             'avg_entry_price': avg_entry_auto,
             'best_trade_pnl': auto_best_pnl,
@@ -488,7 +489,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         avg_entry_manual_row = conn.execute("""
             SELECT AVG(
                 CASE
-                    WHEN predicted_outcome = 'NO' THEN 1.0 - virtual_bought_price
+                    WHEN predicted_outcome = 'NO' OR (predicted_outcome IS NULL AND initial_price >= 0.90) THEN 1.0 - virtual_bought_price
                     ELSE virtual_bought_price
                 END
             ) as avg_entry
