@@ -19,17 +19,23 @@ def get_overview_stats() -> dict:
     - pnl за 7 и 30 дней, а также количество сигналов из signals
     """
     from agents.shared.python.db import get_connection
-    strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks']
+    DEFAULT_STRATEGY_STATS = {
+        'win_rate': None,
+        'pnl_7d': 0.0,
+        'pnl_30d': 0.0,
+        'sharpe': None,
+        'signals_count': 0,
+        'status_emoji': '🟡'
+    }
+    
+    strategies = [
+        'scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks',
+        'synthetic', 'temporal'
+    ]
+    
     stats = {}
     for s in strategies:
-        stats[s] = {
-            'win_rate': None,
-            'pnl_7d': 0.0,
-            'pnl_30d': 0.0,
-            'sharpe': None,
-            'signals_count': 0,
-            'status_emoji': '🟡'
-        }
+        stats[s] = dict(DEFAULT_STRATEGY_STATS)
 
     with get_connection() as conn:
         # 1. Читаем последние метрики из strategy_metrics
