@@ -65,7 +65,7 @@ async def fetch_market_oracle_links(market_id: str, market_description: Optional
                         link_clean = link.strip()
                         if not link_clean.startswith("http"):
                             link_clean = "https://" + link_clean
-                        if is_valid_external_url(link_clean):
+                        if is_valid_external_url(link_clean) and link_clean not in links:
                             links.append(link_clean)
                         if len(links) >= 2:
                             break
@@ -81,7 +81,7 @@ async def fetch_market_oracle_links(market_id: str, market_description: Optional
             link_clean = link.strip()
             if not link_clean.startswith("http"):
                 link_clean = "https://" + link_clean
-            if is_valid_external_url(link_clean):
+            if is_valid_external_url(link_clean) and link_clean not in links:
                 links.append(link_clean)
             if len(links) >= 2:
                 break
