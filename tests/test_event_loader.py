@@ -39,7 +39,7 @@ def test_heuristic_filters_mutually_exclusive():
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
         
-        events = load_events_with_levels_from_raw(mock_events, min_markets_per_event=2)
+        events = load_events_with_levels_from_raw(mock_events, min_markets_per_event=2, min_cumulative_sum=1.005)
         
         # Должно остаться только 1 событие
         assert len(events) == 1
@@ -47,3 +47,33 @@ def test_heuristic_filters_mutually_exclusive():
         
         # Дополнительная проверка: markets в btc-price должно быть 3
         assert len(events[0].markets) == 3
+
+def test_unit_normalization():
+    # Событие с разными единицами: B и T. Должно быть приведено к T.
+    mixed_event = {
+        "slug": "mixed-units-event",
+        "title": "Mixed Units Event",
+        "markets": [
+            {"id": "1", "question": "Will Anthropic hit $800B?", "outcomePrices": '["0.6", "0.4"]', "volume": "10000"},
+            {"id": "2", "question": "Will Anthropic hit $1.2T?", "outcomePrices": '["0.5", "0.5"]', "volume": "10000"},
+        ]
+    }
+    
+    events = load_events_with_levels_from_raw([mixed_event], min_markets_per_event=2, min_cumulative_sum=1.005)
+    
+    assert len(events) == 1
+    assert events[0].event_slug == "mixed-units-event"
+    
+    markets = events[0].markets
+    assert len(markets) == 2
+    
+    # Сортируем рынки по numeric_level
+    sorted_m = sorted(markets, key=lambda m: m.numeric_level)
+    
+    # 800B должно стать 0.8T
+    assert sorted_m[0].level_unit == "T"
+    assert abs(sorted_m[0].numeric_level - 0.8) < 1e-6
+    
+    assert sorted_m[1].level_unit == "T"
+    assert abs(sorted_m[1].numeric_level - 1.2) < 1e-6
+

@@ -54,6 +54,7 @@ def load_events_with_levels_from_raw(
     raw_events: list[dict],
     min_markets_per_event: int = 2,
     min_volume_per_market: float = 5_000,
+    min_cumulative_sum: float = 1.005,
 ) -> list[PolyEvent]:
     """
     Парсит сырые события в PolyEvent с числовыми уровнями.
@@ -113,23 +114,38 @@ def load_events_with_levels_from_raw(
             stats["no_levels"] += 1
             continue
         
+        # Нормализуем денежные единицы (K, M, B, T), если они смешаны
+        UNIT_MULTIPLIERS = {'T': 1e12, 'B': 1e9, 'M': 1e6, 'K': 1e3}
+        event_units = set(m.level_unit for m in leveled)
+        financial_units = event_units.intersection(UNIT_MULTIPLIERS.keys())
+        
+        if len(financial_units) > 1:
+            # Приводим к максимальной единице из присутствующих
+            target_unit = max(financial_units, key=lambda u: UNIT_MULTIPLIERS[u])
+            for m in leveled:
+                if m.level_unit in UNIT_MULTIPLIERS and m.level_unit != target_unit:
+                    m_from = UNIT_MULTIPLIERS[m.level_unit]
+                    m_to = UNIT_MULTIPLIERS[target_unit]
+                    m.numeric_level = m.numeric_level * (m_from / m_to)
+                    m.level_unit = target_unit
+            # Обновляем набор единиц после нормализации
+            event_units = set(m.level_unit for m in leveled)
+
         # Проверяем что все уровни имеют одну единицу — иначе сравнение некорректно
-        units = set(m.level_unit for m in leveled)
-        if len(units) > 1:
+        if len(event_units) > 1:
             stats["mixed_units"] += 1
             continue  # смешанные единицы — пропускаем без LLM
 
         total_yes_prob = sum(m.price_yes for m in leveled)
-        logger.debug(f"[SCA] '{event.get('title','')[:50]}': leveled={len(leveled)}, sum_yes={total_yes_prob:.2f}, units={units}")
+        logger.debug(f"[SCA] '{event.get('title','')[:50]}': leveled={len(leveled)}, sum_yes={total_yes_prob:.2f}, units={event_units}")
 
         # Фильтр: отсекаем взаимоисключающие рынки (mutually exclusive)
         # У накопительных рынков (выше X, выше Y) сумма price_yes должна быть заметно больше 1.0 (например, > 1.2)
         # Если сумма около 1.0, значит это взаимоисключающие бины.
-        MIN_CUMULATIVE_SUM = 1.02
-        if total_yes_prob < MIN_CUMULATIVE_SUM:
+        if total_yes_prob < min_cumulative_sum:
             logger.info(
                 f"[SCA] Пропущено '{event.get('title', '')[:40]}': "
-                f"sum(price_yes)={total_yes_prob:.2f} < {MIN_CUMULATIVE_SUM} (взаимоисключающие бины)"
+                f"sum(price_yes)={total_yes_prob:.2f} < {min_cumulative_sum} (взаимоисключающие бины)"
             )
             stats["low_sum"] += 1
             continue

@@ -91,6 +91,7 @@ def run_temporal_corridor_scan(
             date_gap_days=c.date_gap_days,
             executable_contracts=ob["executable_contracts"],
             p_in_corridor=c.p_in_corridor,
+            min_executable=min_executable_contracts,
         )
 
         if quality < min_quality_score:
