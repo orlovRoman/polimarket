@@ -399,9 +399,6 @@ def _resolve_compound_outcomes() -> int:
     cfg = get_compound_settings()
     virtual_stake = cfg.get("virtual_stake", 50.0)
     
-    cfg = get_compound_settings()
-    virtual_stake = cfg.get("virtual_stake", 50.0)
-    
     # Находим активные позиции, которые были авто-куплены или вручную куплены
     active_opps = get_active_compound_opportunities()
     to_resolve = [o for o in active_opps if o["status"] in ("BOUGHT", "ALERTED_EXIT") or o["virtual_bought_price"] is not None]
@@ -413,9 +410,11 @@ def _resolve_compound_outcomes() -> int:
             continue
             
         # 1. Если это ручная сделка в виртуальном портфеле, разрешаем её
+        resolved_manual = False
         if opp["virtual_bought_price"] is not None:
             from agents.shared.python.db import resolve_compound_opportunity_manual_portfolio
             resolve_compound_opportunity_manual_portfolio(opp["id"], res)
+            resolved_manual = True
             
         # 2. Если это авто-сделка, разрешаем её
         if opp["status"] in ("BOUGHT", "ALERTED_EXIT"):
@@ -444,7 +443,7 @@ def _resolve_compound_outcomes() -> int:
                 if sig_row:
                     _resolve_signal(dict(sig_row), res)
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} Auto PnL=${pnl:.2f}")
-        else:
+        elif resolved_manual:
             # Если куплена только вручную, всё равно закрываем саму возможность
             resolve_compound_opportunity(opp["id"], res, None)
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} (только ручная сделка)")

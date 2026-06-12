@@ -1377,6 +1377,9 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
                 else:
                     pnl_realized = -stake
                 row_dict['pnl_realized'] = round(pnl_realized, 2)
+                row_dict['pnl_is_hypothetical'] = True
+            else:
+                row_dict['pnl_is_hypothetical'] = False
 
             resolved.append(row_dict)
 

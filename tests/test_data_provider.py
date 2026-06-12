@@ -650,4 +650,37 @@ def test_compounding_resolve_manual_and_auto(isolated_db):
         assert opp_lose['pnl_usd'] is None
 
 
+def test_compounding_dashboard_hypothetical_pnl(isolated_db):
+    # Вставляем разрешенную возможность без ручной сделки в истории
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, outcome, actual_outcome)
+            VALUES ('opp_hypo', 'mkt_hypo', 'Hypo Opp', 'http://hypo', 0.95, 10000.0, '2026-06-15 12:00:00', 48.0, 4.1, 0.85, 'RESOLVED', 'YES', 'YES')
+        """)
+
+    data = data_provider.get_compounding_dashboard()
+    assert len(data['resolved']) == 1
+    resolved_item = data['resolved'][0]
+    assert resolved_item['market_id'] == 'mkt_hypo'
+    # stake = 50.0, price = 0.95, actual == outcome
+    # raw_pnl = 50 * (1 - 0.95)/0.95 = 2.6315
+    # after fee 2% = 2.6315 * 0.98 = 2.5789 => 2.58
+    assert resolved_item['pnl_realized'] == pytest.approx(2.58, abs=1e-2)
+    assert resolved_item['pnl_is_hypothetical'] is True
+
+    # Теперь вставляем запись в историю (как будто сделка была реальной ручной)
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO compound_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_usd, pnl_percent, bought_at, sold_at)
+            VALUES ('mkt_hypo', 'Hypo Opp', 'http://hypo', 'YES', 0.95, 0.95, 1.0, 1.0, 10.0, 20.0, '2026-06-12 12:00:00', '2026-06-12 13:00:00')
+        """)
+
+    data = data_provider.get_compounding_dashboard()
+    assert len(data['resolved']) == 1
+    resolved_item = data['resolved'][0]
+    assert resolved_item['pnl_realized'] == 10.0
+    assert resolved_item['pnl_is_hypothetical'] is False
+
+
+
 

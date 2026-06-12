@@ -3050,6 +3050,8 @@ def buy_virtual_compound_opportunity(opp_id: str, price: float) -> None:
         """, (_round_price(price), opp_id))
 
 def sell_virtual_compound_opportunity(opp_id: str, price: float) -> None:
+    cfg = get_compound_settings()
+    virtual_stake = cfg.get("virtual_stake", 50.0)
     with get_connection() as conn:
         row = conn.execute("""
             SELECT market_id, title, url, outcome, virtual_bought_price, virtual_bought_at
@@ -3061,9 +3063,6 @@ def sell_virtual_compound_opportunity(opp_id: str, price: float) -> None:
             v_bought = row['virtual_bought_price']
             v_bought_at = row['virtual_bought_at']
             v_sold = _round_price(price)
-            
-            cfg = get_compound_settings()
-            virtual_stake = cfg.get("virtual_stake", 50.0)
             
             pnl_usd = virtual_stake * (v_sold - v_bought) / v_bought
             if pnl_usd > 0:
@@ -3089,6 +3088,8 @@ def sell_virtual_compound_opportunity(opp_id: str, price: float) -> None:
         """, (opp_id,))
 
 def resolve_compound_opportunity_manual_portfolio(opp_id: str, actual_outcome: str) -> None:
+    cfg = get_compound_settings()
+    virtual_stake = cfg.get("virtual_stake", 50.0)
     with get_connection() as conn:
         row = conn.execute("""
             SELECT market_id, title, url, outcome, virtual_bought_price, virtual_bought_at
@@ -3103,9 +3104,6 @@ def resolve_compound_opportunity_manual_portfolio(opp_id: str, actual_outcome: s
             
             # При разрешении оракулом цена исхода 1.0 (если победа) или 0.0 (если проигрыш)
             exit_outcome_price = 1.0 if actual_outcome == outcome else 0.0
-            
-            cfg = get_compound_settings()
-            virtual_stake = cfg.get("virtual_stake", 50.0)
             
             if actual_outcome == outcome:
                 # Победа

@@ -409,18 +409,42 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     force_oracle_search = False
     res_source = None
     try:
-        from agents.shared.utils.resolution_extractor import get_resolution_source, scrape_url_text
-        if m.description and api_key:
-            res_source = await get_resolution_source(m.description, m.title, api_key)
-            if res_source:
+        from agents.shared.utils.resolution_extractor import get_resolution_source, scrape_url_text, ResolutionSource, _apex_domain
+        from agents.shared.utils.polymarket_sources_scraper import fetch_market_oracle_links
+        
+        # 1. Попытка собрать ссылки через наш новый скрапер Polymarket Sources
+        oracle_links = await fetch_market_oracle_links(m.id, m.description)
+        logger.info(f"[workflow] Собрано внешних ссылок с Polymarket Sources: {oracle_links}")
+        
+        for link in oracle_links:
+            logger.info(f"[workflow] Пробуем скрапить внешнюю оракул-ссылку: {link}")
+            text = await scrape_url_text(link)
+            if text:
+                oracle_text = text
+                oracle_domain = _apex_domain(link)
+                res_source = ResolutionSource(
+                    raw_url=link,
+                    domain=oracle_domain,
+                    rss_url=None,
+                    resolution_type="UMA/Sources",
+                    extraction_method="GammaAPI/SourcesScraper"
+                )
+                logger.info(f"[workflow] Успешно скраплено {len(oracle_text)} символов с внешней ссылки {link}.")
+                break
+        
+        # 2. Fallback на старую логику, если оракул-текст не был найден
+        if not oracle_text and m.description and api_key:
+            res_source_old = await get_resolution_source(m.description, m.title, api_key)
+            if res_source_old:
+                res_source = res_source_old
                 oracle_domain = res_source.domain
                 if res_source.raw_url:
-                    logger.info(f"[workflow] Обнаружен URL оракула: {res_source.raw_url}. Запускаем скрапинг...")
+                    logger.info(f"[workflow] (Fallback) Обнаружен URL оракула: {res_source.raw_url}. Запускаем скрапинг...")
                     oracle_text = await scrape_url_text(res_source.raw_url)
                     if oracle_text:
-                        logger.info(f"[workflow] Успешно скраплено {len(oracle_text)} символов с оракула.")
+                        logger.info(f"[workflow] (Fallback) Успешно скраплено {len(oracle_text)} символов с оракула.")
                     else:
-                        logger.warning(f"[workflow] Скрапинг оракула {res_source.raw_url} вернул пустой текст или 403. Активируем точечный Google Search.")
+                        logger.warning(f"[workflow] (Fallback) Скрапинг оракула {res_source.raw_url} вернул пустой текст или 403. Активируем точечный Google Search.")
                         force_oracle_search = True
     except Exception as e:
         logger.exception(f"[workflow] Ошибка при скрапинге оракула: {e}")
