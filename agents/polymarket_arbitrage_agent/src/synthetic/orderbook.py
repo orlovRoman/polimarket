@@ -1,4 +1,7 @@
+import logging
 from .event_loader import OutcomeMarket
+
+logger = logging.getLogger("NexusPolyBot.SyntheticCorridor")
 
 def fetch_real_entry_prices(
     lower: OutcomeMarket,
@@ -12,6 +15,7 @@ def fetch_real_entry_prices(
       - ask NO(upper):  лучшая цена покупки NO верхнего уровня (= 1 - best_bid_yes_upper)
     """
     if not lower.token_yes or not upper.token_yes:
+        logger.debug(f"[OB] Пропуск {lower.market_id}/{upper.market_id}: отсутствует token_yes (lower_yes={lower.token_yes}, upper_yes={upper.token_yes})")
         return None
     
     def get_book(token_id: str) -> dict | None:
@@ -23,19 +27,22 @@ def fetch_real_entry_prices(
             )
             resp.raise_for_status()
             return resp.json()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[OB] Исключение при запросе book для токена {token_id}: {e}")
             return None
     
     book_lower_yes = get_book(lower.token_yes)
     book_upper_yes = get_book(upper.token_yes)
     
     if not book_lower_yes or not book_upper_yes:
+        logger.debug(f"[OB] Пропуск {lower.market_id}/{upper.market_id}: не удалось получить один из стаканов (lower_ok={book_lower_yes is not None}, upper_ok={book_upper_yes is not None})")
         return None
     
     asks_lower = book_lower_yes.get("asks", [])
     bids_upper = book_upper_yes.get("bids", [])
     
     if not asks_lower or not bids_upper:
+        logger.debug(f"[OB] Пропуск {lower.market_id}/{upper.market_id}: один из стаканов пуст (asks_lower={len(asks_lower)}, bids_upper={len(bids_upper)})")
         return None
     
     ask_yes_lower = float(asks_lower[0]["price"])

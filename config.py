@@ -121,8 +121,16 @@ def setup_logger(name="NexusPolyBot"):
     
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
-    # Handler 1: основной лог (всё)
-    file_handler = RotatingFileHandler(LOG_PATH, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
+    # Handler 1: основной лог или лог стратегии
+    if "TemporalCorridor" in name:
+        strategy_file = LOGS_DIR / "temporal_corridor.log"
+        file_handler = RotatingFileHandler(strategy_file, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
+    elif "SyntheticCorridor" in name:
+        strategy_file = LOGS_DIR / "synthetic_corridor.log"
+        file_handler = RotatingFileHandler(strategy_file, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
+    else:
+        file_handler = RotatingFileHandler(LOG_PATH, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
+        
     file_handler.setFormatter(formatter)
     log.addHandler(file_handler)
     

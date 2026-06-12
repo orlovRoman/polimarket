@@ -102,7 +102,7 @@ def compute_quality_score(
     date_gap_days: int,
     executable_contracts: float,
     p_in_corridor: float,
-    min_executable: float = 50.0,
+    min_executable: float = 10.0,
 ) -> float:
     """Оценка качества сигнала от 0 до 1 — без LLM."""
     # Спред: 5%+ = отлично, 1% = минимум

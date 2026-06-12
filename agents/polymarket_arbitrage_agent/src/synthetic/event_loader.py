@@ -141,10 +141,21 @@ def load_events_with_levels_from_raw(
         total_yes_prob = sum(m.price_yes for m in leveled)
         logger.debug(f"[SCA] '{event.get('title','')[:50]}': leveled={len(leveled)}, sum_yes={total_yes_prob:.2f}, units={event_units}")
 
+        # Проверяем наличие нарушения монотонности (потенциального арбитража)
+        has_violation = False
+        sorted_leveled = sorted(leveled, key=lambda m: m.numeric_level)
+        for i in range(len(sorted_leveled)):
+            for j in range(i + 1, len(sorted_leveled)):
+                if sorted_leveled[i].numeric_level < sorted_leveled[j].numeric_level:
+                    if sorted_leveled[i].price_yes < sorted_leveled[j].price_yes:
+                        has_violation = True
+                        break
+            if has_violation:
+                break
+
         # Фильтр: отсекаем взаимоисключающие рынки (mutually exclusive)
-        # У накопительных рынков (выше X, выше Y) сумма price_yes должна быть заметно больше 1.0 (например, > 1.2)
-        # Если сумма около 1.0, значит это взаимоисключающие бины.
-        if total_yes_prob < min_cumulative_sum:
+        # Если есть нарушение монотонности (арбитраж), пропускаем событие в детектор в любом случае.
+        if not has_violation and total_yes_prob < min_cumulative_sum:
             logger.info(
                 f"[SCA] Пропущено '{event.get('title', '')[:40]}': "
                 f"sum(price_yes)={total_yes_prob:.2f} < {min_cumulative_sum} (взаимоисключающие бины)"

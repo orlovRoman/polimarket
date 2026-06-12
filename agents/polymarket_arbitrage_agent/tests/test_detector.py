@@ -54,7 +54,7 @@ def test_find_violations():
     assert v.pnl_above_upper == 0.10
     assert v.pnl_in_corridor == 1.10
     assert v.pnl_below_lower == 0.10
-    assert v.min_pnl == 0.10
+    assert v.guaranteed_pnl == 0.10
 
 
 def test_no_violations():

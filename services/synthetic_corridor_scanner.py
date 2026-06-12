@@ -59,6 +59,7 @@ def run_synthetic_corridor_scan(
         
         if not orderbook:
             stats["no_orderbook"] += 1
+            logger.debug(f"[SCA] Ордербук недоступен для пары {v.lower.market_id} / {v.upper.market_id}")
             continue
         
         if orderbook["real_spread_pct"] < min_real_spread_pct:

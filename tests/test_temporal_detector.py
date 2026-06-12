@@ -60,7 +60,8 @@ def test_quality_score():
         real_spread_pct=6.0,  # > 5.0 -> 1.0
         date_gap_days=45,     # [30, 90] -> 1.0
         executable_contracts=100.0, # > 50 -> 1.0
-        p_in_corridor=0.4     # > 0.3 -> 1.0
+        p_in_corridor=0.4,    # > 0.3 -> 1.0
+        min_executable=50.0   # явно передаем старый дефолт для прохождения теста
     )
     assert score == pytest.approx(1.0)
     
@@ -69,7 +70,9 @@ def test_quality_score():
         real_spread_pct=2.5,  # 0.5
         date_gap_days=15,     # 15/30 = 0.5
         executable_contracts=25.0, # 0.5
-        p_in_corridor=0.15    # 0.5
+        p_in_corridor=0.15,   # 0.5
+        min_executable=50.0   # явно передаем старый дефолт для прохождения теста
     )
     # 0.35*0.5 + 0.25*0.5 + 0.25*0.5 + 0.15*0.5 = 0.5
     assert score2 == pytest.approx(0.5)
+

@@ -22,7 +22,7 @@ class ViolationCandidate:
     pnl_above_upper: float
     pnl_in_corridor: float
     pnl_below_lower: float
-    min_pnl: float
+    guaranteed_pnl: float
 
 
 def find_violations(
@@ -60,7 +60,7 @@ def find_violations(
                 pnl_in_corridor = 2.0 - cost
                 pnl_below_lower = 1.0 - cost
                 
-                min_pnl = min(pnl_above_upper, pnl_in_corridor, pnl_below_lower)
+                guaranteed_pnl = min(pnl_above_upper, pnl_below_lower)
                 
                 candidates.append(ViolationCandidate(
                     event=event,
@@ -74,7 +74,7 @@ def find_violations(
                     pnl_above_upper=round(pnl_above_upper, 4),
                     pnl_in_corridor=round(pnl_in_corridor, 4),
                     pnl_below_lower=round(pnl_below_lower, 4),
-                    min_pnl=round(min_pnl, 4),
+                    guaranteed_pnl=round(guaranteed_pnl, 4),
                 ))
     
     return sorted(candidates, key=lambda c: c.theoretical_spread_pct, reverse=True)
