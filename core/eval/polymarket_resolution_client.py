@@ -41,7 +41,8 @@ class PolymarketResolutionClient:
 
         # Polymarket возвращает tokens: [{outcome: "YES", price: "1"}, ...]
         tokens = data.get("tokens", [])
-        is_resolved = data.get("closed", False) or data.get("resolved", False)
+        active = data.get("active", True)
+        is_resolved = data.get("closed", False) or data.get("resolved", False) or not active
 
         if not is_resolved:
             return MarketResolution(

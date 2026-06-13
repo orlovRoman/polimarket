@@ -116,10 +116,10 @@ class SignalLogger:
 
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                # Архивируем старый PENDING сигнал по этому рынку, чтобы освободить UNIQUE индекс
+                # Архивируем старый PENDING сигнал по этому рынку для той же стратегии, чтобы освободить UNIQUE индекс
                 cursor.execute(
-                    "UPDATE signals SET status='ARCHIVED' WHERE market_id=? AND status='PENDING' AND id != ?",
-                    (payload.market_id, payload.signal_id)
+                    "UPDATE signals SET status='ARCHIVED' WHERE market_id=? AND status='PENDING' AND id != ? AND strategy_type=?",
+                    (payload.market_id, payload.signal_id, payload.strategy_type.value)
                 )
                 cursor.execute("""
                     INSERT INTO signals (
@@ -217,18 +217,21 @@ class SignalLogger:
                     except Exception as e:
                         logger.warning(f"Ошибка парсинга json details для сигнала {payload.signal_id}: {e}")
 
-                # Вычисляем прибыльность и PnL
-                was_profitable, pnl_realized = self._calculate_performance(
-                    strategy_type=strategy_type,
-                    target_outcome=target_outcome,
-                    market_price_at_signal=market_price_at_signal,
-                    resolution_outcome=payload.resolution_outcome,
-                    metadata=metadata
-                )
-
-                status = "WIN" if was_profitable else "LOSS"
                 if payload.resolution_outcome == "N/A":
                     status = "ARCHIVED"
+                    was_profitable = None
+                    pnl_realized = None
+                else:
+                    # Вычисляем прибыльность и PnL
+                    was_profitable_val, pnl_realized = self._calculate_performance(
+                        strategy_type=strategy_type,
+                        target_outcome=target_outcome,
+                        market_price_at_signal=market_price_at_signal,
+                        resolution_outcome=payload.resolution_outcome,
+                        metadata=metadata
+                    )
+                    was_profitable = 1 if was_profitable_val else 0
+                    status = "WIN" if was_profitable_val else "LOSS"
 
                 cursor.execute("""
                     UPDATE signals SET
@@ -244,7 +247,7 @@ class SignalLogger:
                     payload.resolved_at.isoformat(),
                     payload.resolution_outcome,
                     payload.resolution_price,
-                    1 if was_profitable else 0,
+                    was_profitable,
                     pnl_realized,
                     payload.signal_id
                 ))

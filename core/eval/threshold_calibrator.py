@@ -55,6 +55,27 @@ class ThresholdCalibrator:
         
         return wr_decline or brier_incline
 
+    def _can_calibrate(
+        self,
+        metrics: StrategyMetrics,
+        strategy_type: str,
+        trend: Optional[Sequence[StrategyMetrics]] = None
+    ) -> tuple[bool, bool]:
+        """
+        Проверяет базовые условия для проведения калибровки.
+        Возвращает (can_proceed, trend_down).
+        """
+        min_signals = self._get_min_signals(strategy_type)
+        if metrics.resolved_signals < min_signals:
+            return False, False
+            
+        # Рост Brier score > 0.20 указывает на плохую калибровку модели, изменения опасны
+        if metrics.brier_score > 0.20:
+            return False, False
+
+        trend_down = self._is_trending_down(trend) if trend else False
+        return True, trend_down
+
     def suggest_edge_threshold(
         self,
         metrics: StrategyMetrics,
@@ -67,15 +88,9 @@ class ThresholdCalibrator:
         Если win_rate < 45% -> повысить порог (более консервативно).
         Если brier_score > 0.20 -> модель не калибрована, не менять порог (шум).
         """
-        min_signals = self._get_min_signals(strategy_type)
-        if metrics.resolved_signals < min_signals:
+        can_proceed, trend_down = self._can_calibrate(metrics, strategy_type, trend)
+        if not can_proceed:
             return None
-            
-        # Рост Brier score > 0.20 указывает на плохую калибровку модели, изменения опасны
-        if metrics.brier_score > 0.20:
-            return None
-
-        trend_down = self._is_trending_down(trend) if trend else False
         
         # Ситуация 1: Низкий win_rate (< 45%) -> Повышаем порог
         if metrics.win_rate < 0.45:
@@ -97,7 +112,7 @@ class ThresholdCalibrator:
         # Ситуация 2: Отличный win_rate (> 65%) и низкий Brier score (< 0.15) -> Расширяем охват (снижаем порог)
         elif metrics.win_rate > 0.65 and metrics.brier_score < 0.15:
             # Если тренд плохой, никогда не снижаем порог!
-            if trend_down or metrics.brier_score > 0.25:
+            if trend_down:
                 return None
                 
             suggested = current_min_edge * 0.90  # снижаем на 10%
@@ -124,14 +139,9 @@ class ThresholdCalibrator:
         """
         Корректировка порога спреда (min_spread) для арбитража/коридоров.
         """
-        min_signals = self._get_min_signals(strategy_type)
-        if metrics.resolved_signals < min_signals:
+        can_proceed, trend_down = self._can_calibrate(metrics, strategy_type, trend)
+        if not can_proceed:
             return None
-            
-        if metrics.brier_score > 0.20:
-            return None
-
-        trend_down = self._is_trending_down(trend) if trend else False
         
         if metrics.win_rate < 0.45:
             change_pct = 0.20 if trend_down else 0.15
@@ -148,7 +158,7 @@ class ThresholdCalibrator:
             )
             
         elif metrics.win_rate > 0.65 and metrics.brier_score < 0.15:
-            if trend_down or metrics.brier_score > 0.25:
+            if trend_down:
                 return None
                 
             suggested = current_min_spread * 0.90
@@ -175,14 +185,9 @@ class ThresholdCalibrator:
         """
         Корректировка порога копирования сделок китов (whale_win_rate).
         """
-        min_signals = self._get_min_signals(strategy_type)
-        if metrics.resolved_signals < min_signals:
+        can_proceed, trend_down = self._can_calibrate(metrics, strategy_type, trend)
+        if not can_proceed:
             return None
-            
-        if metrics.brier_score > 0.20:
-            return None
-
-        trend_down = self._is_trending_down(trend) if trend else False
         
         if metrics.win_rate < 0.45:
             change_pct = 0.20 if trend_down else 0.15
@@ -199,7 +204,7 @@ class ThresholdCalibrator:
             )
             
         elif metrics.win_rate > 0.65 and metrics.brier_score < 0.15:
-            if trend_down or metrics.brier_score > 0.25:
+            if trend_down:
                 return None
                 
             suggested = current_threshold * 0.90

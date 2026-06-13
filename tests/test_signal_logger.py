@@ -198,3 +198,33 @@ def test_log_penny_stocks_signal_and_resolution():
     # Выигрыш чистыми: 200 * (1.0 - 0.05) = 190.00
     assert row["pnl_realized"] == 190.00
     conn.close()
+
+def test_log_resolution_na_outcome():
+    logger = SignalLogger()
+    signal_id = "test-sig-na-outcome"
+    logger.log_signal(
+        signal_id=signal_id,
+        strategy_type=StrategyType.SCOUT,
+        market_id="market-na",
+        predicted_probability=0.70,
+        market_price_at_signal=0.60,
+        edge_at_signal=0.10,
+        metadata={"target_outcome": "YES"}
+    )
+    
+    logger.log_resolution(
+        signal_id=signal_id,
+        resolution_outcome="N/A",
+        resolution_price=0.0
+    )
+    
+    conn = sqlite3.connect(temp_db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT status, was_profitable, pnl_realized FROM signals WHERE id = ?", (signal_id,))
+    row = cursor.fetchone()
+    assert row is not None
+    assert row["status"] == "ARCHIVED"
+    assert row["was_profitable"] is None
+    assert row["pnl_realized"] is None
+    conn.close()

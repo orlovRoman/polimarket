@@ -38,3 +38,22 @@ def test_fetch_network_error():
     with patch("requests.get", side_effect=Exception("timeout")):
         result = PolymarketResolutionClient().fetch_resolution("0xXYZ")
     assert result is None  # не крашимся, возвращаем None
+
+def test_fetch_resolved_inactive_market():
+    mock_data = {
+        "closed": False,
+        "active": False,
+        "tokens": [
+            {"outcome": "YES", "price": "0.99"},
+            {"outcome": "NO", "price": "0.01"},
+        ]
+    }
+    with patch("requests.get") as mock_get:
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: mock_data,
+            raise_for_status=lambda: None
+        )
+        result = PolymarketResolutionClient().fetch_resolution("0xGHI")
+    assert result.is_resolved is True
+    assert result.winning_outcome == "YES"

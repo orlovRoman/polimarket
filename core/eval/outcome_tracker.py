@@ -115,13 +115,49 @@ class OutcomeTracker:
             self._metrics_repo.compute_and_store_metrics_sync(st)
             logger.info(f"[OT] Метрики пересчитаны для {st_value}")
 
-        # Пересчёт порогов калибровки
+        # Пересчёт порогов калибровки с троттлингом (не чаще раза в час)
         if affected_strategies:
+            should_calibrate = False
             try:
-                self._calibrator.recalibrate()
-                logger.info("[OT] Пороги калибровки обновлены")
+                with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT value FROM memory WHERE key = 'calibration_last_run'")
+                    row = cursor.fetchone()
+                    if row:
+                        try:
+                            last_run_str = json.loads(row[0]).get("timestamp")
+                            last_run = datetime.fromisoformat(last_run_str)
+                            if (datetime.now(timezone.utc) - last_run).total_seconds() > 3600:
+                                should_calibrate = True
+                            else:
+                                logger.info("[OT] Калибровка пропущена (cooldown).")
+                        except Exception:
+                            should_calibrate = True
+                    else:
+                        should_calibrate = True
             except Exception as e:
-                logger.error(f"[OT] Ошибка калибровки: {e}", exc_info=True)
+                logger.error(f"[OT] Ошибка чтения времени последней калибровки: {e}")
+                should_calibrate = True
+
+            if should_calibrate:
+                try:
+                    self._calibrator.recalibrate()
+                    logger.info("[OT] Пороги калибровки обновлены")
+                    
+                    # Сохраняем время калибровки в memory
+                    with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+                        conn.execute("PRAGMA journal_mode=WAL")
+                        conn.execute("""
+                            INSERT INTO memory (key, value, updated_at) 
+                            VALUES ('calibration_last_run', ?, CURRENT_TIMESTAMP)
+                            ON CONFLICT(key) DO UPDATE SET 
+                                value=excluded.value, 
+                                updated_at=CURRENT_TIMESTAMP
+                        """, (json.dumps({"timestamp": datetime.now(timezone.utc).isoformat()}),))
+                        conn.commit()
+                except Exception as e:
+                    logger.error(f"[OT] Ошибка калибровки: {e}", exc_info=True)
 
         # Сохраняем статистику прогона в БД для UI
         try:
