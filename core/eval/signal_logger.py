@@ -67,7 +67,8 @@ class SignalLogger:
         market_price_at_signal: float,
         edge_at_signal: float,
         metadata: Dict[str, Any],
-        created_at: Optional[datetime] = None
+        created_at: Optional[datetime] = None,
+        close_time: Optional[datetime] = None
     ) -> None:
         """
         Записывает сигнал в базу данных в момент генерации.
@@ -81,6 +82,7 @@ class SignalLogger:
                 market_price_at_signal=market_price_at_signal,
                 edge_at_signal=edge_at_signal,
                 metadata=metadata,
+                close_time=close_time or metadata.get("close_time"),
                 created_at=created_at or datetime.now(timezone.utc)
             )
         except Exception as e:
@@ -95,9 +97,22 @@ class SignalLogger:
             platform = payload.metadata.get("platform", "polymarket")
             details_str = json.dumps(payload.metadata, ensure_ascii=False)
 
-            close_time = payload.metadata.get("close_time")
-            if not close_time and "close_time" in payload.metadata:
-                close_time = payload.metadata["close_time"]
+            estimated_probability = payload.metadata.get("estimated_probability")
+            if estimated_probability is None:
+                estimated_probability = payload.predicted_probability
+            else:
+                try:
+                    estimated_probability = float(estimated_probability)
+                except (ValueError, TypeError):
+                    estimated_probability = payload.predicted_probability
+
+            close_time_str = None
+            if payload.close_time:
+                ct = payload.close_time
+                close_time_str = ct.isoformat() if isinstance(ct, datetime) else str(ct)
+            elif "close_time" in payload.metadata:
+                raw = payload.metadata["close_time"]
+                close_time_str = raw.isoformat() if isinstance(raw, datetime) else str(raw)
 
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -144,12 +159,12 @@ class SignalLogger:
                     "PENDING",
                     payload.created_at.isoformat(),
                     target_outcome,
-                    payload.predicted_probability,
+                    estimated_probability,
                     payload.predicted_probability,
                     payload.market_price_at_signal,
                     payload.edge_at_signal,
                     payload.strategy_type.value,
-                    close_time.isoformat() if isinstance(close_time, datetime) else close_time
+                    close_time_str
                 ))
                 logger.info(f"Сигнал {payload.signal_id} ({payload.strategy_type.value}) успешно записан.")
         except Exception as e:
@@ -199,8 +214,8 @@ class SignalLogger:
                 if details_str:
                     try:
                         metadata = json.loads(details_str)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Ошибка парсинга json details для сигнала {payload.signal_id}: {e}")
 
                 # Вычисляем прибыльность и PnL
                 was_profitable, pnl_realized = self._calculate_performance(

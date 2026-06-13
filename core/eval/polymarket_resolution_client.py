@@ -65,12 +65,18 @@ class PolymarketResolutionClient:
                 resolution_price = price
                 break
 
-        # Если не нашли токен с ценой >= 0.99, но рынок закрыт, проверим победителя из description/описания
-        # или возьмем токен с максимальной ценой
+        # Если не нашли токен с ценой >= 0.99, но рынок закрыт,
+        # возьмем токен с максимальной ценой, если она превышает FALLBACK_WIN_THRESHOLD
         if not winning_outcome and tokens:
-            max_token = max(tokens, key=lambda t: float(t.get("price", 0) or 0))
-            max_price = float(max_token.get("price", 0) or 0)
-            if max_price > 0.5:  # если цена больше 50%, считаем его победителем принудительно для закрытого рынка
+            try:
+                max_token = max(tokens, key=lambda t: float(t.get("price", 0) or 0))
+                max_price = float(max_token.get("price", 0) or 0)
+            except (ValueError, TypeError):
+                max_price = 0.0
+                max_token = None
+
+            FALLBACK_WIN_THRESHOLD = 0.90
+            if max_token and max_price >= FALLBACK_WIN_THRESHOLD:
                 winning_outcome = max_token.get("outcome", "").upper()
                 resolution_price = max_price
 

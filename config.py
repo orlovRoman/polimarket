@@ -211,14 +211,16 @@ def startup_check():
         if not key_val:
             continue
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key_val}"
-            resp = requests.get(url, timeout=5)
+            url = "https://generativelanguage.googleapis.com/v1beta/models"
+            headers = {"x-goog-api-key": key_val}
+            resp = requests.get(url, headers=headers, timeout=5)
             resp.raise_for_status()
         except Exception as e:
+            err_msg = str(e).replace(key_val, "REDACTED") if key_val else str(e)
             if key_name == "GOOGLE_API_KEY":
-                raise RuntimeError(f"Первичный GOOGLE_API_KEY недействителен, истек или недоступен: {e}")
+                raise RuntimeError(f"Первичный GOOGLE_API_KEY недействителен, истек или недоступен: {err_msg}")
             else:
-                logger.warning(f"⚠️ {key_name} недействителен или недоступен: {e}")
+                logger.warning(f"⚠️ {key_name} недействителен или недоступен: {err_msg}")
         
     # Убеждаемся, что системные папки существуют
     VAULT_PATH.mkdir(parents=True, exist_ok=True)

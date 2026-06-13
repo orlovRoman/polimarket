@@ -3,6 +3,7 @@ import json
 import logging
 import sqlite3
 import httpx
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 
 from core.eval.signal_logger import SignalLogger
@@ -20,12 +21,41 @@ class ResolutionFetcher:
         self.signal_logger = SignalLogger()
         self.api_url = "https://gamma-api.polymarket.com"
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
         conn = sqlite3.connect(DB_PATH, timeout=5.0)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _get_pending_signals_sync(self, cutoff_time: str) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id as signal_id, market_id, strategy_type, platform, target_outcome
+                FROM signals
+                WHERE resolved_at IS NULL
+                  AND created_at < ?
+                  AND platform IN ('polymarket', 'polymarket_kalshi')
+            """, (cutoff_time,))
+            return cursor.fetchall()
+
+    def _update_market_outcome_sync(self, outcome: str, market_id: str) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE markets 
+                SET outcome = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (outcome, market_id))
 
     async def fetch_pending_resolutions(self) -> int:
         """
@@ -38,16 +68,7 @@ class ResolutionFetcher:
         cutoff_time = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id as signal_id, market_id, strategy_type, platform, target_outcome
-                    FROM signals
-                    WHERE resolved_at IS NULL
-                      AND created_at < ?
-                      AND platform IN ('polymarket', 'polymarket_kalshi')
-                """, (cutoff_time,))
-                pending_signals = cursor.fetchall()
+            pending_signals = await asyncio.to_thread(self._get_pending_signals_sync, cutoff_time)
         except Exception as e:
             logger.error(f"Ошибка при чтении нерезолвленных сигналов из БД: {e}", exc_info=True)
             return 0
@@ -74,23 +95,17 @@ class ResolutionFetcher:
                 outcome, final_price, resolved_at = resolution_data
                 
                 try:
-                    # Записываем резолюцию через SignalLogger
-                    self.signal_logger.log_resolution(
+                    # Записываем резолюцию через SignalLogger в фоновом потоке
+                    await asyncio.to_thread(
+                        self.signal_logger.log_resolution,
                         signal_id=sig_id,
                         resolution_outcome=outcome,
                         resolution_price=final_price,
                         resolved_at=resolved_at
                     )
                     
-                    # Также обновляем исход в таблице markets
-                    with self._get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            UPDATE markets 
-                            SET outcome = ?, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = ?
-                        """, (outcome, market_id))
-                        conn.commit()
+                    # Также обновляем исход в таблице markets в фоновом потоке
+                    await asyncio.to_thread(self._update_market_outcome_sync, outcome, market_id)
                     
                     updated_count += 1
                 except Exception as e:

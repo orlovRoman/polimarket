@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -36,23 +38,27 @@ class CalibrationStore:
     а также операциями применения (apply) и отката (rollback).
     """
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
         conn = sqlite3.connect(DB_PATH, timeout=5.0)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
-    async def save_suggestion(
+    def _save_suggestion_impl(
         self,
         suggestion: CalibrationSuggestion,
         strategy_type: StrategyType,
         auto_apply: bool
     ) -> int:
-        """
-        Сохраняет предложение по калибровке в БД.
-        Возвращает ID созданной записи.
-        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -68,10 +74,8 @@ class CalibrationStore:
                     suggestion.reason,
                     1 if auto_apply else 0
                 ))
-                conn.commit()
                 row_id = cursor.lastrowid
                 
-                # Если auto_apply включен, мы инвалидируем кэш ConfigProvider
                 if auto_apply:
                     try:
                         from core.config_provider import ConfigProvider
@@ -84,6 +88,18 @@ class CalibrationStore:
             logger.error(f"Ошибка при сохранении предложения калибровки: {e}", exc_info=True)
             return -1
 
+    async def save_suggestion(
+        self,
+        suggestion: CalibrationSuggestion,
+        strategy_type: StrategyType,
+        auto_apply: bool
+    ) -> int:
+        """
+        Сохраняет предложение по калибровке в БД.
+        Возвращает ID созданной записи.
+        """
+        return await asyncio.to_thread(self._save_suggestion_impl, suggestion, strategy_type, auto_apply)
+
     def save_suggestion_sync(
         self,
         suggestion: CalibrationSuggestion,
@@ -93,41 +109,9 @@ class CalibrationStore:
         """
         Синхронная версия save_suggestion.
         """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO calibration_params (
-                        strategy_type, param_name, param_value, previous_value, reason, auto_applied
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    strategy_type.value,
-                    suggestion.param_name,
-                    suggestion.suggested_value,
-                    suggestion.current_value,
-                    suggestion.reason,
-                    1 if auto_apply else 0
-                ))
-                conn.commit()
-                row_id = cursor.lastrowid
-                
-                if auto_apply:
-                    try:
-                        from core.config_provider import ConfigProvider
-                        ConfigProvider.invalidate_cache()
-                    except ImportError:
-                        pass
-                        
-                return row_id
-        except Exception as e:
-            logger.error(f"Ошибка при сохранении предложения калибровки (sync): {e}", exc_info=True)
-            return -1
+        return self._save_suggestion_impl(suggestion, strategy_type, auto_apply)
 
-    async def apply_suggestion(self, suggestion_id: int) -> bool:
-        """
-        Применяет ранее отложенное (auto_applied=0) предложение по калибровке:
-        устанавливает флаг auto_applied=1 и инвалидирует кэш.
-        """
+    def apply_suggestion_sync(self, suggestion_id: int) -> bool:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -144,9 +128,7 @@ class CalibrationStore:
                     SET auto_applied = 1, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, (suggestion_id,))
-                conn.commit()
                 
-                # Инвалидируем кэш
                 try:
                     from core.config_provider import ConfigProvider
                     ConfigProvider.invalidate_cache()
@@ -159,10 +141,14 @@ class CalibrationStore:
             logger.error(f"Ошибка при применении предложения #{suggestion_id}: {e}", exc_info=True)
             return False
 
-    async def get_history(self, param_name: str, last_n: int = 10) -> List[CalibrationRecord]:
+    async def apply_suggestion(self, suggestion_id: int) -> bool:
         """
-        Возвращает историю изменения указанного параметра (только примененные/активные записи).
+        Применяет ранее отложенное (auto_applied=0) предложение по калибровке:
+        устанавливает флаг auto_applied=1 и инвалидирует кэш.
         """
+        return await asyncio.to_thread(self.apply_suggestion_sync, suggestion_id)
+
+    def get_history_sync(self, param_name: str, last_n: int = 10) -> List[CalibrationRecord]:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -190,10 +176,13 @@ class CalibrationStore:
             logger.error(f"Ошибка чтения истории калибровки для {param_name}: {e}", exc_info=True)
             return []
 
-    async def get_strategy_history(self, strategy_type: str, last_n: int = 10) -> List[CalibrationRecord]:
+    async def get_history(self, param_name: str, last_n: int = 10) -> List[CalibrationRecord]:
         """
-        Возвращает историю изменений и предложений калибровки для указанной стратегии.
+        Возвращает историю изменения указанного параметра (только примененные/активные записи).
         """
+        return await asyncio.to_thread(self.get_history_sync, param_name, last_n)
+
+    def get_strategy_history_sync(self, strategy_type: str, last_n: int = 10) -> List[CalibrationRecord]:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -220,12 +209,17 @@ class CalibrationStore:
             logger.error(f"Ошибка чтения истории калибровки для стратегии {strategy_type}: {e}", exc_info=True)
             return []
 
+    async def get_strategy_history(self, strategy_type: str, last_n: int = 10) -> List[CalibrationRecord]:
+        """
+        Возвращает историю изменений и предложений калибровки для указанной стратегии.
+        """
+        return await asyncio.to_thread(self.get_strategy_history_sync, strategy_type, last_n)
 
     async def get_latest_applied_value(self, param_name: str, strategy_type: Optional[str] = None) -> Optional[float]:
         """
         Возвращает последнее примененное значение для параметра (с опциональной фильтрацией по стратегии).
         """
-        return self.get_latest_applied_value_sync(param_name, strategy_type)
+        return await asyncio.to_thread(self.get_latest_applied_value_sync, param_name, strategy_type)
 
     def get_latest_applied_value_sync(self, param_name: str, strategy_type: Optional[str] = None) -> Optional[float]:
         """
@@ -257,11 +251,7 @@ class CalibrationStore:
             logger.error(f"Ошибка чтения последнего примененного значения для {param_name} ({strategy_type}): {e}")
         return None
 
-    async def rollback(self, suggestion_id: int) -> bool:
-        """
-        Откатывает изменение: записывает НОВОЕ значение в БД (которое совпадает с предыдущим значением).
-        Это сохраняет историю изменений append-only.
-        """
+    def rollback_sync(self, suggestion_id: int) -> bool:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -294,9 +284,7 @@ class CalibrationStore:
                     f"Откат изменения #{suggestion_id} (возврат с {current_val} на {prev_val})",
                     1  # Сразу активно/применено
                 ))
-                conn.commit()
                 
-                # Инвалидируем кэш ConfigProvider
                 try:
                     from core.config_provider import ConfigProvider
                     ConfigProvider.invalidate_cache()
@@ -308,3 +296,10 @@ class CalibrationStore:
         except Exception as e:
             logger.error(f"Ошибка при откате предложения #{suggestion_id}: {e}", exc_info=True)
             return False
+
+    async def rollback(self, suggestion_id: int) -> bool:
+        """
+        Откатывает изменение: записывает НОВОЕ значение в БД (которое совпадает с предыдущим значением).
+        Это сохраняет историю изменений append-only.
+        """
+        return await asyncio.to_thread(self.rollback_sync, suggestion_id)

@@ -15,7 +15,9 @@ def _load():
         try:
             with open(CHECKPOINTS_FILE, "r", encoding="utf-8") as f:
                 _checkpoints_cache = json.load(f)
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger("NexusPolyBot.Checkpoint").warning(f"Ошибка загрузки чекпоинтов: {e}")
             _checkpoints_cache = {}
 
 import threading
@@ -31,8 +33,9 @@ def _save_sync():
         CHECKPOINTS_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(CHECKPOINTS_FILE, "w", encoding="utf-8") as f:
             json.dump(_checkpoints_cache, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("NexusPolyBot.Checkpoint").error(f"Ошибка сохранения чекпоинтов: {e}")
 
 def _save():
     global _save_timer

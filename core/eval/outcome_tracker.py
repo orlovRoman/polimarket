@@ -38,21 +38,20 @@ class OutcomeTracker:
         """
         now_iso = datetime.now(timezone.utc).isoformat()
         try:
-            conn = sqlite3.connect(DB_PATH, timeout=5.0)
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, market_id, strategy_type, close_time
-                FROM signals
-                WHERE status = 'PENDING'
-                  AND close_time IS NOT NULL
-                  AND close_time < ?
-                ORDER BY close_time ASC
-                LIMIT 200
-            """, (now_iso,))
-            rows = cursor.fetchall()
-            conn.close()
+            with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, market_id, strategy_type, close_time
+                    FROM signals
+                    WHERE status = 'PENDING'
+                      AND close_time IS NOT NULL
+                      AND close_time < ?
+                    ORDER BY close_time ASC
+                    LIMIT 200
+                """, (now_iso,))
+                rows = cursor.fetchall()
         except Exception as e:
             logger.error(f"[OT] Ошибка чтения PENDING сигналов: {e}", exc_info=True)
             return []
@@ -61,7 +60,8 @@ class OutcomeTracker:
         for row in rows:
             try:
                 ct = datetime.fromisoformat(row["close_time"])
-            except Exception:
+            except Exception as e:
+                logger.debug(f"[OT] Пропуск сигнала {row['id']} из-за неверного close_time '{row['close_time']}': {e}")
                 continue
             result.append(PendingSignal(
                 signal_id=row["id"],
@@ -128,16 +128,16 @@ class OutcomeTracker:
             stats_to_save = dict(stats)
             stats_to_save["timestamp"] = datetime.now(timezone.utc).isoformat()
             
-            conn = sqlite3.connect(DB_PATH, timeout=5.0)
-            conn.execute("""
-                INSERT INTO memory (key, value, updated_at) 
-                VALUES ('outcome_tracker_last_run', ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(key) DO UPDATE SET 
-                    value=excluded.value, 
-                    updated_at=CURRENT_TIMESTAMP
-            """, (json.dumps(stats_to_save),))
-            conn.commit()
-            conn.close()
+            with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("""
+                    INSERT INTO memory (key, value, updated_at) 
+                    VALUES ('outcome_tracker_last_run', ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET 
+                        value=excluded.value, 
+                        updated_at=CURRENT_TIMESTAMP
+                """, (json.dumps(stats_to_save),))
+                conn.commit()
         except Exception as e:
             logger.error(f"[OT] Ошибка сохранения статистики прогона в memory: {e}", exc_info=True)
 

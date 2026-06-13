@@ -746,6 +746,15 @@ async def scheduled_outcome_tracker():
         return
     _resolution_running = True
     try:
+        # ПРИМЕЧАНИЕ о двойном outcome tracker:
+        # 1. run_resolution_cycle (services/outcome_tracker.py) - legacy-трекер, выполняющий
+        #    также Favourite Compounding резолюцию, очистку старых эпизодов и отправку сводок в Telegram.
+        # 2. tracker.run_cycle (core/eval/outcome_tracker.py) - новый трекер для калибровки и расчета ECE.
+        # Они работают на одной таблице 'signals'. Первый разрешает PENDING сигналы, переводя их в RESOLVED.
+        # Второй запускается сразу же, видит 0 PENDING сигналов (поскольку они уже разрешены) и
+        # завершает работу без лишней нагрузки и без конфликта данных.
+        # Благодаря фиксу Бага 9, оба трекера теперь рассчитывают и пишут calibration_error (ECE)
+        # абсолютно консистентно, предотвращая затирание данных NULL-значениями.
         from services.outcome_tracker import run_resolution_cycle
         await asyncio.to_thread(run_resolution_cycle)
         

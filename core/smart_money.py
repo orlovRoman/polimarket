@@ -1,7 +1,11 @@
+import asyncio
+import logging
 from collections import defaultdict
 from typing import Optional, List, Dict, Any
 from agents.shared.python.db import get_known_whales
 from core.context import SmartMoneySummary
+
+logger = logging.getLogger("NexusPolyBot.SmartMoney")
 
 def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, Any]]) -> SmartMoneySummary:
     """
@@ -26,7 +30,8 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
         try:
             dt = datetime.fromisoformat(str(val).replace('Z', '+00:00'))
             return dt.timestamp()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[SmartMoney] Не удалось распарсить время сделки '{val}': {e}")
             return 0.0
 
     # Агрегируем по кошелькам
@@ -219,6 +224,20 @@ def fetch_smart_money_sync(market_id: str) -> Optional[SmartMoneySummary]:
         return None
 
 
+def _save_holders_to_db(holders: list) -> None:
+    from agents.shared.python.db import get_connection
+    with get_connection() as conn:
+        for h in holders:
+            addr = h.get("proxyWallet", "").lower()
+            if not addr:
+                continue
+            conn.execute("""
+                INSERT OR IGNORE INTO wallets
+                (address, alias, win_rate, last_seen)
+                VALUES (?, ?, NULL, CURRENT_TIMESTAMP)
+            """, (addr, h.get("pseudonym", addr[:8])))
+
+
 async def refresh_known_whales_from_holders(condition_id: str) -> int:
     """
     Запрашивает топ-20 холдеров рынка через data-api и
@@ -226,7 +245,6 @@ async def refresh_known_whales_from_holders(condition_id: str) -> int:
     Вызывается из background worker, не из основного цикла.
     """
     import httpx
-    from agents.shared.python.db import get_connection
     from config import logger
 
     url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=20"
@@ -237,16 +255,8 @@ async def refresh_known_whales_from_holders(condition_id: str) -> int:
                 holders = resp.json() if resp.status_code == 200 else []
                 if not isinstance(holders, list):
                     holders = []
-                with get_connection() as conn:
-                    for h in holders:
-                        addr = h.get("proxyWallet", "").lower()
-                        if not addr:
-                            continue
-                        conn.execute("""
-                            INSERT OR IGNORE INTO wallets
-                            (address, alias, win_rate, last_seen)
-                            VALUES (?, ?, NULL, CURRENT_TIMESTAMP)
-                        """, (addr, h.get("pseudonym", addr[:8])))
+                
+                await asyncio.to_thread(_save_holders_to_db, holders)
     except Exception as e:
         logger.warning(f"[SmartMoney] refresh_known_whales ошибка: {e}")
         return 0

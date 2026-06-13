@@ -33,7 +33,8 @@ def test_resolved_signal_triggers_log_and_metrics():
     tracker, sig_logger, metrics_repo, calibrator = _make_tracker(pending, resolution_map)
 
     with patch("core.eval.outcome_tracker.DB_PATH", "fake_path"), \
-         patch("sqlite3.connect") as mock_conn:
+         patch("core.eval.outcome_tracker.sqlite3.connect") as mock_conn:
+        mock_conn.return_value.__enter__.return_value = mock_conn.return_value
         stats = tracker.run_cycle()
 
     assert stats["resolved"] == 1
@@ -57,7 +58,8 @@ def test_unresolved_signal_is_skipped():
     tracker, sig_logger, metrics_repo, calibrator = _make_tracker(pending, resolution_map)
 
     with patch("core.eval.outcome_tracker.DB_PATH", "fake_path"), \
-         patch("sqlite3.connect") as mock_conn:
+         patch("core.eval.outcome_tracker.sqlite3.connect") as mock_conn:
+        mock_conn.return_value.__enter__.return_value = mock_conn.return_value
         stats = tracker.run_cycle()
 
     assert stats["skipped"] == 1
@@ -75,7 +77,8 @@ def test_api_error_is_counted_not_raised():
     tracker, sig_logger, *_ = _make_tracker(pending, {"0xERR": None})
 
     with patch("core.eval.outcome_tracker.DB_PATH", "fake_path"), \
-         patch("sqlite3.connect") as mock_conn:
+         patch("core.eval.outcome_tracker.sqlite3.connect") as mock_conn:
+        mock_conn.return_value.__enter__.return_value = mock_conn.return_value
         stats = tracker.run_cycle()
 
     assert stats["errors"] == 1
@@ -86,7 +89,8 @@ def test_no_pending_no_calibration():
     tracker, _, _, calibrator = _make_tracker([], {})
     
     with patch("core.eval.outcome_tracker.DB_PATH", "fake_path"), \
-         patch("sqlite3.connect") as mock_conn:
+         patch("core.eval.outcome_tracker.sqlite3.connect") as mock_conn:
+        mock_conn.return_value.__enter__.return_value = mock_conn.return_value
         stats = tracker.run_cycle()
         
     assert stats["checked"] == 0

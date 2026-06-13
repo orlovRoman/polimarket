@@ -225,15 +225,15 @@ def run_cross_platform_scan(
                 m_a_full = poly_adapter.get_market(signal.market_a_id)
                 if m_a_full and m_a_full.tokens:
                     token_a = m_a_full.tokens[0]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[SCAN] Ошибка получения рынка {signal.market_a_id} для арбитража: {e}")
                 
             orderbook_a = {}
             if token_a:
                 try:
                     orderbook_a = poly_adapter.get_orderbook(token_a) or {}
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"[SCAN] Ошибка получения стакана для токена {token_a} для арбитража: {e}")
             
             process_arbitrage_signal(arb_sig, orderbook_a, kalshi_book or {}, callback)
             found.append(signal)

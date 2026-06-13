@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Optional, Sequence
+import logging
 from core.eval.metrics_calculator import StrategyMetrics
+
+logger = logging.getLogger("NexusPolyBot.ThresholdCalibrator")
 
 @dataclass
 class CalibrationSuggestion:
@@ -30,7 +33,8 @@ class ThresholdCalibrator:
                 return self.MIN_SIGNALS_EARLY_MODE
             age_days = (datetime.now(timezone.utc) - first_signal).days
             return self.MIN_SIGNALS_FOR_CALIBRATION if age_days >= 90 else self.MIN_SIGNALS_EARLY_MODE
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Ошибка при вычислении возраста стратегии {strategy_type}: {e}. Используем early mode.")
             return self.MIN_SIGNALS_EARLY_MODE
 
     def _is_trending_down(self, trend: Sequence[StrategyMetrics]) -> bool:
@@ -275,12 +279,4 @@ class ThresholdCalibrator:
                     # Сохраняем предложение в БД и автоматически применяем его (auto_apply=True)
                     store.save_suggestion_sync(suggestion, strategy_type, auto_apply=True)
             except Exception as e:
-                from core.eval.threshold_calibrator import logger
-                # так как logger не импортирован локально, мы можем импортировать логгер
-                # Но логгер не объявлен в threshold_calibrator.py? Давайте проверим, есть ли логгер.
-                # В threshold_calibrator.py нет логгера? Посмотрим на первые 15 строк:
-                # Там импорты dataclasses, typing, StrategyMetrics. Логгера нет.
-                # Давайте импортируем логгер прямо внутри:
-                import logging
-                local_logger = logging.getLogger("NexusPolyBot.ThresholdCalibrator")
-                local_logger.error(f"Ошибка калибровки параметра {param_name} для {strategy_type.value}: {e}", exc_info=True)
+                logger.error(f"Ошибка калибровки параметра {param_name} для {strategy_type.value}: {e}", exc_info=True)

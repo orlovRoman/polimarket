@@ -326,12 +326,48 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
                 sharpe_ratio = (avg_pnl / std_pnl) * math.sqrt(len(pnl_vals))
                 sharpe_ratio = round(sharpe_ratio, 4)
 
+        # Вычисляем ECE (calibration_error)
+        ece_rows = conn.execute("""
+            SELECT 
+                COALESCE(estimated_probability, predicted_probability) AS prob,
+                was_profitable
+            FROM signals
+            WHERE strategy_type = ?
+              AND created_at >= ?
+              AND COALESCE(estimated_probability, predicted_probability) IS NOT NULL
+              AND was_profitable IS NOT NULL
+        """, (strategy_type, period_start)).fetchall()
+        
+        ece_val = None
+        if ece_rows:
+            records = [{"prob": r["prob"], "actual": float(r["was_profitable"])} for r in ece_rows]
+            n_bins = 10
+            total_signals = len(records)
+            ece = 0.0
+            for i in range(n_bins):
+                bin_lower = i / n_bins
+                bin_upper = (i + 1) / n_bins
+                
+                if i == n_bins - 1:
+                    bin_records = [r for r in records if bin_lower <= r["prob"] <= bin_upper]
+                else:
+                    bin_records = [r for r in records if bin_lower <= r["prob"] < bin_upper]
+                    
+                if not bin_records:
+                    continue
+                bin_size = len(bin_records)
+                avg_predicted = sum(r["prob"] for r in bin_records) / bin_size
+                avg_actual = sum(r["actual"] for r in bin_records) / bin_size
+                bin_diff = abs(avg_predicted - avg_actual)
+                ece += (bin_size / total_signals) * bin_diff
+            ece_val = round(ece, 4)
+
         conn.execute("""
             INSERT INTO strategy_metrics
               (strategy_type, period_start, period_end,
                total_signals, resolved_signals, profitable_signals,
-               win_rate, avg_edge, avg_realized_pnl, brier_score, sharpe_ratio, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               win_rate, avg_edge, avg_realized_pnl, brier_score, calibration_error, sharpe_ratio, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(strategy_type, period_start, period_end) DO UPDATE SET
               total_signals      = excluded.total_signals,
               resolved_signals   = excluded.resolved_signals,
@@ -340,6 +376,7 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
               avg_edge           = excluded.avg_edge,
               avg_realized_pnl   = excluded.avg_realized_pnl,
               brier_score        = excluded.brier_score,
+              calibration_error  = excluded.calibration_error,
               sharpe_ratio       = excluded.sharpe_ratio
         """, (
             strategy_type, period_start, period_end,
@@ -350,6 +387,7 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
             row["avg_edge"],
             row["avg_realized_pnl"],
             row["brier_score"],
+            ece_val,
             sharpe_ratio,
         ))
 

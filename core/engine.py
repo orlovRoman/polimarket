@@ -193,7 +193,8 @@ class CoreEngine:
                 self.adapter = PolymarketAdapter()
                 init_db()
                 self.initialized = True
-            except Exception:
+            except Exception as e:
+                logger.error(f"Ошибка инициализации CoreEngine: {e}", exc_info=True)
                 for attr in ("scout", "swing", "shadow", "nexus", "adapter"):
                     obj = getattr(self, attr, None)
                     if obj and hasattr(obj, "close"):
@@ -723,7 +724,7 @@ class CoreEngine:
         from agents.orchestrator.src.news_processor import NewsProcessor
         from services.notifications import send_telegram_to_chat
 
-        post_info = get_telegram_post_info(post_id)
+        post_info = await asyncio.to_thread(get_telegram_post_info, post_id)
         if not post_info:
             logger.error(f"Post {post_id} not found in DB.")
             return
@@ -735,23 +736,23 @@ class CoreEngine:
             return
 
         # Сразу помечаем как «в обработке», чтобы следующий дубль-вызов был отклонён
-        mark_telegram_post_status(post_id, 'PROCESSING')
+        await asyncio.to_thread(mark_telegram_post_status, post_id, 'PROCESSING')
 
         text = post_info.get('text', '')
         message_id = post_info.get('message_id')
 
         if not text:
             logger.error(f"Post {post_id} text is empty.")
-            mark_telegram_post_status(post_id, 'ANALYZED')
+            await asyncio.to_thread(mark_telegram_post_status, post_id, 'ANALYZED')
             return
 
         try:
             np = NewsProcessor(api_key=self.api_key)
-            markets = np.find_relevant_markets(text)
+            markets = await asyncio.to_thread(np.find_relevant_markets, text)
 
             if not markets:
                 logger.info(f"Post {post_id}: No relevant markets found. Reason: {np.failure_reason}")
-                mark_telegram_post_status(post_id, 'NO_MARKETS')
+                await asyncio.to_thread(mark_telegram_post_status, post_id, 'NO_MARKETS')
                 try:
                     source_hint = ""
                     if source_url:
@@ -766,7 +767,7 @@ class CoreEngine:
                     else:
                         msg = f"⚪️ Не найдено подходящих рынков на Polymarket для этой новости.{source_hint}"
                         
-                    send_telegram_to_chat(msg, chat_id)
+                    await asyncio.to_thread(send_telegram_to_chat, msg, chat_id)
                 except Exception as e:
                     logger.error(f"Failed to send NO_MARKETS notification: {e}")
                 return
@@ -821,12 +822,12 @@ class CoreEngine:
                     # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
                     await asyncio.sleep(2)
 
-            mark_telegram_post_status(post_id, 'ANALYZED')
+            await asyncio.to_thread(mark_telegram_post_status, post_id, 'ANALYZED')
 
         except Exception as e:
             logger.exception(f"analyze_post_async fatal error for post {post_id}: {e}")
             # Сбрасываем статус, чтобы можно было перезапустить при желании
-            mark_telegram_post_status(post_id, 'ERROR')
+            await asyncio.to_thread(mark_telegram_post_status, post_id, 'ERROR')
 
     async def _send_fast_signal(
         self, m: Market, source_url: Optional[str], source_text: Optional[str], chat_id: Any

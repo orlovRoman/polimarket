@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
@@ -15,20 +17,29 @@ class MetricsRepository:
     Осуществляет связь между математическим ядром оценки и базой данных.
     """
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
+        """Контекстный менеджер, гарантирующий закрытие SQLite-соединения."""
         conn = sqlite3.connect(DB_PATH, timeout=5.0)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
-    async def compute_and_store_metrics(
+    def _compute_and_store_metrics_impl(
         self,
         strategy_type: StrategyType,
         period_days: int = 30
     ) -> Optional[StrategyMetrics]:
         """
-        1. Считывает завершенные сигналы за указанный период (period_days).
+        Общая реализация расчета и сохранения метрик.
         """
         now = datetime.now(timezone.utc)
         start_time = now - timedelta(days=period_days)
@@ -58,7 +69,6 @@ class MetricsRepository:
         # Конвертируем строки БД в SignalRecord
         records = []
         for row in rows:
-            # Бот хранит was_profitable или мы можем вывести это из status
             is_win = row["status"] == "WIN"
             pred_prob = row["predicted_probability"] if row["predicted_probability"] is not None else 0.5
             edge = row["edge_at_signal"] if row["edge_at_signal"] is not None else 0.0
@@ -115,10 +125,17 @@ class MetricsRepository:
 
         return metrics
 
-    async def get_latest_metrics(self, strategy_type: StrategyType) -> Optional[StrategyMetrics]:
+    async def compute_and_store_metrics(
+        self,
+        strategy_type: StrategyType,
+        period_days: int = 30
+    ) -> Optional[StrategyMetrics]:
         """
-        Возвращает последнюю запись метрик для указанной стратегии.
+        Асинхронная обертка для расчета и сохранения метрик.
         """
+        return await asyncio.to_thread(self._compute_and_store_metrics_impl, strategy_type, period_days)
+
+    def get_latest_metrics_sync(self, strategy_type: StrategyType) -> Optional[StrategyMetrics]:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -149,14 +166,17 @@ class MetricsRepository:
             logger.error(f"Ошибка чтения последних метрик для {strategy_type.value}: {e}", exc_info=True)
             return None
 
-    async def get_metrics_trend(
+    async def get_latest_metrics(self, strategy_type: StrategyType) -> Optional[StrategyMetrics]:
+        """
+        Возвращает последнюю запись метрик для указанной стратегии.
+        """
+        return await asyncio.to_thread(self.get_latest_metrics_sync, strategy_type)
+
+    def get_metrics_trend_sync(
         self,
         strategy_type: StrategyType,
         last_n_periods: int = 4
     ) -> List[StrategyMetrics]:
-        """
-        Возвращает историю изменения метрик для отслеживания динамики (тренда).
-        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -185,8 +205,18 @@ class MetricsRepository:
                     ))
                 return trend
         except Exception as e:
-            logger.error(f"Ошибка чтения истории изменения метрик для {strategy_type.value}: {e}", exc_info=True)
+            logger.error(f"Ошибка чтения тренда метрик для {strategy_type.value}: {e}", exc_info=True)
             return []
+
+    async def get_metrics_trend(
+        self,
+        strategy_type: StrategyType,
+        last_n_periods: int = 4
+    ) -> List[StrategyMetrics]:
+        """
+        Возвращает историю изменения метрик для отслеживания динамики (тренда).
+        """
+        return await asyncio.to_thread(self.get_metrics_trend_sync, strategy_type, last_n_periods)
 
     def compute_and_store_metrics_sync(
         self,
@@ -196,86 +226,7 @@ class MetricsRepository:
         """
         Синхронная версия compute_and_store_metrics для вызова из OutcomeTracker/APScheduler.
         """
-        now = datetime.now(timezone.utc)
-        start_time = now - timedelta(days=period_days)
-        start_str = start_time.isoformat()
-        end_str = now.isoformat()
-
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT predicted_probability, status, edge_at_signal, pnl_realized
-                    FROM signals
-                    WHERE strategy_type = ?
-                      AND status IN ('WIN', 'LOSS')
-                      AND resolved_at >= ?
-                """, (strategy_type.value, start_str))
-                rows = cursor.fetchall()
-        except Exception as e:
-            logger.error(f"Ошибка чтения сигналов для расчета метрик (sync): {e}", exc_info=True)
-            return None
-
-        if not rows:
-            logger.info(f"Нет разрешенных сигналов за последние {period_days} дней для стратегии {strategy_type.value} (sync).")
-            return None
-
-        records = []
-        for row in rows:
-            is_win = row["status"] == "WIN"
-            pred_prob = row["predicted_probability"] if row["predicted_probability"] is not None else 0.5
-            edge = row["edge_at_signal"] if row["edge_at_signal"] is not None else 0.0
-            
-            records.append(SignalRecord(
-                predicted_probability=pred_prob,
-                resolution_outcome=is_win,
-                edge_at_signal=edge,
-                pnl_realized=row["pnl_realized"]
-            ))
-
-        metrics = calculate_metrics(records)
-        if not metrics:
-            return None
-
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO strategy_metrics (
-                        strategy_type, period_start, period_end, total_signals, resolved_signals,
-                        profitable_signals, win_rate, avg_edge, avg_realized_pnl, brier_score, calibration_error, sharpe_ratio
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(strategy_type, period_start, period_end) DO UPDATE SET
-                        total_signals=excluded.total_signals,
-                        resolved_signals=excluded.resolved_signals,
-                        profitable_signals=excluded.profitable_signals,
-                        win_rate=excluded.win_rate,
-                        avg_edge=excluded.avg_edge,
-                        avg_realized_pnl=excluded.avg_realized_pnl,
-                        brier_score=excluded.brier_score,
-                        calibration_error=excluded.calibration_error,
-                        sharpe_ratio=excluded.sharpe_ratio,
-                        created_at=CURRENT_TIMESTAMP
-                """, (
-                    strategy_type.value,
-                    start_str,
-                    end_str,
-                    metrics.total_signals,
-                    metrics.resolved_signals,
-                    metrics.profitable_signals,
-                    metrics.win_rate,
-                    metrics.avg_edge,
-                    metrics.avg_realized_pnl,
-                    metrics.brier_score,
-                    metrics.calibration_error,
-                    metrics.sharpe_ratio
-                ))
-                conn.commit()
-                logger.info(f"Метрики для {strategy_type.value} успешно сохранены (sync).")
-        except Exception as e:
-            logger.error(f"Ошибка сохранения метрик для {strategy_type.value} (sync): {e}", exc_info=True)
-
-        return metrics
+        return self._compute_and_store_metrics_impl(strategy_type, period_days)
 
     def get_latest_metrics_sync(self, strategy_type: StrategyType) -> Optional[StrategyMetrics]:
         """

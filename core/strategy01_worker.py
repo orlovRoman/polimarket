@@ -36,13 +36,40 @@ async def fetch_funding_address(proxy_addr: str) -> Optional[str]:
         logger.warning(f"[Strategy01] Ошибка fetch_funding_address для {proxy_addr}: {e}")
     return None
 
+def _get_active_wallets_sync() -> list:
+    from agents.shared.python.db import get_connection
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT DISTINCT address FROM wallets WHERE last_seen > datetime('now', '-24 hours')"
+        ).fetchall()
+
+
+def _save_wallet_clusters_sync(groups: dict[str, list[str]]) -> int:
+    from agents.shared.python.db import get_connection
+    import hashlib
+    inserted = 0
+    with get_connection() as conn:
+        for funder, addrs in groups.items():
+            if len(addrs) < 2:
+                continue
+            # Генерируем хэш-идентификатор кластера
+            cluster_id = hashlib.sha256(
+                "|".join(sorted(addrs)).encode()
+            ).hexdigest()[:16]
+            for addr in addrs:
+                conn.execute("""
+                    INSERT OR REPLACE INTO wallet_clusters
+                    (cluster_id, address, funding_addr, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                """, (cluster_id, addr, funder))
+                inserted += 1
+    return inserted
+
+
 async def update_wallet_clusters() -> int:
     """Фоновый воркер: строит кластеры по общему funding source."""
     try:
-        with get_connection() as conn:
-            wallets = conn.execute(
-                "SELECT DISTINCT address FROM wallets WHERE last_seen > datetime('now', '-24 hours')"
-            ).fetchall()
+        wallets = await asyncio.to_thread(_get_active_wallets_sync)
     except Exception as e:
         logger.error(f"[Strategy01] Ошибка чтения wallets: {e}")
         return 0
@@ -70,23 +97,8 @@ async def update_wallet_clusters() -> int:
         groups.setdefault(funder, []).append(addr)
 
     # Записываем только кластеры size >= 2
-    inserted = 0
     try:
-        with get_connection() as conn:
-            for funder, addrs in groups.items():
-                if len(addrs) < 2:
-                    continue
-                # Генерируем хэш-идентификатор кластера
-                cluster_id = hashlib.sha256(
-                    "|".join(sorted(addrs)).encode()
-                ).hexdigest()[:16]
-                for addr in addrs:
-                    conn.execute("""
-                        INSERT OR REPLACE INTO wallet_clusters
-                        (cluster_id, address, funding_addr, updated_at)
-                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                    """, (cluster_id, addr, funder))
-                    inserted += 1
+        inserted = await asyncio.to_thread(_save_wallet_clusters_sync, groups)
     except Exception as e:
         logger.error(f"[Strategy01] Ошибка записи кластеров в БД: {e}")
         return 0
