@@ -372,7 +372,7 @@ async def scheduled_penny_discovery():
                 def dummy_update(**kwargs):
                     pass
                 
-                signal, swing_signal, context = await run_agent_evaluation(
+                signal, swing_signal, _ = await run_agent_evaluation(
                     m, engine.scout, engine.swing, dummy_update,
                     adapter=engine.adapter, trigger_type="scheduled",
                     price_history=price_hist, pre_orderbook=pre_orderbook,
@@ -950,7 +950,7 @@ async def start_system():
             signal.signal(sig, _request_shutdown)
 
     try:
-        done, pending = await asyncio.wait(
+        done, _ = await asyncio.wait(
             [polling_task, api_task, dashboard_task],
             return_when=asyncio.FIRST_COMPLETED
         )

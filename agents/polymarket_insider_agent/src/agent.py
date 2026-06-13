@@ -108,6 +108,10 @@ class ShadowAgent:
 
 {sm_block}
 
+[Недавний опыт (Эпизодическая память)]
+Ознакомься со своими недавними предсказаниями и их реальным исходом. Сделай поправку на свою результативность.
+{episodes_text}
+
 Твоя задача — проверить эту торговую идею:
 1. Хватает ли ликвидности для безопасного входа и выхода? (Смотри ордербук и спред).
 2. Поддерживают ли ставку крупные игроки (Smart Money)?
@@ -148,7 +152,7 @@ class ShadowAgent:
         
         analysis = None
         for attempt in range(3):
-            result, active_model = generate_content_with_fallback(
+            result, _ = generate_content_with_fallback(
                 api_key=self.api_key,
                 payload=payload,
                 default_model=self.model,

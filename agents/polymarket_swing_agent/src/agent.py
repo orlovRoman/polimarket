@@ -117,13 +117,13 @@ class SwingAgent:
 
         # Reddit
         reddit_top = 0
-        for post in (context.reddit_posts or []):
+        for post in (reddit_posts or []):
             score = post.get("score", 0) if isinstance(post, dict) else 0
             reddit_top = max(reddit_top, score)
 
         # Форматируем новости для guard_news_with_age с датами
         news_items_to_guard = []
-        for item in (context.news_titles or []):
+        for item in (news_titles or []):
             match = re.match(r'^\[([^\]]+)\]\s*(.*)$', item)
             if match:
                 date_str = match.group(1)
@@ -334,7 +334,7 @@ class SwingAgent:
         analysis = None
         signal = None
         for attempt in range(3):
-            result, active_model = generate_content_with_fallback(
+            result, _ = generate_content_with_fallback(
                 api_key=self.api_key,
                 payload=payload,
                 default_model=self.model,

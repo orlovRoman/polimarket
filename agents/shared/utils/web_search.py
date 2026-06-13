@@ -148,7 +148,7 @@ def _fetch_hackernews_impl(query: str, limit: int = 3) -> list:
             return []
         hits = r.json().get("hits", [])
         return [f"[HN, ↑{h.get('points', 0)}] {h.get('title', '')}" for h in hits if h.get('title')]
-    except Exception as e:
+    except Exception:
         return []
 
 def fetch_hackernews(query: str, limit: int = 3) -> list:

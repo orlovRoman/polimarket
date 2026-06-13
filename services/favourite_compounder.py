@@ -320,8 +320,7 @@ def run_favourite_scan(
         cfg = {"min_price": 0.95, "min_volume": 500.0, "max_hours": 336.0, "virtual_stake": 50}
 
     # Запускаем авто-калибровку
-    calibrated_conf = calibrate_confidence_threshold()
-    min_conf = min_confidence if min_confidence is not None else calibrated_conf
+    calibrate_confidence_threshold()
 
     filt = FavouriteFilter(
         min_price=float(cfg["min_price"]),

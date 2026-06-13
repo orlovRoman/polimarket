@@ -181,7 +181,7 @@ class NexusAgent:
         
         try:
             from agents.shared.utils.gemini_client import generate_content_with_fallback
-            res_json, active_model = generate_content_with_fallback(
+            res_json, _ = generate_content_with_fallback(
                 api_key=self.api_key,
                 payload=payload,
                 default_model=current_model,
@@ -574,7 +574,7 @@ class NexusAgent:
         for _ in range(max_iterations):
             try:
                 from agents.shared.utils.gemini_client import generate_content_with_fallback
-                res_json, active_model = generate_content_with_fallback(
+                res_json, _ = generate_content_with_fallback(
                     api_key=self.api_key,
                     payload=payload,
                     default_model=current_model,

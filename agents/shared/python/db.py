@@ -1918,7 +1918,7 @@ def cleanup_stale_signals(days: int = 365) -> int:
         """, (f'%{_escape_like(stale_year)}%',))
         archived_year = cursor.rowcount
         
-    return archived_expired + archived_year
+    return deleted_old + archived_expired + archived_year
 
 def get_history_signals(limit: int = 100):
     """Получает завершенные сигналы (ARCHIVED, WIN, LOSS) для команды /history"""

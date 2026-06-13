@@ -2873,7 +2873,6 @@ async def callback_add_idea(callback: CallbackQuery) -> None:
         return
         
     full_market_id = db_market["id"]
-    market_title = db_market["title"]
     market_price = db_market["price"]
     
     inserted = await asyncio.to_thread(_save_manual_signal_sync, full_market_id, market_price)
@@ -3092,7 +3091,6 @@ async def _send_lists_page(message_or_target, edit: bool = False) -> None:
     
     text = "📋 <b>Списки рынков</b>\n\n"
     
-    rows = []
     buttons = []
     
     text += f"🚫 <b>Игнорируемые ({len(ignored)})</b>\n"

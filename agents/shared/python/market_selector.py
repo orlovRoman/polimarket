@@ -190,7 +190,6 @@ class MarketSelector:
             now = datetime.now(timezone.utc)
         cooldown_ids = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
         listed_ids = get_all_listed_market_ids()
-        last_prices = get_last_analyzed_prices(cooldown_ids)
         
         blacklisted = []
         if scan_category != "penny_stocks":

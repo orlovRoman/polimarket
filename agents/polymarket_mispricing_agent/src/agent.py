@@ -240,7 +240,7 @@ class ScoutAgent:
         
         analysis = None
         for attempt in range(3):
-            result, active_model = generate_content_with_fallback(
+            result, _ = generate_content_with_fallback(
                 api_key=self.api_key,
                 payload=payload,
                 default_model=self.model,
