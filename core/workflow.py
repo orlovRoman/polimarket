@@ -126,8 +126,7 @@ def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, 
 
     if category or market_id:
         logger.debug(
-            f"[screening] Точечный режим "
-            f"(category={category!r}, market_id={market_id!r}), скрининг пропущен"
+            f"[screening] Точечный режим (category={category!r}, market_id={market_id!r}), скрининг пропущен"
         )
         return []
         
@@ -288,8 +287,7 @@ def _fetch_grounded_context(market: Market, api_key: str, model: str, oracle_dom
 
         payload = {
             "contents": [{"role": "user", "parts": [{"text": (
-                f"{search_text} "
-                f"Return key findings as bullet points with source and date."
+                f"{search_text} Return key findings as bullet points with source and date."
             )}]}],
             "tools": [{"google_search": {}}]
         }
@@ -629,7 +627,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         is_flat_or_noise = not velocity.has_anomaly and velocity.suspicion in ("ORGANIC", "NOISE")
         has_enough_history = len(price_history or []) >= 3
         if is_flat_or_noise and has_enough_history and not has_strong_scout:
-            logger.info(f"  SWING: пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)")
+            logger.info("  SWING: пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)")
             context.swing_skipped = True
             context.swing_skip_reason = "Пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)"
             swing_signal = None
@@ -797,7 +795,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         
         # Заголовок — обсуждение рынка
         summary_text = (
-            f"🗣️ <b>Обсуждение рынка:</b>\n"
+            "🗣️ <b>Обсуждение рынка:</b>\n"
             f"<a href='{m.url}'>{m.title}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n\n"
         )
         
@@ -806,9 +804,9 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             source_label = context.source_text or "Источник"
             summary_text += f"📡 <b>Триггер:</b> <a href='{context.source_url}'>{source_label}</a>\n\n"
         elif context.trigger_type == "scheduled":
-            summary_text += f"🔄 <b>Триггер:</b> Плановый скан\n\n"
+            summary_text += "🔄 <b>Триггер:</b> Плановый скан\n\n"
         elif context.trigger_type == "manual":
-            summary_text += f"👤 <b>Триггер:</b> Ручной запуск\n\n"
+            summary_text += "👤 <b>Триггер:</b> Ручной запуск\n\n"
         else:
             summary_text += f"⚡ <b>Триггер:</b> {context.trigger_type}\n\n"
         

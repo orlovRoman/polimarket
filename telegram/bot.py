@@ -197,8 +197,7 @@ async def continuous_monitoring_loop() -> None:
 class AuthMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         # Stale check for messages
-        if isinstance(event, types.Message):
-            if event.date:
+        if isinstance(event, types.Message) and event.date:
                 try:
                     now = datetime.now(event.date.tzinfo)
                     if (now - event.date) > timedelta(seconds=30):
@@ -365,9 +364,9 @@ async def command_start_handler(message: types.Message) -> None:
     """
     welcome_text = (
         f"Привет, <b>{message.from_user.full_name}</b>! 👋\n\n"
-        f"Я <b>NEXUS</b> — терминал управления AI-командой Polymarket.\n\n"
-        f"Моя задача — непрерывный мониторинг рынков и поиск возможностей.\n\n"
-        f"Используй /help, чтобы увидеть, что я умею."
+        "Я <b>NEXUS</b> — терминал управления AI-командой Polymarket.\n\n"
+        "Моя задача — непрерывный мониторинг рынков и поиск возможностей.\n\n"
+        "Используй /help, чтобы увидеть, что я умею."
     )
     await message.answer(welcome_text, reply_markup=build_main_reply_keyboard())
 
@@ -890,7 +889,7 @@ async def command_status_handler(message: types.Message) -> None:
         f"● <b>База данных:</b> {'🟢 OK' if DB_PATH.exists() else '🔴 Ошибка'}\n"
         f"● <b>Лимит запросов:</b> <code>{scan_limit} рынков/цикл</code>\n"
         f"● <b>Текущее действие:</b> {'🟡 Сканирование...' if is_scanning_real else '🟢 Ожидание'}\n\n"
-        f"🧠 <b>Память:</b>\n"
+        "🧠 <b>Память:</b>\n"
         f"  Факты (Layer 1): {stats.get('facts', '?')}\n"
         f"  Рынков в БД: {stats.get('markets', '?')}\n"
         f"  Сигналов (активных): {stats.get('signals_pending', '?')}\n"
@@ -933,7 +932,7 @@ async def command_status_handler(message: types.Message) -> None:
                 progress_line = f"● 📊 <b>Прогресс:</b> Рынок <code>{cur_idx}</code> из <code>{tot}</code>\n"
 
             status_text += (
-                f"\n\n⚡️ <b>Детали текущего сканирования:</b>\n"
+                "\n\n⚡️ <b>Детали текущего сканирования:</b>\n"
                 f"● 📋 <b>Категория:</b> {category}\n"
                 f"● ⚙️ <b>Этап:</b> {stage}\n"
                 f"{progress_line}"
@@ -1073,13 +1072,13 @@ async def command_gate_stats_handler(message: types.Message) -> None:
             saved_usd = blocked * 0.0015
             
             text = (
-                f"🛡️ <b>Статистика On-chain Gatekeeper (24ч):</b>\n\n"
+                "🛡️ <b>Статистика On-chain Gatekeeper (24ч):</b>\n\n"
                 f"📊 Всего проверено рынков: <b>{total}</b>\n"
                 f"✅ Пропущено к анализу LLM: <b>{passed}</b> ({passed_pct:.1f}%)\n"
                 f"⛔ Заблокировано гейтом: <b>{blocked}</b> ({blocked_pct:.1f}%)\n"
                 f"  ↳ Из-за низкого объема: <b>{blocked_vol}</b>\n"
                 f"  ↳ Из-за отсутствия китов: <b>{blocked_whales}</b>\n\n"
-                f"💰 <b>Экономия бюджета:</b>\n"
+                "💰 <b>Экономия бюджета:</b>\n"
                 f"• Сэкономлено вызовов LLM: <b>{blocked}</b>\n"
                 f"• Оценочная экономия: <b>${saved_usd:.2f}</b> (при $0.0015 за вызов)"
             )
@@ -1424,7 +1423,7 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
         await callback.message.edit_text(
             f"🤖 <b>Настройка модели для: {agent}</b>\n\n"
             f"Текущая модель: <code>{nice_model_name}</code>\n\n"
-            f"Выберите новую модель:",
+            "Выберите новую модель:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
             parse_mode="HTML"
         )
@@ -1481,7 +1480,7 @@ async def callback_save_model(callback: CallbackQuery) -> None:
         if agent == "SHADOW" and hasattr(engine, 'shadow'): engine.shadow.model = model_name
         if agent == "NEXUS" and hasattr(engine, 'nexus'): engine.nexus.model_name = model_name
     
-    await callback.answer(f"✅ Модель установлена!", show_alert=True)
+    await callback.answer("✅ Модель установлена!", show_alert=True)
     await send_models_menu(callback)
 
 
@@ -1783,7 +1782,7 @@ def get_active_scan_status_text() -> str:
         progress_line = f"● 📊 <b>Прогресс:</b> Рынок <code>{cur_idx}</code> из <code>{tot}</code>\n"
 
     return (
-        f"⚠️ <b>Сканирование уже запущено. Пожалуйста, подождите.</b>\n\n"
+        "⚠️ <b>Сканирование уже запущено. Пожалуйста, подождите.</b>\n\n"
         f"● 📋 <b>Категория:</b> {category}\n"
         f"● ⚙️ <b>Этап:</b> {stage}\n"
         f"{progress_line}"
@@ -1815,8 +1814,8 @@ async def command_scan_handler(message: types.Message) -> None:
         status_text = get_active_scan_status_text()
         header = (
             f"{status_text}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"⬇️ <b>Выберите категорию — запустится после окончания:</b>"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "⬇️ <b>Выберите категорию — запустится после окончания:</b>"
         )
     else:
         header = "🔍 <b>Выберите категорию для сканирования:</b>"
@@ -1894,7 +1893,7 @@ async def callback_scan_handler(callback: CallbackQuery) -> None:
             if not state:
                 return f"🚀 <b>Запуск сканирования (Категория: {cat_name})...</b>"
                 
-            html = f"🚀 <b>Сканирование рынков</b>\n"
+            html = "🚀 <b>Сканирование рынков</b>\n"
             html += f"<b>Категория:</b> {state.get('category', cat_name)}\n"
             html += f"<b>Этап:</b> {state.get('stage', 'В процессе')}\n"
             
@@ -2211,11 +2210,11 @@ async def send_penny_menu(message_or_callback) -> None:
     monitor_status = "🟢 Активен (15м)"
     
     text = (
-        f"🪙 <b>Меню Penny Stocks (дешевые рынки)</b>\n\n"
-        f"📋 <b>Статус мониторинга:</b>\n"
+        "🪙 <b>Меню Penny Stocks (дешевые рынки)</b>\n\n"
+        "📋 <b>Статус мониторинга:</b>\n"
         f"  • Поиск новых: {discovery_status}\n"
         f"  • Обновление цен/исходов: {monitor_status}\n\n"
-        f"📊 <b>Статистика прогнозов:</b>\n"
+        "📊 <b>Статистика прогнозов:</b>\n"
         f"  • Активных на отслеживании: <b>{len(active)}</b>\n"
         f"  • Завершено рынков: <b>{stats['resolved']}</b>\n"
         f"  • Точность (Win Rate): <b>{stats['win_rate']:.1%}</b> (совпало: {stats['correct']})\n"
@@ -2409,7 +2408,7 @@ async def callback_show_analysis(callback: CallbackQuery) -> None:
             if target.upper() == 'NO':
                 price = 1.0 - price
             report = (
-                f"🧠 <b>Анализ сигнала (Фоллбек):</b>\n"
+                "🧠 <b>Анализ сигнала (Фоллбек):</b>\n"
                 f"<a href='{sig_data['url']}'>{sig_data['title']}</a> (по цене ~{price:.3f})\n\n"
                 f"🎯 <b>Рекомендация: Покупать {target}</b>\n"
                 f"📈 Edge: <b>+{edge_pct:.1f}%</b> | Уверенность: {sig_data.get('confidence', 0.5)}\n\n"
@@ -2502,7 +2501,7 @@ async def callback_analyze_market(callback: CallbackQuery) -> None:
         price_no = 100 - price_yes
         
         summary_text = (
-            f"🗣️ <b>Архивное обсуждение рынка (из памяти):</b>\n"
+            "🗣️ <b>Архивное обсуждение рынка (из памяти):</b>\n"
             f"<a href='{url}'>{title}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n\n"
         )
         
@@ -2580,11 +2579,11 @@ async def callback_analyze_market(callback: CallbackQuery) -> None:
     await callback.answer("🔍 Запуск анализа рынка агентами...", show_alert=False)
     
     status_msg = await callback.message.answer(
-        f"🕵️‍♂️ <b>Запуск ручного анализа рынка</b>\n"
+        "🕵️‍♂️ <b>Запуск ручного анализа рынка</b>\n"
         f"<b>Рынок:</b> <a href='{db_market['url']}'>{market_title}</a>\n\n"
-        f"🕵️‍♂️ <b>SCOUT:</b> ⏳ Ожидает\n"
-        f"🚀 <b>SWING:</b> ⏳ Ожидает\n"
-        f"👤 <b>SHADOW:</b> ⏳ Ожидает",
+        "🕵️‍♂️ <b>SCOUT:</b> ⏳ Ожидает\n"
+        "🚀 <b>SWING:</b> ⏳ Ожидает\n"
+        "👤 <b>SHADOW:</b> ⏳ Ожидает",
         parse_mode="HTML",
         link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
@@ -2609,7 +2608,7 @@ async def callback_analyze_market(callback: CallbackQuery) -> None:
                 updated = True
             if updated:
                 text = (
-                    f"🕵️‍♂️ <b>Ручной анализ рынка</b>\n"
+                    "🕵️‍♂️ <b>Ручной анализ рынка</b>\n"
                     f"<b>Рынок:</b> <a href='{db_market['url']}'>{market_title}</a>\n\n"
                     f"🕵️‍♂️ <b>SCOUT:</b> {current_status['scout']}\n"
                     f"🚀 <b>SWING:</b> {current_status['swing']}\n"
@@ -3365,7 +3364,7 @@ async def handle_compound_buy(callback: types.CallbackQuery):
     await asyncio.to_thread(mark_compound_bought, opp_id)
     await callback.answer("✅ Отмечено как куплено!")
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.reply(f"🟢 <b>Позиция открыта.</b> Жду резолюцию рынка или Exit-сигнал.", parse_mode="HTML")
+    await callback.message.reply("🟢 <b>Позиция открыта.</b> Жду резолюцию рынка или Exit-сигнал.", parse_mode="HTML")
 
 @dp.callback_query(lambda c: c.data and c.data.startswith("compound_skip:"))
 async def handle_compound_skip(callback: types.CallbackQuery):

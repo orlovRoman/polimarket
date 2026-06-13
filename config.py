@@ -204,9 +204,8 @@ def startup_check():
     for name in sorted(os.environ.keys()):
         if name.startswith("GOOGLE_API_KEY_"):
             val = os.getenv(name, "")
-            if val and val.strip():
-                if name != "GOOGLE_API_KEY":
-                    api_keys_to_check.append((name, val))
+            if val and val.strip() and name != "GOOGLE_API_KEY":
+                api_keys_to_check.append((name, val))
 
     for key_name, key_val in api_keys_to_check:
         if not key_val:

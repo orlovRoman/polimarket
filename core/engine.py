@@ -303,7 +303,7 @@ class CoreEngine:
             for m in markets: save_market(m)
 
             # 3. Обсуждение
-            log(f"\n--- 2. Обсуждение идей (SCOUT + SWING + SHADOW) ---")
+            log("\n--- 2. Обсуждение идей (SCOUT + SWING + SHADOW) ---")
             
             processed_ids = self._run_math_gate_sync(markets, summary_callback)
 
@@ -435,8 +435,8 @@ class CoreEngine:
             else: _update_state(scout_status="⚪️ Нет фундамента")
                 
             if swing_signal:
-                log(f"  SWING: Хайп найден!")
-                _update_state(swing_status=f"🚀 Ждет памп")
+                log("  SWING: Хайп найден!")
+                _update_state(swing_status="🚀 Ждет памп")
             else: _update_state(swing_status="⚪️ Нет хайпа")
                 
             _update_state(shadow_status="🔄 Проверяет ордербук...")
@@ -790,7 +790,7 @@ class CoreEngine:
             if len(markets) > 3:
                 logger.info(
                     f"Post {post_id}: найдено {len(markets)} рынков, "
-                    f"анализируем первые 3 (остальные пропущены)."
+                    "анализируем первые 3 (остальные пропущены)."
                 )
 
             for m in markets[:3]:
@@ -839,7 +839,7 @@ class CoreEngine:
         price_no = 100 - price_yes
         
         fast_msg = (
-            f"⚡️ <b>Быстрый сигнал (Gemini лимиты 429/403):</b>\n"
+            "⚡️ <b>Быстрый сигнал (Gemini лимиты 429/403):</b>\n"
             f"<a href='{m.url}'>{m.title}</a>\n"
             f"🟢 YES: {price_yes}¢ | 🔴 NO: {price_no}¢\n"
             f"📅 Закрытие: {m.close_time.strftime('%Y-%m-%d %H:%M') if m.close_time else 'Unknown'}\n"

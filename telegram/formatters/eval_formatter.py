@@ -95,7 +95,7 @@ def format_eval_report(report: EvaluationReport) -> str:
                 if is_auto:
                     msg += "    [auto-applied ✅]\n"
                 else:
-                    msg += f"    [ожидает подтверждения — <code>/eval_apply</code>]\n"
+                    msg += "    [ожидает подтверждения — <code>/eval_apply</code>]\n"
         else:
             if metrics.total_signals < 50:
                 msg += "⚠️ Недостаточно данных для калибровки (мин. 50)\n"

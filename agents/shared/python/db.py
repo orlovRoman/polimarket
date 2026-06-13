@@ -1502,7 +1502,7 @@ def get_signal_analysis_report(signal_id: str) -> Optional[str]:
 def get_signal_by_id(signal_id: str) -> Optional[dict]:
     """Возвращает сигнал по полному или усечённому ID."""
     use_like = len(signal_id) < 36
-    op = f"LIKE ? ESCAPE '\\'" if use_like else "= ?"
+    op = "LIKE ? ESCAPE '\\'" if use_like else "= ?"
     query_id = f"{_escape_like(signal_id)}%" if use_like else signal_id
     with get_connection() as conn:
         row = conn.execute(

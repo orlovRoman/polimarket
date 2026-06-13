@@ -98,19 +98,19 @@ class ScoutAgent:
                     mf = math_pre_filter(market, related_market)
                     if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
                         math_analysis = (
-                            f"\n  ⚡ MATH-FILTER: CONFIRMED_ARBITRAGE | "
+                            "\n  ⚡ MATH-FILTER: CONFIRMED_ARBITRAGE | "
                             f"тип={mf.arbitrage_type} | спред={mf.spread_pct:.1f}% | "
                             f"трейд: {mf.trade_instruction}"
                         )
                     elif mf.decision == FilterDecision.CONFIRMED_NO_ARBI:
                         math_analysis = (
-                            f"\n  ✅ MATH-FILTER: NO_ARBITRAGE | "
+                            "\n  ✅ MATH-FILTER: NO_ARBITRAGE | "
                             f"тип={mf.arbitrage_type} | спред={mf.spread_pct:.1f}%"
                         )
                     else:
                         math_analysis = (
-                            f"\n  ⚠️ MATH-FILTER: AMBIGUOUS | спред={mf.spread_pct:.1f}% — "
-                            f"требует интерпретации"
+                            "\n  ⚠️ MATH-FILTER: AMBIGUOUS | спред={mf.spread_pct:.1f}% — "
+                            "требует интерпретации"
                         )
 
                 correlation_texts.append(
@@ -138,7 +138,7 @@ class ScoutAgent:
         hn_block = ""
         IS_TECH_MARKET = any(kw in market.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
         if IS_TECH_MARKET and context.hn_posts:
-            hn_block = f"\n[HackerNews — технические обсуждения]:\n" + "\n".join(context.hn_posts) + "\n"
+            hn_block = "\n[HackerNews — технические обсуждения]:\n" + "\n".join(context.hn_posts) + "\n"
 
         corr_section = ""
         if getattr(context, "correlation_hint", ""):

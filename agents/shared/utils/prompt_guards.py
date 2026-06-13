@@ -79,7 +79,7 @@ def guard_smart_money(smart_money, target_outcome: str) -> str:
             "Пиши: \"Данные по крупным трейдерам недоступны.\"\n"
         )
     lines = [
-        f"=== ОНЧЕЙН АКТИВНОСТЬ (Smart Money) ===",
+        "=== ОНЧЕЙН АКТИВНОСТЬ (Smart Money) ===",
         f"Всего объём YES: ${smart_money.total_yes_usd:,.0f}",
         f"Всего объём NO:  ${smart_money.total_no_usd:,.0f}",
         f"YES доминирование: {smart_money.yes_dominance:.0%}",

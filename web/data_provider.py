@@ -614,9 +614,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                     current_outcome_price = round(1.0 - curr, 4)
                 else:
                     current_outcome_price = curr
-            elif status == 'RESOLVED':
-                if actual_outcome is not None:
-                    current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
+            elif status == 'RESOLVED' and actual_outcome is not None:
+                current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
 
             row_dict['current_outcome_price'] = current_outcome_price
             virtual_history.append(row_dict)
@@ -970,9 +969,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                     current_outcome_price = round(1.0 - curr, 4)
                 else:
                     current_outcome_price = curr
-            elif status == 'RESOLVED':
-                if actual_outcome is not None:
-                    current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
+            elif status == 'RESOLVED' and actual_outcome is not None:
+                current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
 
             row_dict['current_outcome_price'] = current_outcome_price
             virtual_history.append(row_dict)

@@ -161,8 +161,8 @@ class ArbitrageAgent:
         # === GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
         if mf.arbitrage_type == "identical_threshold":
             print(
-                f"[ARBITRAGE] identical_threshold со spread=0% — "
-                f"разные события с одним числом. Арбитраж отклонён без вызова LLM."
+                "[ARBITRAGE] identical_threshold со spread=0% — "
+                "разные события с одним числом. Арбитраж отклонён без вызова LLM."
             )
             return None
 
@@ -292,8 +292,8 @@ class ArbitrageAgent:
         # === GUARD: identical_threshold с нулевым спредом — LLM вызывать бессмысленно ===
         if mf.arbitrage_type == "identical_threshold":
             print(
-                f"[ARBITRAGE] identical_threshold со spread=0% — "
-                f"разные события с одним числом. Арбитраж отклонён без вызова LLM."
+                "[ARBITRAGE] identical_threshold со spread=0% — "
+                "разные события с одним числом. Арбитраж отклонён без вызова LLM."
             )
             return None
 

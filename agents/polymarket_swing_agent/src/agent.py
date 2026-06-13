@@ -182,7 +182,7 @@ class SwingAgent:
         IS_TECH_MARKET = any(kw in market.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
         hn_block = ""
         if IS_TECH_MARKET and context.hn_posts:
-            hn_block = f"\n[HackerNews — технические обсуждения]:\n" + "\n".join(context.hn_posts) + "\n"
+            hn_block = "\n[HackerNews — технические обсуждения]:\n" + "\n".join(context.hn_posts) + "\n"
 
         velocity_block = f"\n[Velocity Signal]\n{context.velocity_annotation}\n" \
             if getattr(context, 'velocity_annotation', '') else ""
@@ -400,17 +400,16 @@ class SwingAgent:
 
                 # 1. Horizon strategy min_confidence filter
                 rejection_reasons = []
-                if analysis["recommendation"] == "buy":
-                    if not has_hard_facts:
-                        if analysis["confidence"] < horizon.min_confidence:
+                if analysis["recommendation"] == "buy" and not has_hard_facts:
+                    if analysis["confidence"] < horizon.min_confidence:
+                        analysis["recommendation"] = "ignore"
+                        rejection_reasons.append(f"Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} < минимум {horizon.min_confidence}")
+                    if horizon.require_immediate_catalyst:
+                        catalyst = analysis.get("catalyst", "").lower()
+                        no_catalyst_phrases = ["нет катализатора", "отсутствует", "не найден", "не обнаружен"]
+                        if any(ph in catalyst for ph in no_catalyst_phrases):
                             analysis["recommendation"] = "ignore"
-                            rejection_reasons.append(f"Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} < минимум {horizon.min_confidence}")
-                        if horizon.require_immediate_catalyst:
-                            catalyst = analysis.get("catalyst", "").lower()
-                            no_catalyst_phrases = ["нет катализатора", "отсутствует", "не найден", "не обнаружен"]
-                            if any(ph in catalyst for ph in no_catalyst_phrases):
-                                analysis["recommendation"] = "ignore"
-                                rejection_reasons.append(f"Горизонт {horizon.label}: нет немедленного катализатора")
+                            rejection_reasons.append(f"Горизонт {horizon.label}: нет немедленного катализатора")
 
                 # 2. ROI-фильтр
                 from agents.shared.utils.roi_filter import apply_roi_filter

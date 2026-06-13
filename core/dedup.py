@@ -47,8 +47,7 @@ def deduplicate_reddit_posts(reddit_posts: list[str], grounded_text: str) -> lis
             deduped.append(post)
             continue
         sample = words[:4]
-        if len(sample) >= 2:
-            if all(word in grounded_lower for word in sample):
-                continue
+        if len(sample) >= 2 and all(word in grounded_lower for word in sample):
+            continue
         deduped.append(post)
     return deduped
