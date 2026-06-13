@@ -26,6 +26,8 @@ class ConfigProvider:
         """
         Возвращает минимальный порог Edge для стратегии (например, scout) асинхронно.
         """
+        import asyncio
+        await asyncio.sleep(0)
         return cls.get_min_edge_sync(strategy_type)
 
     @classmethod
@@ -49,6 +51,8 @@ class ConfigProvider:
         """
         Возвращает минимальный порог спреда для стратегии асинхронно.
         """
+        import asyncio
+        await asyncio.sleep(0)
         return cls.get_min_spread_sync(strategy_type)
 
     @classmethod
@@ -81,6 +85,8 @@ class ConfigProvider:
         """
         Возвращает порог win_rate для следования за китами асинхронно.
         """
+        import asyncio
+        await asyncio.sleep(0)
         return cls.get_whale_win_rate_threshold_sync()
 
     @classmethod

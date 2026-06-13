@@ -258,6 +258,7 @@ def _get_rss_cache_file():
     return VAULT_PATH / "rss_cache.json"
 
 async def _get_rss_lock() -> asyncio.Lock:
+    await asyncio.sleep(0)
     global _rss_lock
     if _rss_lock is None:
         _rss_lock = asyncio.Lock()

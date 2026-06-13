@@ -1,5 +1,5 @@
 # tests/test_prompt_guards.py
-from datetime import datetime
+from datetime import datetime, timezone
 from agents.shared.utils.prompt_guards import (
     guard_description, guard_orderbook, guard_smart_money, guard_news_with_age
 )
@@ -44,13 +44,13 @@ def test_guard_news_empty_returns_catalyst_ban():
 def test_guard_news_old_item_tagged():
     from datetime import timedelta
     old_news = [{"title": "Old event happened", "published_parsed": None,
-                 "published": (datetime.utcnow() - timedelta(hours=80)).isoformat()}]
+                 "published": (datetime.now(timezone.utc) - timedelta(hours=80)).isoformat()}]
     result = guard_news_with_age(old_news)
     assert "НЕ КАТАЛИЗАТОР" in result
 
 def test_guard_news_fresh_item_tagged_hot():
     from datetime import timedelta
     fresh = [{"title": "Breaking news now", "published_parsed": None,
-              "published": (datetime.utcnow() - timedelta(hours=2)).isoformat()}]
+              "published": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()}]
     result = guard_news_with_age(fresh)
     assert "СВЕЖИЙ КАТАЛИЗАТОР" in result

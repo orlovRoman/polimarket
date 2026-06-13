@@ -708,7 +708,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         try:
             add_discussion_message(m.id, "SCOUT", scout_opinion_text, getattr(signal, 'confidence', 0.5), True)
         except Exception as e:
-            logger.error(f"Ошибка сохранения мнения SCOUT в БД: {e}")
+            logger.exception(f"Ошибка сохранения мнения SCOUT в БД: {e}")
             
     if swing_signal:
         swing_parts = []
@@ -731,14 +731,14 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             agree_swing = getattr(swing_signal, 'recommendation', '').lower() == 'buy'
             add_discussion_message(m.id, "SWING", swing_opinion_text, getattr(swing_signal, 'confidence', 0.5), agree_swing)
         except Exception as e:
-            logger.error(f"Ошибка сохранения мнения SWING в БД: {e}")
+            logger.exception(f"Ошибка сохранения мнения SWING в БД: {e}")
     elif getattr(context, 'swing_skipped', False):
         reason = getattr(context, 'swing_skip_reason', 'пропущен (flat price/noise)')
         swing_opinion_text = f"💤 {reason}"
         try:
             add_discussion_message(m.id, "SWING", swing_opinion_text, 0.0, False)
         except Exception as e:
-            logger.error(f"Ошибка сохранения мнения SWING (skipped) в БД: {e}")
+            logger.exception(f"Ошибка сохранения мнения SWING (skipped) в БД: {e}")
 
     decision = make_consensus(context, signal, swing_signal, opinion_shadow)
     

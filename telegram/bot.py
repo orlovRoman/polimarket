@@ -823,7 +823,7 @@ def get_scout_accuracy_live() -> tuple[Optional[float], int]:
             if row and row["resolved"] and row["resolved"] > 0:
                 return float(row["win_rate"]), int(row["resolved"])
     except Exception as e:
-        logger.error(f"Ошибка при расчете live-точности SCOUT: {e}")
+        logger.exception(f"Ошибка при расчете live-точности SCOUT: {e}")
     return None, 0
 
 
@@ -1429,7 +1429,7 @@ async def callback_set_agent_model(callback: CallbackQuery) -> None:
         )
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e).lower():
-            logger.error(f"Error in callback_set_agent_model: {e}")
+            logger.exception(f"Error in callback_set_agent_model: {e}")
 
     await callback.answer()
 

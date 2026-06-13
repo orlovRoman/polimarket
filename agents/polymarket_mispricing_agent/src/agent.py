@@ -42,6 +42,8 @@ class ScoutAgent:
         :param price_history: История изменения цены
         :return: Объект Signal, если Edge > 0.10, иначе None
         """
+        import asyncio
+        await asyncio.sleep(0)
         market = context.market
         news_titles = context.news_titles
         reddit_posts = context.reddit_posts

@@ -30,8 +30,9 @@ class MetricsRepository:
         """
         1. Считывает завершенные сигналы за указанный период (period_days).
         2. Вычисляет метрики (Brier, ECE, win_rate и др.).
-        3. Записывает результат в таблицу strategy_metrics (UPSERT).
         """
+        import asyncio
+        await asyncio.sleep(0)
         now = datetime.now(timezone.utc)
         start_time = now - timedelta(days=period_days)
         
@@ -121,6 +122,8 @@ class MetricsRepository:
         """
         Возвращает последнюю запись метрик для указанной стратегии.
         """
+        import asyncio
+        await asyncio.sleep(0)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -159,6 +162,8 @@ class MetricsRepository:
         """
         Возвращает историю изменения метрик для отслеживания динамики (тренда).
         """
+        import asyncio
+        await asyncio.sleep(0)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()

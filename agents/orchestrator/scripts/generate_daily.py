@@ -1,6 +1,6 @@
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 
@@ -15,7 +15,7 @@ def main():
     db_manager = DatabaseManager()
     
     # Получаем данные за последние 24 часа
-    yesterday = datetime.utcnow() - timedelta(days=1)
+    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
     date_str = yesterday.strftime("%Y-%m-%d %H:%M:%S")
     
     discussions = []
@@ -41,7 +41,7 @@ def main():
         "discussions": discussions,
         "signals": signals,
         "period_start": date_str,
-        "period_end": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        "period_end": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     }
     
     agent = NexusAgent()

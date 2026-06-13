@@ -816,7 +816,7 @@ class CoreEngine:
                     logger.warning(f"Gemini API limits hit для market {m.id}. Fast fallback.")
                     await self._send_fast_signal(m, source_url, source_text, chat_id)
                 except Exception as e:
-                    logger.error(f"analyze_post_async error for {m.id}: {e}")
+                    logger.exception(f"analyze_post_async error for {m.id}: {e}")
                 finally:
                     # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
                     await asyncio.sleep(2)
@@ -824,7 +824,7 @@ class CoreEngine:
             mark_telegram_post_status(post_id, 'ANALYZED')
 
         except Exception as e:
-            logger.error(f"analyze_post_async fatal error for post {post_id}: {e}")
+            logger.exception(f"analyze_post_async fatal error for post {post_id}: {e}")
             # Сбрасываем статус, чтобы можно было перезапустить при желании
             mark_telegram_post_status(post_id, 'ERROR')
 

@@ -2,7 +2,7 @@ import sys
 import os
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Добавляем корень проекта в sys.path
 sys.path.append(str(Path(__file__).parent.parent.parent.parent))
@@ -45,7 +45,7 @@ def main():
         print(f"Автоочистка: архивировано {stale} устаревших сигналов.")
 
     # 1. Сначала пометим как EXECUTED те сигналы, чьи рынки уже закрылись (события 2025 года и т.д.)
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     try:
         with db_manager._get_connection() as conn:
             cursor = conn.cursor()
