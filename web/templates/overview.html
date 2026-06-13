@@ -57,6 +57,27 @@
     </div>
 </div>
 
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+    <div class="table-card" style="margin-top: 0; min-height: 200px;">
+        <div class="table-title" style="display: flex; align-items: center; gap: 8px;">
+            <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+            Статус авто-резолюции (Outcome Tracker)
+        </div>
+        <div id="tracker-status-content" class="text-muted" style="font-size:0.95rem; padding: 10px 0;">
+            Загрузка статуса...
+        </div>
+    </div>
+    <div class="table-card" style="margin-top: 0; min-height: 200px;">
+        <div class="table-title" style="display: flex; align-items: center; gap: 8px;">
+            <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+            Автокалибровка параметров
+        </div>
+        <div id="calibration-status-content" class="text-muted" style="font-size:0.95rem; padding: 10px 0;">
+            Загрузка калибровок...
+        </div>
+    </div>
+</div>
+
 <script>
     const strategyDisplayNames = {
         'scout': 'Scout (LLM)',
@@ -246,6 +267,78 @@
                     }
                 });
             }
+        }
+
+        // 5. Загружаем статус авто-резолюции и калибровок
+        try {
+            const evalStatus = await fetchJSON('/api/eval-status');
+            const trackerContent = document.getElementById('tracker-status-content');
+            const calContent = document.getElementById('calibration-status-content');
+
+            if (evalStatus) {
+                // Рендерим статус трекера
+                if (evalStatus.tracker) {
+                    const t = evalStatus.tracker;
+                    const dateStr = formatDate(t.timestamp);
+                    trackerContent.innerHTML = `
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;">
+                                <span>Последний запуск:</span>
+                                <span style="color:var(--text-primary); font-weight:600;">${dateStr}</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;">
+                                <span>Проверено PENDING сигналов:</span>
+                                <span style="color:var(--text-primary); font-weight:600;">${t.checked}</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;">
+                                <span>Разрешено (Resolved):</span>
+                                <span class="text-green" style="font-weight:600;">${t.resolved}</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;">
+                                <span>Ожидают закрытия API:</span>
+                                <span style="color:var(--text-secondary);">${t.skipped}</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between;">
+                                <span>Ошибки сети / API:</span>
+                                <span class="${t.errors > 0 ? 'text-red' : ''}" style="font-weight:600;">${t.errors}</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    trackerContent.innerHTML = `<span class="text-muted">Данные о запусках трекера отсутствуют. Ожидайте первого запуска по расписанию.</span>`;
+                }
+
+                // Рендерим последние калибровки
+                if (evalStatus.calibrations && evalStatus.calibrations.length > 0) {
+                    calContent.innerHTML = `
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            ${evalStatus.calibrations.map(c => {
+                                const dateStr = formatDate(c.updated_at);
+                                const strategyName = strategyDisplayNames[c.strategy_type] || c.strategy_type;
+                                return `
+                                    <div style="background:rgba(255, 255, 255, 0.02); border:1px solid rgba(255,255,255,0.05); padding:8px 12px; border-radius:6px; font-size:0.85rem;">
+                                        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                                            <strong style="color:var(--text-primary);">${strategyName}</strong>
+                                            <span class="text-muted" style="font-size:0.75rem;">${dateStr}</span>
+                                        </div>
+                                        <div style="margin-bottom:4px; color:var(--text-secondary);">
+                                            Параметр <code>${c.param_name}</code>: 
+                                            <span style="text-decoration:line-through; color:var(--text-muted);">${c.previous_value}</span> 
+                                            &rarr; 
+                                            <span class="text-green" style="font-weight:600;">${c.param_value}</span>
+                                        </div>
+                                        <div style="font-size:0.8rem; color:var(--text-muted); font-style:italic;">"${c.reason}"</div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `;
+                } else {
+                    calContent.innerHTML = `<span class="text-muted">Рекомендаций по калибровке пока не поступало.</span>`;
+                }
+            }
+        } catch (err) {
+            console.error("Ошибка загрузки статуса оценки:", err);
         }
     }
 

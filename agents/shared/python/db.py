@@ -767,7 +767,8 @@ def _init_db_impl(conn: sqlite3.Connection):
         ("resolution_price", "REAL"),
         ("was_profitable", "INTEGER"),
         ("pnl_realized", "REAL"),
-        ("analysis_report", "TEXT")
+        ("analysis_report", "TEXT"),
+        ("close_time", "TIMESTAMP")
     ]
     for col, col_type in eval_cols:
         if col not in signal_cols:

@@ -27,6 +27,7 @@ class SignalPayload(BaseModel):
     market_price_at_signal: float = Field(..., ge=0.0, le=1.0)
     edge_at_signal: float = Field(..., ge=-1.0, le=1.0)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    close_time: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator('predicted_probability', 'market_price_at_signal', 'edge_at_signal', mode='before')
@@ -94,6 +95,10 @@ class SignalLogger:
             platform = payload.metadata.get("platform", "polymarket")
             details_str = json.dumps(payload.metadata, ensure_ascii=False)
 
+            close_time = payload.metadata.get("close_time")
+            if not close_time and "close_time" in payload.metadata:
+                close_time = payload.metadata["close_time"]
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 # Архивируем старый PENDING сигнал по этому рынку, чтобы освободить UNIQUE индекс
@@ -104,8 +109,8 @@ class SignalLogger:
                 cursor.execute("""
                     INSERT INTO signals (
                         id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at,
-                        target_outcome, estimated_probability, predicted_probability, market_price_at_signal, edge_at_signal, strategy_type
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        target_outcome, estimated_probability, predicted_probability, market_price_at_signal, edge_at_signal, strategy_type, close_time
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         type=excluded.type,
                         market_id=excluded.market_id,
@@ -121,6 +126,7 @@ class SignalLogger:
                         market_price_at_signal=excluded.market_price_at_signal,
                         edge_at_signal=excluded.edge_at_signal,
                         strategy_type=excluded.strategy_type,
+                        close_time=excluded.close_time,
                         status = CASE
                             WHEN signals.resolved_at IS NOT NULL THEN signals.status
                             ELSE 'PENDING'
@@ -142,7 +148,8 @@ class SignalLogger:
                     payload.predicted_probability,
                     payload.market_price_at_signal,
                     payload.edge_at_signal,
-                    payload.strategy_type.value
+                    payload.strategy_type.value,
+                    close_time.isoformat() if isinstance(close_time, datetime) else close_time
                 ))
                 logger.info(f"Сигнал {payload.signal_id} ({payload.strategy_type.value}) успешно записан.")
         except Exception as e:

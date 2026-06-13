@@ -748,6 +748,10 @@ async def scheduled_outcome_tracker():
     try:
         from services.outcome_tracker import run_resolution_cycle
         await asyncio.to_thread(run_resolution_cycle)
+        
+        from core.eval.outcome_tracker import OutcomeTracker
+        tracker = OutcomeTracker()
+        await asyncio.to_thread(tracker.run_cycle)
     except Exception as e:
         logger.exception(f"Error in scheduled outcome tracker: {e}")
     finally:
@@ -880,11 +884,13 @@ async def start_system():
     )
 
 
-    #Outcome Tracker — авторезолюция сигналов каждые 2 часа
+    # Outcome Tracker — авторезолюция сигналов и автокалибровка параметров
+    from core.config_provider import ConfigProvider
+    outcome_tracker_interval = int(ConfigProvider.get_sync("eval.outcome_tracker_interval_hours", default=6))
     scheduler.add_job(
         scheduled_outcome_tracker,
         trigger="interval",
-        hours=2,
+        hours=outcome_tracker_interval,
         id="outcome_tracker",
         replace_existing=True,
         misfire_grace_time=600,

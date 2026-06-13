@@ -1549,3 +1549,48 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
         'resolved_total': resolved_total,
         'history_total': history_total
     }
+
+def get_eval_status() -> dict:
+    """
+    Возвращает статус последнего запуска Outcome Tracker и историю последних калибровок.
+    """
+    from agents.shared.python.db import get_connection
+    import json
+
+    result = {
+        "tracker": None,
+        "calibrations": []
+    }
+
+    with get_connection() as conn:
+        # 1. Читаем последний запуск трекера из таблицы memory
+        try:
+            row = conn.execute("SELECT value FROM memory WHERE key = 'outcome_tracker_last_run'").fetchone()
+            if row:
+                result["tracker"] = json.loads(row["value"])
+        except Exception:
+            pass
+
+        # 2. Читаем последние 5 предложений калибровки
+        try:
+            cal_rows = conn.execute("""
+                SELECT strategy_type, param_name, param_value, previous_value, reason, auto_applied, updated_at
+                FROM calibration_params
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 5
+            """).fetchall()
+            
+            for r in cal_rows:
+                result["calibrations"].append({
+                    "strategy_type": r["strategy_type"],
+                    "param_name": r["param_name"],
+                    "param_value": r["param_value"],
+                    "previous_value": r["previous_value"],
+                    "reason": r["reason"],
+                    "auto_applied": bool(r["auto_applied"]),
+                    "updated_at": r["updated_at"]
+                })
+        except Exception:
+            pass
+
+    return result

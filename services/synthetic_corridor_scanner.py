@@ -123,6 +123,16 @@ def run_synthetic_corridor_scan(
         
         # Запись в Evaluation Engine
         try:
+            close_time = None
+            try:
+                from agents.shared.python.db import get_connection
+                with get_connection() as conn:
+                    m_row = conn.execute("SELECT close_time FROM markets WHERE id = ?", (v.lower.market_id,)).fetchone()
+                    if m_row and m_row["close_time"]:
+                        close_time = m_row["close_time"]
+            except Exception:
+                pass
+
             from core.eval.signal_logger import SignalLogger, StrategyType
             logger_eval = SignalLogger()
             logger_eval.log_signal(
@@ -133,6 +143,7 @@ def run_synthetic_corridor_scan(
                 market_price_at_signal=orderbook["real_cost"],
                 edge_at_signal=orderbook["real_spread_pct"] / 100.0,
                 metadata={
+                    "close_time": close_time,
                     "lower_market_id": v.lower.market_id,
                     "upper_market_id": v.upper.market_id,
                     "lower_price_yes": v.price_yes_lower,

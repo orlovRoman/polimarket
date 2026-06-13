@@ -761,6 +761,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
                         "priority": signal.priority,
                         "summary": signal.summary,
                         "platform": signal.platform,
+                        "close_time": m.close_time.isoformat() if hasattr(m, "close_time") and m.close_time else None
                     }
                 )
             except Exception as e:

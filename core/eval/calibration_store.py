@@ -84,6 +84,45 @@ class CalibrationStore:
             logger.error(f"Ошибка при сохранении предложения калибровки: {e}", exc_info=True)
             return -1
 
+    def save_suggestion_sync(
+        self,
+        suggestion: CalibrationSuggestion,
+        strategy_type: StrategyType,
+        auto_apply: bool
+    ) -> int:
+        """
+        Синхронная версия save_suggestion.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO calibration_params (
+                        strategy_type, param_name, param_value, previous_value, reason, auto_applied
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    strategy_type.value,
+                    suggestion.param_name,
+                    suggestion.suggested_value,
+                    suggestion.current_value,
+                    suggestion.reason,
+                    1 if auto_apply else 0
+                ))
+                conn.commit()
+                row_id = cursor.lastrowid
+                
+                if auto_apply:
+                    try:
+                        from core.config_provider import ConfigProvider
+                        ConfigProvider.invalidate_cache()
+                    except ImportError:
+                        pass
+                        
+                return row_id
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении предложения калибровки (sync): {e}", exc_info=True)
+            return -1
+
     async def apply_suggestion(self, suggestion_id: int) -> bool:
         """
         Применяет ранее отложенное (auto_applied=0) предложение по калибровке:

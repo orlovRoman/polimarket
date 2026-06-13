@@ -29,11 +29,23 @@ def _log_whale_signal_to_eval(
         else:
             sig_id = f"sig-whale-{market_id}-{ts}"
 
+        close_time = None
+        if market_id:
+            try:
+                from agents.shared.python.db import get_connection
+                with get_connection() as conn:
+                    m_row = conn.execute("SELECT close_time FROM markets WHERE id = ?", (market_id,)).fetchone()
+                    if m_row and m_row["close_time"]:
+                        close_time = m_row["close_time"]
+            except Exception:
+                pass
+
         metadata = {
             "target_outcome": side,
             "priority": "medium",
             "summary": summary_msg,
-            "platform": "polymarket"
+            "platform": "polymarket",
+            "close_time": close_time
         }
         metadata.update(metadata_extra)
         

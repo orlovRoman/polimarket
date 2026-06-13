@@ -130,6 +130,16 @@ def _process_candidate_leg(
     
     # Запись в Evaluation Engine
     try:
+        close_time = None
+        try:
+            from agents.shared.python.db import get_connection
+            with get_connection() as conn:
+                m_row = conn.execute("SELECT close_time FROM markets WHERE id = ?", (c.early.market_id,)).fetchone()
+                if m_row and m_row["close_time"]:
+                    close_time = m_row["close_time"]
+        except Exception:
+            pass
+
         from core.eval.signal_logger import SignalLogger, StrategyType
         logger_eval = SignalLogger()
         logger_eval.log_signal(
@@ -140,6 +150,7 @@ def _process_candidate_leg(
             market_price_at_signal=ob["real_cost"],
             edge_at_signal=ob["real_spread_pct"] / 100.0,
             metadata={
+                "close_time": close_time,
                 "early_market_id": c.early.market_id,
                 "late_market_id": c.late.market_id,
                 "early_cost": ob["ask_no_early"],

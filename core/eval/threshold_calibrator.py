@@ -211,3 +211,76 @@ class ThresholdCalibrator:
             )
             
         return None
+
+    def recalibrate(self) -> None:
+        """
+        Запускает цикл перекалибровки порогов для всех основных стратегий.
+        Вызывается синхронно после пересчета метрик в OutcomeTracker.
+        """
+        from core.eval.metrics_repository import MetricsRepository
+        from core.eval.calibration_store import CalibrationStore
+        from core.config_provider import ConfigProvider
+        from core.eval.signal_logger import StrategyType
+
+        metrics_repo = MetricsRepository()
+        store = CalibrationStore()
+
+        strategies = [
+            (
+                StrategyType.SCOUT,
+                "min_edge",
+                lambda: ConfigProvider.get_min_edge_sync("scout"),
+                lambda m, c, t: self.suggest_edge_threshold(m, c, t, "scout")
+            ),
+            (
+                StrategyType.WHALE,
+                "min_edge",
+                lambda: ConfigProvider.get_min_edge_sync("whale"),
+                lambda m, c, t: self.suggest_edge_threshold(m, c, t, "whale")
+            ),
+            (
+                StrategyType.SYNTHETIC_CORRIDOR,
+                "min_spread",
+                lambda: ConfigProvider.get_min_spread_sync("synthetic_corridor"),
+                lambda m, c, t: self.suggest_spread_threshold(m, c, t, "synthetic_corridor")
+            ),
+            (
+                StrategyType.TEMPORAL_CORRIDOR,
+                "min_spread",
+                lambda: ConfigProvider.get_min_spread_sync("temporal_corridor"),
+                lambda m, c, t: self.suggest_spread_threshold(m, c, t, "temporal_corridor")
+            ),
+            (
+                StrategyType.WHALE,
+                "whale_win_rate_threshold",
+                lambda: ConfigProvider.get_whale_win_rate_threshold_sync(),
+                lambda m, c, t: self.suggest_whale_win_rate_threshold(m, c, t, "whale")
+            )
+        ]
+
+        for strategy_type, param_name, get_curr_val, suggest_method in strategies:
+            try:
+                # Получаем последние метрики
+                metrics = metrics_repo.get_latest_metrics_sync(strategy_type)
+                if not metrics:
+                    continue
+
+                # Получаем тренд
+                trend = metrics_repo.get_metrics_trend_sync(strategy_type)
+                current_value = get_curr_val()
+
+                # Вычисляем предложение по калибровке
+                suggestion = suggest_method(metrics, current_value, trend)
+                if suggestion:
+                    # Сохраняем предложение в БД и автоматически применяем его (auto_apply=True)
+                    store.save_suggestion_sync(suggestion, strategy_type, auto_apply=True)
+            except Exception as e:
+                from core.eval.threshold_calibrator import logger
+                # так как logger не импортирован локально, мы можем импортировать логгер
+                # Но логгер не объявлен в threshold_calibrator.py? Давайте проверим, есть ли логгер.
+                # В threshold_calibrator.py нет логгера? Посмотрим на первые 15 строк:
+                # Там импорты dataclasses, typing, StrategyMetrics. Логгера нет.
+                # Давайте импортируем логгер прямо внутри:
+                import logging
+                local_logger = logging.getLogger("NexusPolyBot.ThresholdCalibrator")
+                local_logger.error(f"Ошибка калибровки параметра {param_name} для {strategy_type.value}: {e}", exc_info=True)
