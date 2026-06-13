@@ -52,7 +52,7 @@
 
         function formatPnL(val) {
             if (val === null || val === undefined) return "$0.00";
-            const num = parseFloat(val);
+            const num = Number.parseFloat(val);
             const sign = num > 0 ? "+" : "";
             let color = "";
             if (num > 0) {
@@ -65,13 +65,13 @@
 
         function formatPercent(val) {
             if (val === null || val === undefined) return "—";
-            const num = parseFloat(val) * 100;
+            const num = Number.parseFloat(val) * 100;
             return `${num.toFixed(1)}%`;
         }
 
         function formatBrier(val) {
             if (val === null || val === undefined) return "—";
-            return parseFloat(val).toFixed(4);
+            return Number.parseFloat(val).toFixed(4);
         }
 
         function formatDate(dateStr) {
