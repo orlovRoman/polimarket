@@ -126,7 +126,16 @@ class OutcomeTracker:
                     row = cursor.fetchone()
                     if row:
                         try:
-                            last_run_str = json.loads(row[0]).get("timestamp")
+                            try:
+                                raw = json.loads(row[0])
+                            except (json.JSONDecodeError, TypeError):
+                                raw = row[0]
+
+                            if isinstance(raw, dict):
+                                last_run_str = raw.get("timestamp")
+                            else:
+                                last_run_str = str(raw)
+                                
                             last_run = datetime.fromisoformat(last_run_str)
                             if (datetime.now(timezone.utc) - last_run).total_seconds() > 3600:
                                 should_calibrate = True

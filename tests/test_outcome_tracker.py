@@ -95,3 +95,54 @@ def test_no_pending_no_calibration():
         
     assert stats["checked"] == 0
     calibrator.recalibrate.assert_not_called()
+
+
+def test_calibration_cooldown_robust_parsing():
+    import json
+    from core.eval.outcome_tracker import PendingSignal
+    from datetime import datetime, timezone, timedelta
+
+    # Задаем пендинг сигналы, чтобы запустить блок калибровки
+    pending = [PendingSignal("sig_test", "market_test", "scout",
+                             datetime.now(timezone.utc))]
+    resolution_map = {
+        "market_test": MarketResolution("market_test", True, "YES", 1.0)
+    }
+
+    # Форматы записей в БД, которые мы тестируем:
+    # a) Сырая ISO строка
+    # b) Строка внутри JSON-а (которая парсится как строка)
+    # c) Новая структура (JSON-словарь)
+    test_cases = [
+        # a) Сырая ISO строка
+        ("2026-06-13T10:00:00+00:00", True), # Прошло много времени -> True
+        (datetime.now(timezone.utc).isoformat(), False), # Только что было -> False
+        
+        # b) JSON строка
+        (json.dumps("2026-06-13T10:00:00+00:00"), True),
+        (json.dumps(datetime.now(timezone.utc).isoformat()), False),
+
+        # c) JSON dict
+        (json.dumps({"timestamp": "2026-06-13T10:00:00+00:00"}), True),
+        (json.dumps({"timestamp": datetime.now(timezone.utc).isoformat()}), False),
+    ]
+
+    for db_value, expected_calibrate in test_cases:
+        tracker, sig_logger, metrics_repo, calibrator = _make_tracker(pending, resolution_map)
+        
+        with patch("core.eval.outcome_tracker.DB_PATH", "fake_path"), \
+             patch("core.eval.outcome_tracker.sqlite3.connect") as mock_conn:
+            
+            # Настраиваем мок соединения и курсора
+            mock_db_conn = mock_conn.return_value.__enter__.return_value
+            mock_cursor = mock_db_conn.cursor.return_value
+            
+            # Возвращаем наш db_value при SELECT
+            mock_cursor.fetchone.return_value = (db_value,)
+            
+            stats = tracker.run_cycle()
+            
+            if expected_calibrate:
+                calibrator.recalibrate.assert_called_once()
+            else:
+                calibrator.recalibrate.assert_not_called()

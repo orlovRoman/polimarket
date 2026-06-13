@@ -199,7 +199,7 @@ def test_log_penny_stocks_signal_and_resolution():
     assert row["pnl_realized"] == 190.00
     conn.close()
 
-def test_log_resolution_na_outcome():
+def test_log_resolution_na_outcome(setup_database):
     logger = SignalLogger()
     signal_id = "test-sig-na-outcome"
     logger.log_signal(
