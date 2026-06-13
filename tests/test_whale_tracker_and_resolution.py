@@ -51,7 +51,7 @@ def test_wallet_tracker_ingestion():
         {"taker_address": "0xWhaleB", "size": "2000", "price": "0.6", "outcome_index": 1}   # $1200 -> NO
     ]
 
-    saved = ingest_trades("test_market_1", trades, [])
+    saved = ingest_trades("test_market_1", trades)
     assert saved == 2
 
     # Проверяем, что в БД записались правильные данные

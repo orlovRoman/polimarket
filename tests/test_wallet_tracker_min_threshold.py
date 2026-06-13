@@ -16,7 +16,7 @@ def test_ingest_trades_skips_small_trades(monkeypatch):
         {"maker_address": "0xXYZ", "size": "2000", "price": "0.5", "outcome_index": 0}  # $1000 — больше $500
     ]
     
-    saved = ingest_trades("market_test", trades, [])
+    saved = ingest_trades("market_test", trades)
     assert saved == 1
     assert len(saved_trades) == 1
     assert saved_trades[0][0] == "0xXYZ"

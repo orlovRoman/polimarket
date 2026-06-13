@@ -1805,7 +1805,7 @@ def cleanup_expired_memory():
     return count
 
 def upsert_known_whale(address: str, alias: str, win_rate: float,
-                       total_profit: float = 0.0, total_vol: float = 0.0,
+                       total_profit: float = 0.0,
                        force_insider: bool = False) -> None:
     """Добавляет или обновляет известного кита (whale) в базе данных. force_insider=True только для вручную верифицированных адресов."""
     with get_connection() as conn:

@@ -122,7 +122,7 @@ def _fetch_markets_parallel(adapter, market_ids: list, max_workers: int = 8) -> 
                     f.cancel()
     return results
 
-def run_screening(adapter: PolymarketAdapter, nexus: NexusAgent, category: str, market_id: str, summary_callback=None) -> list:
+def run_screening(adapter: PolymarketAdapter, category: str, market_id: str, summary_callback=None) -> list:
 
     if category or market_id:
         logger.debug(

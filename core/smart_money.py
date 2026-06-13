@@ -39,7 +39,7 @@ def analyze_smart_money(trades: List[Dict[str, Any]], positions: List[Dict[str, 
         addr = trade.get("maker_address") or trade.get("taker_address", "")
         if not addr:          # FIX #1: пропускаем анонимные трейды
             continue
-        outcome = trade.get("outcome_index", 0)  # 0=YES, 1=NO
+        outcome = trade.get("outcome_index", 0)  # 0 соответствует YES, 1 соответствует NO
         
         try:
             size = float(trade.get("size", 0))

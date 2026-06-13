@@ -150,7 +150,7 @@ def test_run_screening_logs_debug_when_market_id_given():
 
     with patch("core.workflow.logger.debug") as mock_debug:
         result = run_screening(
-            adapter=MagicMock(), nexus=MagicMock(),
+            adapter=MagicMock(),
             category=None, market_id="mkt-123"
         )
 
@@ -163,7 +163,7 @@ def test_run_screening_returns_empty_when_category_given():
     from core.workflow import run_screening
 
     result = run_screening(
-        adapter=MagicMock(), nexus=MagicMock(),
+        adapter=MagicMock(),
         category="politics", market_id=None
     )
     assert result == []

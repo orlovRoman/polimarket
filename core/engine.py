@@ -267,7 +267,7 @@ class CoreEngine:
 
             # 1. Скрининг
             try:
-                screened_market_ids = run_screening(self.adapter, self.nexus, category, market_id, summary_callback)
+                screened_market_ids = run_screening(self.adapter, category, market_id, summary_callback)
             except LLMUnavailableError as e:
                 agent_name = getattr(e, "agent_name", "NEXUS")
                 log(f"🔴 LLM API недоступен для агента {agent_name} во время скрининга.")
@@ -484,7 +484,7 @@ class CoreEngine:
             context.smart_money = smart_money
             
             from services.wallet_tracker import ingest_trades
-            ingest_trades(m.id, onchain_trades, onchain_positions)
+            ingest_trades(m.id, onchain_trades)
             
             from core.onchain_scorer import compute_onchain_score
             oc_score = compute_onchain_score(smart_money, target_outcome=target_outcome)
@@ -709,7 +709,7 @@ class CoreEngine:
 
     async def analyze_post_async(
         self, post_id: int, chat_id: str,
-        source_chat_id: str = "", source_username: str | None = None,
+        source_username: str | None = None,
         source_message_id: int | None = None,
         source_url: str | None = None,
         source_text: str | None = None

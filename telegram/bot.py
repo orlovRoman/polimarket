@@ -304,7 +304,7 @@ def build_paginated_keyboard(page: int, total_pages: int, prefix: str) -> Inline
     return InlineKeyboardMarkup(inline_keyboard=[nav_row])
 
 
-def build_market_action_keyboard(market_id: str, market_title: str) -> InlineKeyboardMarkup:
+def build_market_action_keyboard(market_id: str) -> InlineKeyboardMarkup:
     """
     Клавиатура с кнопками 'Игнорировать', 'Проанализировать' и 'В идеи', а также 'Блокировать теги'.
     market_id обрезается до 40 символов для соблюдения лимита callback_data = 64 байта aiogram.

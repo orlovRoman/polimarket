@@ -166,7 +166,7 @@ def test_cache_type_reset_writes_empty_list():
     with patch("core.workflow.get_memory", side_effect=mock_get_memory), \
          patch("core.workflow.save_memory") as mock_save_mem:
         
-        result = run_screening(MagicMock(), MagicMock(), "", "")
+        result = run_screening(MagicMock(), "", "")
         
         assert result == []
         mock_save_mem.assert_any_call("screened_market_ids", [], category='cache', ttl=1800)

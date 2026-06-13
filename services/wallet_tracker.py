@@ -8,7 +8,7 @@ from agents.shared.python.db import (
 logger = logging.getLogger("NexusPolyBot.WalletTracker")
 _MIN_TRADE_USD = 500.0  # порог "крупной" сделки
 
-def ingest_trades(market_id: str, trades: list, positions: list) -> int:
+def ingest_trades(market_id: str, trades: list) -> int:
     """
     Сохраняет крупные сделки из onchain_trades в trader_transactions.
     Вызывается из engine.py ПОСЛЕ analyze_smart_money().

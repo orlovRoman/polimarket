@@ -35,7 +35,7 @@ def test_screening_no_nexus_llm_called(mock_adapter):
          patch("agents.shared.python.db.get_recently_analyzed_market_ids", return_value=[]), \
          patch("agents.shared.python.db.save_correlation"), \
          patch("core.checkpoint.save_checkpoint"):
-        result = run_screening(mock_adapter, nexus_mock, category="", market_id="")
+        result = run_screening(mock_adapter, category="", market_id="")
     nexus_mock.screen_markets.assert_not_called()
     assert isinstance(result, list)
 
@@ -48,7 +48,7 @@ def test_screening_returns_list_of_ids(mock_adapter):
          patch("agents.shared.python.db.get_recently_analyzed_market_ids", return_value=[]), \
          patch("agents.shared.python.db.save_correlation"), \
          patch("core.checkpoint.save_checkpoint"):
-        result = run_screening(mock_adapter, nexus_mock, category="", market_id="")
+        result = run_screening(mock_adapter, category="", market_id="")
     assert all(isinstance(r, str) for r in result)
 
 def test_screening_uses_cache_on_second_call(mock_adapter):
@@ -67,6 +67,6 @@ def test_screening_uses_cache_on_second_call(mock_adapter):
     nexus_mock = MagicMock()
     with patch("core.workflow.get_memory", side_effect=fake_get_memory), \
          patch("config.SCREENING_INTERVAL_SEC", 3600):
-        result = run_screening(mock_adapter, nexus_mock, category="", market_id="")
+        result = run_screening(mock_adapter, category="", market_id="")
     mock_adapter.list_all_markets_compact.assert_not_called()
     assert result == cached_ids

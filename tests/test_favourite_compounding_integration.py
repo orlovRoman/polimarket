@@ -48,9 +48,9 @@ async def test_scheduled_favourite_compounding_success():
         mock_upsert.assert_called_once()
         args = mock_upsert.call_args[0][0]
         assert args["market_id"] == "mkt-1"
-        assert args["price"] == 0.96
-        assert args["volume_usd"] == 15000.0
-        assert args["confidence"] == 0.8
+        assert args["price"] == pytest.approx(0.96)
+        assert args["volume_usd"] == pytest.approx(15000.0)
+        assert args["confidence"] == pytest.approx(0.8)
         assert args["obviousness_reason"] == "Test reason"
         assert args["roi_net_pct"] > 0
         assert abs(args["hours_left"] - 24.0) < 0.1
@@ -109,10 +109,10 @@ async def test_scheduled_favourite_compounding_no_outcome_success():
         mock_upsert.assert_called_once()
         args = mock_upsert.call_args[0][0]
         assert args["market_id"] == "mkt-no-1"
-        assert args["price"] == 0.96  # Цена фаворита NO = 1.0 - 0.04
-        assert args["volume_usd"] == 15000.0
+        assert args["price"] == pytest.approx(0.96)  # Цена фаворита NO = 1.0 - 0.04
+        assert args["volume_usd"] == pytest.approx(15000.0)
         assert args["outcome"] == "NO"
-        assert args["confidence"] == 0.8
+        assert args["confidence"] == pytest.approx(0.8)
 
 def test_mark_compound_bought_creates_signal():
     from agents.shared.python.db import init_db, get_connection, upsert_compound_opportunity, mark_compound_bought
@@ -160,8 +160,8 @@ def test_mark_compound_bought_creates_signal():
         assert sig["type"] == "FAVOURITE_COMPOUND"
         assert sig["strategy_type"] == "FAVOURITE_COMPOUND"
         assert sig["target_outcome"] == "NO"
-        assert sig["estimated_probability"] == 0.8
-        assert sig["market_price_at_signal"] == 0.96
+        assert sig["estimated_probability"] == pytest.approx(0.8)
+        assert sig["market_price_at_signal"] == pytest.approx(0.96)
         assert sig["status"] == "PENDING"
 
 
@@ -200,9 +200,9 @@ def test_save_and_get_compound_opportunity():
     
     assert len(matched) == 1
     assert matched[0]["title"] == "Test Opportunity Title"
-    assert matched[0]["price"] == 0.96
-    assert matched[0]["volume_usd"] == 12000.0
-    assert matched[0]["confidence"] == 0.8
+    assert matched[0]["price"] == pytest.approx(0.96)
+    assert matched[0]["volume_usd"] == pytest.approx(12000.0)
+    assert matched[0]["confidence"] == pytest.approx(0.8)
     assert matched[0]["outcome"] == "YES"
     assert matched[0]["status"] == "NEW"
 

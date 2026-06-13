@@ -199,10 +199,8 @@ class SignalLogger:
                 was_profitable, pnl_realized = self._calculate_performance(
                     strategy_type=strategy_type,
                     target_outcome=target_outcome,
-                    predicted_probability=predicted_probability,
                     market_price_at_signal=market_price_at_signal,
                     resolution_outcome=payload.resolution_outcome,
-                    resolution_price=payload.resolution_price,
                     metadata=metadata
                 )
 
@@ -236,10 +234,8 @@ class SignalLogger:
         self,
         strategy_type: str,
         target_outcome: str,
-        predicted_probability: float,
         market_price_at_signal: float,
         resolution_outcome: str,
-        resolution_price: float,
         metadata: Dict[str, Any]
     ) -> tuple[bool, float]:
         """

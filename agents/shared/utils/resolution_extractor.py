@@ -320,9 +320,7 @@ async def autodiscover_rss(domain: str) -> Optional[str]:
     await _save_rss_cache()
     return found_url
 
-# ─────────────────────────────────────────────
-# Оркестратор
-# ─────────────────────────────────────────────
+# Раздел оркестратора
 
 async def get_resolution_source(
     market_description: str,

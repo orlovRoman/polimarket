@@ -4,7 +4,7 @@ from typing import Sequence, Optional
 @dataclass
 class SignalRecord:
     predicted_probability: float
-    resolution_outcome: bool  # True = YES / Выиграло, False = NO / Проиграло
+    resolution_outcome: bool  # Истина для YES (Выиграло), ложь для NO (Проиграло)
     edge_at_signal: float
     pnl_realized: Optional[float]
 

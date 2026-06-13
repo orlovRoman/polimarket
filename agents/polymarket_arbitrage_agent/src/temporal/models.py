@@ -25,14 +25,14 @@ class TemporalCorridorSignal(BaseModel):
     date_gap_days: int        # разнос экспираций в днях
 
     # Математика через implied probabilities (без LLM)
-    p_early: float            # P(event <= early_expiry) = price_yes_early
-    p_late: float             # P(event <= late_expiry)  = price_yes_late
-    p_in_corridor: float      # P(early < event <= late) = p_late - p_early
-    p_before_early: float     # = p_early
-    p_never: float            # = 1 - p_late
+    p_early: float            # Вероятность события до ранней экспирации
+    p_late: float             # Вероятность события до поздней экспирации
+    p_in_corridor: float      # Вероятность в коридоре (p_late минус p_early)
+    p_before_early: float     # Равна p_early
+    p_never: float            # Дополнение до 1 для p_late
 
     # Стоимость конструкции (теоретическая и реальная)
-    theoretical_cost: float   # (1 - p_early) + p_late = NO_cost + YES_cost
+    theoretical_cost: float   # Сумма NO_cost и YES_cost
     real_cost: float          # по реальным ask-ценам из ордербука
     theoretical_spread_pct: float
     real_spread_pct: float

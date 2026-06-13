@@ -11,7 +11,6 @@ def test_run_screening_returns_empty_list_when_category_set():
     from core.workflow import run_screening
     result = run_screening(
         adapter=MagicMock(),
-        nexus=MagicMock(),
         category="politics",
         market_id=None,
         summary_callback=None
@@ -24,7 +23,6 @@ def test_run_screening_returns_empty_list_when_market_id_set():
     from core.workflow import run_screening
     result = run_screening(
         adapter=MagicMock(),
-        nexus=MagicMock(),
         category=None,
         market_id="some-market-id",
         summary_callback=None
@@ -34,7 +32,7 @@ def test_run_screening_returns_empty_list_when_market_id_set():
 
 def test_run_screening_result_is_iterable():
     from core.workflow import run_screening
-    result = run_screening(MagicMock(), MagicMock(), "sports", None)
+    result = run_screening(MagicMock(), "sports", None)
     # Не должно бросать TypeError
     items = list(result)
     assert items == []

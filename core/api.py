@@ -33,10 +33,9 @@ def analyze_post(post_id: int, request: AnalyzeRequest, background_tasks: Backgr
         engine.analyze_post_async, 
         request.post_id, 
         request.chat_id,
-        request.source_chat_id,
-        request.source_username,
-        request.source_message_id,
-        request.source_url,
-        request.source_text
+        source_username=request.source_username,
+        source_message_id=request.source_message_id,
+        source_url=request.source_url,
+        source_text=request.source_text
     )
     return {"status": "Analysis started in background", "post_id": post_id}

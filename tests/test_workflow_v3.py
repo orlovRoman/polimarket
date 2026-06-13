@@ -185,7 +185,7 @@ def test_trade_instruction_newline_only_excluded():
 
 def test_run_screening_returns_list_when_category_set():
     from core.workflow import run_screening
-    result = run_screening(MagicMock(), MagicMock(), "politics", None)
+    result = run_screening(MagicMock(), "politics", None)
     assert result == []
     assert isinstance(result, list)
 

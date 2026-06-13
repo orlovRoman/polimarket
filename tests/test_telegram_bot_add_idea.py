@@ -8,7 +8,7 @@ from telegram.bot import build_market_action_keyboard, callback_add_idea, callba
 
 def test_build_market_action_keyboard_includes_add_idea():
     """Проверяет, что клавиатура содержит кнопку '📥 В идеи'"""
-    kb = build_market_action_keyboard("market_uuid_12345", "Test Title")
+    kb = build_market_action_keyboard("market_uuid_12345")
     buttons = [btn for row in kb.inline_keyboard for btn in row]
     
     add_idea_btn = next((b for b in buttons if b.text == "📥 В идеи"), None)
