@@ -198,12 +198,12 @@ class AuthMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         # Stale check for messages
         if isinstance(event, types.Message) and event.date:
-                try:
-                    now = datetime.now(event.date.tzinfo)
-                    if (now - event.date) > timedelta(seconds=30):
-                        return
-                except Exception:
-                    pass
+            try:
+                now = datetime.now(event.date.tzinfo)
+                if (now - event.date) > timedelta(seconds=30):
+                    return
+            except Exception:
+                pass
 
         # Stale check for CallbackQuery — игнорируем кнопки из сообщений старше 10 минут
         if isinstance(event, types.CallbackQuery) and event.message:

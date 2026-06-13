@@ -31,7 +31,7 @@ async def test_config_provider_cache_and_invalidation():
         assert val == 0.08
         
         # 5. Проверка асинхронной версии (должна вернуть кэшированное 0.08)
-        val_async = await ConfigProvider.get_min_edge("scout")
+        val_async = ConfigProvider.get_min_edge("scout")
         assert val_async == 0.08
 
         # Проверка min_spread для коридоров и кросс-платформы

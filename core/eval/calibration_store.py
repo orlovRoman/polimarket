@@ -53,8 +53,6 @@ class CalibrationStore:
         Сохраняет предложение по калибровке в БД.
         Возвращает ID созданной записи.
         """
-        import asyncio
-        await asyncio.sleep(0)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -91,8 +89,6 @@ class CalibrationStore:
         Применяет ранее отложенное (auto_applied=0) предложение по калибровке:
         устанавливает флаг auto_applied=1 и инвалидирует кэш.
         """
-        import asyncio
-        await asyncio.sleep(0)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -128,8 +124,6 @@ class CalibrationStore:
         """
         Возвращает историю изменения указанного параметра (только примененные/активные записи).
         """
-        import asyncio
-        await asyncio.sleep(0)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -161,8 +155,6 @@ class CalibrationStore:
         """
         Возвращает историю изменений и предложений калибровки для указанной стратегии.
         """
-        import asyncio
-        await asyncio.sleep(0)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -194,8 +186,6 @@ class CalibrationStore:
         """
         Возвращает последнее примененное значение для параметра (с опциональной фильтрацией по стратегии).
         """
-        import asyncio
-        await asyncio.sleep(0)
         return self.get_latest_applied_value_sync(param_name, strategy_type)
 
     def get_latest_applied_value_sync(self, param_name: str, strategy_type: Optional[str] = None) -> Optional[float]:
@@ -233,8 +223,6 @@ class CalibrationStore:
         Откатывает изменение: записывает НОВОЕ значение в БД (которое совпадает с предыдущим значением).
         Это сохраняет историю изменений append-only.
         """
-        import asyncio
-        await asyncio.sleep(0)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()

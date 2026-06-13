@@ -22,12 +22,10 @@ class ConfigProvider:
         logger.info("Кэш конфигураций сброшен (invalidate_cache).")
 
     @classmethod
-    async def get_min_edge(cls, strategy_type: str = "scout") -> float:
+    def get_min_edge(cls, strategy_type: str = "scout") -> float:
         """
-        Возвращает минимальный порог Edge для стратегии (например, scout) асинхронно.
+        Возвращает минимальный порог Edge для стратегии (например, scout).
         """
-        import asyncio
-        await asyncio.sleep(0)
         return cls.get_min_edge_sync(strategy_type)
 
     @classmethod
@@ -47,12 +45,10 @@ class ConfigProvider:
         return val
 
     @classmethod
-    async def get_min_spread(cls, strategy_type: str) -> float:
+    def get_min_spread(cls, strategy_type: str) -> float:
         """
-        Возвращает минимальный порог спреда для стратегии асинхронно.
+        Возвращает минимальный порог спреда для стратегии.
         """
-        import asyncio
-        await asyncio.sleep(0)
         return cls.get_min_spread_sync(strategy_type)
 
     @classmethod
@@ -81,12 +77,10 @@ class ConfigProvider:
         return val
 
     @classmethod
-    async def get_whale_win_rate_threshold(cls) -> float:
+    def get_whale_win_rate_threshold(cls) -> float:
         """
-        Возвращает порог win_rate для следования за китами асинхронно.
+        Возвращает порог win_rate для следования за китами.
         """
-        import asyncio
-        await asyncio.sleep(0)
         return cls.get_whale_win_rate_threshold_sync()
 
     @classmethod
