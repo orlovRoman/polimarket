@@ -73,8 +73,8 @@
         // 1. Рендерим KPI из overview
         const stats = overview['scout'];
         if (stats) {
-            document.getElementById('kpi-winrate').textContent = stats.win_rate !== null ? formatPercent(stats.win_rate) : '—';
-            document.getElementById('kpi-sharpe').textContent = stats.sharpe !== null ? stats.sharpe.toFixed(2) : '—';
+            document.getElementById('kpi-winrate').textContent = stats.win_rate === null ? '—' : formatPercent(stats.win_rate);
+            document.getElementById('kpi-sharpe').textContent = stats.sharpe === null ? '—' : stats.sharpe.toFixed(2);
             document.getElementById('kpi-count').textContent = stats.signals_count;
         }
 
@@ -85,7 +85,7 @@
         let edgeCount = 0;
 
         signals.forEach(sig => {
-            const p = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
+            const p = sig.estimated_probability === null ? sig.predicted_probability : sig.estimated_probability;
             if (p !== null && (sig.status === 'WIN' || sig.status === 'LOSS')) {
                 const outcome = sig.status === 'WIN' ? 1.0 : 0.0;
                 brierSum += (p - outcome) * (p - outcome);
@@ -101,7 +101,7 @@
         const avgEdge = edgeCount > 0 ? (edgeSum / edgeCount) : null;
 
         document.getElementById('kpi-brier').textContent = formatBrier(avgBrier);
-        document.getElementById('kpi-edge').textContent = avgEdge !== null ? formatPercent(avgEdge) : '—';
+        document.getElementById('kpi-edge').textContent = avgEdge === null ? '—' : formatPercent(avgEdge);
 
         // 2. Рендерим таблицу сигналов (последние 20)
         const tbody = document.getElementById('signals-tbody');
@@ -110,14 +110,14 @@
             tbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
         } else {
             tbody.innerHTML = displaySignals.map(sig => {
-                const prob = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
+                const prob = sig.estimated_probability === null ? sig.predicted_probability : sig.estimated_probability;
                 const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
                 return `
                     <tr>
                         <td class="text-muted" style="font-size:0.8rem;">${sig.id.slice(0, 8)}...</td>
                         <td><a href="${sig.market_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${sig.market_title}</a></td>
-                        <td><span class="badge ${sig.target_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${sig.target_outcome}</span> (${prob !== null ? formatPercent(prob) : '—'})</td>
-                        <td>${sig.market_price_at_signal !== null ? formatPercent(sig.market_price_at_signal) : '—'}</td>
+                        <td><span class="badge ${sig.target_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${sig.target_outcome}</span> (${prob === null ? '—' : formatPercent(prob)})</td>
+                        <td>${sig.market_price_at_signal === null ? '—' : formatPercent(sig.market_price_at_signal)}</td>
                         <td><span class="badge ${statusClass}">${sig.status}</span></td>
                         <td>${formatPnL(sig.pnl_realized)}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(sig.created_at)}</td>
@@ -181,7 +181,7 @@
         }));
 
         signals.forEach(sig => {
-            const p = sig.estimated_probability !== null ? sig.estimated_probability : sig.predicted_probability;
+            const p = sig.estimated_probability === null ? sig.predicted_probability : sig.estimated_probability;
             if (p === null || p === undefined) return;
             const binIdx = Math.min(Math.floor(p * 10), 9);
             bins[binIdx].sum_pred += p;

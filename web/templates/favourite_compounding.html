@@ -288,8 +288,8 @@
             kpiResolvedCount.textContent = data.stats.auto_resolved_count;
             
             const wr = data.stats.win_rate;
-            kpiWinrate.textContent = wr !== null ? `${(wr * 100).toFixed(1)}%` : "—";
-            kpiAvgEntry.textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : "—";
+            kpiWinrate.textContent = wr === null ? "—" : `${(wr * 100).toFixed(1)}%`;
+            kpiAvgEntry.textContent = data.stats.avg_entry_price === null ? "—" : formatPriceCents(data.stats.avg_entry_price);
             
             const best = data.stats.best_trade_pnl;
             kpiBestTrade.innerHTML = formatPnLUnit(best);
@@ -304,8 +304,8 @@
             kpiResolvedCount.textContent = data.manual_stats.count;
             
             const wr = data.manual_stats.win_rate;
-            kpiWinrate.textContent = wr !== null ? `${(wr * 100).toFixed(1)}%` : "—";
-            kpiAvgEntry.textContent = data.manual_stats.avg_entry_price !== null ? formatPriceCents(data.manual_stats.avg_entry_price) : "—";
+            kpiWinrate.textContent = wr === null ? "—" : `${(wr * 100).toFixed(1)}%`;
+            kpiAvgEntry.textContent = data.manual_stats.avg_entry_price === null ? "—" : formatPriceCents(data.manual_stats.avg_entry_price);
             
             kpiBestTrade.innerHTML = formatPnLUSD(data.manual_stats.best_trade_pnl);
             kpiAvgPnLTitle.textContent = "Ср. PnL сделки";
@@ -419,9 +419,9 @@
             activeTbody.innerHTML = activeList.map((row, index) => {
                 let actionBtn = '';
                 if (currentTab === 'manual') {
-                    actionBtn = row.virtual_bought_price !== null
-                        ? `<span class="badge badge-blue">В портфеле</span>`
-                        : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.id}', ${row.price})">Купить</button>`;
+                    actionBtn = row.virtual_bought_price === null
+                        ? `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.id}', ${row.price})">Купить</button>`
+                        : `<span class="badge badge-blue">В портфеле</span>`;
                 }
 
                 const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; margin-left:4px; background-color:#ef4444; color:#fff;" onclick="deleteMarket('compound_opportunities', '${row.id}')">🗑️</button>`;
@@ -468,7 +468,7 @@
                         <td>${formatPriceCents(row.price)}</td>
                         <td>${directionBadge}</td>
                         <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
-                        <td>${row.pnl_auto !== null ? formatPnLUnit(row.pnl_auto) : '—'}</td>
+                        <td>${row.pnl_auto === null ? '—' : formatPnLUnit(row.pnl_auto)}</td>
                         <td>${resultBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
                         <td>${deleteBtn}</td>

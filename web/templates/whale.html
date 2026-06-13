@@ -604,9 +604,9 @@
                 const changeSign = changePct > 0 ? '+' : '';
                 
                 const buyPrice = Math.round((row.current_price ?? row.initial_price) * 100) / 100;
-                const actionBtn = row.virtual_bought_price !== null
-                    ? `<span class="badge badge-blue">В портфеле</span>`
-                    : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;
+                const actionBtn = row.virtual_bought_price === null
+                    ? `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`
+                    : `<span class="badge badge-blue">В портфеле</span>`;
 
                 let analyzeBtnClass = 'badge-gray';
                 let analyzeBtnText = 'Анализ';
@@ -657,7 +657,7 @@
             resolvedTbody.innerHTML = `<tr><td colspan="12" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
         } else {
             resolvedTbody.innerHTML = resolvedList.map((row, index) => {
-                const targetOutcome = row.predicted_outcome !== null ? row.predicted_outcome : row.cheap_outcome;
+                const targetOutcome = row.predicted_outcome === null ? row.cheap_outcome : row.predicted_outcome;
                 const wasCorrect = targetOutcome === row.actual_outcome;
                 const resultBadge = wasCorrect 
                     ? '<span class="badge badge-green">✅ WIN</span>' 
@@ -682,7 +682,7 @@
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
                         <td>${outcomeBadge}</td>
                         <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
-                        <td>${row.pnl_realized !== null ? formatPnL(row.pnl_realized) : '—'}</td>
+                        <td>${row.pnl_realized === null ? '—' : formatPnL(row.pnl_realized)}</td>
                         <td>${resultBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
                         <td>${deleteBtn}</td>
@@ -723,7 +723,7 @@
                         <td>${directionBadge}</td>
                         <td>${formatPriceCents(row.bought_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.bought_price)})</span></td>
                         <td>${formatPriceCents(row.sold_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.sold_price)})</span></td>
-                        <td>${row.current_outcome_price !== null && row.current_outcome_price !== undefined ? formatPriceCents(row.current_outcome_price) : '—'}</td>
+                        <td>${row.current_outcome_price === null || row.current_outcome_price === undefined ? '—' : formatPriceCents(row.current_outcome_price)}</td>
                         <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
                         <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent.toFixed(2)}%)</span></td>
@@ -966,8 +966,8 @@
         // 1. KPI
         document.getElementById('kpi-active').textContent = data.stats.active_count;
         document.getElementById('kpi-active-predicted').textContent = data.stats.active_predicted_count || 0;
-        document.getElementById('kpi-winrate').textContent = data.stats.win_rate !== null ? formatPercent(data.stats.win_rate) : '—';
-        document.getElementById('kpi-avgentry').textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : '—';
+        document.getElementById('kpi-winrate').textContent = data.stats.win_rate === null ? '—' : formatPercent(data.stats.win_rate);
+        document.getElementById('kpi-avgentry').textContent = data.stats.avg_entry_price === null ? '—' : formatPriceCents(data.stats.avg_entry_price);
         document.getElementById('kpi-besttrade').innerHTML = formatPnLCents(data.stats.best_trade_pnl);
         document.getElementById('kpi-trades-pnl').innerHTML = formatPnL(data.stats.total_trades_pnl);
         document.getElementById('kpi-all-pnl').innerHTML = formatPnL(data.stats.total_resolved_pnl);
@@ -1033,7 +1033,7 @@
             whalesTbody.innerHTML = whalesList.map((row, index) => {
                 const globalIndex = (pagination.whales.page - 1) * pagination.whales.limit + index + 1;
                 const aliasStr = row.alias ? row.alias : '—';
-                const winRateStr = row.win_rate !== null ? (row.win_rate * 100).toFixed(1) + '%' : '—';
+                const winRateStr = row.win_rate === null ? '—' : (row.win_rate * 100).toFixed(1) + '%';
                 let profitClass = '';
                 if (row.total_profit > 0) {
                     profitClass = 'text-green';
@@ -1041,8 +1041,8 @@
                     profitClass = 'text-red';
                 }
                 const profitSign = row.total_profit > 0 ? '+' : '';
-                const profitStr = row.total_profit !== null ? `$${row.total_profit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '—';
-                const profitSpan = row.total_profit !== null ? `<span class="${profitClass}">${profitSign}${profitStr}</span>` : '—';
+                const profitStr = row.total_profit === null ? '—' : `$${row.total_profit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                const profitSpan = row.total_profit === null ? '—' : `<span class="${profitClass}">${profitSign}${profitStr}</span>`;
 
                 return `
                     <tr>

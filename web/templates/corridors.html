@@ -264,7 +264,7 @@
         const kpi = rawData.kpis[stype] || { total: 0, win_rate: null, avg_pnl: 0, best_pnl: 0 };
         
         document.getElementById('kpi-total').textContent = kpi.total;
-        document.getElementById('kpi-winrate').textContent = kpi.win_rate !== null ? formatPercent(kpi.win_rate) : '—';
+        document.getElementById('kpi-winrate').textContent = kpi.win_rate === null ? '—' : formatPercent(kpi.win_rate);
         document.getElementById('kpi-avgpnl').innerHTML = formatPnL(kpi.avg_pnl);
         document.getElementById('kpi-besttrade').innerHTML = formatPnL(kpi.best_pnl);
 

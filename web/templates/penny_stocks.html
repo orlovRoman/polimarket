@@ -766,10 +766,10 @@
             kpiActivePred.textContent = data.stats.active_predicted_count || 0;
 
             kpiWinrate.previousElementSibling.textContent = "Win Rate (Авто)";
-            kpiWinrate.textContent = data.stats.win_rate !== null ? formatPercent(data.stats.win_rate) : '—';
+            kpiWinrate.textContent = data.stats.win_rate === null ? '—' : formatPercent(data.stats.win_rate);
 
             kpiAvgentry.previousElementSibling.textContent = "Ср. цена входа (Авто)";
-            kpiAvgentry.textContent = data.stats.avg_entry_price !== null ? formatPriceCents(data.stats.avg_entry_price) : '—';
+            kpiAvgentry.textContent = data.stats.avg_entry_price === null ? '—' : formatPriceCents(data.stats.avg_entry_price);
 
             kpiBesttrade.previousElementSibling.textContent = "Лучший авто-трейд";
             kpiBesttrade.innerHTML = formatPnL(data.stats.best_trade_pnl);
@@ -789,10 +789,10 @@
             kpiActivePred.textContent = data.manual_stats.count;
 
             kpiWinrate.previousElementSibling.textContent = "Win Rate (Ручной)";
-            kpiWinrate.textContent = data.manual_stats.win_rate !== null ? formatPercent(data.manual_stats.win_rate) : '—';
+            kpiWinrate.textContent = data.manual_stats.win_rate === null ? '—' : formatPercent(data.manual_stats.win_rate);
 
             kpiAvgentry.previousElementSibling.textContent = "Ср. цена входа (Ручной)";
-            kpiAvgentry.textContent = data.manual_stats.avg_entry_price !== null ? formatPriceCents(data.manual_stats.avg_entry_price) : '—';
+            kpiAvgentry.textContent = data.manual_stats.avg_entry_price === null ? '—' : formatPriceCents(data.manual_stats.avg_entry_price);
 
             kpiBesttrade.previousElementSibling.textContent = "Лучший ручной трейд";
             kpiBesttrade.innerHTML = formatPnLCents(data.manual_stats.best_trade_pnl);
@@ -937,9 +937,9 @@
                 const buyPrice = Math.round((row.current_price ?? row.initial_price) * 100) / 100;
                 let actionBtn = '';
                 if (currentTab === 'manual') {
-                    actionBtn = row.virtual_bought_price !== null
-                        ? `<span class="badge badge-blue">В портфеле</span>`
-                        : `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`;
+                    actionBtn = row.virtual_bought_price === null
+                        ? `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`
+                        : `<span class="badge badge-blue">В портфеле</span>`;
                 }
 
                 let analyzeBtnClass = 'badge-gray';
@@ -990,7 +990,7 @@
             resolvedTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
         } else {
             resolvedTbody.innerHTML = resolvedList.map((row, index) => {
-                const targetOutcome = row.predicted_outcome !== null ? row.predicted_outcome : row.cheap_outcome;
+                const targetOutcome = row.predicted_outcome === null ? row.cheap_outcome : row.predicted_outcome;
                 const wasCorrect = targetOutcome === row.actual_outcome;
                 const resultBadge = wasCorrect 
                     ? '<span class="badge badge-green">✅ WIN</span>' 
@@ -1014,7 +1014,7 @@
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
                         <td>${outcomeBadge}</td>
                         <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
-                        <td>${row.pnl_auto !== null ? formatPnL(row.pnl_auto) : '—'}</td>
+                        <td>${row.pnl_auto === null ? '—' : formatPnL(row.pnl_auto)}</td>
                         <td>${resultBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
                         <td>${deleteBtn}</td>
@@ -1055,7 +1055,7 @@
                         <td>${directionBadge}</td>
                         <td>${formatPriceCents(row.bought_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.bought_price)})</span></td>
                         <td>${formatPriceCents(row.sold_outcome_price)} <span class="text-muted" style="font-size:0.8rem;">(raw YES: ${formatPriceCents(row.sold_price)})</span></td>
-                        <td>${row.current_outcome_price !== null && row.current_outcome_price !== undefined ? formatPriceCents(row.current_outcome_price) : '—'}</td>
+                        <td>${row.current_outcome_price === null || row.current_outcome_price === undefined ? '—' : formatPriceCents(row.current_outcome_price)}</td>
                         <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
                         <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent.toFixed(2)}%)</span></td>
