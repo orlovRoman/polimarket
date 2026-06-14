@@ -5,8 +5,31 @@ from core.onchain_scorer import OnchainScore
 import asyncio
 from core.models import Market
 from datetime import datetime, timezone
+import tempfile
+import os
+from pathlib import Path
+import config
+import agents.shared.python.db as db_module
 
 class TestPennyStocks(unittest.TestCase):
+
+    def setUp(self):
+        self.temp_db_fd, self.temp_db_path = tempfile.mkstemp(suffix=".sqlite")
+        self.old_db_path = config.DB_PATH
+        config.DB_PATH = Path(self.temp_db_path)
+        db_module.DB_PATH = Path(self.temp_db_path)
+        db_module._db_initialized = False
+
+    def tearDown(self):
+        config.DB_PATH = self.old_db_path
+        db_module.DB_PATH = self.old_db_path
+        db_module._db_initialized = False
+        os.close(self.temp_db_fd)
+        try:
+            os.remove(self.temp_db_path)
+        except OSError:
+            pass
+
 
     def test_onchain_gate_bypass_for_penny_stocks(self):
         # Проверяем, что Onchain Gate пропускает рынок при tag = penny_stocks

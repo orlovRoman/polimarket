@@ -105,11 +105,14 @@ def get_overview_stats() -> dict:
             except Exception:
                 continue
 
-            buy_price = init_price if pred == 'YES' else (1.0 - init_price)
+            pred_up = pred.upper() if pred else ""
+            act_up = act.upper() if act else ""
+
+            buy_price = init_price if pred_up == 'YES' else (1.0 - init_price)
             if not (0.001 < buy_price < 0.999):
                 continue
                 
-            is_win = (pred == act)
+            is_win = (pred_up == act_up)
             
             if is_win:
                 pnl = (virtual_stake / buy_price) * (1.0 - buy_price)
@@ -138,8 +141,8 @@ def get_overview_stats() -> dict:
             FROM whale_virtual_trades_history
         """).fetchone()
         if whale_pnl:
-            stats['whale']['pnl_7d'] = round(whale_pnl['pnl_7d'] or 0.0, 2)
-            stats['whale']['pnl_30d'] = round(whale_pnl['pnl_30d'] or 0.0, 2)
+            stats['whale']['pnl_7d'] = round((whale_pnl['pnl_7d'] or 0.0) * virtual_stake, 2)
+            stats['whale']['pnl_30d'] = round((whale_pnl['pnl_30d'] or 0.0) * virtual_stake, 2)
             stats['whale']['signals_count'] = whale_pnl['total']
 
         # 2.7 Рассчитываем win_rate для penny_stocks и whale (за последние 30 дней)
@@ -239,6 +242,12 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
     Собирает данные для дашборда Penny Stocks (активные, завершенные позиции, статистика, распределение).
     """
     from agents.shared.python.db import get_connection
+    try:
+        from core import config_provider
+        virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
+    except Exception:
+        virtual_stake = 10.0
+
     with get_connection() as conn:
         # Подсчет общего количества активных
         active_total = conn.execute("""
@@ -359,17 +368,29 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             pnl_auto = None
             actual = row_dict['actual_outcome']
             if pred is not None and actual is not None and init is not None:
-                bought_outcome = (1.0 - init) if pred == 'NO' else init
-                sold_outcome = 1.0 if actual == pred else 0.0
-                pnl_auto = round(sold_outcome - bought_outcome, 4)
+                pred_up = pred.upper()
+                act_up = actual.upper()
+                bought_outcome = (1.0 - init) if pred_up == 'NO' else init
+                sold_outcome = 1.0 if act_up == pred_up else 0.0
+                if bought_outcome > 0:
+                    pnl_auto = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
+                else:
+                    pnl_auto = 0.0
             row_dict['pnl_auto'] = pnl_auto
 
             # Гипотетический PNL, если реальной сделки не было, но рынок разрешен
             pnl_realized = row_dict['pnl_realized']
             if pnl_realized is None and actual is not None and init is not None and outcome_to_track is not None:
-                bought_outcome = (1.0 - init) if outcome_to_track == 'NO' else init
-                sold_outcome = 1.0 if actual == outcome_to_track else 0.0
-                row_dict['pnl_realized'] = round(sold_outcome - bought_outcome, 4)
+                track_up = outcome_to_track.upper()
+                act_up = actual.upper()
+                bought_outcome = (1.0 - init) if track_up == 'NO' else init
+                sold_outcome = 1.0 if act_up == track_up else 0.0
+                if bought_outcome > 0:
+                    row_dict['pnl_realized'] = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
+                else:
+                    row_dict['pnl_realized'] = 0.0
+            else:
+                row_dict['pnl_realized'] = round((row_dict['pnl_realized'] or 0.0) * virtual_stake, 2)
 
             resolved.append(row_dict)
 
@@ -407,10 +428,12 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
             pnl_cents = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
             pnl_percent = (pnl_cents / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
+            
+            pnl_dollars = (virtual_stake / bought_outcome) * pnl_cents if (bought_outcome is not None and bought_outcome > 0) else 0.0
 
             row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
-            row_dict['pnl_cents'] = round(pnl_cents, 4)
+            row_dict['pnl_cents'] = round(pnl_dollars, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
 
             portfolio.append(row_dict)
@@ -429,25 +452,28 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                     (predicted_outcome = 'NO' AND actual_outcome = 'NO') THEN 1 ELSE 0 END
                 ) as wins,
                 MAX(
-                    CASE 
-                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
-                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
+                    (CASE 
+                        WHEN predicted_outcome = 'YES' THEN 1.0 / initial_price - 1.0
+                        WHEN predicted_outcome = 'NO' THEN 1.0 / (1.0 - initial_price) - 1.0
                         ELSE 0.0
-                    END
+                    END) * (CASE WHEN actual_outcome = predicted_outcome THEN 1.0 ELSE 0.0 END) -
+                    (CASE WHEN actual_outcome != predicted_outcome THEN 1.0 ELSE 0.0 END)
                 ) as best_pnl,
                 AVG(
-                    CASE 
-                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
-                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
+                    (CASE 
+                        WHEN predicted_outcome = 'YES' THEN 1.0 / initial_price - 1.0
+                        WHEN predicted_outcome = 'NO' THEN 1.0 / (1.0 - initial_price) - 1.0
                         ELSE 0.0
-                    END
+                    END) * (CASE WHEN actual_outcome = predicted_outcome THEN 1.0 ELSE 0.0 END) -
+                    (CASE WHEN actual_outcome != predicted_outcome THEN 1.0 ELSE 0.0 END)
                 ) as avg_pnl,
                 SUM(
-                    CASE 
-                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
-                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
+                    (CASE 
+                        WHEN predicted_outcome = 'YES' THEN 1.0 / initial_price - 1.0
+                        WHEN predicted_outcome = 'NO' THEN 1.0 / (1.0 - initial_price) - 1.0
                         ELSE 0.0
-                    END
+                    END) * (CASE WHEN actual_outcome = predicted_outcome THEN 1.0 ELSE 0.0 END) -
+                    (CASE WHEN actual_outcome != predicted_outcome THEN 1.0 ELSE 0.0 END)
                 ) as total_pnl
             FROM penny_stocks_monitoring
             WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
@@ -459,9 +485,9 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         auto_total_pnl = 0.0
         if auto_resolved_row and auto_resolved_row['count'] > 0:
             auto_win_rate = auto_resolved_row['wins'] / auto_resolved_row['count']
-            auto_best_pnl = auto_resolved_row['best_pnl'] or 0.0
-            auto_avg_pnl = auto_resolved_row['avg_pnl'] or 0.0
-            auto_total_pnl = auto_resolved_row['total_pnl'] or 0.0
+            auto_best_pnl = (auto_resolved_row['best_pnl'] or 0.0) * virtual_stake
+            auto_avg_pnl = (auto_resolved_row['avg_pnl'] or 0.0) * virtual_stake
+            auto_total_pnl = (auto_resolved_row['total_pnl'] or 0.0) * virtual_stake
 
         # Средняя цена входа активных авто-сигналов
         avg_entry_auto_row = conn.execute("""
@@ -512,9 +538,9 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         manual_total_pnl = 0.0
         if manual_stats_row and manual_stats_row['count'] > 0:
             manual_win_rate = manual_stats_row['wins'] / manual_stats_row['count']
-            manual_best_pnl = manual_stats_row['best_pnl'] or 0.0
-            manual_avg_pnl = manual_stats_row['avg_pnl'] or 0.0
-            manual_total_pnl = manual_stats_row['total_pnl'] or 0.0
+            manual_best_pnl = (manual_stats_row['best_pnl'] or 0.0) * virtual_stake
+            manual_avg_pnl = (manual_stats_row['avg_pnl'] or 0.0) * virtual_stake
+            manual_total_pnl = (manual_stats_row['total_pnl'] or 0.0) * virtual_stake
 
         # Средняя цена входа в активном ручном портфеле
         avg_entry_manual_row = conn.execute("""
@@ -644,6 +670,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
 
             row_dict['current_outcome_price'] = current_outcome_price
+            row_dict['pnl_cents'] = round((row_dict['pnl_cents'] or 0.0) * virtual_stake, 2)
             virtual_history.append(row_dict)
 
         # Последние проанализированные рынки для системных оповещений
@@ -685,7 +712,12 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
     Собирает данные для дашборда Whale Following (активные, завершенные позиции, статистика, распределение).
     """
     from agents.shared.python.db import get_connection
-    
+    try:
+        from core import config_provider
+        virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
+    except Exception:
+        virtual_stake = 10.0
+
     with get_connection() as conn:
         # Подсчет общего количества активных
         active_total = conn.execute("""
@@ -778,9 +810,16 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             actual = row_dict['actual_outcome']
             pnl_realized = row_dict['pnl_realized']
             if pnl_realized is None and actual is not None and init is not None:
-                bought_outcome = (1.0 - init) if outcome_to_track == 'NO' else init
-                sold_outcome = 1.0 if actual == outcome_to_track else 0.0
-                row_dict['pnl_realized'] = round(sold_outcome - bought_outcome, 4)
+                track_up = outcome_to_track.upper()
+                act_up = actual.upper()
+                bought_outcome = (1.0 - init) if track_up == 'NO' else init
+                sold_outcome = 1.0 if act_up == track_up else 0.0
+                if bought_outcome > 0:
+                    row_dict['pnl_realized'] = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
+                else:
+                    row_dict['pnl_realized'] = 0.0
+            else:
+                row_dict['pnl_realized'] = round((row_dict['pnl_realized'] or 0.0) * virtual_stake, 2)
 
             resolved.append(row_dict)
 
@@ -812,10 +851,12 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
             pnl_cents = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
             pnl_percent = (pnl_cents / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
+            
+            pnl_dollars = (virtual_stake / bought_outcome) * pnl_cents if (bought_outcome is not None and bought_outcome > 0) else 0.0
 
             row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
-            row_dict['pnl_cents'] = round(pnl_cents, 4)
+            row_dict['pnl_cents'] = round(pnl_dollars, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
 
             portfolio.append(row_dict)
@@ -839,8 +880,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         avg_pnl = 0.0
         if stats_row and stats_row['count'] and stats_row['count'] > 0:
             win_rate = stats_row['wins'] / stats_row['count']
-            best_pnl = stats_row['best_pnl'] or 0.0
-            avg_pnl = stats_row['avg_pnl'] or 0.0
+            best_pnl = (stats_row['best_pnl'] or 0.0) * virtual_stake
+            avg_pnl = (stats_row['avg_pnl'] or 0.0) * virtual_stake
 
         avg_entry_row = conn.execute("""
             SELECT AVG(
@@ -862,7 +903,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # 1. Кумулятивный PnL
         trades_pnl_row = conn.execute("SELECT SUM(pnl_cents) as total_pnl FROM whale_virtual_trades_history").fetchone()
-        total_trades_pnl = trades_pnl_row['total_pnl'] if trades_pnl_row and trades_pnl_row['total_pnl'] is not None else 0.0
+        total_trades_pnl = (trades_pnl_row['total_pnl'] or 0.0) * virtual_stake if trades_pnl_row else 0.0
 
         # 2. Кумулятивный PnL по всем закрытым whale-рынкам
         all_resolved_rows = conn.execute("""
@@ -880,16 +921,19 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         for r in all_resolved_rows:
             pnl_realized = r['pnl_realized']
             if pnl_realized is not None:
-                total_resolved_pnl += pnl_realized
+                total_resolved_pnl += pnl_realized * virtual_stake
             else:
                 actual = r['actual_outcome']
                 init = r['initial_price']
                 pred = r['predicted_outcome']
                 if actual is not None and init is not None:
                     outcome_to_track = pred if pred is not None else 'YES'
-                    bought_outcome = (1.0 - init) if outcome_to_track == 'NO' else init
-                    sold_outcome = 1.0 if actual == outcome_to_track else 0.0
-                    total_resolved_pnl += (sold_outcome - bought_outcome)
+                    track_up = outcome_to_track.upper()
+                    act_up = actual.upper()
+                    bought_outcome = (1.0 - init) if track_up == 'NO' else init
+                    sold_outcome = 1.0 if act_up == track_up else 0.0
+                    if bought_outcome > 0:
+                        total_resolved_pnl += (virtual_stake / bought_outcome) * (sold_outcome - bought_outcome)
 
         stats = {
             'active_count': total_active,
@@ -999,6 +1043,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
 
             row_dict['current_outcome_price'] = current_outcome_price
+            row_dict['pnl_cents'] = round((row_dict['pnl_cents'] or 0.0) * virtual_stake, 2)
             virtual_history.append(row_dict)
 
         # Последние алерты по транзакциям китов для оповещений

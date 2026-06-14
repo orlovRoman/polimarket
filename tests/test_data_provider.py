@@ -134,10 +134,10 @@ def test_get_penny_stocks_dashboard(isolated_db):
 
     assert len(data['resolved']) == 1
     assert data['resolved'][0]['title'] == 'Penny B'
-    assert data['resolved'][0]['pnl_realized'] == -10.0
+    assert data['resolved'][0]['pnl_realized'] == -100.0
     assert data['stats']['resolved_count'] == 1
-    assert data['manual_stats']['total_trades_pnl'] == -10.0
-    assert data['stats']['total_resolved_pnl'] == pytest.approx(0.92, abs=1e-4)
+    assert data['manual_stats']['total_trades_pnl'] == -100.0
+    assert data['stats']['total_resolved_pnl'] == pytest.approx(115.0, abs=1e-4)
     assert data['price_distribution']['1-5¢'] == 2   # penny_a(0.03) + penny_c(0.02)
     assert data['price_distribution']['5-10¢'] == 0  # penny_b(0.08) - RESOLVED, больше не попадает в распределение активных
 
@@ -259,7 +259,7 @@ def test_virtual_portfolio_operations(isolated_db):
     assert len(data['portfolio']) == 1
     assert data['portfolio'][0]['market_id'] == 'penny_v'
     assert data['portfolio'][0]['virtual_bought_price'] == pytest.approx(0.04)
-    assert data['portfolio'][0]['pnl_cents'] == pytest.approx(0.01)  # current_price(0.05) - bought(0.04)
+    assert data['portfolio'][0]['pnl_cents'] == pytest.approx(2.5)  # (10.0 / 0.04) * 0.01
     assert data['portfolio'][0]['pnl_percent'] == pytest.approx(25.0)
     
     # "Продаем" (удаляем)
@@ -285,7 +285,7 @@ def test_virtual_portfolio_no_outcome_approx(isolated_db):
     p = data['portfolio'][0]
     assert p['bought_outcome_price'] == pytest.approx(0.96, abs=1e-4)
     assert p['current_outcome_price'] == pytest.approx(0.97, abs=1e-4)
-    assert p['pnl_cents'] == pytest.approx(0.01, abs=1e-4)
+    assert p['pnl_cents'] == pytest.approx(0.1, abs=1e-4)  # (10.0 / 0.96) * 0.01 rounded to 2 decimals
     assert p['pnl_percent'] == pytest.approx(1.04, abs=0.01)
 
 def test_cheapest_price_outcome_no_direction(isolated_db):
@@ -361,7 +361,7 @@ def test_virtual_portfolio_null_prediction_no_outcome(isolated_db):
     assert p['cheap_outcome'] == 'NO'
     assert p['bought_outcome_price'] == pytest.approx(0.06, abs=1e-4)
     assert p['current_outcome_price'] == pytest.approx(0.07, abs=1e-4)
-    assert p['pnl_cents'] == pytest.approx(0.01, abs=1e-4)
+    assert p['pnl_cents'] == pytest.approx(1.67, abs=1e-4)  # (10.0 / 0.06) * 0.01 rounded to 2 decimals
 
 def test_virtual_sell_saves_to_history(isolated_db):
     """Продажа виртуальной позиции переносит её в penny_virtual_trades_history с верным PnL."""
@@ -432,8 +432,8 @@ def test_virtual_kpis(isolated_db):
     data = data_provider.get_penny_stocks_dashboard()
     assert len(data['virtual_history']) == 2
     assert data['manual_stats']['win_rate'] == pytest.approx(0.5, abs=1e-4)
-    assert data['manual_stats']['best_trade_pnl'] == pytest.approx(0.02, abs=1e-4)
-    assert data['manual_stats']['avg_pnl'] == pytest.approx(-0.005, abs=1e-4)
+    assert data['manual_stats']['best_trade_pnl'] == pytest.approx(0.2, abs=1e-4)
+    assert data['manual_stats']['avg_pnl'] == pytest.approx(-0.05, abs=1e-4)
 
 def test_penny_resolved_includes_unanalyzed(isolated_db):
     """Таблица завершенных penny stocks возвращает и неанализированные рынки с cheap_outcome и гипотетическим PnL."""
@@ -451,14 +451,14 @@ def test_penny_resolved_includes_unanalyzed(isolated_db):
     r_yes = next(x for x in data['resolved'] if x['market_id'] == 'res_null_yes')
     assert r_yes['cheap_outcome'] == 'YES'
     assert r_yes['predicted_outcome'] is None
-    # 1.0 - 0.05 = 0.95
-    assert r_yes['pnl_realized'] == pytest.approx(0.95, abs=1e-4)
+    # (10 / 0.05) * 0.95 = 190.0
+    assert r_yes['pnl_realized'] == pytest.approx(190.0, abs=1e-4)
     
     r_no = next(x for x in data['resolved'] if x['market_id'] == 'res_null_no')
     assert r_no['cheap_outcome'] == 'NO'
     assert r_no['predicted_outcome'] is None
-    # 0.0 - (1.0 - 0.95) = -0.05
-    assert r_no['pnl_realized'] == pytest.approx(-0.05, abs=1e-4)
+    # (10 / 0.05) * -0.05 = -10.0
+    assert r_no['pnl_realized'] == pytest.approx(-10.0, abs=1e-4)
 
 
 def test_virtual_history_current_price(isolated_db):
@@ -548,9 +548,9 @@ def test_get_whale_stocks_dashboard(isolated_db):
 
     assert len(data['resolved']) == 1
     assert data['resolved'][0]['title'] == 'Whale B'
-    assert data['resolved'][0]['pnl_realized'] == 20.0
+    assert data['resolved'][0]['pnl_realized'] == 200.0
     assert data['stats']['resolved_count'] == 1
-    assert data['stats']['total_trades_pnl'] == 20.0
+    assert data['stats']['total_trades_pnl'] == 200.0
     assert data['price_distribution']['1-20¢'] == 1  # whale_a(0.15)
     assert data['price_distribution']['40-60¢'] == 1 # whale_c(0.50)
 
