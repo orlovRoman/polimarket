@@ -87,6 +87,10 @@ async def api_penny_stocks(request):
     resolved_limit = get_int_query(request, "resolved_limit", 50)
     history_page = get_int_query(request, "history_page", 1)
     history_limit = get_int_query(request, "history_limit", 50)
+    wins_page = get_int_query(request, "wins_page", resolved_page)
+    wins_limit = get_int_query(request, "wins_limit", resolved_limit)
+    losses_page = get_int_query(request, "losses_page", resolved_page)
+    losses_limit = get_int_query(request, "losses_limit", resolved_limit)
     
     data = await asyncio.to_thread(
         data_provider.get_penny_stocks_dashboard,
@@ -95,7 +99,11 @@ async def api_penny_stocks(request):
         resolved_page=resolved_page,
         resolved_limit=resolved_limit,
         history_page=history_page,
-        history_limit=history_limit
+        history_limit=history_limit,
+        wins_page=wins_page,
+        wins_limit=wins_limit,
+        losses_page=losses_page,
+        losses_limit=losses_limit
     )
     with _jobs_lock:
         running_ids = [mid for mid, job in analysis_jobs.items() if job.get("status") == "running"]

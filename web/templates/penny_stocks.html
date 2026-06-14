@@ -131,15 +131,15 @@
             <thead>
                 <tr>
                     <th>#</th>
-                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title-w"></span></th>
-                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome-w"></span></th>
-                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome-w"></span></th>
-                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome-w"></span></th>
-                    <th onclick="toggleSort('resolved', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome-w"></span></th>
-                    <th onclick="toggleSort('resolved', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome-w"></span></th>
-                    <th onclick="toggleSort('resolved', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl_auto-w"></span></th>
-                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct-w"></span></th>
-                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at-w"></span></th>
+                    <th onclick="toggleSort('resolved_wins', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_wins', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title-w"></span></th>
+                    <th onclick="toggleSort('resolved_wins', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_wins', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome-w"></span></th>
+                    <th onclick="toggleSort('resolved_wins', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_wins', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome-w"></span></th>
+                    <th onclick="toggleSort('resolved_wins', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_wins', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome-w"></span></th>
+                    <th onclick="toggleSort('resolved_wins', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_wins', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome-w"></span></th>
+                    <th onclick="toggleSort('resolved_wins', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_wins', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome-w"></span></th>
+                    <th onclick="toggleSort('resolved_wins', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_wins', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl_auto-w"></span></th>
+                    <th onclick="toggleSort('resolved_wins', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_wins', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct-w"></span></th>
+                    <th onclick="toggleSort('resolved_wins', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_wins', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at-w"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
@@ -162,15 +162,15 @@
             <thead>
                 <tr>
                     <th>#</th>
-                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title-l"></span></th>
-                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome-l"></span></th>
-                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome-l"></span></th>
-                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome-l"></span></th>
-                    <th onclick="toggleSort('resolved', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome-l"></span></th>
-                    <th onclick="toggleSort('resolved', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome-l"></span></th>
-                    <th onclick="toggleSort('resolved', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl_auto-l"></span></th>
-                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct-l"></span></th>
-                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at-l"></span></th>
+                    <th onclick="toggleSort('resolved_losses', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_losses', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title-l"></span></th>
+                    <th onclick="toggleSort('resolved_losses', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_losses', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome-l"></span></th>
+                    <th onclick="toggleSort('resolved_losses', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_losses', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome-l"></span></th>
+                    <th onclick="toggleSort('resolved_losses', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_losses', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome-l"></span></th>
+                    <th onclick="toggleSort('resolved_losses', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_losses', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome-l"></span></th>
+                    <th onclick="toggleSort('resolved_losses', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_losses', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome-l"></span></th>
+                    <th onclick="toggleSort('resolved_losses', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_losses', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl_auto-l"></span></th>
+                    <th onclick="toggleSort('resolved_losses', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_losses', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct-l"></span></th>
+                    <th onclick="toggleSort('resolved_losses', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved_losses', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at-l"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
@@ -757,7 +757,8 @@
     let currentTab = 'auto';
     let sortState = {
         active: { col: 'added_at', dir: 'desc' },
-        resolved: { col: 'resolved_at', dir: 'desc' }
+        resolved_wins: { col: 'resolved_at', dir: 'desc' },
+        resolved_losses: { col: 'resolved_at', dir: 'desc' }
     };
     let lastFetchedData = null;
 
@@ -893,35 +894,28 @@
     }
 
     function updateSortIndicators(tableType) {
-        const columns = tableType === 'active' 
-            ? ['title', 'initial_price_outcome', 'current_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'volume_2h', 'predicted_outcome', 'edge', 'added_at']
-            : ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_auto', 'edge', 'was_correct', 'resolved_at'];
-            
-        columns.forEach(col => {
-            if (tableType === 'resolved') {
-                const elW = document.getElementById(`sort-resolved-${col}-w`);
-                const elL = document.getElementById(`sort-resolved-${col}-l`);
-                if (elW) { elW.textContent = ''; elW.style.color = ''; }
-                if (elL) { elL.textContent = ''; elL.style.color = ''; }
-            } else {
-                const el = document.getElementById(`sort-${tableType}-${col}`);
+        if (tableType === 'resolved_wins' || tableType === 'resolved_losses') {
+            const columns = ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_auto', 'edge', 'was_correct', 'resolved_at'];
+            const suffix = tableType === 'resolved_wins' ? 'w' : 'l';
+            columns.forEach(col => {
+                const el = document.getElementById(`sort-resolved-${col}-${suffix}`);
                 if (el) { el.textContent = ''; el.style.color = ''; }
-            }
-        });
-        
-        const activeState = sortState[tableType];
-        if (tableType === 'resolved') {
-            const elW = document.getElementById(`sort-resolved-${activeState.col}-w`);
-            const elL = document.getElementById(`sort-resolved-${activeState.col}-l`);
-            if (elW) {
-                elW.textContent = activeState.dir === 'asc' ? ' ▲' : ' ▼';
-                elW.style.color = 'var(--accent-purple)';
-            }
-            if (elL) {
-                elL.textContent = activeState.dir === 'asc' ? ' ▲' : ' ▼';
-                elL.style.color = 'var(--accent-purple)';
+            });
+            const activeState = sortState[tableType];
+            const activeEl = document.getElementById(`sort-resolved-${activeState.col}-${suffix}`);
+            if (activeEl) {
+                activeEl.textContent = activeState.dir === 'asc' ? ' ▲' : ' ▼';
+                activeEl.style.color = 'var(--accent-purple)';
             }
         } else {
+            const columns = tableType === 'active' 
+                ? ['title', 'initial_price_outcome', 'current_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'volume_2h', 'predicted_outcome', 'edge', 'added_at']
+                : ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_auto', 'edge', 'was_correct', 'resolved_at'];
+            columns.forEach(col => {
+                const el = document.getElementById(`sort-${tableType}-${col}`);
+                if (el) { el.textContent = ''; el.style.color = ''; }
+            });
+            const activeState = sortState[tableType];
             const el = document.getElementById(`sort-${tableType}-${activeState.col}`);
             if (el) {
                 el.textContent = activeState.dir === 'asc' ? ' ▲' : ' ▼';
@@ -932,7 +926,8 @@
 
     let pagination = {
         active: { page: 1, limit: 50, total: 0 },
-        resolved: { page: 1, limit: 50, total: 0 },
+        resolved_wins: { page: 1, limit: 50, total: 0 },
+        resolved_losses: { page: 1, limit: 50, total: 0 },
         history: { page: 1, limit: 50, total: 0 }
     };
 
@@ -985,19 +980,23 @@
         sortDataArray(activeData, sortState.active.col, sortState.active.dir);
         renderActiveTable(activeData);
         
-        // 2. Сортировка и рендер Завершенных (разбиваем на выигранные и проигранные)
-        let resolvedData = [...lastFetchedData.resolved];
-        resolvedData.forEach(row => {
+        // 2. Сортировка и рендер выигранных
+        let winsData = [...(lastFetchedData.resolved_wins || [])];
+        winsData.forEach(row => {
             const target = row.predicted_outcome === null ? row.cheap_outcome : row.predicted_outcome;
             row.was_correct = target === row.actual_outcome;
         });
-        sortDataArray(resolvedData, sortState.resolved.col, sortState.resolved.dir);
-        
-        const winsData = resolvedData.filter(row => row.was_correct && row.predicted_outcome !== null);
-        const lossesData = resolvedData.filter(row => !row.was_correct && row.predicted_outcome !== null);
-        
-        renderResolvedTable(winsData, 'resolved-positions-tbody-wins');
-        renderResolvedTable(lossesData, 'resolved-positions-tbody-losses');
+        sortDataArray(winsData, sortState.resolved_wins.col, sortState.resolved_wins.dir);
+        renderResolvedTable(winsData, 'resolved-positions-tbody-wins', 'resolved_wins');
+
+        // 3. Сортировка и рендер проигранных
+        let lossesData = [...(lastFetchedData.resolved_losses || [])];
+        lossesData.forEach(row => {
+            const target = row.predicted_outcome === null ? row.cheap_outcome : row.predicted_outcome;
+            row.was_correct = target === row.actual_outcome;
+        });
+        sortDataArray(lossesData, sortState.resolved_losses.col, sortState.resolved_losses.dir);
+        renderResolvedTable(lossesData, 'resolved-positions-tbody-losses', 'resolved_losses');
     }
 
     function renderActiveTable(activeList) {
@@ -1065,7 +1064,7 @@
         }
     }
 
-    function renderResolvedTable(resolvedList, tbodyId) {
+    function renderResolvedTable(resolvedList, tbodyId, sectionKey = 'resolved_wins') {
         const resolvedTbody = document.getElementById(tbodyId);
         if (!resolvedTbody) return;
         if (resolvedList.length === 0) {
@@ -1086,7 +1085,8 @@
                 }
 
                 const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('penny_stocks_monitoring', '${row.market_id}')">🗑️</button>`;
-                const globalIndex = (pagination.resolved.page - 1) * pagination.resolved.limit + index + 1;
+                const p = pagination[sectionKey] || pagination.resolved_wins;
+                const globalIndex = (p.page - 1) * p.limit + index + 1;
                 return `
                     <tr>
                         <td>${globalIndex}</td>
@@ -1177,14 +1177,15 @@
     }
 
     async function loadPennyStocksData() {
-        const url = `/api/penny-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&resolved_page=${pagination.resolved.page}&resolved_limit=${pagination.resolved.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}`;
+        const url = `/api/penny-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&wins_page=${pagination.resolved_wins.page}&wins_limit=${pagination.resolved_wins.limit}&losses_page=${pagination.resolved_losses.page}&losses_limit=${pagination.resolved_losses.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}`;
         const data = await fetchJSON(url);
 
         if (!data) return;
 
         lastFetchedData = data;
         pagination.active.total = data.active_total || 0;
-        pagination.resolved.total = data.resolved_total || 0;
+        pagination.resolved_wins.total = data.wins_total || 0;
+        pagination.resolved_losses.total = data.losses_total || 0;
         pagination.history.total = data.history_total || 0;
 
         runningAnalyses = data.running_analyses || [];
@@ -1233,11 +1234,12 @@
         renderTablesOnly();
         renderVirtualHistoryTable(data.virtual_history);
         renderPaginationControls('active-pagination', 'active');
-        renderPaginationControls('resolved-pagination-wins', 'resolved');
-        renderPaginationControls('resolved-pagination-losses', 'resolved');
+        renderPaginationControls('resolved-pagination-wins', 'resolved_wins');
+        renderPaginationControls('resolved-pagination-losses', 'resolved_losses');
         renderPaginationControls('history-pagination', 'history');
         updateSortIndicators('active');
-        updateSortIndicators('resolved');
+        updateSortIndicators('resolved_wins');
+        updateSortIndicators('resolved_losses');
 
         // 4. Рендерим системные оповещения
         renderSystemAlerts(data.system_alerts);

@@ -247,7 +247,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         else:
             return get_curve_for_strategy(conn, strategy)
 
-def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100) -> dict:
+def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100, wins_page=1, wins_limit=50, losses_page=1, losses_limit=50) -> dict:
     """
     Собирает данные для дашборда Penny Stocks (активные, завершенные позиции, статистика, распределение).
     """
@@ -310,39 +310,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 row_dict['min_price_seen_outcome'] = mn
             active.append(row_dict)
 
-        # Подсчет общего количества завершенных
-        resolved_total = conn.execute("""
-            SELECT COUNT(*) as cnt
-            FROM penny_stocks_monitoring p
-            WHERE p.status = 'RESOLVED' AND (
-                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
-                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
-                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
-            )
-        """).fetchone()['cnt']
-
-        # Завершенные позиции (все дешевые, с прогнозом и без) с пагинацией
-        resolved_offset = (resolved_page - 1) * resolved_limit
-        resolved_rows = conn.execute("""
-            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized
-            FROM penny_stocks_monitoring p
-            LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents
-                FROM penny_virtual_trades_history
-                GROUP BY market_id
-            ) h ON p.market_id = h.market_id
-            WHERE p.status = 'RESOLVED' AND (
-                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
-                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
-                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
-            )
-            ORDER BY p.resolved_at DESC
-            LIMIT ? OFFSET ?
-        """, (resolved_limit, resolved_offset)).fetchall()
-
-        resolved = []
-        for r in resolved_rows:
+        def _process_resolved_row(r):
             row_dict = dict(r)
             pred = row_dict['predicted_outcome']
             init = row_dict['initial_price']
@@ -397,7 +365,100 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             else:
                 row_dict['pnl_realized'] = round((row_dict['pnl_realized'] or 0.0) * virtual_stake, 2)
 
-            resolved.append(row_dict)
+            return row_dict
+
+        # Подсчет общего количества завершенных
+        resolved_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM penny_stocks_monitoring p
+            WHERE p.status = 'RESOLVED' AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
+                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
+            )
+        """).fetchone()['cnt']
+
+        # Завершенные позиции (все дешевые, с прогнозом и без) с пагинацией
+        resolved_offset = (resolved_page - 1) * resolved_limit
+        resolved_rows = conn.execute("""
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
+                   h.pnl_cents as pnl_realized
+            FROM penny_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                FROM penny_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED' AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90) OR
+                (p.predicted_outcome IS NULL AND (p.initial_price <= 0.10 OR p.initial_price >= 0.90))
+            )
+            ORDER BY p.resolved_at DESC
+            LIMIT ? OFFSET ?
+        """, (resolved_limit, resolved_offset)).fetchall()
+
+        resolved = [_process_resolved_row(r) for r in resolved_rows]
+
+        # Подсчет общего количества завершенных выигранных и проигранных (с прогнозом)
+        wins_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM penny_stocks_monitoring p
+            WHERE p.status = 'RESOLVED' AND p.predicted_outcome IS NOT NULL AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90)
+            ) AND p.predicted_outcome = p.actual_outcome
+        """).fetchone()['cnt']
+
+        losses_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM penny_stocks_monitoring p
+            WHERE p.status = 'RESOLVED' AND p.predicted_outcome IS NOT NULL AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90)
+            ) AND p.predicted_outcome != p.actual_outcome
+        """).fetchone()['cnt']
+
+        # Выигранные завершенные с пагинацией
+        wins_offset = (wins_page - 1) * wins_limit
+        wins_rows = conn.execute("""
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
+                   h.pnl_cents as pnl_realized
+            FROM penny_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                FROM penny_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED' AND p.predicted_outcome IS NOT NULL AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90)
+            ) AND p.predicted_outcome = p.actual_outcome
+            ORDER BY p.resolved_at DESC
+            LIMIT ? OFFSET ?
+        """, (wins_limit, wins_offset)).fetchall()
+
+        # Проигранные завершенные с пагинацией
+        losses_offset = (losses_page - 1) * losses_limit
+        losses_rows = conn.execute("""
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
+                   h.pnl_cents as pnl_realized
+            FROM penny_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                FROM penny_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED' AND p.predicted_outcome IS NOT NULL AND (
+                (p.predicted_outcome = 'YES' AND p.initial_price <= 0.10) OR
+                (p.predicted_outcome = 'NO' AND p.initial_price >= 0.90)
+            ) AND p.predicted_outcome != p.actual_outcome
+            ORDER BY p.resolved_at DESC
+            LIMIT ? OFFSET ?
+        """, (losses_limit, losses_offset)).fetchall()
+
+        resolved_wins = [_process_resolved_row(r) for r in wins_rows]
+        resolved_losses = [_process_resolved_row(r) for r in losses_rows]
 
         # Виртуальный портфель
         portfolio_rows = conn.execute("""
@@ -731,6 +792,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
     return {
         'active': active,
         'resolved': resolved,
+        'resolved_wins': resolved_wins,
+        'resolved_losses': resolved_losses,
         'portfolio': portfolio,
         'virtual_history': virtual_history,
         'stats': stats,
@@ -738,6 +801,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'price_distribution': bins,
         'active_total': active_total,
         'resolved_total': resolved_total,
+        'wins_total': wins_total,
+        'losses_total': losses_total,
         'history_total': history_total,
         'system_alerts': system_alerts
     }
