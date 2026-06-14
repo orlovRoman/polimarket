@@ -74,12 +74,8 @@ class SwingAgent:
             if lines:
                 price_history_str = "=== ИСТОРИЯ ЦЕНЫ ===\n" + "\n".join(lines)
 
-        IS_NICHE_MARKET = not any(
-            kw in market.title.lower()
-            for kw in ["crypto", "bitcoin", "ethereum", "politics", "election", "trump", "biden", "sports", "cup", "game", "league", "ai", "llm", "openai"]
-        )
         wiki_block = ""
-        if IS_NICHE_MARKET and wiki_context:
+        if wiki_context:
             wiki_block = f"\nДанные из Wikipedia (состав турниров, участники, статистика):\n{wiki_context}\n"
 
         # Загружаем эпизодическую память (последние оценки)
@@ -353,22 +349,18 @@ class SwingAgent:
                 
             try:
                 content = extract_response_text(result)
-                # Очистим возможные markdown блоки, если Grok игнорирует schema
                 content = content.replace("```json", "").replace("```", "").strip()
                 if not content:
-                    continue
+                     continue
                 analysis = json.loads(content, strict=False)
                 
-                # FIX #1: проверяем язык — если нарушение, пробуем очистить и перепроверить
                 bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
                 if bad_field:
                     from agents.shared.utils.language_guard import sanitize_forbidden_scripts
                     if attempt < 2:
-                        # Первые 2 попытки — пробуем sanitize на месте
                         for f in TEXT_FIELDS:
                             if f in analysis and isinstance(analysis[f], str):
                                 analysis[f] = sanitize_forbidden_scripts(analysis[f])
-                        # Проверяем снова после sanitize
                         bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
                         if not bad_field:
                             print("[SWING] Текстовые поля успешно санитизированы без retry")
@@ -377,7 +369,6 @@ class SwingAgent:
                             analysis = None
                             continue
                     else:
-                        # Последняя попытка — просто sanitize и используем
                         for f in TEXT_FIELDS:
                             if f in analysis and isinstance(analysis[f], str):
                                 analysis[f] = sanitize_forbidden_scripts(analysis[f])
@@ -399,25 +390,23 @@ class SwingAgent:
                     use_llm_blend=True,
                     has_hard_facts=has_hard_facts
                 )
-                analysis["recommendation"] = recommendation
                 analysis["confidence"] = final_confidence
-                analysis["llm_direction"] = direction
-                analysis["hype_potential"] = hype_score
 
-                # 1. Horizon strategy min_confidence filter
+                # 1. Horizon strategy filter (SOFT_WARN)
                 rejection_reasons = []
-                if analysis["recommendation"] == "buy" and not has_hard_facts:
+                warnings = []
+                recommendation = recommendation.lower()
+
+                if recommendation == "buy" and not has_hard_facts:
                     if analysis["confidence"] < horizon.min_confidence:
-                        analysis["recommendation"] = "ignore"
-                        rejection_reasons.append(f"Горизонт {horizon.label}: confidence {analysis['confidence']:.2f} < минимум {horizon.min_confidence}")
+                        warnings.append(f"Горизонт {horizon.label}: низкий confidence {analysis['confidence']:.2f} < минимум {horizon.min_confidence}")
                     if horizon.require_immediate_catalyst:
                         catalyst = analysis.get("catalyst", "").lower()
                         no_catalyst_phrases = ["нет катализатора", "отсутствует", "не найден", "не обнаружен"]
                         if any(ph in catalyst for ph in no_catalyst_phrases):
-                            analysis["recommendation"] = "ignore"
-                            rejection_reasons.append(f"Горизонт {horizon.label}: нет немедленного катализатора")
+                            warnings.append(f"Горизонт {horizon.label}: нет немедленного катализатора")
 
-                # 2. ROI-фильтр
+                # 2. ROI-фильтр (HARD_BLOCK)
                 from agents.shared.utils.roi_filter import apply_roi_filter
                 if has_hard_facts:
                     if direction == "YES":
@@ -441,18 +430,20 @@ class SwingAgent:
                         target_price=target_price,
                         direction=direction
                     )
-                if not roi_result.passes and analysis["recommendation"] == "buy":
-                    analysis["recommendation"] = "ignore"
+                if not roi_result.passes and recommendation == "buy":
+                    recommendation = "ignore"
                     rejection_reasons.append(f"ROI-фильтр: {roi_result.rejection_reason}")
 
-                # 3. Контрарианский анализ
-                if not has_hard_facts and asymmetry < 0.55 and analysis["recommendation"] == "buy":
-                    analysis["recommendation"] = "ignore"
+                # 3. Контрарианский анализ (HARD_BLOCK)
+                if not has_hard_facts and asymmetry < 0.55 and recommendation == "buy":
+                    recommendation = "ignore"
                     rejection_reasons.append(f"Асимметрия {asymmetry:.2f} < 0.55 — рынок сбалансирован, нет edge")
 
-                # 4. Catalyst verifier (ПОСЛЕДНИМ)
+                # 4. Catalyst verifier (ПОСЛЕДНИМ) (SOFT_WARN)
                 from agents.shared.utils.catalyst_verifier import verify_catalyst
-                if has_hard_facts:
+                is_grounding_missing = grounded_context in ("Grounding не выполнен.", "", None)
+                is_news_missing = not news_block or not str(news_block).strip()
+                if has_hard_facts or (is_grounding_missing and is_news_missing):
                     class DummyCatalystCheck:
                         confirmed = True
                         confidence_penalty = 0.0
@@ -467,11 +458,15 @@ class SwingAgent:
                 if not catalyst_check.confirmed:
                     old_conf = analysis["confidence"]
                     analysis["confidence"] = round(max(0.1, old_conf - catalyst_check.confidence_penalty), 3)
-                    if analysis["confidence"] < horizon.min_confidence and analysis["recommendation"] == "buy":
-                        analysis["recommendation"] = "ignore"
-                        rejection_reasons.append(f"[{catalyst_check.warning}] → отозван (нет катализатора)")
+                    warnings.append(f"[{catalyst_check.warning}] (не подтвержден катализатор)")
+                    if analysis["confidence"] < horizon.min_confidence:
+                        warnings.append(f"Конфиденс после штрафа {analysis['confidence']:.2f} < минимум {horizon.min_confidence}")
 
-                rejection_reason = " | ".join(rejection_reasons) if rejection_reasons else "Низкий потенциал хайпа"
+                if recommendation != "buy":
+                    rejection_reason = " | ".join(rejection_reasons) if rejection_reasons else "Низкий потенциал хайпа"
+                    analysis["recommendation"] = "ignore"
+                else:
+                    analysis["recommendation"] = "buy"
 
                 recommendation = analysis.get("recommendation", "ignore").lower()
                 hype_potential = _safe_float(analysis.get("hype_potential"), 0.0)
@@ -481,13 +476,32 @@ class SwingAgent:
                 # Формируем структурированный swing_verdict
                 catalyst_text = analysis.get('catalyst', analysis.get('catalyst_absence_reason', '—'))
                 contrarian_text = analysis.get('contrarian_case', '—')
-                final_verdict = f"📊 {market.title}\nНаправление: {direction} | Цель: {target_price:.2f} | ROI: {roi_result.roi_percent:.1f}%\n\n💡 Тезис: {catalyst_text}\n⚠️ Контр-кейс: {contrarian_text}\n\n"
                 
                 if recommendation == 'buy':
-                    final_verdict += "✅ Рекомендация: ВХОДИТЬ"
+                    warning_text = ""
+                    if warnings:
+                        warning_text = "⚠️ ПРЕДУПРЕЖДЕНИЯ:\n" + "\n".join([f"- {w}" for w in warnings]) + "\n\n"
+                    final_verdict = (
+                        f"📊 {market.title}\n"
+                        f"Направление: {direction} | Цель: {target_price:.2f} | ROI: {roi_result.roi_percent:.1f}%\n\n"
+                        f"💡 Тезис: {catalyst_text}\n"
+                        f"⚠️ Контр-кейс: {contrarian_text}\n\n"
+                        f"{warning_text}✅ Рекомендация: ВХОДИТЬ"
+                    )
+                    if warnings:
+                        final_verdict += " (с предупреждением)"
                 else:
-                    final_verdict += f"⏸ Причина пропуска: {rejection_reason}"
-                
+                    final_verdict = (
+                        f"📊 {market.title}\n"
+                        f"Решение: IGNORE | Причина пропуска: {rejection_reason}\n\n"
+                        f"📉 Hype-scorecard:\n{scorecard}\n\n"
+                        f"🔍 Анализ (не использован для входа):\n"
+                        f"💡 Тезис: {catalyst_text}\n"
+                        f"⚠️ Контр-кейс: {contrarian_text}\n"
+                        f"📝 Почему нет катализатора: {analysis.get('catalyst_absence_reason', '—')}\n"
+                        f"📋 Reasoning: {analysis.get('reasoning', '—')}"
+                    )
+
                 # Расчет ROI для деталей
                 current_price = market.price if target_outcome == "YES" else (1.0 - market.price)
                 if current_price <= 0: current_price = 0.01
@@ -512,7 +526,7 @@ class SwingAgent:
                     catalyst_absence_reason=analysis.get("catalyst_absence_reason", ""),
                     swing_risk=analysis.get("swing_risk", "") or analysis.get("risk", "Не указан риск"),
                     swing_verdict=final_verdict,
-                    summary=f"🚀 Памп {target_outcome} (Хайп {hype_potential*100:.0f}%, Цель {target_price:.2f})" if recommendation == "buy" else f"💤 Игнор (Хайп {hype_potential*100:.0f}%)",
+                    summary=f"🚀 Памп {target_outcome} (Хайп {hype_potential*100:.0f}%, Цель {target_price:.2f})" if recommendation == "buy" else f"💤 Игнор ({rejection_reason})",
                     details=(
                         f"Рекомендация: {recommendation.upper()} {target_outcome} по ~{current_price:.2f}, выход по {target_price:.2f} (ROI ~{roi_result.roi_percent:.0f}%).\n"
                         f"{roi_line}\n"
@@ -534,7 +548,10 @@ class SwingAgent:
                             "recommendation": recommendation,
                             "confidence": analysis.get('confidence', 0.5),
                             "asymmetry_score": asymmetry,
-                            "reasoning": analysis.get("reasoning", "")
+                            "reasoning": analysis.get("reasoning", ""),
+                            "rejection_reasons": rejection_reasons,
+                            "warnings": warnings,
+                            "hype_score": hype_score,
                         },
                         outcome="unknown"
                     )
