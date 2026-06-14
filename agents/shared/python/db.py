@@ -311,9 +311,16 @@ def _init_db_impl(conn: sqlite3.Connection):
             status TEXT DEFAULT 'PENDING',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             analysis_report TEXT,
+            metadata TEXT,
             FOREIGN KEY (market_id) REFERENCES markets (id)
         )
     """)
+    
+    # Миграция: добавляем metadata если его нет
+    try:
+        cursor.execute("ALTER TABLE signals ADD COLUMN metadata TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     # Таблица: Долгосрочная память (Key-Value)
     cursor.execute('''
