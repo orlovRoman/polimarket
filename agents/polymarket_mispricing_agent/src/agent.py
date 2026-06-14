@@ -13,6 +13,22 @@ from agents.shared.python.llm_wrapper import with_retry
 
 logger = logging.getLogger("NexusPolyBot.scout_agent")
 
+def get_agent_accuracy_context(agent_name: str) -> str:
+    try:
+        from agents.shared.python.db import get_memory
+        key = agent_name.lower()
+        total = get_memory(f"{key}_evaluated_total") or 0
+        acc   = get_memory(f"{key}_accuracy_pct") or 0.0
+        if total < 5:
+            return ""   # слишком мало данных
+        return (
+            f"\n📊 ТВОЯ СУММАРНАЯ СТАТИСТИКА: точность {acc}% на {total} разрешенных рынках. "
+            f"{'Избегай самоуверенных прогнозов, если точность низкая.' if acc < 50 else 'Отличная точность, продолжай в том же духе.'}\n"
+        )
+    except Exception as e:
+        logger.warning(f"Не удалось получить контекст точности для {agent_name}: {e}")
+        return ""
+
 class ScoutAgent:
     """
     Агент SCOUT — основной аналитический модуль для поиска недооцененных рынков.
@@ -135,6 +151,9 @@ class ScoutAgent:
             episodes_text = "\n".join([f"- {ep['summary']}" for ep in episodes])
             
         perf_summary = get_performance_summary("SCOUT", 10) or "История оценок пуста — первые прогнозы."
+        acc_context = get_agent_accuracy_context("scout")
+        if acc_context:
+            perf_summary = acc_context + "\n" + perf_summary
         hn_block = ""
         IS_TECH_MARKET = any(kw in market.title.lower() for kw in ["ai", "llm", "crypto", "bitcoin", "ethereum", "openai", "model"])
         if IS_TECH_MARKET and context.hn_posts:

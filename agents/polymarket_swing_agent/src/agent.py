@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 from core.models import Market, Signal
@@ -7,6 +8,24 @@ from core.context import MarketContext
 from agents.shared.python.db import get_memory, get_agent_episodes, get_performance_summary, save_agent_episode
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 from agents.shared.python.llm_wrapper import with_retry
+
+logger = logging.getLogger("NexusPolyBot.swing_agent")
+
+def get_agent_accuracy_context(agent_name: str) -> str:
+    try:
+        from agents.shared.python.db import get_memory
+        key = agent_name.lower()
+        total = get_memory(f"{key}_evaluated_total") or 0
+        acc   = get_memory(f"{key}_accuracy_pct") or 0.0
+        if total < 5:
+            return ""   # слишком мало данных
+        return (
+            f"\n📊 ТВОЯ СУММАРНАЯ СТАТИСТИКА: точность {acc}% на {total} разрешенных рынках. "
+            f"{'Избегай самоуверенных прогнозов, если точность низкая.' if acc < 50 else 'Отличная точность, продолжай в том же духе.'}\n"
+        )
+    except Exception as e:
+        logger.warning(f"Не удалось получить контекст точности для {agent_name}: {e}")
+        return ""
 
 def _safe_float(val, default: float) -> float:
     """float() с защитой от пустых строк и None."""
@@ -86,6 +105,9 @@ class SwingAgent:
             episodes_text = "\n".join([f"- {ep['summary']}" for ep in episodes])
             
         perf_summary = get_performance_summary("SWING", 10) or "История оценок пуста — первые прогнозы."
+        acc_context = get_agent_accuracy_context("swing")
+        if acc_context:
+            perf_summary = acc_context + "\n" + perf_summary
 
         # --- STEP 1: Grounding search из контекста ---
         grounded_context = getattr(context, 'grounded_context', 'Grounding не выполнен.')

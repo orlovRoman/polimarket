@@ -4,9 +4,12 @@ MarketSelector — умный отбор рынков для анализа.
 Заменяет прямой вызов adapter.list_markets() в run_team.py.
 """
 import sys
+import logging
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
+
+logger = logging.getLogger("NexusPolyBot.MarketSelector")
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from config import (
@@ -14,7 +17,7 @@ from config import (
     PRICE_RANGE_MIN, PRICE_RANGE_MAX, SCAN_CATEGORIES
 )
 from agents.shared.python.db import (
-    get_memory, save_memory, get_markets_on_cooldown, get_last_analyzed_prices,
+    get_memory, save_memory, get_markets_on_cooldown,
     get_all_listed_market_ids
 )
 from core.models import Market
@@ -54,7 +57,7 @@ class MarketSelector:
             try:
                 ending_raw = self.adapter.list_markets_ending_soon(limit=per_strategy)
             except Exception as e:
-                print(f"[MarketSelector] Ошибка стратегии ending_soon: {e}")
+                logger.warning(f"[MarketSelector] Ошибка стратегии ending_soon: {e}", exc_info=True)
                 
             filtered_regular = self._filter(regular_raw, category, min_hours=12, now=now)
             filtered_ending = self._filter(ending_raw, category, min_hours=1, now=now)
@@ -89,7 +92,7 @@ class MarketSelector:
             next_offset = (offset + per_strategy) % MARKET_OFFSET_MAX
             save_memory("market_scan_offset", next_offset, category='cache')
         except Exception as e:
-            print(f"[MarketSelector] Ошибка стратегии mid_volume: {e}")
+            logger.warning(f"[MarketSelector] Ошибка стратегии mid_volume: {e}", exc_info=True)
 
         # Стратегия 2: Категория из ротации
         try:
@@ -99,14 +102,14 @@ class MarketSelector:
             all_markets.extend(cat_markets)
             save_memory("category_rotation_idx", cat_idx + 1, category='cache')
         except Exception as e:
-            print(f"[MarketSelector] Ошибка стратегии category_rotation: {e}")
+            logger.warning(f"[MarketSelector] Ошибка стратегии category_rotation: {e}", exc_info=True)
 
         # Стратегия 3: Top volume (fallback, текущее поведение)
         try:
             top = self.adapter.list_markets(limit=per_strategy)
             all_markets.extend(top)
         except Exception as e:
-            print(f"[MarketSelector] Ошибка стратегии top_volume: {e}")
+            logger.warning(f"[MarketSelector] Ошибка стратегии top_volume: {e}", exc_info=True)
 
         return all_markets
 
@@ -169,12 +172,12 @@ class MarketSelector:
                         if m_obj:
                             compounds.append(m_obj)
                     except Exception as exc:
-                        print(f"[MarketSelector] Ошибка загрузки рынка {m_id} для Favourite Compounding: {exc}")
+                        logger.warning(f"[MarketSelector] Ошибка загрузки рынка {m_id} для Favourite Compounding: {exc}", exc_info=True)
                 return compounds
             
             return self.adapter.list_markets(limit=limit, category=category)
         except Exception as e:
-            print(f"[MarketSelector] Ошибка загрузки категории '{category}': {e}")
+            logger.warning(f"[MarketSelector] Ошибка загрузки категории '{category}': {e}", exc_info=True)
             return []
 
     def _filter(self, markets: List[Market], scan_category: str = None, min_hours: int = 12, now: datetime = None) -> List[Market]:

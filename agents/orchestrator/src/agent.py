@@ -51,26 +51,49 @@ class NexusAgent:
             from agents.shared.python.db import get_relevant_facts, get_agent_episodes
             from config import MEMORY_FACTS_LIMIT
             facts = get_relevant_facts(limit=MEMORY_FACTS_LIMIT)
-        except Exception:
+            logger.debug(f"[NEXUS] Загружено фактов из памяти: {len(facts)}")
+        except Exception as e:
+            logger.error(f"[NEXUS] Ошибка загрузки фактов из памяти: {e}", exc_info=True)
             facts = []
 
         facts_str = "\n".join(facts) if facts else "Нет сохранённых фактов."
 
         # Добавляем последние 5 эпизодов как контекст
         try:
-            recent_episodes = get_agent_episodes(agent_name=None, limit=5)
+            recent_episodes = get_agent_episodes(
+                agent_name=None,
+                limit=5,
+                event_type='signal_resolved'   # только разрешения рынков
+            )
             if recent_episodes:
                 ep_lines = [f"  [{e['created_at'][:16]}] {e['agent_name']} ({e['event_type']}): {e['summary']} | Исход: {e['outcome']}" for e in recent_episodes]
                 facts_str += "\n\nПОСЛЕДНИЕ ДЕЙСТВИЯ И РЕШЕНИЯ АГЕНТОВ:\n" + "\n".join(ep_lines)
-        except Exception:
-            pass
+            logger.debug(f"[NEXUS] Загружено эпизодов из памяти: {len(recent_episodes) if recent_episodes else 0}")
+        except Exception as e:
+            logger.error(f"[NEXUS] Ошибка загрузки эпизодов из памяти: {e}", exc_info=True)
+
+        # Добавляем структурированный блок точности агентов
+        accuracy_str = ""
+        try:
+            from agents.shared.python.db import get_memory
+            agent_names = ['scout', 'swing', 'shadow']
+            accuracy_lines = []
+            for name in agent_names:
+                total = get_memory(f"{name}_evaluated_total") or 0
+                acc   = get_memory(f"{name}_accuracy_pct") or 0.0
+                if total > 0:
+                    accuracy_lines.append(f"  {name.upper()}: {acc}% ({total} рынков)")
+            if accuracy_lines:
+                accuracy_str = "\n\nСТАТИСТИКА ТОЧНОСТИ АГЕНТОВ:\n" + "\n".join(accuracy_lines)
+        except Exception as e:
+            logger.warning(f"[NEXUS] Не удалось загрузить статистику точности: {e}")
 
         prompt = (
             f"ТЕКУЩЕЕ ВРЕМЯ СИСТЕМЫ: {now}\n"
             f"ВНИМАНИЕ: Все рынки на {datetime.now(timezone.utc).year - 1} год и ранее считаются ИСТЕКШИМИ. Не анализируй их.\n\n"
             f"ТЫ — NEXUS, главный ИИ-координатор команды (SCOUT, SWING, SHADOW).\n"
             f"Твоя цель — живой диалог, управление системой и глубокая аналитика.\n\n"
-            f"ЯДРО ПАМЯТИ (Layer 1 - Durable Facts):\n{facts_str}\n\n"
+            f"ЯДРО ПАМЯТИ (Layer 1 - Durable Facts):\n{facts_str}{accuracy_str}\n\n"
             f"ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ:\n{self.base_instructions}"
         )
         return prompt

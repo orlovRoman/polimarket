@@ -211,8 +211,8 @@ def test_penny_fetch_skips_closed_markets():
     assert all(m.id != "closed" for m in result), "Закрытый рынок не должен попасть в penny"
     assert all(m.id != "ending_too_soon" for m in result), "Рынок, закрывающийся менее чем через 1 час, не должен попасть в penny"
 
-def test_filter_single_db_call_for_cooldown_prices():
-    """get_last_analyzed_price не должна вызываться в цикле, а должна вызываться батчем get_last_analyzed_prices."""
+def test_filter_no_cooldown_price_lookup():
+    """Поскольку логика cooldown-фильтрации упрощена, get_last_analyzed_prices не должна вызываться."""
     def make_market(mid):
         return Market(
             id=mid,
@@ -229,12 +229,10 @@ def test_filter_single_db_call_for_cooldown_prices():
     mock_adapter = MagicMock()
     selector = MarketSelector(mock_adapter)
     
-    with patch("agents.shared.python.market_selector.get_last_analyzed_prices") as mock_bulk, \
-         patch("agents.shared.python.market_selector.get_markets_on_cooldown", return_value=cooldown_set), \
+    with patch("agents.shared.python.market_selector.get_markets_on_cooldown", return_value=cooldown_set), \
          patch("agents.shared.python.market_selector.get_all_listed_market_ids", return_value={'ignored': set(), 'watching': set()}):
-        mock_bulk.return_value = {f"m{i}": 0.5 for i in range(15)}
-        selector._filter(markets)
-        assert mock_bulk.call_count == 1  # один батч-запрос, не 15
+        res = selector._filter(markets)
+        assert len(res) == 0  # Все отфильтрованы по cooldown
 
 def test_penny_fetch_respects_min_hours():
     """Рынок с 6ч до закрытия не должен войти в penny при min_hours=12, но должен войти при min_hours=1."""
