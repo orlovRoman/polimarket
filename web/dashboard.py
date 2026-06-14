@@ -909,8 +909,8 @@ async def api_save_settings(request):
         return web.json_response({"error": "Missing global_virtual_stake"}, status=400)
     try:
         stake_float = float(stake_val)
-        if stake_float <= 0:
-            raise ValueError()
+        if not (0 < stake_float <= 100_000):
+            return web.json_response({"error": "Stake must be between 0 and 100000"}, status=400)
     except (ValueError, TypeError):
         return web.json_response({"error": "Invalid stake value"}, status=400)
         

@@ -126,6 +126,7 @@
     let multiChart = null;
 
     async function loadOverviewData() {
+        await loadSettings();
         const stats = await fetchJSON('/api/overview');
         const equity = await fetchJSON('/api/equity-curve?strategy=all&days=30');
 
@@ -393,13 +394,6 @@
             console.error("Ошибка при сохранении ставки:", err);
         }
     }
-
-    // Загружаем настройки при инициализации данных
-    const originalLoadOverviewData = loadOverviewData;
-    loadOverviewData = async function() {
-        await loadSettings();
-        await originalLoadOverviewData();
-    };
 
     registerRefresh(loadOverviewData);
 </script>
