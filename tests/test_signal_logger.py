@@ -245,6 +245,12 @@ def test_heal_db_resolutions_with_unsafe_sig_id(setup_database):
         VALUES ('market-unsafe-sp', 'polymarket', 'Test Unsafe SAVEPOINT', 'http://example.com', 'YES', 0.5, ?)
     """, (future_date,))
     
+    # Гарантируем отсутствие конфликта с уникальным индексом
+    cursor.execute(
+        "DELETE FROM signals WHERE market_id = 'market-unsafe-sp' AND status = 'PENDING'"
+    )
+    conn.commit()
+    
     # 2. Создаем сигнал с потенциально небезопасным ID для имени SAVEPOINT (например, со спецсимволами и пробелами)
     unsafe_sig_id = "test;drop table signals;--"
     cursor.execute("""
