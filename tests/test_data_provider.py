@@ -561,6 +561,8 @@ def test_get_compounding_dashboard_empty(isolated_db):
     assert data['resolved'] == []
     assert data['portfolio'] == []
     assert data['stats']['active_count'] == 0
+    assert data['stats']['sum_won'] == 0.0
+    assert data['stats']['sum_lost'] == 0.0
     assert data['manual_stats']['count'] == 0
 
 
@@ -571,6 +573,7 @@ def test_compounding_buy_and_sell(isolated_db):
             INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, outcome)
             VALUES ('opp_1', 'mkt_1', 'Test Compound 1', 'http://url1', 0.96, 10000.0, '2026-06-15 12:00:00', 48.0, 4.1, 0.85, 'NEW', 'YES')
         """)
+        conn.execute("INSERT OR REPLACE INTO memory (key, value) VALUES ('global_virtual_stake', '50.0')")
 
     # 1. Покупаем
     from agents.shared.python.db import buy_virtual_compound_opportunity, sell_virtual_compound_opportunity
@@ -612,6 +615,7 @@ def test_compounding_resolve_manual_and_auto(isolated_db):
             ('opp_win', 'mkt_win', 'Win Opp', 'http://win', 0.96, 12000.0, '2026-06-15 12:00:00', 48.0, 4.1, 0.85, 'BOUGHT', 'YES', 0.96, '2026-06-12 12:00:00'),
             ('opp_lose', 'mkt_lose', 'Lose Opp', 'http://lose', 0.95, 12000.0, '2026-06-15 12:00:00', 48.0, 4.1, 0.85, 'NEW', 'YES', 0.95, '2026-06-12 12:00:00')
         """)
+        conn.execute("INSERT OR REPLACE INTO memory (key, value) VALUES ('global_virtual_stake', '50.0')")
 
     from services.outcome_tracker import _resolve_compound_outcomes
     from unittest.mock import patch
@@ -657,8 +661,11 @@ def test_compounding_dashboard_hypothetical_pnl(isolated_db):
             INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, outcome, actual_outcome)
             VALUES ('opp_hypo', 'mkt_hypo', 'Hypo Opp', 'http://hypo', 0.95, 10000.0, '2026-06-15 12:00:00', 48.0, 4.1, 0.85, 'RESOLVED', 'YES', 'YES')
         """)
+        conn.execute("INSERT OR REPLACE INTO memory (key, value) VALUES ('global_virtual_stake', '50.0')")
 
     data = data_provider.get_compounding_dashboard()
+    assert data['stats']['sum_won'] == pytest.approx(2.58, abs=1e-2)
+    assert data['stats']['sum_lost'] == 0.0
     assert len(data['resolved']) == 1
     resolved_item = data['resolved'][0]
     assert resolved_item['market_id'] == 'mkt_hypo'

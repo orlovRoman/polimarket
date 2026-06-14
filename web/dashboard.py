@@ -881,6 +881,40 @@ async def api_analyze_market_status(request):
         
     return web.json_response({"status": "not_found"})
 
+async def api_get_settings(request):
+    from agents.shared.python.db import get_connection
+    from web.data_provider import get_global_virtual_stake
+    with get_connection() as conn:
+        stake = get_global_virtual_stake(conn)
+    return web.json_response({
+        "global_virtual_stake": stake,
+        "polymarket_fee_pct": 2.0
+    })
+
+async def api_save_settings(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+        
+    stake_val = body.get("global_virtual_stake")
+    if stake_val is None:
+        return web.json_response({"error": "Missing global_virtual_stake"}, status=400)
+    try:
+        stake_float = float(stake_val)
+        if stake_float <= 0:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid stake value"}, status=400)
+        
+    from agents.shared.python.db import get_connection
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO memory (key, value) VALUES ('global_virtual_stake', ?)",
+            (str(stake_float),)
+        )
+    return web.json_response({"status": "ok"})
+
 # === Фабрика приложения ===
 
 def create_dashboard_app() -> web.Application:
@@ -921,6 +955,8 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/whale-stocks/analyze-status", api_analyze_market_status)
     app.router.add_post("/api/whale-stocks/discover", api_discover_whale_stocks)
     app.router.add_post("/api/delete-market", api_delete_market)
+    app.router.add_get("/api/settings", api_get_settings)
+    app.router.add_post("/api/settings", api_save_settings)
 
     
     logger.info("Application routes successfully registered.")

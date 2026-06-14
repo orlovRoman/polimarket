@@ -15,6 +15,7 @@
 <div class="opinion-tabs" style="margin-bottom: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 12px; display: flex; gap: 8px;">
     <button id="compound-tab-auto" class="opinion-tab-btn active" onclick="switchCompoundTab('auto')">🤖 Авто-сигналы агентов</button>
     <button id="compound-tab-manual" class="opinion-tab-btn" onclick="switchCompoundTab('manual')">💼 Ручной портфель</button>
+    <button id="compound-tab-losses" class="opinion-tab-btn" onclick="switchCompoundTab('losses')">🔴 Проигранные рынки</button>
 </div>
 
 <div class="kpi-row">
@@ -45,6 +46,14 @@
     <div class="kpi-card">
         <div class="kpi-title" id="kpi-total-pnl-title">Общий PnL</div>
         <div class="kpi-value" id="kpi-total-pnl">$0.00</div>
+    </div>
+    <div class="kpi-card" id="kpi-sum-won-card">
+        <div class="kpi-title" id="kpi-sum-won-title">Сумма выигрышей</div>
+        <div class="kpi-value text-green" id="kpi-sum-won" style="color: var(--accent-green); font-weight: 600;">$0.00</div>
+    </div>
+    <div class="kpi-card" id="kpi-sum-lost-card">
+        <div class="kpi-title" id="kpi-sum-lost-title">Сумма проигрышей</div>
+        <div class="kpi-value text-red" id="kpi-sum-lost" style="color: var(--accent-red); font-weight: 600;">$0.00</div>
     </div>
 </div>
 
@@ -127,6 +136,31 @@
         </table>
     </div>
     <div id="resolved-pagination"></div>
+</div>
+
+<div id="losses-card" class="table-card" style="display: none;">
+    <div class="table-title" style="color: var(--accent-red);">Проигранные compound-рынки (Авто-сигналы)</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Рынок</th>
+                    <th>Цена входа</th>
+                    <th>Направление</th>
+                    <th>Исход Polymarket</th>
+                    <th>Полученный убыток</th>
+                    <th>Разрешен</th>
+                    <th>Действие</th>
+                </tr>
+            </thead>
+            <tbody id="losses-positions-tbody">
+                <tr>
+                    <td colspan="8" style="text-align: center;" class="text-muted">Нет проигранных рынков</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <div id="history-card" class="table-card" style="display: none;">
@@ -250,15 +284,23 @@
         currentTab = tab;
         document.getElementById('compound-tab-auto').classList.toggle('active', tab === 'auto');
         document.getElementById('compound-tab-manual').classList.toggle('active', tab === 'manual');
+        document.getElementById('compound-tab-losses').classList.toggle('active', tab === 'losses');
         
         if (tab === 'auto') {
             document.getElementById('top-grid').style.display = 'none';
             document.getElementById('resolved-card').style.display = 'block';
             document.getElementById('history-card').style.display = 'none';
+            document.getElementById('losses-card').style.display = 'none';
+        } else if (tab === 'losses') {
+            document.getElementById('top-grid').style.display = 'none';
+            document.getElementById('resolved-card').style.display = 'none';
+            document.getElementById('history-card').style.display = 'none';
+            document.getElementById('losses-card').style.display = 'block';
         } else {
             document.getElementById('top-grid').style.display = 'grid';
             document.getElementById('resolved-card').style.display = 'none';
             document.getElementById('history-card').style.display = 'block';
+            document.getElementById('losses-card').style.display = 'none';
         }
         
         if (lastFetchedData) {
@@ -281,7 +323,7 @@
         const kpiTotalPnLTitle = document.getElementById('kpi-total-pnl-title');
         const kpiTotalPnL = document.getElementById('kpi-total-pnl');
 
-        if (currentTab === 'auto') {
+        if (currentTab === 'auto' || currentTab === 'losses') {
             kpiActiveTitle.textContent = "Всего в мониторинге";
             kpiActive.textContent = data.stats.active_count;
             kpiResolvedTitle.textContent = "Сигналов завершено";
@@ -292,11 +334,16 @@
             kpiAvgEntry.textContent = data.stats.avg_entry_price === null ? "—" : formatPriceCents(data.stats.avg_entry_price);
             
             const best = data.stats.best_trade_pnl;
-            kpiBestTrade.innerHTML = formatPnLUnit(best);
+            kpiBestTrade.innerHTML = formatPnLUSD(best);
             kpiAvgPnLTitle.textContent = "Ср. PnL сигнала";
-            kpiAvgPnL.innerHTML = formatPnLUnit(data.stats.avg_pnl);
+            kpiAvgPnL.innerHTML = formatPnLUSD(data.stats.avg_pnl);
             kpiTotalPnLTitle.textContent = "Общий PnL сигналов";
-            kpiTotalPnL.innerHTML = formatPnLUnit(data.stats.total_resolved_pnl);
+            kpiTotalPnL.innerHTML = formatPnLUSD(data.stats.total_resolved_pnl);
+
+            document.getElementById('kpi-sum-won-card').style.display = 'block';
+            document.getElementById('kpi-sum-lost-card').style.display = 'block';
+            document.getElementById('kpi-sum-won').innerHTML = formatPnLUSD(data.stats.sum_won);
+            document.getElementById('kpi-sum-lost').innerHTML = formatPnLUSD(data.stats.sum_lost);
         } else {
             kpiActiveTitle.textContent = "Активных сделок";
             kpiActive.textContent = data.portfolio ? data.portfolio.length : 0;
@@ -312,6 +359,9 @@
             kpiAvgPnL.innerHTML = formatPnLUSD(data.manual_stats.avg_pnl);
             kpiTotalPnLTitle.textContent = "Общий PnL сделок";
             kpiTotalPnL.innerHTML = formatPnLUSD(data.manual_stats.total_trades_pnl);
+
+            document.getElementById('kpi-sum-won-card').style.display = 'none';
+            document.getElementById('kpi-sum-lost-card').style.display = 'none';
         }
     }
 
@@ -409,6 +459,34 @@
         });
         sortDataArray(resolvedData, sortState.resolved.col, sortState.resolved.dir);
         renderResolvedTable(resolvedData);
+
+        // Фильтруем проигранные рынки
+        let lostData = resolvedData.filter(row => !row.was_correct);
+        renderLossesTable(lostData);
+    }
+
+    function renderLossesTable(lostList) {
+        const lossesTbody = document.getElementById('losses-positions-tbody');
+        if (lostList.length === 0) {
+            lossesTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">Нет проигранных рынков</td></tr>`;
+        } else {
+            lossesTbody.innerHTML = lostList.map((row, index) => {
+                let directionBadge = `<span class="badge ${row.outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.outcome}</span>`;
+                const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('compound_opportunities', '${row.id}')">🗑️</button>`;
+                return `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td><a href="${row.url}" target="_blank" style="color:var(--text-secondary); text-decoration:none;">${row.title}</a></td>
+                        <td>${formatPriceCents(row.price)}</td>
+                        <td>${directionBadge}</td>
+                        <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
+                        <td>${row.pnl_auto === null ? '—' : formatPnLUSD(row.pnl_auto)}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
+                        <td>${deleteBtn}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
     }
 
     function renderActiveTable(activeList) {

@@ -7,6 +7,20 @@ from typing import Optional, Any
 
 logger = logging.getLogger("NexusPolyBot.DataProvider")
 
+def get_global_virtual_stake(conn) -> float:
+    """Считывает глобальную ставку из БД с фоллбеком на конфиг."""
+    try:
+        row = conn.execute("SELECT value FROM memory WHERE key = 'global_virtual_stake'").fetchone()
+        if row and row['value']:
+            return float(row['value'])
+    except Exception:
+        pass
+    try:
+        from core import config_provider
+        return float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
+    except Exception:
+        return 10.0
+
 def get_status_emoji(sharpe: float | None, win_rate: float | None) -> str:
     """Определяет статус-эмодзи стратегии на основе Sharpe и win rate."""
     if sharpe is not None and sharpe < 0:
@@ -88,11 +102,7 @@ def get_overview_stats() -> dict:
         seven_days_ago = now - timedelta(days=7)
         thirty_days_ago = now - timedelta(days=30)
         
-        try:
-            from core import config_provider
-            virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
-        except Exception:
-            virtual_stake = 10.0
+        virtual_stake = get_global_virtual_stake(conn)
 
         for r in penny_rows:
             pred = r['predicted_outcome']
@@ -242,13 +252,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
     Собирает данные для дашборда Penny Stocks (активные, завершенные позиции, статистика, распределение).
     """
     from agents.shared.python.db import get_connection
-    try:
-        from core import config_provider
-        virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
-    except Exception:
-        virtual_stake = 10.0
-
     with get_connection() as conn:
+        virtual_stake = get_global_virtual_stake(conn)
         # Подсчет общего количества активных
         active_total = conn.execute("""
             SELECT COUNT(*) as cnt
@@ -712,13 +717,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
     Собирает данные для дашборда Whale Following (активные, завершенные позиции, статистика, распределение).
     """
     from agents.shared.python.db import get_connection
-    try:
-        from core import config_provider
-        virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
-    except Exception:
-        virtual_stake = 10.0
-
     with get_connection() as conn:
+        virtual_stake = get_global_virtual_stake(conn)
         # Подсчет общего количества активных
         active_total = conn.execute("""
             SELECT COUNT(*) as cnt
@@ -1381,6 +1381,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
     """
     from agents.shared.python.db import get_connection
     with get_connection() as conn:
+        virtual_stake = get_global_virtual_stake(conn)
         # Подсчет общего количества активных
         active_total = conn.execute("""
             SELECT COUNT(*) as cnt
@@ -1434,22 +1435,29 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
             outcome = row_dict['outcome']
             actual = row_dict['actual_outcome']
             
-            # Авто-PnL (сигналы агентов) рассчитывается на 1 акцию: (1.0 if actual == outcome else 0.0) - price
+            # Авто-PnL (сигналы агентов) рассчитывается со стейком virtual_stake
             pnl_auto = None
-            if actual is not None and price is not None and outcome is not None:
-                pnl_auto = round((1.0 if actual == outcome else 0.0) - price, 4)
+            if actual is not None and price is not None and outcome is not None and price > 0:
+                actual_up = actual.upper()
+                outcome_up = outcome.upper()
+                if actual_up == outcome_up:
+                    pnl_auto = (virtual_stake / price) * (1.0 - price) * 0.98
+                else:
+                    pnl_auto = -virtual_stake
+                pnl_auto = round(pnl_auto, 2)
             row_dict['pnl_auto'] = pnl_auto
 
-            # Гипотетический ручной PnL в USD, если реальной сделки не было, но рынок разрешен (со стейком 50.0)
+            # Гипотетический ручной PnL в USD, если реальной сделки не было, но рынок разрешен
             pnl_realized = row_dict['pnl_realized']
             if pnl_realized is not None:
                 row_dict['pnl_is_hypothetical'] = False
-            elif actual is not None and price is not None and outcome is not None:
-                stake = 50.0
-                if actual == outcome:
-                    pnl_realized = stake * (1.0 - price) / price * (1.0 - 0.02)
+            elif actual is not None and price is not None and outcome is not None and price > 0:
+                actual_up = actual.upper()
+                outcome_up = outcome.upper()
+                if actual_up == outcome_up:
+                    pnl_realized = virtual_stake * (1.0 - price) / price * 0.98
                 else:
-                    pnl_realized = -stake
+                    pnl_realized = -virtual_stake
                 row_dict['pnl_realized'] = round(pnl_realized, 2)
                 row_dict['pnl_is_hypothetical'] = True
             else:
@@ -1473,13 +1481,12 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
             v_bought = row_dict['virtual_bought_price']
             v_curr = row_dict['price']
             
-            stake = 50.0
             pnl_usd = 0.0
-            if v_bought is not None and v_curr is not None:
-                pnl_usd = stake * (v_curr - v_bought) / v_bought
+            if v_bought is not None and v_curr is not None and v_bought > 0:
+                pnl_usd = virtual_stake * (v_curr - v_bought) / v_bought
                 if pnl_usd > 0:
-                    pnl_usd = pnl_usd * (1.0 - 0.02)
-            pnl_percent = (pnl_usd / stake) * 100 if stake > 0 else 0.0
+                    pnl_usd = pnl_usd * 0.98
+            pnl_percent = (pnl_usd / virtual_stake) * 100 if virtual_stake > 0 else 0.0
 
             row_dict['bought_outcome_price'] = round(v_bought, 4) if v_bought is not None else None
             row_dict['current_outcome_price'] = round(v_curr, 4) if v_curr is not None else None
@@ -1489,32 +1496,43 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
             portfolio.append(row_dict)
 
         # === 1. АВТО-СТАТИСТИКА (СИГНАЛЫ АГЕНТОВ) ===
-        auto_resolved_row = conn.execute("""
-            SELECT
-                COUNT(*) as count,
-                SUM(CASE WHEN actual_outcome = outcome THEN 1 ELSE 0 END) as wins,
-                MAX(
-                    (CASE WHEN actual_outcome = outcome THEN 1.0 ELSE 0.0 END) - price
-                ) as best_pnl,
-                AVG(
-                    (CASE WHEN actual_outcome = outcome THEN 1.0 ELSE 0.0 END) - price
-                ) as avg_pnl,
-                SUM(
-                    (CASE WHEN actual_outcome = outcome THEN 1.0 ELSE 0.0 END) - price
-                ) as total_pnl
+        all_resolved_auto = conn.execute("""
+            SELECT price, outcome, actual_outcome
             FROM compound_opportunities
             WHERE status = 'RESOLVED'
-        """).fetchone()
+        """).fetchall()
 
-        auto_win_rate = None
-        auto_best_pnl = 0.0
-        auto_avg_pnl = 0.0
+        auto_count = len(all_resolved_auto)
+        auto_wins = 0
+        auto_best_pnl = -999999.0
         auto_total_pnl = 0.0
-        if auto_resolved_row and auto_resolved_row['count'] > 0:
-            auto_win_rate = auto_resolved_row['wins'] / auto_resolved_row['count']
-            auto_best_pnl = auto_resolved_row['best_pnl'] or 0.0
-            auto_avg_pnl = auto_resolved_row['avg_pnl'] or 0.0
-            auto_total_pnl = auto_resolved_row['total_pnl'] or 0.0
+        sum_won = 0.0
+        sum_lost = 0.0
+
+        for r in all_resolved_auto:
+            price = r['price']
+            outcome = r['outcome']
+            actual = r['actual_outcome']
+            if price is not None and outcome is not None and actual is not None and price > 0:
+                act_up = actual.upper()
+                out_up = outcome.upper()
+                if act_up == out_up:
+                    auto_wins += 1
+                    pnl_val = (virtual_stake / price) * (1.0 - price) * 0.98
+                    sum_won += pnl_val
+                else:
+                    pnl_val = -virtual_stake
+                    sum_lost += virtual_stake
+                
+                auto_total_pnl += pnl_val
+                if pnl_val > auto_best_pnl:
+                    auto_best_pnl = pnl_val
+
+        if auto_best_pnl == -999999.0:
+            auto_best_pnl = 0.0
+
+        auto_win_rate = auto_wins / auto_count if auto_count > 0 else None
+        auto_avg_pnl = auto_total_pnl / auto_count if auto_count > 0 else 0.0
 
         avg_entry_auto_row = conn.execute("""
             SELECT AVG(price) as avg_entry
@@ -1527,12 +1545,14 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
             'active_count': active_total,
             'active_predicted_count': active_total,
             'resolved_count': resolved_total,
-            'auto_resolved_count': auto_resolved_row['count'] if auto_resolved_row else 0,
+            'auto_resolved_count': auto_count,
             'win_rate': auto_win_rate,
             'avg_entry_price': avg_entry_auto,
-            'best_trade_pnl': auto_best_pnl,
-            'avg_pnl': auto_avg_pnl,
-            'total_resolved_pnl': round(auto_total_pnl, 4)
+            'best_trade_pnl': round(auto_best_pnl, 2),
+            'avg_pnl': round(auto_avg_pnl, 2),
+            'total_resolved_pnl': round(auto_total_pnl, 2),
+            'sum_won': round(sum_won, 2),
+            'sum_lost': round(sum_lost, 2)
         }
 
         # === 2. РУЧНАЯ СТАТИСТИКА (ВИРТУАЛЬНЫЕ СДЕЛКИ) ===

@@ -18,6 +18,23 @@
     </div>
 </div>
 
+<div class="table-card" style="margin-top: 20px; padding: 20px; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); margin-bottom: 20px;">
+    <div class="table-title" style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+        <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+        Глобальные настройки управления рисками
+    </div>
+    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 24px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <label for="global-stake-input" style="font-weight: 500; font-size: 0.95rem;">Размер ставки для всех стратегий (USD):</label>
+            <input type="number" id="global-stake-input" min="1" step="1" style="width: 100px; padding: 6px 10px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: var(--text-primary); font-size: 0.95rem; text-align: center;" />
+        </div>
+        <button class="badge badge-green" style="border: none; padding: 8px 16px; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: opacity 0.2s;" onclick="saveGlobalStake()">Сохранить ставку</button>
+        <span class="text-muted" style="font-size: 0.85rem; border-left: 1px solid rgba(255, 255, 255, 0.1); padding-left: 15px; display: flex; align-items: center; gap: 6px;">
+            Комиссия Polymarket на чистую прибыль: <strong style="color: var(--accent-green);">2.0%</strong>
+        </span>
+    </div>
+</div>
+
 <div class="chart-card">
     <div class="chart-title">Сравнение доходности стратегий (30д)</div>
     <div style="height: calc(100% - 40px);">
@@ -341,6 +358,48 @@
             console.error("Ошибка загрузки статуса оценки:", err);
         }
     }
+
+    async function loadSettings() {
+        try {
+            const res = await fetch('/api/settings');
+            const data = await res.json();
+            if (data && data.global_virtual_stake) {
+                document.getElementById('global-stake-input').value = data.global_virtual_stake;
+            }
+        } catch (err) {
+            console.error("Ошибка загрузки настроек:", err);
+        }
+    }
+
+    async function saveGlobalStake() {
+        const val = parseFloat(document.getElementById('global-stake-input').value);
+        if (isNaN(val) || val <= 0) {
+            alert("Пожалуйста, введите корректный размер ставки");
+            return;
+        }
+        try {
+            const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ global_virtual_stake: val })
+            });
+            if (res.ok) {
+                alert("Ставка успешно сохранена для всех стратегий!");
+                loadOverviewData();
+            } else {
+                alert("Не удалось сохранить ставку");
+            }
+        } catch (err) {
+            console.error("Ошибка при сохранении ставки:", err);
+        }
+    }
+
+    // Загружаем настройки при инициализации данных
+    const originalLoadOverviewData = loadOverviewData;
+    loadOverviewData = async function() {
+        await loadSettings();
+        await originalLoadOverviewData();
+    };
 
     registerRefresh(loadOverviewData);
 </script>
