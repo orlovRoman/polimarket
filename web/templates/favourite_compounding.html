@@ -342,8 +342,8 @@
 
             document.getElementById('kpi-sum-won-card').style.display = 'block';
             document.getElementById('kpi-sum-lost-card').style.display = 'block';
-            document.getElementById('kpi-sum-won').innerHTML = formatPnLUSD(data.stats.sum_won);
-            document.getElementById('kpi-sum-lost').innerHTML = formatPnLUSD(data.stats.sum_lost);
+            document.getElementById('kpi-sum-won').textContent = `$${(data.stats.sum_won || 0.0).toFixed(2)}`;
+            document.getElementById('kpi-sum-lost').textContent = `$${(data.stats.sum_lost || 0.0).toFixed(2)}`;
         } else {
             kpiActiveTitle.textContent = "Активных сделок";
             kpiActive.textContent = data.portfolio ? data.portfolio.length : 0;
