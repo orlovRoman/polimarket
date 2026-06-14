@@ -398,7 +398,15 @@ PROVIDERS_CONFIG: dict = {
     },
     "openrouter": {
         "keys": [os.getenv("OPENROUTER_API_KEY", "")],
-        "models": [os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")],
+        "models": [
+            os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+            "nvidia/nemotron-3-super-120b-a12b:free",
+            "qwen/qwen3-next-80b-a3b-instruct:free",
+            "google/gemma-4-31b-it:free",
+            "openai/gpt-oss-120b:free",
+            "nousresearch/hermes-3-llama-3.1-405b:free",
+            "nvidia/nemotron-3-ultra-550b-a55b:free"
+        ],
         "send_func": _send_openrouter
     },
     "cerebras": {
@@ -527,6 +535,7 @@ def generate_content_with_fallback(
     cer_rr_idx_snapshot = int(get_memory("cer_rr_index") or 0)
     gem_rr_idx_snapshot = int(get_memory("gem_rr_index") or 0)
     gem_key_rr_idx_snapshot = int(get_memory("gem_key_rr_index") or 0)
+    or_rr_idx_snapshot = int(get_memory("or_rr_index") or 0)
 
     if "PYTEST_CURRENT_TEST" not in os.environ:
         time.sleep(random.uniform(0, 2.0))
@@ -577,7 +586,7 @@ def generate_content_with_fallback(
         "openrouter": {
             "keys": [k for k in PROVIDERS_CONFIG["openrouter"]["keys"] if k and k.strip()],
             "models": list(dict.fromkeys(
-                ([default_model] if (not is_gemini_model and not is_cerebras_model) else []) + [os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")]
+                ([default_model] if (not is_gemini_model and not is_cerebras_model) else []) + list(PROVIDERS_CONFIG["openrouter"]["models"])
             )),
             "send_func": PROVIDERS_CONFIG["openrouter"]["send_func"],
         },
@@ -618,9 +627,17 @@ def generate_content_with_fallback(
 
     # OpenRouter
     if "openrouter" in active_providers:
-        or_model_default = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
-        or_model = os.getenv(f"OPENROUTER_MODEL_{agent_name.upper()}", or_model_default)
-        plans.append(("openrouter", or_model))
+        or_models = providers["openrouter"]["models"]
+        agent_override = os.getenv(f"OPENROUTER_MODEL_{agent_name.upper()}")
+        if agent_override:
+            plans.append(("openrouter", agent_override))
+        else:
+            or_rotated = or_models[or_rr_idx_snapshot % len(or_models):] + or_models[:or_rr_idx_snapshot % len(or_models)]
+            or_seen = set()
+            for _om in or_rotated:
+                if _om not in or_seen:
+                    or_seen.add(_om)
+                    plans.append(("openrouter", _om))
 
     # Gemini
     if "gemini" in active_providers:
@@ -718,6 +735,11 @@ def generate_content_with_fallback(
                     cer_idx = int(get_memory("cer_rr_index") or 0)
                     cer_models = providers["cerebras"]["models"]
                     save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
+                    
+                if provider == "openrouter":
+                    or_idx = int(get_memory("or_rr_index") or 0)
+                    or_models = providers["openrouter"]["models"]
+                    save_memory("or_rr_index", (or_idx + 1) % len(or_models))
                     
                 if provider == "gemini":
                     gem_models_list = providers["gemini"]["models"]
