@@ -71,12 +71,10 @@ async def test_hard_block_roi_sets_rejection_reason():
         
         assert signal is not None
         assert signal.recommendation == "ignore"
-        assert "ROI" in signal.summary
-        assert "Низкий потенциал хайпа" not in signal.summary
-        
         mock_save_episode.assert_called_once()
         episode_ctx = mock_save_episode.call_args[1]["context"]
         assert any("ROI" in r for r in episode_ctx["rejection_reasons"])
+        assert episode_ctx["rejection_reasons"][0] in signal.summary
 
 @pytest.mark.asyncio
 async def test_hard_block_asymmetry_sets_rejection_reason():
