@@ -2211,6 +2211,7 @@ def update_episodes_for_market(market_id: str, resolved_outcome: str):
     if not market_id or not resolved_outcome:
         return
 
+    updated_agents = set()
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -2231,6 +2232,25 @@ def update_episodes_for_market(market_id: str, resolved_outcome: str):
                     "UPDATE agent_episodes SET outcome = ? WHERE id = ?",
                     (outcome_val, ep["id"])
                 )
+                if ep["agent_name"]:
+                    updated_agents.add(ep["agent_name"].upper())
+
+    # Обновляем накопленную статистику точности в memory для каждого затронутого агента после коммита транзакции
+    for agent_name in updated_agents:
+        stats = get_agent_accuracy(agent_name)
+        if stats['total'] > 0:
+            save_memory(
+                f"{agent_name.lower()}_accuracy_pct",
+                round(stats['accuracy'] * 100, 1),
+                category='fact',
+                priority=8
+            )
+            save_memory(
+                f"{agent_name.lower()}_evaluated_total",
+                stats['total'],
+                category='fact',
+                priority=8
+            )
 
 def get_agent_accuracy(agent_name: str) -> dict:
     """Возвращает статистику точности агента по завершённым эпизодам."""

@@ -75,14 +75,13 @@ class NexusAgent:
         # Добавляем структурированный блок точности агентов
         accuracy_str = ""
         try:
-            from agents.shared.python.db import get_memory
+            from agents.shared.python.db import get_agent_accuracy_context
             agent_names = ['scout', 'swing', 'shadow']
             accuracy_lines = []
             for name in agent_names:
-                total = get_memory(f"{name}_evaluated_total") or 0
-                acc   = get_memory(f"{name}_accuracy_pct") or 0.0
-                if total > 0:
-                    accuracy_lines.append(f"  {name.upper()}: {acc}% ({total} рынков)")
+                ctx_str = get_agent_accuracy_context(name, min_samples=1)
+                if ctx_str:
+                    accuracy_lines.append(f"  {ctx_str.strip()}")
             if accuracy_lines:
                 accuracy_str = "\n\nСТАТИСТИКА ТОЧНОСТИ АГЕНТОВ:\n" + "\n".join(accuracy_lines)
         except Exception as e:

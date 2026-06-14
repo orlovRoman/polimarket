@@ -402,3 +402,29 @@ def test_get_agent_episodes_filter_by_event_type(db_module):
         limit=5
     )
     assert len(all_episodes) >= 2
+
+def test_update_episodes_saves_accuracy_to_memory(db_module):
+    """Проверяем, что update_episodes_for_market обновляет эпизоды и записывает точность в memory."""
+    import json
+    ctx_str = json.dumps({"target_outcome": "YES"})
+    
+    with db_module.get_connection() as conn:
+        conn.execute('''
+            INSERT INTO agent_episodes (agent_name, event_type, market_id, market_title, summary, context, outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', ("SCOUT", "signal_resolved", "market_accurate_1", "Title 1", "Summary 1", ctx_str, "unknown"))
+    
+    # Запускаем обновление
+    db_module.update_episodes_for_market("market_accurate_1", "YES")
+    
+    # Проверяем, что эпизод обновлен в базе
+    eps = db_module.get_agent_episodes(agent_name="SCOUT", limit=5)
+    found = [e for e in eps if e['market_id'] == "market_accurate_1"]
+    assert len(found) == 1
+    assert found[0]['outcome'] == "correct"
+    
+    # Проверяем, что в memory записались точность и общее количество
+    acc = db_module.get_memory("scout_accuracy_pct")
+    total = db_module.get_memory("scout_evaluated_total")
+    assert total == 1
+    assert acc == 100.0
