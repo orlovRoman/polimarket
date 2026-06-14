@@ -153,23 +153,24 @@ def load_events_with_levels_from_raw(
         total_yes_prob = sum(m.price_yes for m in leveled)
         logger.debug(f"[SCA] '{event.get('title','')[:50]}': leveled={len(leveled)}, sum_yes={total_yes_prob:.2f}, units={event_units}")
 
-        # Проверяем наличие нарушения монотонности (потенциального арбитража) — O(n)
-        sorted_leveled = sorted(leveled, key=lambda m: m.numeric_level)
-        has_violation = any(
-            sorted_leveled[i].price_yes < sorted_leveled[i + 1].price_yes
-            for i in range(len(sorted_leveled) - 1)
-        )
-
         # Фильтр: отсекаем взаимоисключающие рынки (mutually exclusive)
-        # Если есть нарушение монотонности (арбитраж), пропускаем событие в детектор в любом случае.
-        if not has_violation and total_yes_prob < min_cumulative_sum:
+        # Кумулятивные рынки (например, "Ставка > 50 б.п.", "Ставка > 75 б.п.") всегда имеют сумму вероятностей > 1.0
+        # Взаимоисключающие рынки (например, кандидаты) имеют сумму ~1.0. Математика синтетических коридоров здесь не работает.
+        if total_yes_prob < min_cumulative_sum:
             logger.info(
                 f"[SCA] Пропущено '{event.get('title', '')[:40]}': "
-                f"sum(price_yes)={total_yes_prob:.2f} < {min_cumulative_sum} (взаимоисключающие бины)"
+                f"sum(price_yes)={total_yes_prob:.2f} < {min_cumulative_sum} (взаимоисключающие бины, не подходят для коридоров)"
             )
             stats["low_sum"] += 1
             continue
+
+        # Проверяем наличие нарушения монотонности (потенциального арбитража) — O(n)
+        sorted_leveled = sorted(leveled, key=lambda m: m.numeric_level)
         
+        # ЛОГИРОВАНИЕ УРОВНЕЙ И ЦЕН (ДЛЯ ДИАГНОСТИКИ)
+        levels_log = " | ".join([f"{m.numeric_level}{m.level_unit}: {m.price_yes:.2f}" for m in sorted_leveled])
+        logger.debug(f"[SCA] Анализ уровней '{event.get('title', '')[:40]}': {levels_log}")
+
         stats["passed"] += 1
         slug = event.get("slug", "")
         result.append(PolyEvent(

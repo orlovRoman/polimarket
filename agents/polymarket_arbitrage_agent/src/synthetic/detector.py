@@ -62,6 +62,11 @@ def find_violations(
                 
                 guaranteed_pnl = min(pnl_above_upper, pnl_below_lower)
                 
+                # ЛОГИРОВАНИЕ НАЙДЕННОЙ АНОМАЛИИ
+                import logging
+                logger = logging.getLogger("NexusPolyBot.SyntheticCorridor")
+                logger.debug(f"[SCA-DETECTOR] Аномалия: {lower.numeric_level} ({p_lower:.2f}) vs {upper.numeric_level} ({p_upper:.2f}) -> spread {spread_pct:.2f}%")
+
                 candidates.append(ViolationCandidate(
                     event=event,
                     lower=lower,

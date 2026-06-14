@@ -49,7 +49,7 @@ def run_synthetic_corridor_scan(
     logger.info(f"[SCA] Теоретических нарушений: {len(violations)}")
     
     if not violations:
-        logger.info("[SCA] Воронка: no_orderbook=0 low_spread=0 low_size=0 passed=0")
+        logger.info("[SCA] Арбитражных возможностей не обнаружено (нет теоретических нарушений).")
         return []
     
     session = make_session_with_timeout()
@@ -169,9 +169,10 @@ def run_synthetic_corridor_scan(
         )
     
     logger.info(
-        f"[SCA] Воронка: no_orderbook={stats['no_orderbook']} "
-        f"low_spread={stats['low_spread']} low_size={stats['low_size']} "
-        f"passed={stats['passed']}"
+        f"[SCA] Воронка ордербука (проверено {len(violations)} пар): "
+        f"недоступен={stats['no_orderbook']}, "
+        f"низкий спред={stats['low_spread']}, "
+        f"малый объем={stats['low_size']} -> "
+        f"ПРОШЛИ={stats['passed']}"
     )
-    logger.info(f"[SCA] Итого сигналов после фильтрации ордербуком: {len(found)}")
     return found
