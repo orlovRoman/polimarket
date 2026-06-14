@@ -52,10 +52,10 @@ def _parse_date(item: dict) -> Optional[datetime]:
 
 def load_events_with_levels_from_raw(
     raw_events: list[dict],
-    min_markets_per_event: int = 2,
+    min_markets: int = 2,
     min_volume_per_market: float = 5_000,
     min_cumulative_sum: float = 1.005,
-) -> list[PolyEvent]:
+) -> tuple[list[PolyEvent], dict]:
     """
     Парсит сырые события в PolyEvent с числовыми уровнями.
     Возвращает только события с >= 2 рынками с числовыми уровнями.
@@ -67,7 +67,7 @@ def load_events_with_levels_from_raw(
     for event in raw_events:
         stats["total"] += 1
         raw_markets = event.get("markets", [])
-        if len(raw_markets) < min_markets_per_event:
+        if len(raw_markets) < min_markets:
             stats["few_markets"] += 1
             continue
         
@@ -122,7 +122,7 @@ def load_events_with_levels_from_raw(
         
         # Только события где >= 2 рынков с распознанными числовыми уровнями
         leveled = [m for m in outcome_markets if m.numeric_level is not None]
-        if len(leveled) < min_markets_per_event:
+        if len(leveled) < min_markets:
             stats["no_levels"] += 1
             continue
         
@@ -153,19 +153,23 @@ def load_events_with_levels_from_raw(
         total_yes_prob = sum(m.price_yes for m in leveled)
         logger.debug(f"[SCA] '{event.get('title','')[:50]}': leveled={len(leveled)}, sum_yes={total_yes_prob:.2f}, units={event_units}")
 
+        # Проверяем наличие нарушения монотонности (потенциального арбитража) — O(n)
+        sorted_leveled = sorted(leveled, key=lambda m: m.numeric_level)
+        
+        has_violation = any(
+            sorted_leveled[i].price_yes < sorted_leveled[i + 1].price_yes
+            for i in range(len(sorted_leveled) - 1)
+        )
+
         # Фильтр: отсекаем взаимоисключающие рынки (mutually exclusive)
-        # Кумулятивные рынки (например, "Ставка > 50 б.п.", "Ставка > 75 б.п.") всегда имеют сумму вероятностей > 1.0
-        # Взаимоисключающие рынки (например, кандидаты) имеют сумму ~1.0. Математика синтетических коридоров здесь не работает.
-        if total_yes_prob < min_cumulative_sum:
+        # Если есть явное нарушение монотонности (has_violation), пропускаем этот фильтр (например, свежий рынок с неполными котировками)
+        if not has_violation and total_yes_prob < min_cumulative_sum:
             logger.info(
                 f"[SCA] Пропущено '{event.get('title', '')[:40]}': "
-                f"sum(price_yes)={total_yes_prob:.2f} < {min_cumulative_sum} (взаимоисключающие бины, не подходят для коридоров)"
+                f"sum(price_yes)={total_yes_prob:.2f} < {min_cumulative_sum} (нет нарушения и малая сумма)"
             )
             stats["low_sum"] += 1
             continue
-
-        # Проверяем наличие нарушения монотонности (потенциального арбитража) — O(n)
-        sorted_leveled = sorted(leveled, key=lambda m: m.numeric_level)
         
         # ЛОГИРОВАНИЕ УРОВНЕЙ И ЦЕН (ДЛЯ ДИАГНОСТИКИ)
         levels_log = " | ".join([f"{m.numeric_level}{m.level_unit}: {m.price_yes:.2f}" for m in sorted_leveled])
@@ -181,4 +185,4 @@ def load_events_with_levels_from_raw(
         ))
     
     logger.info(f"[SCA] Статистика парсинга: {stats}")
-    return result
+    return result, stats

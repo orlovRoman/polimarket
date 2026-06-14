@@ -39,7 +39,7 @@ def test_heuristic_filters_mutually_exclusive():
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
         
-        events = load_events_with_levels_from_raw(mock_events, min_markets_per_event=2, min_cumulative_sum=1.005)
+        events, stats = load_events_with_levels_from_raw(mock_events, min_markets=2, min_cumulative_sum=1.005)
         
         # Должно остаться только 1 событие
         assert len(events) == 1
@@ -59,10 +59,10 @@ def test_unit_normalization():
         ]
     }
     
-    events = load_events_with_levels_from_raw(
-        [mixed_event], 
-        min_markets_per_event=2, 
-        min_volume_per_market=1000, 
+    events, stats = load_events_with_levels_from_raw(
+        [mixed_event],
+        min_markets=2,
+        min_volume_per_market=1000,
         min_cumulative_sum=1.005
     )
     

@@ -23,6 +23,13 @@ def run_resolution_cycle() -> dict:
     """
     try:
         from agents.shared.python.db import cleanup_stale_signals, cleanup_old_episodes
+        from services.outcome_tracker import track_compound_opportunities
+        
+        # Разрешаем compound-сделки
+        compounds_resolved = track_compound_opportunities()
+        if compounds_resolved > 0:
+            logger.info(f"[OutcomeTracker] Разрешено compound_opportunities: {compounds_resolved}")
+            
         cleanup_stale_signals()
         deleted_episodes = cleanup_old_episodes(days=90)
         if deleted_episodes > 0:

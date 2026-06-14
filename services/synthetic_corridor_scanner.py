@@ -35,11 +35,12 @@ def run_synthetic_corridor_scan(
     multi = [e for e in raw if len(e.get("markets", [])) >= 2]
     logger.info(f"[SCA-ДИАГ] Из них multi-market (>=2): {len(multi)}")
 
-    events = load_events_with_levels_from_raw(
+    events, loader_stats = load_events_with_levels_from_raw(
         raw_events=raw,
+        min_markets=2,
         min_volume_per_market=min_volume,
     )
-    logger.info(f"[SCA] Событий с числовыми уровнями: {len(events)}")
+    logger.info(f"[SCA] Уникальных событий после парсинга: {len(events)}")
     
     violations = find_violations(
         events,
@@ -173,6 +174,7 @@ def run_synthetic_corridor_scan(
         f"недоступен={stats['no_orderbook']}, "
         f"низкий спред={stats['low_spread']}, "
         f"малый объем={stats['low_size']} -> "
-        f"ПРОШЛИ={stats['passed']}"
+        f"ПРОШЛИ={stats['passed']}. "
+        f"(Из-за суммы отброшено {loader_stats.get('low_sum', 0)} событий)"
     )
     return found

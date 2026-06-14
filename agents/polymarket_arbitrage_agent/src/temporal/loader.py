@@ -48,8 +48,8 @@ def _parse_dt(item: dict) -> datetime:
 def load_events_from_raw(
     raw_events: list[dict],
     min_markets: int = 2,
-    min_volume: float = 3_000,
-) -> list[PolyEvent]:
+    min_volume: float = 2_000,
+) -> tuple[list[PolyEvent], dict]:
     """
     Парсит сырые события с несколькими рынками.
     Возвращает только события с >= min_markets ликвидных рынков.
@@ -124,4 +124,4 @@ def load_events_from_raw(
         ))
 
     logger.info(f"[TC] Статистика парсинга: {stats}")
-    return result
+    return result, stats

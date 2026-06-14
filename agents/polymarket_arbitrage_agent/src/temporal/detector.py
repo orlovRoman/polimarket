@@ -1,5 +1,9 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import logging
+
+logger = logging.getLogger("NexusPolyBot.TemporalCorridor.detector")
+
 from .loader import PolyEvent, EventMarket
 
 @dataclass
@@ -60,6 +64,7 @@ def find_candidates(
 
                 # Фильтр: ликвидность обеих ног
                 if early.volume < min_volume or late.volume < min_volume:
+                    logger.debug(f"[TC-DETECTOR] Skipping event {event.id}: insufficient liquidity")
                     continue
 
                 gap = (late.close_time - early.close_time).days
@@ -74,6 +79,8 @@ def find_candidates(
 
                 theoretical_cost = no_cost + yes_cost
                 spread_pct = (1.0 - theoretical_cost) * 100
+                
+                logger.debug(f"[TC-DETECTOR] gap={gap} early={p_early} late={p_late} -> cost={theoretical_cost:.3f} spread={spread_pct:.1f}%")
 
                 if spread_pct < min_theoretical_spread_pct:
                     continue

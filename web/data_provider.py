@@ -1633,9 +1633,10 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
 
         # === 1. АВТО-СТАТИСТИКА (СИГНАЛЫ АГЕНТОВ) ===
         all_resolved_auto = conn.execute("""
-            SELECT price, outcome, actual_outcome
+            SELECT price, outcome, actual_outcome, resolved_at
             FROM compound_opportunities
-            WHERE status = 'RESOLVED'
+            WHERE status = 'RESOLVED' AND virtual_bought_price IS NULL
+            ORDER BY resolved_at ASC
         """).fetchall()
 
         auto_count = len(all_resolved_auto)
@@ -1644,6 +1645,18 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         auto_total_pnl = 0.0
         sum_won = 0.0
         sum_lost = 0.0
+        
+        current_streak = 0
+        streak_type = None
+        max_drawdown = 0.0
+        peak_pnl = 0.0
+        running_pnl = 0.0
+        
+        segments_data = {
+            "90-95%": {"count": 0, "wins": 0, "pnl": 0.0},
+            "95-97%": {"count": 0, "wins": 0, "pnl": 0.0},
+            "97-100%": {"count": 0, "wins": 0, "pnl": 0.0},
+        }
 
         for r in all_resolved_auto:
             price = r['price']
@@ -1652,17 +1665,51 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             if price is not None and outcome is not None and actual is not None and price > 0:
                 act_up = actual.upper()
                 out_up = outcome.upper()
-                if act_up == out_up:
+                is_win = (act_up == out_up)
+                
+                if is_win:
                     auto_wins += 1
                     pnl_val = (virtual_stake / price) * (1.0 - price) * 0.98
                     sum_won += pnl_val
+                    if streak_type == "WIN":
+                        current_streak += 1
+                    else:
+                        streak_type = "WIN"
+                        current_streak = 1
                 else:
                     pnl_val = -virtual_stake
                     sum_lost += virtual_stake
+                    if streak_type == "LOSS":
+                        current_streak += 1
+                    else:
+                        streak_type = "LOSS"
+                        current_streak = 1
                 
                 auto_total_pnl += pnl_val
                 if pnl_val > auto_best_pnl:
                     auto_best_pnl = pnl_val
+                    
+                running_pnl += pnl_val
+                if running_pnl > peak_pnl:
+                    peak_pnl = running_pnl
+                drawdown = peak_pnl - running_pnl
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+                    
+                if 0.90 <= price < 0.95:
+                    s_key = "90-95%"
+                elif 0.95 <= price < 0.97:
+                    s_key = "95-97%"
+                elif 0.97 <= price <= 1.00:
+                    s_key = "97-100%"
+                else:
+                    s_key = None
+                    
+                if s_key:
+                    segments_data[s_key]["count"] += 1
+                    if is_win:
+                        segments_data[s_key]["wins"] += 1
+                    segments_data[s_key]["pnl"] += pnl_val
 
         if auto_best_pnl == -999999.0:
             auto_best_pnl = 0.0
@@ -1677,6 +1724,26 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         """).fetchone()
         avg_entry_auto = avg_entry_auto_row['avg_entry'] if avg_entry_auto_row else None
 
+        kelly_fraction = 0.0
+        if auto_wins > 0 and auto_count > 0:
+            p = auto_wins / auto_count
+            avg_win_pnl = sum_won / auto_wins
+            if avg_win_pnl > 0:
+                b = avg_win_pnl / virtual_stake
+                kelly_fraction = p - ((1.0 - p) / b)
+                kelly_fraction = max(0.0, kelly_fraction)
+                
+        segments_list = []
+        for k, v in segments_data.items():
+            s_winrate = (v["wins"] / v["count"] * 100) if v["count"] > 0 else 0.0
+            s_avg_pnl = (v["pnl"] / v["count"]) if v["count"] > 0 else 0.0
+            segments_list.append({
+                "name": k,
+                "count": v["count"],
+                "win_rate": round(s_winrate, 1),
+                "avg_pnl": round(s_avg_pnl, 2)
+            })
+
         stats = {
             'active_count': active_total,
             'active_predicted_count': active_total,
@@ -1688,7 +1755,11 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             'avg_pnl': round(auto_avg_pnl, 2),
             'total_resolved_pnl': round(auto_total_pnl, 2),
             'sum_won': round(sum_won, 2),
-            'sum_lost': round(sum_lost, 2)
+            'sum_lost': round(sum_lost, 2),
+            'current_streak': f"{current_streak} {streak_type}" if streak_type else "0",
+            'max_drawdown': round(max_drawdown, 2),
+            'kelly_fraction': round(kelly_fraction * 100, 1),
+            'segments': segments_list
         }
 
         # === 2. РУЧНАЯ СТАТИСТИКА (ВИРТУАЛЬНЫЕ СДЕЛКИ) ===

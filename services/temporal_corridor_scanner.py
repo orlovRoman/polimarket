@@ -203,12 +203,12 @@ def run_temporal_corridor_scan(
     multi = [e for e in raw if len(e.get("markets", [])) >= 2]
     logger.info(f"[TC-ДИАГ] Из них multi-market (>=2): {len(multi)}")
 
-    events = load_events_from_raw(
+    events, loader_stats = load_events_from_raw(
         raw_events=raw,
         min_markets=2,
         min_volume=min_volume,
     )
-    logger.info(f"[TC] Событий с несколькими рынками: {len(events)}")
+    logger.info(f"[TC] Уникальных событий после парсинга: {len(events)}")
 
     # 2. Детектор — чистая математика
     candidates = find_candidates(
@@ -221,7 +221,11 @@ def run_temporal_corridor_scan(
 
     if not candidates:
         stats = {"no_orderbook": 0, "low_spread": 0, "low_size": 0, "low_quality": 0, "passed": 0}
-        logger.info(f"[TC] Воронка: {stats}")
+        logger.info(
+            f"[TC] Воронка ордербука (проверено 0 пар): "
+            f"недоступен=0, низкий спред=0, малый объем=0, низкое качество=0 -> ПРОШЛИ=0. "
+            f"(Из-за объема и количества рынков отброшено {loader_stats.get('low_volume', 0)} + {loader_stats.get('few_markets', 0)} событий)"
+        )
         return []
 
     session = make_session_with_timeout()
@@ -243,6 +247,13 @@ def run_temporal_corridor_scan(
         if signal:
             found.append(signal)
 
-    logger.info(f"[TC] Воронка: {stats}")
-    logger.info(f"[TC] Итого сигналов: {len(found)}")
+    logger.info(
+        f"[TC] Воронка ордербука (проверено {len(candidates)} пар): "
+        f"недоступен={stats['no_orderbook']}, "
+        f"низкий спред={stats['low_spread']}, "
+        f"малый объем={stats['low_size']}, "
+        f"низкое качество={stats['low_quality']} -> "
+        f"ПРОШЛИ={stats['passed']}. "
+        f"(Из-за объема/дат отброшено {loader_stats.get('low_volume', 0)} + {loader_stats.get('few_dates', 0)} событий)"
+    )
     return found
