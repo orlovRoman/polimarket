@@ -460,7 +460,7 @@ def _resolve_compound_outcomes() -> int:
             
         # 2. Если это авто-сделка (или лид/кандидат), разрешаем её
         opp_status = opp.get("status")
-        if opp_status in ("BOUGHT", "ALERTED", "ALERTED_EXIT", "NEW"):
+        if opp_status in ("BOUGHT", "ALERTED", "ALERTED_EXIT"):
             price = opp["price"]
             target_outcome = opp.get("outcome", "YES")
             was_correct = res == target_outcome
@@ -486,10 +486,10 @@ def _resolve_compound_outcomes() -> int:
                 if sig_row:
                     _resolve_signal(dict(sig_row), res)
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} Auto PnL=${pnl:.2f}")
-        elif resolved_manual:
-            # Если куплена только вручную, всё равно закрываем саму возможность
+        elif opp_status == "NEW" or resolved_manual:
+            # Если статус NEW или куплена только вручную, всё равно закрываем саму возможность
             resolve_compound_opportunity(opp["id"], res, None)
-            logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} (только ручная сделка)")
+            logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} (без PnL / только ручная сделка)")
             
         resolved_count += 1
 

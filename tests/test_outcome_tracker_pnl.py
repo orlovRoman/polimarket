@@ -185,6 +185,8 @@ class TestResolveCompoundByMarketId:
             def fetchall(self):
                 return self.data
             def fetchone(self):
+                if isinstance(self.data, list):
+                    return self.data[0] if self.data else None
                 return self.data
 
         def smart_execute(query, params=()):
@@ -230,6 +232,8 @@ class TestResolveCompoundByMarketId:
             def fetchall(self):
                 return self.data
             def fetchone(self):
+                if isinstance(self.data, list):
+                    return self.data[0] if self.data else None
                 return self.data
 
         def smart_execute(query, params=()):

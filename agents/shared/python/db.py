@@ -3301,19 +3301,23 @@ def delete_market_record(table_name: str, record_id: str) -> bool:
         logger.error(f"[DB] Ошибка мягкого удаления в {table_name} для ID {record_id}: {e}", exc_info=True)
         return False
 
-def get_agent_accuracy_context(agent_name: str, min_samples: int = 5) -> str:
+def get_agent_accuracy_context(agent_name: str, min_samples: int = 5) -> str | None:
     """Возвращает строку с контекстом точности агента для промпта."""
     try:
         key = agent_name.lower()
         total = get_memory(f"{key}_evaluated_total") or 0
         acc   = get_memory(f"{key}_accuracy_pct") or 0.0
         if total < min_samples:
-            return ""
+            logger.warning(
+                f"[DB] Недостаточно данных для оценки точности {agent_name}: "
+                f"оценено {total} рынков, требуется минимум {min_samples}."
+            )
+            return None
         advice = "Избегай самоуверенных прогнозов, если точность низкая." if acc < 50 else "Отличная точность, продолжай в том же духе."
         return f"\n📊 ТВОЯ СУММАРНАЯ СТАТИСТИКА: точность {acc}% на {total} разрешенных рынках. {advice}\n"
     except Exception as e:
         logger.warning(f"Не удалось получить контекст точности для {agent_name}: {e}")
-        return ""
+        return None
 
 if __name__ == "__main__":
     init_db()
