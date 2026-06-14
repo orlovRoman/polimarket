@@ -1857,9 +1857,12 @@ def get_eval_status() -> dict:
     from agents.shared.python.db import get_connection
     import json
 
+    from core.logger import LLMLogger
+
     result = {
         "tracker": None,
-        "calibrations": []
+        "calibrations": [],
+        "llm_analytics": LLMLogger.get_llm_analytics_last_24h()
     }
 
     with get_connection() as conn:

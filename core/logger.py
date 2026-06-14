@@ -87,3 +87,47 @@ class LLMLogger:
             logger.error(f"Error getting detailed token usage: {e}")
             
         return []
+
+    @staticmethod
+    def get_llm_analytics_last_24h() -> list:
+        """Агрегирует статистику вызовов, ошибок, токенов и задержек из llm_calls за последние 24 часа."""
+        try:
+            with get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT 
+                        model_name,
+                        COUNT(id) as total_calls,
+                        SUM(CASE WHEN error IS NULL THEN 1 ELSE 0 END) as successful_calls,
+                        SUM(input_tokens) as in_t,
+                        SUM(output_tokens) as out_t,
+                        SUM(total_tokens) as tot_t,
+                        AVG(latency_ms) as avg_latency
+                    FROM llm_calls 
+                    WHERE created_at >= datetime('now', '-1 day')
+                    GROUP BY model_name
+                    ORDER BY total_calls DESC
+                """)
+                rows = cursor.fetchall()
+                results = []
+                for row in rows:
+                    if row['model_name']:
+                        total_calls = int(row['total_calls'] or 0)
+                        successful_calls = int(row['successful_calls'] or 0)
+                        success_rate = (successful_calls / total_calls * 100.0) if total_calls > 0 else 0.0
+                        
+                        results.append({
+                            "model_name": row['model_name'],
+                            "total_calls": total_calls,
+                            "successful_calls": successful_calls,
+                            "success_rate": round(success_rate, 2),
+                            "input_tokens": int(row['in_t'] or 0),
+                            "output_tokens": int(row['out_t'] or 0),
+                            "total_tokens": int(row['tot_t'] or 0),
+                            "avg_latency_ms": int(row['avg_latency'] or 0)
+                        })
+                return results
+        except Exception as e:
+            logger.error(f"Error getting LLM analytics: {e}")
+            
+        return []

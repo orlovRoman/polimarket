@@ -95,6 +95,31 @@
     </div>
 </div>
 
+<div class="table-card" style="margin-top: 20px;">
+    <div class="table-title" style="display: flex; align-items: center; gap: 8px;">
+        <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+        Аналитика LLM Провайдеров (24h)
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Модель</th>
+                <th>Успех (%)</th>
+                <th>Всего вызовов</th>
+                <th>Вх. Токены</th>
+                <th>Вых. Токены</th>
+                <th>Всего Токенов</th>
+                <th>Ср. Задержка (мс)</th>
+            </tr>
+        </thead>
+        <tbody id="llm-analytics-tbody">
+            <tr>
+                <td colspan="7" style="text-align: center;" class="text-muted">Загрузка данных LLM...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
 <script>
     const strategyDisplayNames = {
         'scout': 'Scout (LLM)',
@@ -353,6 +378,32 @@
                     `;
                 } else {
                     calContent.innerHTML = `<span class="text-muted">Рекомендаций по калибровке пока не поступало.</span>`;
+                }
+            }
+            
+            // Рендерим LLM аналитику
+            if (evalStatus && evalStatus.llm_analytics) {
+                const llmBody = document.getElementById('llm-analytics-tbody');
+                if (evalStatus.llm_analytics.length > 0) {
+                    llmBody.innerHTML = evalStatus.llm_analytics.map(l => {
+                        let srColor = 'var(--text-primary)';
+                        if (l.success_rate < 80) srColor = 'var(--accent-red)';
+                        else if (l.success_rate >= 95) srColor = 'var(--accent-green)';
+                        
+                        return `
+                            <tr>
+                                <td style="font-weight:600; color:var(--text-primary);">${l.model_name}</td>
+                                <td style="color:${srColor}; font-weight:600;">${l.success_rate}%</td>
+                                <td>${l.total_calls.toLocaleString('ru-RU')}</td>
+                                <td>${l.input_tokens.toLocaleString('ru-RU')}</td>
+                                <td>${l.output_tokens.toLocaleString('ru-RU')}</td>
+                                <td>${l.total_tokens.toLocaleString('ru-RU')}</td>
+                                <td>${l.avg_latency_ms.toLocaleString('ru-RU')}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                } else {
+                    llmBody.innerHTML = `<tr><td colspan="7" style="text-align:center;" class="text-muted">Нет данных по LLM за последние 24 часа.</td></tr>`;
                 }
             }
         } catch (err) {
