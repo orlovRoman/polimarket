@@ -522,6 +522,8 @@ def test_get_whale_stocks_dashboard(isolated_db):
     assert data['active'] == []
     assert data['resolved'] == []
     assert data['stats']['active_count'] == 0
+    assert data['stats']['sum_won'] == 0.0
+    assert data['stats']['sum_lost'] == 0.0
 
     # Вставляем Whale Stocks
     with db_module.get_connection() as conn:
@@ -556,6 +558,8 @@ def test_get_whale_stocks_dashboard(isolated_db):
     assert data['resolved'][0]['pnl_realized'] == 200.0
     assert data['stats']['resolved_count'] == 1
     assert data['stats']['total_trades_pnl'] == 200.0
+    assert data['stats']['sum_won'] == 200.0
+    assert data['stats']['sum_lost'] == 0.0
     assert data['price_distribution']['1-20¢'] == 1  # whale_a(0.15)
     assert data['price_distribution']['40-60¢'] == 1 # whale_c(0.50)
 

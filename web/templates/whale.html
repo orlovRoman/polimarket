@@ -97,6 +97,14 @@
         <div class="kpi-title">Общий PnL (Все рынки)</div>
         <div class="kpi-value" id="kpi-all-pnl">$0.00</div>
     </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Сумма выигрышей</div>
+        <div class="kpi-value text-green" id="kpi-sum-won" style="color: var(--accent-green); font-weight: 600;">$0.00</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-title">Сумма проигрышей</div>
+        <div class="kpi-value text-red" id="kpi-sum-lost" style="color: var(--accent-red); font-weight: 600;">$0.00</div>
+    </div>
 </div>
 
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px;">
@@ -971,6 +979,8 @@
         document.getElementById('kpi-besttrade').innerHTML = formatPnLCents(data.stats.best_trade_pnl);
         document.getElementById('kpi-trades-pnl').innerHTML = formatPnL(data.stats.total_trades_pnl);
         document.getElementById('kpi-all-pnl').innerHTML = formatPnL(data.stats.total_resolved_pnl);
+        document.getElementById('kpi-sum-won').textContent = `$${(data.stats.sum_won || 0.0).toFixed(2)}`;
+        document.getElementById('kpi-sum-lost').textContent = `$${(data.stats.sum_lost || 0.0).toFixed(2)}`;
 
         // 2. Портфель
         const portfolioTbody = document.getElementById('portfolio-tbody');

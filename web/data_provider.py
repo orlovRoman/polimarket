@@ -1013,10 +1013,13 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         """).fetchall()
 
         total_resolved_pnl = 0.0
+        sum_won = 0.0
+        sum_lost = 0.0
         for r in all_resolved_rows:
             pnl_realized = r['pnl_realized']
+            pnl_val = 0.0
             if pnl_realized is not None:
-                total_resolved_pnl += pnl_realized * virtual_stake
+                pnl_val = pnl_realized * virtual_stake
             else:
                 actual = r['actual_outcome']
                 init = r['initial_price']
@@ -1028,7 +1031,13 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                     bought_outcome = (1.0 - init) if track_up == 'NO' else init
                     sold_outcome = 1.0 if act_up == track_up else 0.0
                     if bought_outcome > 0:
-                        total_resolved_pnl += (virtual_stake / bought_outcome) * (sold_outcome - bought_outcome)
+                        pnl_val = (virtual_stake / bought_outcome) * (sold_outcome - bought_outcome)
+            
+            total_resolved_pnl += pnl_val
+            if pnl_val > 0:
+                sum_won += pnl_val
+            elif pnl_val < 0:
+                sum_lost += abs(pnl_val)
 
         stats = {
             'active_count': total_active,
@@ -1039,7 +1048,9 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             'best_trade_pnl': best_pnl,
             'avg_pnl': avg_pnl,
             'total_trades_pnl': round(total_trades_pnl, 4),
-            'total_resolved_pnl': round(total_resolved_pnl, 4)
+            'total_resolved_pnl': round(total_resolved_pnl, 4),
+            'sum_won': round(sum_won, 2),
+            'sum_lost': round(sum_lost, 2)
         }
 
         # Распределение цен входа
