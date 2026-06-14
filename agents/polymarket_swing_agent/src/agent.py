@@ -553,7 +553,7 @@ class SwingAgent:
                             "warnings": warnings,
                             "hype_score": hype_score,
                         },
-                        outcome="unknown"
+                        outcome="unresolved" if recommendation == "ignore" else "unknown"
                     )
                 except Exception as ep_err:
                     print(f"[SWING] Ошибка сохранения эпизода: {ep_err}")

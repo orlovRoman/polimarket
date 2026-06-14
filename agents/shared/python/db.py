@@ -1395,7 +1395,6 @@ def compress_and_cleanup_chat_history(chat_id: int, keep_last: int = 20, summari
     summary_to_save = None
 
     with get_connection() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM chat_history WHERE chat_id = ?", (chat_id,))
         count = cursor.fetchone()[0]
@@ -2129,6 +2128,8 @@ def save_agent_episode(
             agent_name, event_type, market_id, market_title,
             summary, context_str, outcome
         ))
+        logger.debug(f"[Memory] Эпизод сохранён: agent={agent_name}, type={event_type}, "
+                     f"market={market_id}, outcome={outcome}, id={cursor.lastrowid}")
         return cursor.lastrowid
 
 def get_agent_episodes(
@@ -2235,6 +2236,9 @@ def update_episodes_for_market(market_id: str, resolved_outcome: str):
                 if ep["agent_name"]:
                     updated_agents.add(ep["agent_name"].upper())
 
+    if episodes:
+        logger.info(f"[Memory] Обновлено {len(episodes)} эпизодов для рынка {market_id} → {resolved_outcome}")
+
     # Обновляем накопленную статистику точности в memory для каждого затронутого агента после коммита транзакции
     for agent_name in updated_agents:
         stats = get_agent_accuracy(agent_name)
@@ -2262,7 +2266,7 @@ def get_agent_accuracy(agent_name: str) -> dict:
                 SUM(CASE WHEN outcome='correct' THEN 1 ELSE 0 END) as correct,
                 SUM(CASE WHEN outcome='incorrect' THEN 1 ELSE 0 END) as incorrect
             FROM agent_episodes
-            WHERE agent_name = ? AND outcome != 'unknown'
+            WHERE agent_name = ? AND outcome IN ('correct', 'incorrect')
         """, (agent_name,))
         row = cursor.fetchone()
         total = row['total'] or 0
@@ -2369,7 +2373,7 @@ def get_performance_summary(agent_name: str, limit: int = 20) -> str:
         cursor.execute("""
             SELECT summary, outcome, context, created_at
             FROM agent_episodes
-            WHERE agent_name = ? AND event_type = 'signal_resolved'
+            WHERE agent_name = ? AND event_type IN ('signal_resolved', 'signal_evaluated')
               AND outcome IN ('correct', 'incorrect')
             ORDER BY created_at DESC
             LIMIT ?
@@ -2381,12 +2385,13 @@ def get_performance_summary(agent_name: str, limit: int = 20) -> str:
                 COUNT(*) as total,
                 SUM(CASE WHEN outcome='correct' THEN 1 ELSE 0 END) as correct
             FROM agent_episodes
-            WHERE agent_name = ? AND event_type = 'signal_resolved'
+            WHERE agent_name = ? AND event_type IN ('signal_resolved', 'signal_evaluated')
               AND outcome IN ('correct', 'incorrect')
         """, (agent_name,))
         stats = cursor.fetchone()
 
     if not episodes:
+        logger.warning(f"[Memory] get_performance_summary: нет resolved-эпизодов для агента {agent_name}")
         return ""
     
     total = stats['total'] or 0
@@ -3304,17 +3309,21 @@ def delete_market_record(table_name: str, record_id: str) -> bool:
 def get_agent_accuracy_context(agent_name: str, min_samples: int = 5) -> str | None:
     """Возвращает строку с контекстом точности агента для промпта."""
     try:
-        key = agent_name.lower()
-        total = get_memory(f"{key}_evaluated_total") or 0
-        acc   = get_memory(f"{key}_accuracy_pct") or 0.0
-        if total < min_samples:
+        stats = get_agent_accuracy(agent_name.upper())
+        if not stats['total']:
+            return ""
+        if stats['total'] < min_samples:
             logger.warning(
                 f"[DB] Недостаточно данных для оценки точности {agent_name}: "
-                f"оценено {total} рынков, требуется минимум {min_samples}."
+                f"оценено {stats['total']} рынков, требуется минимум {min_samples}."
             )
             return None
-        advice = "Избегай самоуверенных прогнозов, если точность низкая." if acc < 50 else "Отличная точность, продолжай в том же духе."
-        return f"\n📊 ТВОЯ СУММАРНАЯ СТАТИСТИКА: точность {acc}% на {total} разрешенных рынках. {advice}\n"
+        accuracy = stats['accuracy'] or 0
+        return (
+            f"📊 Твоя статистика: {stats['correct']}/{stats['total']} правильных прогнозов "
+            f"({accuracy:.0%} точность). "
+            f"Ошибок: {stats['incorrect']}.\n"
+        )
     except Exception as e:
         logger.warning(f"Не удалось получить контекст точности для {agent_name}: {e}")
         return None
