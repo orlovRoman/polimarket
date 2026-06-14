@@ -81,6 +81,8 @@ def get_overview_stats() -> dict:
         total = len(penny_rows)
         pnl_7d = 0.0
         pnl_30d = 0.0
+        wins_30d = 0
+        total_30d = 0
         
         now = datetime.now(timezone.utc)
         seven_days_ago = now - timedelta(days=7)
@@ -119,6 +121,9 @@ def get_overview_stats() -> dict:
                 
             if res_at >= thirty_days_ago:
                 pnl_30d += pnl
+                total_30d += 1
+                if is_win:
+                    wins_30d += 1
 
         stats['penny_stocks']['pnl_7d'] = round(pnl_7d, 2)
         stats['penny_stocks']['pnl_30d'] = round(pnl_30d, 2)
@@ -138,8 +143,8 @@ def get_overview_stats() -> dict:
             stats['whale']['signals_count'] = whale_pnl['total']
 
         # 2.7 Рассчитываем win_rate для penny_stocks и whale (за последние 30 дней)
-        if penny_stats and penny_stats['total_30d'] is not None and penny_stats['total_30d'] > 0:
-            stats['penny_stocks']['win_rate'] = (penny_stats['wins_30d'] or 0) / penny_stats['total_30d']
+        if total_30d > 0:
+            stats['penny_stocks']['win_rate'] = wins_30d / total_30d
 
         whale_wr = conn.execute("""
             SELECT 

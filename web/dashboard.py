@@ -351,7 +351,14 @@ async def background_analyze_penny_markets(markets):
                 except Exception:
                     pass
                 
-                pre_orderbook = await asyncio.to_thread(engine._fetch_pre_orderbook, m)
+                if hasattr(engine, '_fetch_pre_orderbook'):
+                    pre_orderbook = await asyncio.to_thread(engine._fetch_pre_orderbook, m)
+                else:
+                    logger.warning(
+                        f"[PennyBg] engine._fetch_pre_orderbook not available, "
+                        f"running analysis without pre_orderbook for {m.id}"
+                    )
+                    pre_orderbook = None
                 
                 def dummy_update(**kwargs):
                     pass
@@ -882,6 +889,7 @@ def create_dashboard_app() -> web.Application:
     
     # HTML маршруты
     app.router.add_get("/favicon.ico", handle_favicon)
+    app.router.add_get("/favicon.png", handle_favicon)
     app.router.add_get("/", handle_overview)
     app.router.add_get("/penny-stocks", handle_penny_stocks)
     app.router.add_get("/favourite-compounding", handle_favourite_compounding)

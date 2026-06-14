@@ -70,8 +70,8 @@ async def test_scheduled_penny_monitor_no_outcome_attaches_keyboard(
 
     mock_send_message.assert_called_once()
     args, kwargs = mock_send_message.call_args
-    assert len(args) >= 2
-    msg_text = args[1]
+    msg_text = args[1] if len(args) >= 2 else kwargs.get("text", "")
+    assert msg_text, "send_message was called but text is empty"
     assert "(NO)" in msg_text, f"Expected '(NO)' in message text, got: {msg_text}"
     assert "reply_markup" in kwargs
     kb = kwargs["reply_markup"]

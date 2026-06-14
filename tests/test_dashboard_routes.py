@@ -51,9 +51,13 @@ async def test_html_routes_render_200(isolated_db):
 async def test_favicon_returns_200(isolated_db):
     app = create_dashboard_app()
     async with TestClient(TestServer(app)) as client:
-        resp = await client.get("/favicon.ico")
-        assert resp.status == 200
-        assert resp.content_type == "image/png"
+        resp_ico = await client.get("/favicon.ico")
+        assert resp_ico.status == 200
+        assert resp_ico.content_type == "image/png"
+        
+        resp_png = await client.get("/favicon.png")
+        assert resp_png.status == 200
+        assert resp_png.content_type == "image/png"
 
 @pytest.mark.asyncio
 async def test_api_buy_sell_routes(isolated_db):
