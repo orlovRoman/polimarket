@@ -846,6 +846,17 @@ async def api_analyze_market(request):
             }
         return web.json_response({"status": "completed", "opinions": opinions})
         
+    from agents.shared.python.db import get_last_analyzed_price
+    last_price = await asyncio.to_thread(get_last_analyzed_price, market_id)
+    if last_price is not None and not force:
+        from datetime import datetime, timezone
+        dummy_opinion = [{
+            "agent_name": "Система",
+            "message": "Рынок был проанализирован, но пропущен (не прошел первичные фильтры: ROI, ликвидность или вероятность). Детальный анализ агентами не проводился.",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }]
+        return web.json_response({"status": "completed", "opinions": dummy_opinion})
+        
     if _analysis_queue is None:
         return web.json_response({"error": "Сервер ещё инициализируется, попробуйте позже."}, status=503)
     try:

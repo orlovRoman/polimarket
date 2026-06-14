@@ -47,13 +47,13 @@
         <div class="kpi-title" id="kpi-total-pnl-title">Общий PnL</div>
         <div class="kpi-value" id="kpi-total-pnl">$0.00</div>
     </div>
-    <div class="kpi-card" id="kpi-sum-won-card" style="display: none;">
-        <div class="kpi-title" id="kpi-sum-won-title">Сумма выигрышей</div>
-        <div class="kpi-value text-green" id="kpi-sum-won" style="color: var(--accent-green); font-weight: 600;">$0.00</div>
+    <div class="kpi-card" id="kpi-wins-count-card" style="display: none;">
+        <div class="kpi-title" id="kpi-wins-count-title">Количество выигрышей</div>
+        <div class="kpi-value text-green" id="kpi-wins-count" style="color: var(--accent-green); font-weight: 600;">0</div>
     </div>
-    <div class="kpi-card" id="kpi-sum-lost-card" style="display: none;">
-        <div class="kpi-title" id="kpi-sum-lost-title">Сумма проигрышей</div>
-        <div class="kpi-value text-red" id="kpi-sum-lost" style="color: var(--accent-red); font-weight: 600;">$0.00</div>
+    <div class="kpi-card" id="kpi-losses-count-card" style="display: none;">
+        <div class="kpi-title" id="kpi-losses-count-title">Количество проигрышей</div>
+        <div class="kpi-value text-red" id="kpi-losses-count" style="color: var(--accent-red); font-weight: 600;">0</div>
     </div>
 </div>
 
@@ -343,10 +343,10 @@
             kpiTotalPnLTitle.textContent = "Общий PnL сигналов";
             kpiTotalPnL.innerHTML = formatPnLUSD(data.stats.total_resolved_pnl);
 
-            document.getElementById('kpi-sum-won-card').style.display = 'block';
-            document.getElementById('kpi-sum-lost-card').style.display = 'block';
-            document.getElementById('kpi-sum-won').textContent = `$${(data.stats.sum_won || 0.0).toFixed(2)}`;
-            document.getElementById('kpi-sum-lost').textContent = `$${(data.stats.sum_lost || 0.0).toFixed(2)}`;
+            document.getElementById('kpi-wins-count-card').style.display = 'block';
+            document.getElementById('kpi-losses-count-card').style.display = 'block';
+            document.getElementById('kpi-wins-count').textContent = data.wins_total ?? 0;
+            document.getElementById('kpi-losses-count').textContent = data.losses_total ?? 0;
         } else {
             kpiActiveTitle.textContent = "Активных сделок";
             kpiActive.textContent = data.portfolio ? data.portfolio.length : 0;
@@ -363,8 +363,8 @@
             kpiTotalPnLTitle.textContent = "Общий PnL сделок";
             kpiTotalPnL.innerHTML = formatPnLUSD(data.manual_stats.total_trades_pnl);
 
-            document.getElementById('kpi-sum-won-card').style.display = 'none';
-            document.getElementById('kpi-sum-lost-card').style.display = 'none';
+            document.getElementById('kpi-wins-count-card').style.display = 'none';
+            document.getElementById('kpi-losses-count-card').style.display = 'none';
         }
     }
 
@@ -469,6 +469,9 @@
         });
         sortDataArray(lossesData, sortState.losses.col, sortState.losses.dir);
         renderLossesTable(lossesData);
+
+        renderPaginationControls('wins-pagination', 'wins');
+        renderPaginationControls('losses-pagination', 'losses');
     }
 
     function renderLossesTable(lostList) {

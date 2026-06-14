@@ -623,7 +623,7 @@ def test_compounding_resolve_manual_and_auto(isolated_db):
             INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, outcome, virtual_bought_price, virtual_bought_at)
             VALUES 
             ('opp_win', 'mkt_win', 'Win Opp', 'http://win', 0.96, 12000.0, '2025-06-15 12:00:00', 48.0, 4.1, 0.85, 'BOUGHT', 'YES', 0.96, '2025-06-12 12:00:00'),
-            ('opp_lose', 'mkt_lose', 'Lose Opp', 'http://lose', 0.95, 12000.0, '2025-06-15 12:00:00', 48.0, 4.1, 0.85, 'NEW', 'YES', 0.95, '2025-06-12 12:00:00')
+            ('opp_lose', 'mkt_lose', 'Lose Opp', 'http://lose', 0.95, 12000.0, '2025-06-15 12:00:00', 48.0, 4.1, 0.85, 'BOUGHT', 'YES', 0.95, '2025-06-12 12:00:00')
         """)
         conn.execute("INSERT OR REPLACE INTO memory (key, value) VALUES ('global_virtual_stake', '50.0')")
 
@@ -661,7 +661,7 @@ def test_compounding_resolve_manual_and_auto(isolated_db):
         opp_lose = conn.execute("SELECT * FROM compound_opportunities WHERE id = 'opp_lose'").fetchone()
         assert opp_lose['status'] == 'RESOLVED'
         assert opp_lose['virtual_bought_price'] is None
-        assert opp_lose['pnl_usd'] is None
+        assert opp_lose['pnl_usd'] == -50.0
 
 
 def test_compounding_dashboard_hypothetical_pnl(isolated_db):

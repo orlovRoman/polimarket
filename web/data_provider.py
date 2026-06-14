@@ -1529,8 +1529,13 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             outcome = row_dict['outcome']
             actual = row_dict['actual_outcome']
             
+            if actual is None:
+                logger.warning(f"[_process_compound_resolved_row] Несогласованное состояние: actual_outcome IS NULL для {row_dict.get('id')}")
+                row_dict['pnl_is_hypothetical'] = None
+                return row_dict
+
             pnl_auto = None
-            if actual is not None and price is not None and outcome is not None and price > 0:
+            if price is not None and outcome is not None and price > 0:
                 actual_up = actual.upper()
                 outcome_up = outcome.upper()
                 if actual_up == outcome_up:
@@ -1543,7 +1548,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             pnl_realized = row_dict['pnl_realized']
             if pnl_realized is not None:
                 row_dict['pnl_is_hypothetical'] = False
-            elif actual is not None and price is not None and outcome is not None and price > 0:
+            elif price is not None and outcome is not None and price > 0:
                 actual_up = actual.upper()
                 outcome_up = outcome.upper()
                 if actual_up == outcome_up:
