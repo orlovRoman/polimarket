@@ -468,7 +468,8 @@ class SwingAgent:
                 else:
                     analysis["recommendation"] = "buy"
 
-                recommendation = analysis.get("recommendation", "ignore").lower()
+                # Защита от перезаписи: локальная переменная recommendation имеет высший приоритет
+                recommendation = recommendation.lower()
                 hype_potential = _safe_float(analysis.get("hype_potential"), 0.0)
                 target_outcome = direction
                 target_price = _safe_float(analysis.get("target_exit_price"), 0.15)
