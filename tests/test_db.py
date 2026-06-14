@@ -428,3 +428,17 @@ def test_update_episodes_saves_accuracy_to_memory(db_module):
     total = db_module.get_memory("scout_evaluated_total")
     assert total == 1
     assert acc == 100.0
+
+def test_update_episodes_with_empty_agent_name(db_module):
+    """Проверяем, что пустой agent_name не вызывает ошибку."""
+    with db_module.get_connection() as conn:
+        conn.execute('''
+            INSERT INTO agent_episodes 
+            (agent_name, event_type, market_id, market_title, summary, context, outcome)
+            VALUES ('', 'signal_resolved', 'market_empty_agent', 'Title', 'Summary', '{}', 'unknown')
+        ''')
+    # Не должно бросать исключение
+    db_module.update_episodes_for_market("market_empty_agent", "YES")
+    # memory не должна получить ключи для пустого агента
+    val = db_module.get_memory("_accuracy_pct")
+    assert val is None

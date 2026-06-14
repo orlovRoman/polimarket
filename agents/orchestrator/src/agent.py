@@ -79,9 +79,13 @@ class NexusAgent:
             agent_names = ['scout', 'swing', 'shadow']
             accuracy_lines = []
             for name in agent_names:
-                ctx_str = get_agent_accuracy_context(name, min_samples=1)
+                ctx_str = get_agent_accuracy_context(name, min_samples=5)
                 if ctx_str:
-                    accuracy_lines.append(f"  {ctx_str.strip()}")
+                    line = ctx_str.strip().replace(
+                        "📊 ТВОЯ СУММАРНАЯ СТАТИСТИКА:",
+                        f"📊 {name.upper()}:"
+                    )
+                    accuracy_lines.append(f"  {line}")
             if accuracy_lines:
                 accuracy_str = "\n\nСТАТИСТИКА ТОЧНОСТИ АГЕНТОВ:\n" + "\n".join(accuracy_lines)
         except Exception as e:
