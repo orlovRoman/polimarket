@@ -2216,7 +2216,7 @@ def update_episodes_for_market(market_id: str, resolved_outcome: str):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, agent_name, context FROM agent_episodes WHERE market_id = ? AND outcome = 'unknown'",
+            "SELECT id, agent_name, context FROM agent_episodes WHERE market_id = ? AND outcome IN ('unknown', 'unresolved')",
             (market_id,)
         )
         episodes = cursor.fetchall()
@@ -3311,7 +3311,7 @@ def get_agent_accuracy_context(agent_name: str, min_samples: int = 5) -> str | N
     try:
         stats = get_agent_accuracy(agent_name.upper())
         if not stats['total']:
-            return ""
+            return None
         if stats['total'] < min_samples:
             logger.warning(
                 f"[DB] Недостаточно данных для оценки точности {agent_name}: "

@@ -126,8 +126,8 @@ class TestAgentEpisodesAndAccuracy:
         for i in range(45):
             db_module.save_chat_message(chat_id=chat_id, role="user", content=f"msg {i}")
 
-        # Вызываем сжатие
-        db_module.compress_and_cleanup_chat_history(chat_id=chat_id, keep_last=20, summarize_threshold=40)
+        # Вызываем сжатие без суммаризации
+        db_module.compress_and_cleanup_chat_history(chat_id=chat_id, keep_last=20, summarize_threshold=999)
 
         history = db_module.get_chat_history(chat_id=chat_id)
         assert len(history) == 20

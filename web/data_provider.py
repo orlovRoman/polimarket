@@ -1481,7 +1481,7 @@ def get_corridors_dashboard(synthetic_page=1, synthetic_limit=50, temporal_page=
     }
 
 
-def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100) -> dict:
+def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins_limit=100, losses_page=1, losses_limit=100, history_page=1, history_limit=100) -> dict:
     """
     Собирает данные для дашборда Favourite Compounding (активные, завершенные позиции, статистика, ручной портфель, история ручных сделок).
     """
@@ -1509,39 +1509,26 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
 
         active = [dict(r) for r in active_rows]
 
-        # Подсчет общего количества завершенных
-        resolved_total = conn.execute("""
+        # Подсчет общего количества выигранных
+        wins_total = conn.execute("""
             SELECT COUNT(*) as cnt
             FROM compound_opportunities
-            WHERE status = 'RESOLVED'
+            WHERE status = 'RESOLVED' AND actual_outcome IS NOT NULL AND actual_outcome = outcome
         """).fetchone()['cnt']
 
-        # Завершенные позиции (все, авто-сигналы) с пагинацией
-        resolved_offset = (resolved_page - 1) * resolved_limit
-        resolved_rows = conn.execute("""
-            SELECT o.id, o.market_id, o.title, o.url, o.price, o.volume_usd, o.close_time,
-                   o.confidence, o.obviousness_reason, o.status, o.actual_outcome, o.outcome,
-                   o.resolved_at, o.exit_price, o.pnl_usd as pnl_auto,
-                   h.pnl_usd as pnl_realized
-            FROM compound_opportunities o
-            LEFT JOIN (
-                SELECT market_id, SUM(pnl_usd) as pnl_usd
-                FROM compound_virtual_trades_history
-                GROUP BY market_id
-            ) h ON o.market_id = h.market_id
-            WHERE o.status = 'RESOLVED'
-            ORDER BY o.resolved_at DESC
-            LIMIT ? OFFSET ?
-        """, (resolved_limit, resolved_offset)).fetchall()
+        # Подсчет общего количества проигранных
+        losses_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM compound_opportunities
+            WHERE status = 'RESOLVED' AND actual_outcome IS NOT NULL AND actual_outcome != outcome
+        """).fetchone()['cnt']
 
-        resolved = []
-        for r in resolved_rows:
+        def _process_compound_resolved_row(r, virtual_stake):
             row_dict = dict(r)
             price = row_dict['price']
             outcome = row_dict['outcome']
             actual = row_dict['actual_outcome']
             
-            # Авто-PnL (сигналы агентов) рассчитывается со стейком virtual_stake
             pnl_auto = None
             if actual is not None and price is not None and outcome is not None and price > 0:
                 actual_up = actual.upper()
@@ -1553,7 +1540,6 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
                 pnl_auto = round(pnl_auto, 2)
             row_dict['pnl_auto'] = pnl_auto
 
-            # Гипотетический ручной PnL в USD, если реальной сделки не было, но рынок разрешен
             pnl_realized = row_dict['pnl_realized']
             if pnl_realized is not None:
                 row_dict['pnl_is_hypothetical'] = False
@@ -1567,9 +1553,48 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
                 row_dict['pnl_realized'] = round(pnl_realized, 2)
                 row_dict['pnl_is_hypothetical'] = True
             else:
-                row_dict['pnl_is_hypothetical'] = None  # рынок не разрешен
+                row_dict['pnl_is_hypothetical'] = None
 
-            resolved.append(row_dict)
+            return row_dict
+
+        # Выигранные позиции с пагинацией
+        wins_offset = (wins_page - 1) * wins_limit
+        wins_rows = conn.execute("""
+            SELECT o.id, o.market_id, o.title, o.url, o.price, o.volume_usd, o.close_time,
+                   o.confidence, o.obviousness_reason, o.status, o.actual_outcome, o.outcome,
+                   o.resolved_at, o.exit_price, o.pnl_usd as pnl_auto,
+                   h.pnl_usd as pnl_realized
+            FROM compound_opportunities o
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_usd) as pnl_usd
+                FROM compound_virtual_trades_history
+                GROUP BY market_id
+            ) h ON o.market_id = h.market_id
+            WHERE o.status = 'RESOLVED' AND o.actual_outcome IS NOT NULL AND o.actual_outcome = o.outcome
+            ORDER BY o.resolved_at DESC
+            LIMIT ? OFFSET ?
+        """, (wins_limit, wins_offset)).fetchall()
+
+        # Проигранные позиции с пагинацией
+        losses_offset = (losses_page - 1) * losses_limit
+        losses_rows = conn.execute("""
+            SELECT o.id, o.market_id, o.title, o.url, o.price, o.volume_usd, o.close_time,
+                   o.confidence, o.obviousness_reason, o.status, o.actual_outcome, o.outcome,
+                   o.resolved_at, o.exit_price, o.pnl_usd as pnl_auto,
+                   h.pnl_usd as pnl_realized
+            FROM compound_opportunities o
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_usd) as pnl_usd
+                FROM compound_virtual_trades_history
+                GROUP BY market_id
+            ) h ON o.market_id = h.market_id
+            WHERE o.status = 'RESOLVED' AND o.actual_outcome IS NOT NULL AND o.actual_outcome != o.outcome
+            ORDER BY o.resolved_at DESC
+            LIMIT ? OFFSET ?
+        """, (losses_limit, losses_offset)).fetchall()
+
+        resolved_wins = [_process_compound_resolved_row(r, virtual_stake) for r in wins_rows]
+        resolved_losses = [_process_compound_resolved_row(r, virtual_stake) for r in losses_rows]
 
         # Виртуальный портфель (активный)
         portfolio_rows = conn.execute("""
@@ -1650,7 +1675,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
         stats = {
             'active_count': active_total,
             'active_predicted_count': active_total,
-            'resolved_count': resolved_total,
+            'resolved_count': wins_total + losses_total,
             'auto_resolved_count': auto_count,
             'win_rate': auto_win_rate,
             'avg_entry_price': avg_entry_auto,
@@ -1737,13 +1762,15 @@ def get_compounding_dashboard(active_page=1, active_limit=100, resolved_page=1, 
 
     return {
         'active': active,
-        'resolved': resolved,
+        'resolved_wins': resolved_wins,
+        'resolved_losses': resolved_losses,
         'portfolio': portfolio,
         'stats': stats,
         'manual_stats': manual_stats,
         'virtual_history': virtual_history,
-        'active_total': active_total,
-        'resolved_total': resolved_total,
+        'total_active': active_total,
+        'wins_total': wins_total,
+        'losses_total': losses_total,
         'history_total': history_total
     }
 

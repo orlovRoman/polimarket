@@ -118,24 +118,24 @@
             <thead>
                 <tr>
                     <th>#</th>
-                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
-                    <th onclick="toggleSort('resolved', 'price')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'price')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-price"></span></th>
+                    <th onclick="toggleSort('wins', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-wins-title"></span></th>
+                    <th onclick="toggleSort('wins', 'price')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'price')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-wins-price"></span></th>
                     <th>Направление</th>
                     <th>Исход Polymarket</th>
-                    <th onclick="toggleSort('resolved', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl_auto"></span></th>
-                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
-                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
+                    <th onclick="toggleSort('wins', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-wins-pnl_auto"></span></th>
+                    <th onclick="toggleSort('wins', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-wins-was_correct"></span></th>
+                    <th onclick="toggleSort('wins', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-wins-resolved_at"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
-            <tbody id="resolved-positions-tbody">
+            <tbody id="wins-positions-tbody">
                 <tr>
                     <td colspan="9" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
     </div>
-    <div id="resolved-pagination"></div>
+    <div id="wins-pagination"></div>
 </div>
 
 <div id="losses-card" class="table-card" style="display: none;">
@@ -161,6 +161,7 @@
             </tbody>
         </table>
     </div>
+    <div id="losses-pagination"></div>
 </div>
 
 <div id="history-card" class="table-card" style="display: none;">
@@ -192,7 +193,8 @@
 <script>
     let pagination = {
         active: { page: 1, limit: 50, total: 0 },
-        resolved: { page: 1, limit: 50, total: 0 },
+        wins: { page: 1, limit: 50, total: 0 },
+        losses: { page: 1, limit: 50, total: 0 },
         history: { page: 1, limit: 50, total: 0 }
     };
 
@@ -276,7 +278,8 @@
     let currentTab = 'auto';
     let sortState = {
         active: { col: 'close_time', dir: 'asc' },
-        resolved: { col: 'resolved_at', dir: 'desc' }
+        wins: { col: 'resolved_at', dir: 'desc' },
+        losses: { col: 'resolved_at', dir: 'desc' }
     };
     let lastFetchedData = null;
 
@@ -453,16 +456,19 @@
         sortDataArray(activeData, sortState.active.col, sortState.active.dir);
         renderActiveTable(activeData);
         
-        let resolvedData = [...lastFetchedData.resolved];
-        resolvedData.forEach(row => {
+        let winsData = [...lastFetchedData.resolved_wins];
+        winsData.forEach(row => {
             row.was_correct = row.outcome === row.actual_outcome;
         });
-        sortDataArray(resolvedData, sortState.resolved.col, sortState.resolved.dir);
-        renderResolvedTable(resolvedData);
+        sortDataArray(winsData, sortState.wins.col, sortState.wins.dir);
+        renderWinsTable(winsData);
 
-        // Фильтруем проигранные рынки
-        let lostData = resolvedData.filter(row => row.was_correct === false);
-        renderLossesTable(lostData);
+        let lossesData = [...lastFetchedData.resolved_losses];
+        lossesData.forEach(row => {
+            row.was_correct = false; // By definition these are losses
+        });
+        sortDataArray(lossesData, sortState.losses.col, sortState.losses.dir);
+        renderLossesTable(lossesData);
     }
 
     function renderLossesTable(lostList) {
@@ -525,20 +531,20 @@
         }
     }
 
-    function renderResolvedTable(resolvedList) {
-        const resolvedTbody = document.getElementById('resolved-positions-tbody');
-        if (resolvedList.length === 0) {
-            resolvedTbody.innerHTML = `<tr><td colspan="9" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
+    function renderWinsTable(winsList) {
+        const winsTbody = document.getElementById('wins-positions-tbody');
+        if (winsList.length === 0) {
+            winsTbody.innerHTML = `<tr><td colspan="9" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
         } else {
-            resolvedTbody.innerHTML = resolvedList.map((row, index) => {
-                const wasCorrect = row.outcome === row.actual_outcome;
+            winsTbody.innerHTML = winsList.map((row, index) => {
+                const wasCorrect = true;
                 const resultBadge = wasCorrect 
                     ? '<span class="badge badge-green">✅ WIN</span>' 
                     : '<span class="badge badge-red">❌ LOSS</span>';
                 
                 let directionBadge = `<span class="badge ${row.outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.outcome}</span>`;
                 const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('compound_opportunities', '${row.id}')">🗑️</button>`;
-                const globalIndex = (pagination.resolved.page - 1) * pagination.resolved.limit + index + 1;
+                const globalIndex = (pagination.wins.page - 1) * pagination.wins.limit + index + 1;
                 return `
                     <tr>
                         <td>${globalIndex}</td>
@@ -581,14 +587,15 @@
     }
 
     async function loadCompoundingData() {
-        const url = `/api/favourite-compounding?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&resolved_page=${pagination.resolved.page}&resolved_limit=${pagination.resolved.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}`;
+        const url = `/api/favourite-compounding?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&wins_page=${pagination.wins.page}&wins_limit=${pagination.wins.limit}&losses_page=${pagination.losses.page}&losses_limit=${pagination.losses.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}`;
         const data = await fetchJSON(url);
 
         if (!data) return;
 
         lastFetchedData = data;
-        pagination.active.total = data.active_total || 0;
-        pagination.resolved.total = data.resolved_total || 0;
+        pagination.active.total = data.total_active || 0;
+        pagination.wins.total = data.wins_total || 0;
+        pagination.losses.total = data.losses_total || 0;
         pagination.history.total = data.history_total || 0;
 
         // 1. Рендерим KPI
@@ -621,10 +628,12 @@
         renderTablesOnly();
         renderVirtualHistoryTable(data.virtual_history);
         renderPaginationControls('active-pagination', 'active');
-        renderPaginationControls('resolved-pagination', 'resolved');
+        renderPaginationControls('wins-pagination', 'wins');
+        renderPaginationControls('losses-pagination', 'losses');
         renderPaginationControls('history-pagination', 'history');
         updateSortIndicators('active');
-        updateSortIndicators('resolved');
+        updateSortIndicators('wins');
+        updateSortIndicators('losses');
     }
 
     // Регистрируем хэндлер обновления в глобальном цикле
