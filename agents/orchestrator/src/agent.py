@@ -93,9 +93,11 @@ class NexusAgent:
             f"ВНИМАНИЕ: Все рынки на {datetime.now(timezone.utc).year - 1} год и ранее считаются ИСТЕКШИМИ. Не анализируй их.\n\n"
             f"ТЫ — NEXUS, главный ИИ-координатор команды (SCOUT, SWING, SHADOW).\n"
             f"Твоя цель — живой диалог, управление системой и глубокая аналитика.\n\n"
-            f"ЯДРО ПАМЯТИ (Layer 1 - Durable Facts):\n{facts_str}{accuracy_str}\n\n"
-            f"ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ:\n{self.base_instructions}"
+            f"ЯДРО ПАМЯТИ (Layer 1 - Durable Facts):\n{facts_str}\n\n"
         )
+        if accuracy_str:
+            prompt += f"{accuracy_str.strip()}\n\n"
+        prompt += f"ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ:\n{self.base_instructions}"
         return prompt
 
     # --- Скрининг рынков (SCREENER mode) ---

@@ -365,3 +365,40 @@ class TestWhaleStocksMonitoringWalletAddress:
         found = [s for s in active_stocks if s['market_id'] == market_id]
         assert len(found) == 1
         assert found[0]['wallet_address'] == wallet_address
+
+def test_get_agent_episodes_filter_by_event_type(db_module):
+    """Проверяем, что get_agent_episodes корректно фильтрует записи по event_type."""
+    # Сохраняем тестовые эпизоды
+    db_module.save_agent_episode(
+        agent_name="SCOUT",
+        event_type="signal_resolved",
+        market_id="m1",
+        market_title="Market 1",
+        summary="Summary 1",
+        outcome="correct"
+    )
+    db_module.save_agent_episode(
+        agent_name="SCOUT",
+        event_type="opinion_formed",
+        market_id="m2",
+        market_title="Market 2",
+        summary="Summary 2",
+        outcome="none"
+    )
+    
+    # Запрашиваем с фильтром по event_type='signal_resolved'
+    resolved_episodes = db_module.get_agent_episodes(
+        agent_name="SCOUT",
+        event_type="signal_resolved",
+        limit=5
+    )
+    assert len(resolved_episodes) == 1
+    assert resolved_episodes[0]['market_id'] == "m1"
+    assert resolved_episodes[0]['event_type'] == "signal_resolved"
+
+    # Запрашиваем без фильтра по event_type
+    all_episodes = db_module.get_agent_episodes(
+        agent_name="SCOUT",
+        limit=5
+    )
+    assert len(all_episodes) >= 2

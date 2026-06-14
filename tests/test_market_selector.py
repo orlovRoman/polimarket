@@ -230,9 +230,11 @@ def test_filter_no_cooldown_price_lookup():
     selector = MarketSelector(mock_adapter)
     
     with patch("agents.shared.python.market_selector.get_markets_on_cooldown", return_value=cooldown_set), \
-         patch("agents.shared.python.market_selector.get_all_listed_market_ids", return_value={'ignored': set(), 'watching': set()}):
+         patch("agents.shared.python.market_selector.get_all_listed_market_ids", return_value={'ignored': set(), 'watching': set()}), \
+         patch("agents.shared.python.db.get_last_analyzed_prices") as mock_bulk:
         res = selector._filter(markets)
         assert len(res) == 0  # Все отфильтрованы по cooldown
+        mock_bulk.assert_not_called()
 
 def test_penny_fetch_respects_min_hours():
     """Рынок с 6ч до закрытия не должен войти в penny при min_hours=12, но должен войти при min_hours=1."""
