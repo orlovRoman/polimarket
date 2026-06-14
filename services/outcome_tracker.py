@@ -214,24 +214,7 @@ def _resolve_signal(row: dict, resolution: str) -> None:
     except Exception as e:
         logger.error(f"[OutcomeTracker] Ошибка при сохранении эпизода агента: {e}")
 
-    # Обновляем точность в memory
-    if resolution != 'N/A':
-        try:
-            total_correct_key = f"{agent_name.lower()}_correct_total"
-            total_eval_key   = f"{agent_name.lower()}_evaluated_total"
-            accuracy_key     = f"{agent_name.lower()}_accuracy_pct"
 
-            prev_correct  = get_memory(total_correct_key) or 0
-            prev_total    = get_memory(total_eval_key)    or 0
-            new_correct   = prev_correct + (1 if was_correct else 0)
-            new_total     = prev_total + 1
-            new_accuracy  = round(new_correct / new_total * 100, 1) if new_total > 0 else 0.0
-
-            save_memory(total_correct_key, new_correct, category='fact', priority=7)
-            save_memory(total_eval_key,    new_total,   category='fact', priority=7)
-            save_memory(accuracy_key,      new_accuracy, category='fact', priority=9)
-        except Exception as e:
-            logger.error(f"[OutcomeTracker] Ошибка при обновлении memory точности: {e}")
 
     with get_connection() as conn:
         conn.execute("""
@@ -340,7 +323,10 @@ def _upsert_strategy_metrics(strategy_type: str) -> None:
         
         ece_val = None
         if ece_rows:
-            records = [{"prob": r["prob"], "actual": float(r["was_profitable"])} for r in ece_rows]
+            try:
+                records = [{"prob": r["prob"], "actual": float(r["was_profitable"])} for r in ece_rows]
+            except (KeyError, TypeError, IndexError):
+                records = []
             n_bins = 10
             total_signals = len(records)
             ece = 0.0
@@ -437,9 +423,27 @@ def _resolve_compound_outcomes() -> int:
     cfg = get_compound_settings()
     virtual_stake = cfg.get("virtual_stake", 50.0)
     
-    # Находим активные позиции, которые были авто-куплены или вручную куплены
-    active_opps = get_active_compound_opportunities()
-    to_resolve = [o for o in active_opps if o["status"] in ("BOUGHT", "ALERTED_EXIT") or o["virtual_bought_price"] is not None]
+    # Находим все неразрешенные compound-позиции, у которых наступило время закрытия или которые уже разрешены оракулом
+    try:
+        with get_connection() as conn:
+            row = conn.execute("SELECT value FROM memory WHERE key = 'global_virtual_stake'").fetchone()
+            if row and row['value']:
+                virtual_stake = float(row['value'])
+    except Exception:
+        pass
+
+    with get_connection() as conn:
+        to_resolve_rows = conn.execute("""
+            SELECT o.*, m.outcome as market_resolved_outcome
+            FROM compound_opportunities o
+            LEFT JOIN markets m ON o.market_id = m.id
+            WHERE o.status != 'RESOLVED'
+              AND (
+                  datetime(o.close_time) < datetime('now')
+                  OR m.outcome IN ('YES', 'NO')
+              )
+        """).fetchall()
+    to_resolve = [dict(r) for r in to_resolve_rows]
     resolved_count = 0
 
     for opp in to_resolve:
@@ -449,13 +453,14 @@ def _resolve_compound_outcomes() -> int:
             
         # 1. Если это ручная сделка в виртуальном портфеле, разрешаем её
         resolved_manual = False
-        if opp["virtual_bought_price"] is not None:
+        if opp.get("virtual_bought_price") is not None:
             from agents.shared.python.db import resolve_compound_opportunity_manual_portfolio
             resolve_compound_opportunity_manual_portfolio(opp["id"], res)
             resolved_manual = True
             
-        # 2. Если это авто-сделка, разрешаем её
-        if opp["status"] in ("BOUGHT", "ALERTED_EXIT"):
+        # 2. Если это авто-сделка (или лид/кандидат), разрешаем её
+        opp_status = opp.get("status")
+        if opp_status in ("BOUGHT", "ALERTED", "ALERTED_EXIT", "NEW"):
             price = opp["price"]
             target_outcome = opp.get("outcome", "YES")
             was_correct = res == target_outcome
@@ -474,7 +479,7 @@ def _resolve_compound_outcomes() -> int:
             # Разрешаем соответствующий сигнал в signals (чтобы обновились strategy_metrics)
             with get_connection() as conn:
                 sig_row = conn.execute(
-                    "SELECT * FROM signals WHERE market_id = ? AND strategy_type = 'FAVOURITE_COMPOUND' "
+                    "SELECT * FROM signals WHERE market_id = ? AND UPPER(strategy_type) = 'FAVOURITE_COMPOUND' "
                     "ORDER BY created_at DESC LIMIT 1",
                     (opp["market_id"],)
                 ).fetchone()

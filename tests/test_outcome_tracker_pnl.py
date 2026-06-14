@@ -161,10 +161,9 @@ class TestResolveCompoundByMarketId:
     @patch("agents.shared.python.db.resolve_compound_opportunity")
     @patch("agents.shared.python.db.get_compound_settings",
            return_value={"virtual_stake": 50.0})
-    @patch("agents.shared.python.db.get_active_compound_opportunities")
     @patch("agents.shared.python.db.get_connection")
     def test_signal_found_by_market_id_not_opp_id(
-        self, mock_conn, mock_opps, mock_cfg,
+        self, mock_conn, mock_cfg,
         mock_resolve_opp, mock_resolve_sig, mock_fetch
     ):
         opp = {
@@ -173,15 +172,30 @@ class TestResolveCompoundByMarketId:
             "status": "BOUGHT",
             "price": 0.97,
         }
-        mock_opps.return_value = [opp]
         # Сигнал найден по market_id
         fake_sig = {"id": "scout-uuid-0xabc123", "market_id": "0xabc123",
                     "strategy_type": "FAVOURITE_COMPOUND", "target_outcome": "YES",
                     "edge": 0.03, "confidence": 0.8, "created_at": "2026-06-05",
                     "estimated_probability": 0.97, "market_price_at_signal": 0.97,
                     "market_title": "Test market"}
-        mock_conn.return_value.__enter__.return_value.execute \
-            .return_value.fetchone.return_value = fake_sig
+
+        class FakeCursor:
+            def __init__(self, data):
+                self.data = data
+            def fetchall(self):
+                return self.data
+            def fetchone(self):
+                return self.data
+
+        def smart_execute(query, params=()):
+            if "compound_opportunities" in query:
+                return FakeCursor([opp])
+            elif "signals" in query:
+                return FakeCursor(fake_sig)
+            return FakeCursor(None)
+
+        conn_mock = mock_conn.return_value.__enter__.return_value
+        conn_mock.execute.side_effect = smart_execute
 
         from services.outcome_tracker import _resolve_compound_outcomes
         count = _resolve_compound_outcomes()
@@ -189,7 +203,7 @@ class TestResolveCompoundByMarketId:
         assert count == 1
         mock_resolve_sig.assert_called_once()
         # Должен искать по market_id, не по opp["id"]
-        call_args = mock_conn.return_value.__enter__.return_value.execute.call_args
+        call_args = conn_mock.execute.call_args
         assert "market_id" in call_args[0][0]
 
     @patch("services.outcome_tracker._fetch_resolution", return_value="NO")
@@ -197,10 +211,9 @@ class TestResolveCompoundByMarketId:
     @patch("agents.shared.python.db.resolve_compound_opportunity")
     @patch("agents.shared.python.db.get_compound_settings",
            return_value={"virtual_stake": 50.0})
-    @patch("agents.shared.python.db.get_active_compound_opportunities")
     @patch("agents.shared.python.db.get_connection")
     def test_resolve_compound_no_outcome_correct_pnl(
-        self, mock_conn, mock_opps, mock_cfg,
+        self, mock_conn, mock_cfg,
         mock_resolve_opp, mock_resolve_sig, mock_fetch
     ):
         opp = {
@@ -210,9 +223,24 @@ class TestResolveCompoundByMarketId:
             "price": 0.96,
             "outcome": "NO",
         }
-        mock_opps.return_value = [opp]
-        mock_conn.return_value.__enter__.return_value.execute \
-            .return_value.fetchone.return_value = None
+
+        class FakeCursor:
+            def __init__(self, data):
+                self.data = data
+            def fetchall(self):
+                return self.data
+            def fetchone(self):
+                return self.data
+
+        def smart_execute(query, params=()):
+            if "compound_opportunities" in query:
+                return FakeCursor([opp])
+            elif "signals" in query:
+                return FakeCursor(None)
+            return FakeCursor(None)
+
+        conn_mock = mock_conn.return_value.__enter__.return_value
+        conn_mock.execute.side_effect = smart_execute
 
         from services.outcome_tracker import _resolve_compound_outcomes
         count = _resolve_compound_outcomes()
