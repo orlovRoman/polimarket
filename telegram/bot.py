@@ -2695,7 +2695,10 @@ async def callback_analyze_market(callback: CallbackQuery) -> None:
             except Exception:
                 pass
                 
-            pre_orderbook = engine._fetch_pre_orderbook(market)
+            if hasattr(engine, '_fetch_pre_orderbook'):
+                pre_orderbook = engine._fetch_pre_orderbook(market)
+            else:
+                pre_orderbook = None
             
             signal, swing_signal, context = await run_agent_evaluation(
                 market,

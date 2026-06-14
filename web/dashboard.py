@@ -692,7 +692,14 @@ async def _run_analysis_in_background_impl(market_id: str):
         except Exception:
             pass
             
-        pre_orderbook = engine._fetch_pre_orderbook(market)
+        if hasattr(engine, '_fetch_pre_orderbook'):
+            pre_orderbook = engine._fetch_pre_orderbook(market)
+        else:
+            logger.warning(
+                f"[AnalysisBg] engine._fetch_pre_orderbook not available, "
+                f"running analysis without pre_orderbook for {market.id}"
+            )
+            pre_orderbook = None
         
         def sync_update_state(**kwargs):
             scout_status = kwargs.get("scout_status")

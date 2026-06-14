@@ -367,7 +367,10 @@ async def scheduled_penny_discovery():
                 except Exception:
                     pass
                 
-                pre_orderbook = engine._fetch_pre_orderbook(m)
+                if hasattr(engine, '_fetch_pre_orderbook'):
+                    pre_orderbook = engine._fetch_pre_orderbook(m)
+                else:
+                    pre_orderbook = None
                 
                 def dummy_update(**kwargs):
                     pass
