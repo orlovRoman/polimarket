@@ -150,6 +150,7 @@
             </tbody>
         </table>
     </div>
+    <div id="resolved-pagination-wins"></div>
 </div>
 
 <div id="resolved-card-losses" class="table-card" style="margin-bottom: 24px;">
@@ -180,7 +181,7 @@
             </tbody>
         </table>
     </div>
-    <div id="resolved-pagination"></div>
+    <div id="resolved-pagination-losses"></div>
 </div>
 
 <div id="history-card" class="table-card" style="display: none;">
@@ -1232,7 +1233,8 @@
         renderTablesOnly();
         renderVirtualHistoryTable(data.virtual_history);
         renderPaginationControls('active-pagination', 'active');
-        renderPaginationControls('resolved-pagination', 'resolved');
+        renderPaginationControls('resolved-pagination-wins', 'resolved');
+        renderPaginationControls('resolved-pagination-losses', 'resolved');
         renderPaginationControls('history-pagination', 'history');
         updateSortIndicators('active');
         updateSortIndicators('resolved');
