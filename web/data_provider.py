@@ -507,6 +507,34 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         """).fetchone()
         avg_entry_auto = avg_entry_auto_row['avg_entry'] if avg_entry_auto_row else None
 
+        # Расчет суммы выигрышей и проигрышей для авто-сигналов с прогнозом
+        all_resolved_auto = conn.execute("""
+            SELECT initial_price, predicted_outcome, actual_outcome
+            FROM penny_stocks_monitoring
+            WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
+        """).fetchall()
+
+        sum_won = 0.0
+        sum_lost = 0.0
+        for r in all_resolved_auto:
+            init = r['initial_price']
+            pred = r['predicted_outcome']
+            actual = r['actual_outcome']
+            if init is not None and pred is not None and actual is not None and init > 0 and init < 1.0:
+                pred_up = pred.upper()
+                act_up = actual.upper()
+                bought_outcome = (1.0 - init) if pred_up == 'NO' else init
+                sold_outcome = 1.0 if act_up == pred_up else 0.0
+                if bought_outcome > 0:
+                    pnl_val = (virtual_stake / bought_outcome) * (sold_outcome - bought_outcome)
+                else:
+                    pnl_val = 0.0
+                
+                if pnl_val > 0:
+                    sum_won += pnl_val
+                elif pnl_val < 0:
+                    sum_lost += abs(pnl_val)
+
         # Всего активных с прогнозом
         total_active_predicted = conn.execute("""
             SELECT COUNT(*) as cnt
@@ -523,7 +551,9 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             'avg_entry_price': avg_entry_auto,
             'best_trade_pnl': auto_best_pnl,
             'avg_pnl': auto_avg_pnl,
-            'total_resolved_pnl': round(auto_total_pnl, 4)
+            'total_resolved_pnl': round(auto_total_pnl, 4),
+            'sum_won': round(sum_won, 2),
+            'sum_lost': round(sum_lost, 2)
         }
 
         # === 2. РУЧНАЯ СТАТИСТИКА (ВИРТУАЛЬНЫЕ СДЕЛКИ) ===

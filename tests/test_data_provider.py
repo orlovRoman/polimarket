@@ -100,6 +100,8 @@ def test_get_penny_stocks_dashboard(isolated_db):
     assert data['active'] == []
     assert data['resolved'] == []
     assert data['stats']['active_count'] == 0
+    assert data['stats']['sum_won'] == 0.0
+    assert data['stats']['sum_lost'] == 0.0
 
     # Вставляем Penny Stocks
     with db_module.get_connection() as conn:
@@ -122,6 +124,9 @@ def test_get_penny_stocks_dashboard(isolated_db):
     assert 'Penny C' in active_titles  # NULL-рынок тоже в active
     assert data['stats']['active_count'] == 2
     assert data['stats']['active_predicted_count'] == 1  # только Penny A с прогнозом
+    # PnL по penny_b (авто-прогноз YES, исход YES) равен +115.0$ (выигрыш)
+    assert data['stats']['sum_lost'] == 0.0
+    assert data['stats']['sum_won'] == pytest.approx(115.0)
 
     # penny_c без прогноза — должен иметь cheap_outcome
     penny_c = next(x for x in data['active'] if x['title'] == 'Penny C')

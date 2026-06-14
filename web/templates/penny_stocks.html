@@ -46,9 +46,17 @@
         <div class="kpi-title">Общий PnL (Сделки)</div>
         <div class="kpi-value" id="kpi-trades-pnl">$0.00</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card" id="kpi-all-pnl-card">
         <div class="kpi-title">Общий PnL (Все рынки)</div>
         <div class="kpi-value" id="kpi-all-pnl">$0.00</div>
+    </div>
+    <div class="kpi-card" id="kpi-sum-won-card" style="display: none;">
+        <div class="kpi-title">Сумма выигрышей</div>
+        <div class="kpi-value text-green" id="kpi-sum-won" style="color: var(--accent-green); font-weight: 600;">$0.00</div>
+    </div>
+    <div class="kpi-card" id="kpi-sum-lost-card" style="display: none;">
+        <div class="kpi-title">Сумма проигрышей</div>
+        <div class="kpi-value text-red" id="kpi-sum-lost" style="color: var(--accent-red); font-weight: 600;">$0.00</div>
     </div>
 </div>
 
@@ -114,26 +122,58 @@
     <div id="active-pagination"></div>
 </div>
 
-<div id="resolved-card" class="table-card">
-    <div class="table-title">Завершенные penny stocks</div>
+<div id="resolved-card-wins" class="table-card" style="margin-bottom: 24px;">
+    <div class="table-title" style="color: var(--accent-green); display: flex; align-items: center; gap: 8px;">
+        <span>🟢 Выигранные penny stocks</span>
+    </div>
     <div class="table-wrapper">
         <table>
             <thead>
                 <tr>
                     <th>#</th>
-                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
-                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl_auto"></span></th>
-                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
-                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
+                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title-w"></span></th>
+                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial-w"></span></th>
+                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max-w"></span></th>
+                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min-w"></span></th>
+                    <th onclick="toggleSort('resolved', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-pred-w"></span></th>
+                    <th onclick="toggleSort('resolved', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual-w"></span></th>
+                    <th onclick="toggleSort('resolved', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl-w"></span></th>
+                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-correct-w"></span></th>
+                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-at-w"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
-            <tbody id="resolved-positions-tbody">
+            <tbody id="resolved-positions-tbody-wins">
+                <tr>
+                    <td colspan="11" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="resolved-card-losses" class="table-card" style="margin-bottom: 24px;">
+    <div class="table-title" style="color: var(--accent-red); display: flex; align-items: center; gap: 8px;">
+        <span>🔴 Проигранные penny stocks</span>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title-l"></span></th>
+                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial-l"></span></th>
+                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max-l"></span></th>
+                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min-l"></span></th>
+                    <th onclick="toggleSort('resolved', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-pred-l"></span></th>
+                    <th onclick="toggleSort('resolved', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual-l"></span></th>
+                    <th onclick="toggleSort('resolved', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL сигнала<span id="sort-resolved-pnl-l"></span></th>
+                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-correct-l"></span></th>
+                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-at-l"></span></th>
+                    <th>Действие</th>
+                </tr>
+            </thead>
+            <tbody id="resolved-positions-tbody-losses">
                 <tr>
                     <td colspan="11" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
@@ -729,12 +769,14 @@
         if (tab === 'auto') {
             document.getElementById('portfolio-card').style.display = 'none';
             document.getElementById('top-grid').style.gridTemplateColumns = '1fr';
-            document.getElementById('resolved-card').style.display = 'block';
+            document.getElementById('resolved-card-wins').style.display = 'block';
+            document.getElementById('resolved-card-losses').style.display = 'block';
             document.getElementById('history-card').style.display = 'none';
         } else {
             document.getElementById('portfolio-card').style.display = 'flex';
             document.getElementById('top-grid').style.gridTemplateColumns = '1fr 1fr';
-            document.getElementById('resolved-card').style.display = 'none';
+            document.getElementById('resolved-card-wins').style.display = 'none';
+            document.getElementById('resolved-card-losses').style.display = 'none';
             document.getElementById('history-card').style.display = 'block';
         }
         
@@ -754,9 +796,13 @@
         const kpiBesttrade = document.getElementById('kpi-besttrade');
         const kpiTradesPnl = document.getElementById('kpi-trades-pnl');
         const kpiAllPnl = document.getElementById('kpi-all-pnl');
+        const kpiSumWon = document.getElementById('kpi-sum-won');
+        const kpiSumLost = document.getElementById('kpi-sum-lost');
 
         const cardTradesPnl = kpiTradesPnl.closest('.kpi-card');
         const cardAllPnl = kpiAllPnl.closest('.kpi-card');
+        const cardSumWon = document.getElementById('kpi-sum-won-card');
+        const cardSumLost = document.getElementById('kpi-sum-lost-card');
 
         if (currentTab === 'auto') {
             kpiActive.previousElementSibling.textContent = "Всего в мониторинге";
@@ -781,6 +827,12 @@
             cardAllPnl.style.display = 'block';
             kpiAllPnl.previousElementSibling.textContent = "Общий PnL (Авто)";
             kpiAllPnl.innerHTML = formatPnL(data.stats.total_resolved_pnl);
+
+            // Показываем выигранные/проигранные карточки
+            cardSumWon.style.display = 'block';
+            kpiSumWon.innerHTML = formatPnL(data.stats.sum_won || 0.0);
+            cardSumLost.style.display = 'block';
+            kpiSumLost.innerHTML = formatPnL(data.stats.sum_lost === 0 ? 0.0 : -(data.stats.sum_lost || 0.0));
         } else {
             kpiActive.previousElementSibling.textContent = "Открытых позиций";
             kpiActive.textContent = data.portfolio.length;
@@ -802,6 +854,10 @@
             kpiTradesPnl.innerHTML = formatPnL(data.manual_stats.total_trades_pnl);
 
             cardAllPnl.style.display = 'none';
+
+            // Скрываем выигранные/проигранные карточки
+            cardSumWon.style.display = 'none';
+            cardSumLost.style.display = 'none';
         }
     }
 
@@ -910,13 +966,19 @@
         sortDataArray(activeData, sortState.active.col, sortState.active.dir);
         renderActiveTable(activeData);
         
-        // 2. Сортировка и рендер Завершенных
+        // 2. Сортировка и рендер Завершенных (разбиваем на выигранные и проигранные)
         let resolvedData = [...lastFetchedData.resolved];
         resolvedData.forEach(row => {
-            row.was_correct = row.predicted_outcome === row.actual_outcome;
+            const target = row.predicted_outcome === null ? row.cheap_outcome : row.predicted_outcome;
+            row.was_correct = target === row.actual_outcome;
         });
         sortDataArray(resolvedData, sortState.resolved.col, sortState.resolved.dir);
-        renderResolvedTable(resolvedData);
+        
+        const winsData = resolvedData.filter(row => row.was_correct);
+        const lossesData = resolvedData.filter(row => !row.was_correct);
+        
+        renderResolvedTable(winsData, 'resolved-positions-tbody-wins');
+        renderResolvedTable(lossesData, 'resolved-positions-tbody-losses');
     }
 
     function renderActiveTable(activeList) {
@@ -984,10 +1046,11 @@
         }
     }
 
-    function renderResolvedTable(resolvedList) {
-        const resolvedTbody = document.getElementById('resolved-positions-tbody');
+    function renderResolvedTable(resolvedList, tbodyId) {
+        const resolvedTbody = document.getElementById(tbodyId);
+        if (!resolvedTbody) return;
         if (resolvedList.length === 0) {
-            resolvedTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
+            resolvedTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">Нет позиций</td></tr>`;
         } else {
             resolvedTbody.innerHTML = resolvedList.map((row, index) => {
                 const targetOutcome = row.predicted_outcome === null ? row.cheap_outcome : row.predicted_outcome;
