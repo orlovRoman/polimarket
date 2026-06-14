@@ -105,7 +105,7 @@ def get_overview_stats() -> dict:
 
             buy_price = init_price if pred == 'YES' else (1.0 - init_price)
             if not (0.001 < buy_price < 0.999):
-                buy_price = 0.5
+                continue
                 
             is_win = (pred == act)
             

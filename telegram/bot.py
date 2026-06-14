@@ -1828,7 +1828,10 @@ async def command_scan_handler(message: types.Message) -> None:
         link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
 
-@dp.callback_query(F.data.startswith("scan_") & (F.data != "scan_favourite_compound"))
+@dp.callback_query(
+    F.data.startswith("scan_"),
+    ~F.data.in_({"scan_favourite_compound"})
+)
 async def callback_scan_handler(callback: CallbackQuery) -> None:
     # Дедупликация: игнорируем повторно доставленные callback'и
     async with _callback_dedup_lock:

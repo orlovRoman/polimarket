@@ -327,6 +327,12 @@ async def background_analyze_penny_markets(markets):
         
         def update_predictions_in_db(market_id, outcome, edge, confidence):
             with get_connection() as conn:
+                exists = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='penny_stocks_monitoring'"
+                ).fetchone()
+                if not exists:
+                    logger.warning("[PennyBg] Table penny_stocks_monitoring not found, skipping")
+                    return
                 conn.execute("""
                     UPDATE penny_stocks_monitoring
                     SET predicted_outcome = ?,
