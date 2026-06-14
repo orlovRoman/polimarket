@@ -618,7 +618,9 @@ def generate_content_with_fallback(
     # а не сразу переключался на другой провайдер.
     if "cerebras" in active_providers:
         cer_models = providers["cerebras"]["models"]
-        cer_rotated = cer_models[cer_rr_idx_snapshot % len(cer_models):] + cer_models[:cer_rr_idx_snapshot % len(cer_models)]
+        if len(cer_models) > 0:
+            save_memory("cer_rr_index", (cer_rr_idx_snapshot + 1) % len(cer_models))
+        cer_rotated = cer_models[cer_rr_idx_snapshot % max(len(cer_models), 1):] + cer_models[:cer_rr_idx_snapshot % max(len(cer_models), 1)]
         cer_seen: set = set()
         for _cm in cer_rotated:
             if _cm not in cer_seen:
@@ -629,10 +631,12 @@ def generate_content_with_fallback(
     if "openrouter" in active_providers:
         or_models = providers["openrouter"]["models"]
         agent_override = os.getenv(f"OPENROUTER_MODEL_{agent_name.upper()}")
+        if len(or_models) > 0:
+            save_memory("or_rr_index", (or_rr_idx_snapshot + 1) % len(or_models))
         if agent_override:
             plans.append(("openrouter", agent_override))
         else:
-            or_rotated = or_models[or_rr_idx_snapshot % len(or_models):] + or_models[:or_rr_idx_snapshot % len(or_models)]
+            or_rotated = or_models[or_rr_idx_snapshot % max(len(or_models), 1):] + or_models[:or_rr_idx_snapshot % max(len(or_models), 1)]
             or_seen = set()
             for _om in or_rotated:
                 if _om not in or_seen:
@@ -642,9 +646,14 @@ def generate_content_with_fallback(
     # Gemini
     if "gemini" in active_providers:
         gem_models = providers["gemini"]["models"]
+        if len(gem_models) > 0:
+            save_memory("gem_rr_index", (gem_rr_idx_snapshot + 1) % len(gem_models))
+            
+        save_memory("gem_key_rr_index", (gem_key_rr_idx_snapshot + 1) % max(len(_active_gemini_keys_for_rr), 1))
         
         # Строим список: начинаем с текущего индекса, идём по кругу
-        rotated = gem_models[gem_rr_idx_snapshot:] + gem_models[:gem_rr_idx_snapshot]
+        idx = gem_rr_idx_snapshot % max(len(gem_models), 1)
+        rotated = gem_models[idx:] + gem_models[:idx]
         
         seen = set()
         for m in rotated:
@@ -729,26 +738,6 @@ def generate_content_with_fallback(
                     input_tokens=in_tokens, output_tokens=out_tokens, total_tokens=total_tokens,
                     latency_ms=latency_ms, market_id=market_id
                 )
-                
-                # Обновляем round-robin для Cerebras при успехе
-                if provider == "cerebras":
-                    cer_idx = int(get_memory("cer_rr_index") or 0)
-                    cer_models = providers["cerebras"]["models"]
-                    save_memory("cer_rr_index", (cer_idx + 1) % len(cer_models))
-                    
-                if provider == "openrouter":
-                    or_idx = int(get_memory("or_rr_index") or 0)
-                    or_models = providers["openrouter"]["models"]
-                    save_memory("or_rr_index", (or_idx + 1) % len(or_models))
-                    
-                if provider == "gemini":
-                    gem_models_list = providers["gemini"]["models"]
-                    used_idx = gem_models_list.index(model) if model in gem_models_list else 0
-                    save_memory("gem_rr_index", (used_idx + 1) % len(gem_models_list))
-                    
-                    k_idx = int(get_memory("gem_key_rr_index") or 0)
-                    save_memory("gem_key_rr_index", (k_idx + 1) % max(len(_active_gemini_keys_for_rr), 1))
-                    
                 save_memory(f"consecutive_failures_{agent_name}", 0)
                 return result, model
                 

@@ -23,7 +23,6 @@ def run_resolution_cycle() -> dict:
     """
     try:
         from agents.shared.python.db import cleanup_stale_signals, cleanup_old_episodes
-        from services.outcome_tracker import track_compound_opportunities
         
         # Разрешаем compound-сделки
         compounds_resolved = track_compound_opportunities()

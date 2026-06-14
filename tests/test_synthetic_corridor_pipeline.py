@@ -14,8 +14,8 @@ async def test_synthetic_corridor_pipeline_end_to_end(caplog):
             "slug": "test-crypto-fdv",
             "title": "Crypto Project FDV above $X",
             "markets": [
-                {"id": "1", "question": "FDV above $100M", "outcomePrices": '["0.80", "0.20"]', "volume": "50000", "clobTokenIds": '["token_1_yes", "token_1_no"]'},
-                {"id": "2", "question": "FDV above $200M", "outcomePrices": '["0.90", "0.10"]', "volume": "50000", "clobTokenIds": '["token_2_yes", "token_2_no"]'}, # АНОМАЛИЯ: цена выше, хотя уровень сложнее
+                {"id": "1", "question": "FDV above $100M", "outcomePrices": '["0.80", "0.20"]', "volume": 50000.0, "clobTokenIds": '["token_1_yes", "token_1_no"]', "endDate": "2026-12-31T23:59:59Z", "closed": False, "resolved": False},
+                {"id": "2", "question": "FDV above $200M", "outcomePrices": '["0.90", "0.10"]', "volume": 50000.0, "clobTokenIds": '["token_2_yes", "token_2_no"]', "endDate": "2026-12-31T23:59:59Z", "closed": False, "resolved": False}, # АНОМАЛИЯ: цена выше, хотя уровень сложнее
             ]
         }
     ]

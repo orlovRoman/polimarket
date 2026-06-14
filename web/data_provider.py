@@ -1653,6 +1653,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         running_pnl = 0.0
         
         segments_data = {
+            "<90%": {"count": 0, "wins": 0, "pnl": 0.0},
             "90-95%": {"count": 0, "wins": 0, "pnl": 0.0},
             "95-97%": {"count": 0, "wins": 0, "pnl": 0.0},
             "97-100%": {"count": 0, "wins": 0, "pnl": 0.0},
@@ -1696,7 +1697,9 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                 if drawdown > max_drawdown:
                     max_drawdown = drawdown
                     
-                if 0.90 <= price < 0.95:
+                if price < 0.90:
+                    s_key = "<90%"
+                elif 0.90 <= price < 0.95:
                     s_key = "90-95%"
                 elif 0.95 <= price < 0.97:
                     s_key = "95-97%"
