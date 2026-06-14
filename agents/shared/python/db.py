@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sqlite3
 import json
+import re
 
 import threading
 from contextlib import contextmanager
@@ -59,25 +60,23 @@ COMPOUND_DEFAULTS = {
 
 logger = logging.getLogger("NexusPolyBot.DB")
 
-_db_initializing = False
+_thread_local = threading.local()
 
 def _ensure_initializing(fn):
     import functools
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        global _db_initializing
-        _db_initializing = True
+        _thread_local.initializing = True
         try:
             return fn(*args, **kwargs)
         finally:
-            _db_initializing = False
+            _thread_local.initializing = False
     return wrapper
 
 @contextmanager
 def get_connection():
     """Контекст-менеджер для SQLite-соединений с гарантированным закрытием."""
-    global _db_initializing
-    if not _db_initializing:
+    if not getattr(_thread_local, 'initializing', False):
         init_db()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -119,7 +118,8 @@ def _reset_market_signals_to_pending(conn: sqlite3.Connection, m_id: str):
     ).fetchall()
     for sig in sig_rows:
         sig_id = sig["id"]
-        sp_name = f"heal_sig_{sig_id.replace('-', '_')}"
+        safe_name = re.sub(r'[^a-zA-Z0-9_]', '_', sig_id)
+        sp_name = f"heal_sig_{safe_name}"
         try:
             conn.execute(f"SAVEPOINT {sp_name}")
             conn.execute("""
@@ -189,6 +189,9 @@ def cleanup_test_data(conn: sqlite3.Connection):
            OR market_id LIKE 'mkt_whale_test_%'
            OR market_id LIKE 'market_dedup_%'
            OR market_id LIKE 'trend_m%'
+           OR market_id LIKE 'market-%'
+           OR market_id LIKE 'market_na%'
+           OR market_id LIKE 'market_test%'
            OR market_id = 'market_1'
     """)
     
@@ -199,6 +202,9 @@ def cleanup_test_data(conn: sqlite3.Connection):
            OR id LIKE 'mkt_whale_test_%'
            OR id LIKE 'market_dedup_%'
            OR id LIKE 'trend_m%'
+           OR id LIKE 'market-%'
+           OR id LIKE 'market_na%'
+           OR id LIKE 'market_test%'
            OR id = 'market_1'
     """)
     

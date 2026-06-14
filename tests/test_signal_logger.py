@@ -228,3 +228,42 @@ def test_log_resolution_na_outcome(setup_database):
     assert row["was_profitable"] is None
     assert row["pnl_realized"] is None
     conn.close()
+
+
+def test_heal_db_resolutions_with_unsafe_sig_id(setup_database):
+    from agents.shared.python.db import heal_db_resolutions
+    from datetime import datetime, timezone, timedelta
+    
+    conn = sqlite3.connect(temp_db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # 1. Создаем рынок с close_time в далеком будущем
+    future_date = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat()
+    cursor.execute("""
+        INSERT INTO markets (id, platform, title, url, outcome, price, close_time) 
+        VALUES ('market-unsafe-sp', 'polymarket', 'Test Unsafe SAVEPOINT', 'http://example.com', 'YES', 0.5, ?)
+    """, (future_date,))
+    
+    # 2. Создаем сигнал с потенциально небезопасным ID для имени SAVEPOINT (например, со спецсимволами и пробелами)
+    unsafe_sig_id = "test;drop table signals;--"
+    cursor.execute("""
+        INSERT INTO signals (id, type, market_id, platform, confidence, priority, summary, details, status)
+        VALUES (?, 'scout', 'market-unsafe-sp', 'polymarket', 0.8, 'high', 'summary', 'details', 'WIN')
+    """, (unsafe_sig_id,))
+    conn.commit()
+    
+    # 3. Вызываем heal_db_resolutions
+    heal_db_resolutions(conn)
+    
+    # 4. Проверяем, что сигнал сбросился в PENDING
+    cursor.execute("SELECT status FROM signals WHERE id = ?", (unsafe_sig_id,))
+    row = cursor.fetchone()
+    assert row is not None
+    assert row[0] == 'PENDING'
+    
+    # Очистка за собой
+    cursor.execute("DELETE FROM signals WHERE id = ?", (unsafe_sig_id,))
+    cursor.execute("DELETE FROM markets WHERE id = 'market-unsafe-sp'")
+    conn.commit()
+    conn.close()
