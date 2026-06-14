@@ -54,6 +54,7 @@ async def scheduled_job():
         logger.info("<<< Сканирование завершено успешно.")
     except asyncio.CancelledError:
         logger.info("<<< Сканирование прервано: получен сигнал завершения (CancelledError).")
+        raise
     except NoMarketsFoundError as e:
         logger.info(f"<<< Сканирование завершено: {e}")
     except RuntimeError as e:
@@ -75,6 +76,7 @@ async def scheduled_memory_archive():
         logger.info("<<< Автоархивация памяти и GC завершены.")
     except asyncio.CancelledError:
         logger.info("<<< Процесс автоархивации памяти отменен.")
+        raise
     except Exception as e:
         logger.error(f"Ошибка при архивации памяти: {e}", exc_info=True)
 
@@ -92,6 +94,7 @@ async def scheduled_trend_hunting():
         logger.info("<<< Работа Trend Hunter завершена успешно.")
     except asyncio.CancelledError:
         logger.info("<<< Работа Trend Hunter отменена.")
+        raise
     except Exception as e:
         logger.error(f"Ошибка при работе Trend Hunter: {e}", exc_info=True)
 
@@ -120,6 +123,7 @@ async def scheduled_cross_arbitrage_scan():
         logger.info(f"<<< Кросс-арбитраж: найдено {len(found)} алертов")
     except asyncio.CancelledError:
         logger.info("<<< Кросс-арбитражный скан отменен.")
+        raise
     except Exception as e:
         logger.error(f"Ошибка кросс-арбитражного скана: {e}", exc_info=True)
 
@@ -146,6 +150,7 @@ async def scheduled_synthetic_corridors():
         logger.info(f"<<< Синтетические коридоры: найдено {len(found)} алертов")
     except asyncio.CancelledError:
         logger.info("<<< Сканирование синтетических коридоров отменено.")
+        raise
     except Exception as e:
         logger.error(f"Ошибка сканирования синтетических коридоров: {e}", exc_info=True)
 
@@ -166,6 +171,7 @@ async def scheduled_temporal_corridors():
         logger.info(f"<<< Временные коридоры: найдено {len(found)} алертов")
     except asyncio.CancelledError:
         logger.info("<<< Сканирование временных коридоров отменено.")
+        raise
     except Exception as e:
         logger.error(f"Ошибка сканирования временных коридоров: {e}", exc_info=True)
 
@@ -178,6 +184,7 @@ async def scheduled_wallet_recalculation():
         logger.info("<<< Пересчет win_rate кошельков завершен успешно.")
     except asyncio.CancelledError:
         logger.info("<<< Пересчет win_rate кошельков отменен.")
+        raise
     except Exception as e:
         logger.error(f"Ошибка при пересчете win_rate кошельков: {e}", exc_info=True)
 
@@ -191,6 +198,7 @@ async def scheduled_insiders_recalculation():
         logger.info("<<< Пересчет статуса инсайдеров завершен успешно.")
     except asyncio.CancelledError:
         logger.info("<<< Пересчет статуса инсайдеров отменен.")
+        raise
     except Exception as e:
         logger.error(f"Ошибка при пересчете статуса инсайдеров: {e}", exc_info=True)
 
@@ -203,6 +211,7 @@ async def scheduled_cluster_update():
         logger.info("<<< Обновление кластеров кошельков завершено.")
     except asyncio.CancelledError:
         logger.info("<<< Обновление кластеров кошельков отменено.")
+        raise
     except Exception as e:
         logger.error(f"Ошибка при обновлении кластеров кошельков: {e}", exc_info=True)
 
@@ -245,6 +254,7 @@ async def job_onchain_alerts():
         logger.info("<<< Сканирование ончейн-всплесков и Whale-сигналов завершено.")
     except asyncio.CancelledError:
         logger.info("<<< Сканирование ончейн-всплесков отменено.")
+        raise
     except Exception as e:
         logger.error(f"Ошибка при сканировании ончейн-всплесков: {e}", exc_info=True)
 
@@ -741,6 +751,7 @@ async def scheduled_favourite_compounding():
             logger.info(f"<<< Favourite Compounding: отправлено {sent} алертов из {len(opps)} найденных.")
         except asyncio.CancelledError:
             logger.info("<<< Favourite Compounding: отменён.")
+            raise
         except Exception as e:
             logger.error(f"Ошибка Favourite Compounding: {e}", exc_info=True)
 
