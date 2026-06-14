@@ -319,6 +319,66 @@ async def api_sell_compound_opportunity(request):
         logger.exception("Error in api_sell_compound_opportunity")
         return web.json_response({"error": f"Internal server error: {e}"}, status=500)
 
+async def background_analyze_penny_markets(markets):
+    try:
+        from core.singleton import get_core_engine
+        from core.workflow import run_agent_evaluation
+        from agents.shared.python.db import get_connection
+        
+        def update_predictions_in_db(market_id, outcome, edge, confidence):
+            with get_connection() as conn:
+                conn.execute("""
+                    UPDATE penny_stocks_monitoring
+                    SET predicted_outcome = ?,
+                        edge = ?,
+                        confidence = ?
+                    WHERE market_id = ?
+                """, (outcome, edge, confidence, market_id))
+
+        engine = get_core_engine()
+        for m in markets:
+            try:
+                price_hist = []
+                try:
+                    from agents.shared.python.db import get_price_history
+                    price_hist = await asyncio.to_thread(get_price_history, m.id, hours=24)
+                except Exception:
+                    pass
+                
+                pre_orderbook = await asyncio.to_thread(engine._fetch_pre_orderbook, m)
+                
+                def dummy_update(**kwargs):
+                    pass
+                
+                logger.info(f"Background analysis starting for penny stock: {m.title}")
+                signal, swing_signal, _ = await run_agent_evaluation(
+                    m, engine.scout, engine.swing, dummy_update,
+                    adapter=engine.adapter, trigger_type="scheduled",
+                    price_history=price_hist, pre_orderbook=pre_orderbook,
+                    scan_category="penny_stocks"
+                )
+                
+                active_sig = signal or swing_signal
+                pred_out = None
+                edge_val = None
+                conf_val = None
+                if active_sig:
+                    pred_out = active_sig.target_outcome
+                    edge_val = active_sig.edge
+                    conf_val = active_sig.confidence
+                    logger.info(f"Background analysis completed for {m.title}: {pred_out} (edge: {edge_val})")
+                else:
+                    logger.info(f"Background analysis completed for {m.title}: no signal found")
+                
+                await asyncio.to_thread(update_predictions_in_db, m.id, pred_out, edge_val, conf_val)
+                
+            except Exception as exc:
+                logger.error(f"Error in background analysis for penny stock {m.id}: {exc}", exc_info=True)
+            await asyncio.sleep(1)
+            
+    except Exception as e:
+        logger.error(f"Error in background_analyze_penny_markets: {e}", exc_info=True)
+
 async def api_discover_penny_stocks(request):
     try:
         from core.singleton import get_core_engine
@@ -343,9 +403,16 @@ async def api_discover_penny_stocks(request):
         active_stocks = await asyncio.to_thread(get_active_penny_stocks)
         active_ids = {m["market_id"] for m in active_stocks}
         
-        new_discovered = 0
+        new_discovered_markets = []
         for m in markets:
             if m.id in active_ids:
+                continue
+                
+            # Рынки с ценой 0.10–0.90 не являются penny stocks по определению.
+            if not (m.price <= 0.10 or m.price >= 0.90):
+                logger.debug(
+                    f"Discovered market {m.id} ('{m.title}') has price {m.price} outside penny stock limits (<=0.10 or >=0.90), skipping."
+                )
                 continue
                 
             # Добавляем в мониторинг как неанализированный
@@ -357,19 +424,18 @@ async def api_discover_penny_stocks(request):
                 initial_price=m.price,
                 predicted_outcome=None
             )
-            # Рынки с ценой 0.10–0.90 не являются penny stocks по определению.
-            if not (m.price <= 0.10 or m.price >= 0.90):
-                logger.debug(
-                    f"Discovered market {m.id} ('{m.title}') has price {m.price} outside penny stock limits (<=0.10 or >=0.90) "
-                    f"and will be invisible on the dashboard until analyzed."
-                )
-            new_discovered += 1
+            new_discovered_markets.append(m)
             
+        new_discovered = len(new_discovered_markets)
         if new_discovered > 0:
+            # Запускаем последовательный фоновый анализ рынков агентами
+            asyncio.create_task(background_analyze_penny_markets(new_discovered_markets))
+            
             msg = (
                 f"📥 <b>Принудительный импорт Penny Stocks</b>\n\n"
                 f"С дашборда запрошен принудительный поиск дешевых рынков.\n"
-                f"Обнаружено и добавлено в мониторинг: <b>{new_discovered}</b> новых рынков."
+                f"Обнаружено и добавлено в мониторинг: <b>{new_discovered}</b> новых рынков.\n"
+                f"<i>Запущен фоновый последовательный анализ агентами...</i>"
             )
             try:
                 await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)

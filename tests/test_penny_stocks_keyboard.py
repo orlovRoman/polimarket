@@ -44,6 +44,40 @@ async def test_scheduled_penny_monitor_attaches_keyboard(
 
 
 @pytest.mark.asyncio
+@patch("main.bot.send_message", new_callable=AsyncMock)
+@patch("agents.shared.python.db.get_active_penny_stocks")
+@patch("agents.shared.python.db.update_penny_stock_price")
+@patch("agents.shared.python.db.mark_penny_spike_sent")
+@patch("core.singleton.get_core_engine")  # ✅ правильный путь
+async def test_scheduled_penny_monitor_no_outcome_attaches_keyboard(
+    mock_get_engine, mock_mark_sent, mock_update_price, mock_get_active, mock_send_message
+):
+    mock_get_active.return_value = [{
+        "market_id": "penny_456",
+        "title": "Will eth drop below 2k?",
+        "url": "https://polymarket.com/eth",
+        "initial_price": 0.98,
+        "predicted_outcome": "NO",
+        "spike_alert_sent": 0
+    }]
+    mock_m = MagicMock()
+    mock_m.price = 0.95
+    mock_m.volume = 25000.0
+    mock_m.close_time = None
+    mock_get_engine.return_value.adapter.get_market.return_value = mock_m
+
+    await scheduled_penny_monitor()
+
+    mock_send_message.assert_called_once()
+    _, kwargs = mock_send_message.call_args
+    assert "reply_markup" in kwargs
+    kb = kwargs["reply_markup"]
+    assert isinstance(kb, InlineKeyboardMarkup)
+    btns = [b for row in kb.inline_keyboard for b in row]
+    assert any(b.callback_data == "analyze_mkt_penny_456" for b in btns)
+
+
+@pytest.mark.asyncio
 @patch("telegram.bot.get_market_discussions")
 @patch("telegram.bot.get_market_from_db")
 @patch("telegram.bot.get_core_engine")

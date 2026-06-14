@@ -71,37 +71,58 @@ def get_overview_stats() -> dict:
                 stats[stype]['signals_count'] = r['total']
 
         # 2.5 Загружаем статистику для penny_stocks по авто-сигналам агентов из penny_stocks_monitoring.
-        penny_stats = conn.execute("""
+        penny_rows = conn.execute("""
             SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN resolved_at >= datetime('now', '-7 days') THEN 
-                    CASE 
-                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
-                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
-                        ELSE 0.0
-                    END
-                    ELSE 0.0
-                END) as pnl_7d,
-                SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') THEN 
-                    CASE 
-                        WHEN predicted_outcome = 'YES' THEN (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
-                        WHEN predicted_outcome = 'NO' THEN (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
-                        ELSE 0.0
-                    END
-                    ELSE 0.0
-                END) as pnl_30d,
-                SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') AND (
-                    (predicted_outcome = 'YES' AND actual_outcome = 'YES') OR 
-                    (predicted_outcome = 'NO' AND actual_outcome = 'NO')
-                ) THEN 1 ELSE 0 END) as wins_30d,
-                SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as total_30d
+                predicted_outcome, actual_outcome, initial_price, resolved_at
             FROM penny_stocks_monitoring
             WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
-        """).fetchone()
-        if penny_stats:
-            stats['penny_stocks']['pnl_7d'] = round(penny_stats['pnl_7d'] or 0.0, 2)
-            stats['penny_stocks']['pnl_30d'] = round(penny_stats['pnl_30d'] or 0.0, 2)
-            stats['penny_stocks']['signals_count'] = penny_stats['total']
+        """).fetchall()
+
+        total = len(penny_rows)
+        pnl_7d = 0.0
+        pnl_30d = 0.0
+        
+        now = datetime.now(timezone.utc)
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
+        
+        try:
+            from core import config_provider
+            virtual_stake = float(config_provider.get_sync("eval.virtual_stake_usd", default=10.0))
+        except Exception:
+            virtual_stake = 10.0
+
+        for r in penny_rows:
+            pred = r['predicted_outcome']
+            act = r['actual_outcome']
+            init_price = r['initial_price']
+            res_at_str = r['resolved_at']
+            
+            try:
+                res_at = datetime.fromisoformat(res_at_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+
+            buy_price = init_price if pred == 'YES' else (1.0 - init_price)
+            if not (0.001 < buy_price < 0.999):
+                buy_price = 0.5
+                
+            is_win = (pred == act)
+            
+            if is_win:
+                pnl = (virtual_stake / buy_price) * (1.0 - buy_price)
+            else:
+                pnl = -virtual_stake
+                
+            if res_at >= seven_days_ago:
+                pnl_7d += pnl
+                
+            if res_at >= thirty_days_ago:
+                pnl_30d += pnl
+
+        stats['penny_stocks']['pnl_7d'] = round(pnl_7d, 2)
+        stats['penny_stocks']['pnl_30d'] = round(pnl_30d, 2)
+        stats['penny_stocks']['signals_count'] = total
 
         # 2.6 Отдельно догружаем статистику для whale из виртуальной истории сделок китов.
         whale_pnl = conn.execute("""

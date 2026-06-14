@@ -1828,7 +1828,7 @@ async def command_scan_handler(message: types.Message) -> None:
         link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
 
-@dp.callback_query(F.data.startswith("scan_"))
+@dp.callback_query(F.data.startswith("scan_") & (F.data != "scan_favourite_compound"))
 async def callback_scan_handler(callback: CallbackQuery) -> None:
     # Дедупликация: игнорируем повторно доставленные callback'и
     async with _callback_dedup_lock:
@@ -2206,8 +2206,49 @@ async def send_penny_menu(message_or_callback) -> None:
     stats = await asyncio.to_thread(get_penny_stocks_stats)
     active = await asyncio.to_thread(get_active_penny_stocks)
     
-    discovery_status = "🟢 Активен (4ч)"
-    monitor_status = "🟢 Активен (15м)"
+    discovery_status = "🔴 Остановлен"
+    monitor_status = "🔴 Остановлен"
+    
+    if _scheduler is not None and _scheduler.running:
+        disc_job = _scheduler.get_job("penny_discovery_job")
+        if disc_job:
+            if disc_job.next_run_time is None:
+                discovery_status = "🟡 Приостановлен"
+            else:
+                try:
+                    interval_str = ""
+                    trigger = disc_job.trigger
+                    if hasattr(trigger, 'interval'):
+                        seconds = trigger.interval.total_seconds()
+                        if seconds >= 3600:
+                            interval_str = f"{int(seconds // 3600)}ч"
+                        elif seconds >= 60:
+                            interval_str = f"{int(seconds // 60)}м"
+                        else:
+                            interval_str = f"{int(seconds)}с"
+                    discovery_status = f"🟢 Активен ({interval_str})" if interval_str else "🟢 Активен"
+                except Exception:
+                    discovery_status = "🟢 Активен"
+        
+        mon_job = _scheduler.get_job("penny_monitor_job")
+        if mon_job:
+            if mon_job.next_run_time is None:
+                monitor_status = "🟡 Приостановлен"
+            else:
+                try:
+                    interval_str = ""
+                    trigger = mon_job.trigger
+                    if hasattr(trigger, 'interval'):
+                        seconds = trigger.interval.total_seconds()
+                        if seconds >= 3600:
+                            interval_str = f"{int(seconds // 3600)}ч"
+                        elif seconds >= 60:
+                            interval_str = f"{int(seconds // 60)}м"
+                        else:
+                            interval_str = f"{int(seconds)}с"
+                    monitor_status = f"🟢 Активен ({interval_str})" if interval_str else "🟢 Активен"
+                except Exception:
+                    monitor_status = "🟢 Активен"
     
     text = (
         "🪙 <b>Меню Penny Stocks (дешевые рынки)</b>\n\n"

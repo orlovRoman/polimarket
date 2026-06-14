@@ -749,9 +749,10 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             try:
                 from core.eval.signal_logger import SignalLogger, StrategyType
                 logger_eval = SignalLogger()
+                stype = StrategyType.PENNY_STOCKS if scan_category == "penny_stocks" else StrategyType.SCOUT
                 logger_eval.log_signal(
                     signal_id=signal.id,
-                    strategy_type=StrategyType.SCOUT,
+                    strategy_type=stype,
                     market_id=signal.market_id,
                     predicted_probability=getattr(signal, 'confidence', 0.5),
                     market_price_at_signal=m.price,
