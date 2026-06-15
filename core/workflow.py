@@ -672,14 +672,14 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
             context.swing_skipped = True
             context.swing_skip_reason = "Отброшен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)"
             swing_signal = None
+            save_checkpoint(f"swing_{m.id}", status="skipped", reason="flat_or_noise")
         else:
             swing_signal = raw_swing
-            
-        try:
-            _chk_edge_swing = float(swing_signal.edge) if swing_signal and getattr(swing_signal, 'edge', None) is not None else None
-        except (TypeError, ValueError):
-            _chk_edge_swing = None
-        save_checkpoint(f"swing_{m.id}", status="ok", edge=_chk_edge_swing)
+            try:
+                _chk_edge_swing = float(swing_signal.edge) if swing_signal and getattr(swing_signal, 'edge', None) is not None else None
+            except (TypeError, ValueError):
+                _chk_edge_swing = None
+            save_checkpoint(f"swing_{m.id}", status="ok", edge=_chk_edge_swing)
     # ────────────────────────────────────────────────────────────────────────
         
     if signal is not None or swing_signal is not None:

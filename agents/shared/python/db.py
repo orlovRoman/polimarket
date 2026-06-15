@@ -3272,7 +3272,7 @@ def get_compound_settings() -> dict:
         if chains <= 0:
             chains = 1
         MAX_ALLOWED_CHAINS = 20
-        final_settings["max_concurrent_chains"] = float(min(chains, MAX_ALLOWED_CHAINS))
+        final_settings["max_concurrent_chains"] = int(min(chains, MAX_ALLOWED_CHAINS))
 
     return final_settings
 
