@@ -143,29 +143,67 @@ def _load_whale_stats(conn, stats, virtual_stake):
     внутри одной транзакции (разделяя общее соединение conn).
     """
     try:
-        whale_pnl = conn.execute("""
-            SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_cents ELSE 0.0 END) as pnl_7d,
-                SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_cents ELSE 0.0 END) as pnl_30d
-            FROM whale_virtual_trades_history
-        """).fetchone()
-        if whale_pnl:
-            stats['whale']['pnl_7d'] = round((whale_pnl['pnl_7d'] or 0.0) * virtual_stake, 2)
-            stats['whale']['pnl_30d'] = round((whale_pnl['pnl_30d'] or 0.0) * virtual_stake, 2)
-            stats['whale']['signals_count'] = max(stats['whale']['signals_count'], whale_pnl['total'] or 0)
-
-        whale_wr = conn.execute("""
+        rows = conn.execute("""
             SELECT 
-                COUNT(*) as total_30d,
-                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins_30d
-            FROM whale_virtual_trades_history
-            WHERE sold_at >= datetime('now', '-30 days')
-        """).fetchone()
-        if whale_wr and whale_wr['total_30d'] is not None and whale_wr['total_30d'] > 0:
-            stats['whale']['win_rate'] = (whale_wr['wins_30d'] or 0) / whale_wr['total_30d']
+                p.initial_price, 
+                p.predicted_outcome, 
+                p.actual_outcome, 
+                p.resolved_at,
+                h.pnl_realized
+            FROM whale_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_cents) as pnl_realized
+                FROM whale_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED'
+        """).fetchall()
+
+        pnl_7d = 0.0
+        pnl_30d = 0.0
+        total = len(rows)
+
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
+
+        for r in rows:
+            pnl_realized = r['pnl_realized']
+            pnl_val = 0.0
+            
+            actual = r['actual_outcome']
+            init = r['initial_price']
+            pred = r['predicted_outcome']
+            resolved_at_str = r['resolved_at']
+
+            if pnl_realized is not None:
+                pnl_val = pnl_realized * virtual_stake
+            elif actual is not None and init is not None:
+                outcome_to_track = pred if pred is not None else 'YES'
+                track_up = outcome_to_track.upper()
+                act_up = actual.upper()
+                bought_outcome = (1.0 - init) if track_up == 'NO' else init
+                sold_outcome = 1.0 if act_up == track_up else 0.0
+                if bought_outcome > 0:
+                    pnl_val = (virtual_stake / bought_outcome) * (sold_outcome - bought_outcome)
+
+            try:
+                res_at = datetime.fromisoformat(resolved_at_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+
+            if res_at >= seven_days_ago:
+                pnl_7d += pnl_val
+            if res_at >= thirty_days_ago:
+                pnl_30d += pnl_val
+
+        stats['whale']['pnl_7d'] = round(pnl_7d, 2)
+        stats['whale']['pnl_30d'] = round(pnl_30d, 2)
+        stats['whale']['signals_count'] = max(stats['whale']['signals_count'], total)
+
     except Exception as e:
-        logger.warning(f"[Overview] whale_virtual_trades_history недоступна: {e}")
+        logger.warning(f"[Overview] Ошибка при загрузке статистики китов: {e}", exc_info=True)
 
 def _load_compounding_stats(conn, stats):
     """
@@ -197,6 +235,37 @@ def _load_compounding_stats(conn, stats):
     except Exception as e:
         logger.warning(f"[Overview] compound_virtual_trades_history недоступна: {e}")
 
+    try:
+        parlays_pnl = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status IN ('COMPLETED', 'FAILED') AND updated_at >= datetime('now', '-7 days') THEN
+                    CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -initial_stake END
+                    ELSE 0.0 END) as pnl_7d,
+                SUM(CASE WHEN status IN ('COMPLETED', 'FAILED') AND updated_at >= datetime('now', '-30 days') THEN
+                    CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -initial_stake END
+                    ELSE 0.0 END) as pnl_30d
+            FROM compound_chains
+            WHERE status IN ('COMPLETED', 'FAILED')
+        """).fetchone()
+
+        if parlays_pnl:
+            stats['compound_parlays']['pnl_7d'] = round(parlays_pnl['pnl_7d'] or 0.0, 2)
+            stats['compound_parlays']['pnl_30d'] = round(parlays_pnl['pnl_30d'] or 0.0, 2)
+            stats['compound_parlays']['signals_count'] = max(stats['compound_parlays']['signals_count'], parlays_pnl['total'] or 0)
+
+        parlays_wr = conn.execute("""
+            SELECT 
+                COUNT(*) as total_30d,
+                SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as wins_30d
+            FROM compound_chains
+            WHERE status IN ('COMPLETED', 'FAILED') AND updated_at >= datetime('now', '-30 days')
+        """).fetchone()
+        if parlays_wr and parlays_wr['total_30d'] is not None and parlays_wr['total_30d'] > 0:
+            stats['compound_parlays']['win_rate'] = (parlays_wr['wins_30d'] or 0) / parlays_wr['total_30d']
+    except Exception as e:
+        logger.warning(f"[Overview] compound_chains недоступна: {e}")
+
 def get_overview_stats() -> dict:
     """
     Агрегирует общие метрики по всем стратегиям:
@@ -215,7 +284,7 @@ def get_overview_stats() -> dict:
     
     strategies = [
         'scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks',
-        'favourite_compounding'
+        'favourite_compounding', 'compound_parlays'
     ]
     
     stats = {}
@@ -248,36 +317,42 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         days = 30
 
     from agents.shared.python.db import get_connection
-    strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks', 'favourite_compounding']
+    strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks', 'favourite_compounding', 'compound_parlays']
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
     def get_curve_for_strategy(conn, stype):
         stype = normalize_strategy_name(stype)
+        virtual_stake = get_global_virtual_stake(conn)
         if stype == 'penny_stocks':
             rows = conn.execute("""
                 SELECT date(resolved_at) as date,
                        SUM(
-                           CASE 
+                           (CASE 
                                WHEN predicted_outcome = 'YES' THEN 
                                    (CASE WHEN actual_outcome = 'YES' THEN 1.0 ELSE 0.0 END) - initial_price
                                WHEN predicted_outcome = 'NO' THEN 
                                    (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
                                ELSE 0.0
-                           END
+                           END) * (? / CASE 
+                               WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price 
+                               ELSE initial_price 
+                           END)
                        ) as daily_pnl
                 FROM penny_stocks_monitoring
                 WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL AND resolved_at >= ?
+                  AND (CASE WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price ELSE initial_price END) > 0
                 GROUP BY date(resolved_at)
                 ORDER BY date(resolved_at) ASC
-            """, (period_start,)).fetchall()
+            """, (virtual_stake, period_start)).fetchall()
         elif stype == 'whale':
             rows = conn.execute("""
-                SELECT date(sold_at) as date, SUM(pnl_cents) as daily_pnl
+                SELECT date(sold_at) as date, 
+                       SUM((pnl_cents / bought_outcome_price) * ?) as daily_pnl
                 FROM whale_virtual_trades_history
-                WHERE sold_at >= ? AND sold_at IS NOT NULL
+                WHERE sold_at >= ? AND sold_at IS NOT NULL AND bought_outcome_price > 0
                 GROUP BY date(sold_at)
                 ORDER BY date(sold_at) ASC
-            """, (period_start,)).fetchall()
+            """, (virtual_stake, period_start)).fetchall()
         elif stype == 'favourite_compounding':
             rows = conn.execute("""
                 SELECT date(sold_at) as date, SUM(pnl_usd) as daily_pnl
@@ -285,6 +360,15 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
                 WHERE sold_at >= ? AND sold_at IS NOT NULL
                 GROUP BY date(sold_at)
                 ORDER BY date(sold_at) ASC
+            """, (period_start,)).fetchall()
+        elif stype == 'compound_parlays':
+            rows = conn.execute("""
+                SELECT date(updated_at) as date,
+                       SUM(CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -initial_stake END) as daily_pnl
+                FROM compound_chains
+                WHERE status IN ('COMPLETED', 'FAILED') AND updated_at >= ?
+                GROUP BY date(updated_at)
+                ORDER BY date(updated_at) ASC
             """, (period_start,)).fetchall()
         else:
             rows = conn.execute("""
