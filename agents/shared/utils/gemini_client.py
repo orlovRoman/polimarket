@@ -399,13 +399,13 @@ PROVIDERS_CONFIG: dict = {
     "openrouter": {
         "keys": [os.getenv("OPENROUTER_API_KEY", "")],
         "models": [
-            os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
-            "nvidia/nemotron-3-super-120b-a12b:free",
-            "qwen/qwen3-next-80b-a3b-instruct:free",
-            "google/gemma-4-31b-it:free",
+            os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free"),
             "openai/gpt-oss-120b:free",
-            "nousresearch/hermes-3-llama-3.1-405b:free",
-            "nvidia/nemotron-3-ultra-550b-a55b:free"
+            "google/gemma-4-31b-it:free",
+            "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "qwen/qwen3-next-80b-a3b-instruct:free",
+            "nousresearch/hermes-3-llama-3.1-405b:free"
         ],
         "send_func": _send_openrouter
     },
@@ -496,11 +496,13 @@ def _collect_gemini_keys(primary_key: str) -> list[str]:
     """Собирает все Gemini ключи в детерминированном порядке."""
     keys = []
     if primary_key and primary_key.strip():
-        keys.append(primary_key)
+        keys.append(primary_key.strip())
     for name in _GEMINI_KEY_ENV_NAMES[1:]:
         val = os.getenv(name, "")
-        if val and val.strip() and val not in keys:
-            keys.append(val)
+        if val and val.strip():
+            val = val.strip()
+            if val not in keys:
+                keys.append(val)
     return keys
 
 
