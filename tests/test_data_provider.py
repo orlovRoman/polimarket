@@ -140,9 +140,9 @@ def test_get_penny_stocks_dashboard(isolated_db):
 
     assert len(data['resolved']) == 1
     assert data['resolved'][0]['title'] == 'Penny B'
-    assert data['resolved'][0]['pnl_realized'] == -100.0
+    assert data['resolved'][0]['pnl_realized'] == -1250.0
     assert data['stats']['resolved_count'] == 1
-    assert data['manual_stats']['total_trades_pnl'] == -100.0
+    assert data['manual_stats']['total_trades_pnl'] == -1250.0
     assert data['stats']['total_resolved_pnl'] == pytest.approx(115.0, abs=1e-4)
     assert data['price_distribution']['1-5¢'] == 2   # penny_a(0.03) + penny_c(0.02)
     assert data['price_distribution']['5-10¢'] == 0  # penny_b(0.08) - RESOLVED, больше не попадает в распределение активных
@@ -438,8 +438,8 @@ def test_virtual_kpis(isolated_db):
     data = data_provider.get_penny_stocks_dashboard()
     assert len(data['virtual_history']) == 2
     assert data['manual_stats']['win_rate'] == pytest.approx(0.5, abs=1e-4)
-    assert data['manual_stats']['best_trade_pnl'] == pytest.approx(0.2, abs=1e-4)
-    assert data['manual_stats']['avg_pnl'] == pytest.approx(-0.05, abs=1e-4)
+    assert data['manual_stats']['best_trade_pnl'] == pytest.approx(5.0, abs=1e-4)
+    assert data['manual_stats']['avg_pnl'] == pytest.approx(-0.5, abs=1e-4)
 
 def test_penny_resolved_includes_unanalyzed(isolated_db):
     """Таблица завершенных penny stocks возвращает и неанализированные рынки с cheap_outcome и гипотетическим PnL."""

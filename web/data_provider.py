@@ -224,12 +224,13 @@ def _load_whale_stats(conn, stats, virtual_stake):
     except Exception as e:
         logger.warning(f"[Overview] Ошибка при загрузке статистики китов: {e}", exc_info=True)
 
-def _load_compounding_stats(conn, stats):
+def _load_compounding_stats(conn, stats, virtual_stake):
     """
     Внутренний хелпер для get_overview_stats. Должен вызываться только
     внутри одной транзакции (разделяя общее соединение conn).
     """
     try:
+        # 1. Ручной портфель
         comp_pnl = conn.execute("""
             SELECT
                 COUNT(*) as total,
@@ -237,11 +238,7 @@ def _load_compounding_stats(conn, stats):
                 SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_usd ELSE 0.0 END) as pnl_30d
             FROM compound_virtual_trades_history
         """).fetchone()
-        if comp_pnl:
-            stats['favourite_compounding']['pnl_7d'] = round(comp_pnl['pnl_7d'] or 0.0, 2)
-            stats['favourite_compounding']['pnl_30d'] = round(comp_pnl['pnl_30d'] or 0.0, 2)
-            stats['favourite_compounding']['signals_count'] = max(stats['favourite_compounding']['signals_count'], comp_pnl['total'] or 0)
-
+        
         comp_wr = conn.execute("""
             SELECT 
                 COUNT(*) as total_30d,
@@ -249,10 +246,68 @@ def _load_compounding_stats(conn, stats):
             FROM compound_virtual_trades_history
             WHERE sold_at >= datetime('now', '-30 days')
         """).fetchone()
-        if comp_wr and comp_wr['total_30d'] is not None and comp_wr['total_30d'] > 0:
-            stats['favourite_compounding']['win_rate'] = (comp_wr['wins_30d'] or 0) / comp_wr['total_30d']
+
+        manual_pnl_7d = comp_pnl['pnl_7d'] or 0.0 if comp_pnl else 0.0
+        manual_pnl_30d = comp_pnl['pnl_30d'] or 0.0 if comp_pnl else 0.0
+        manual_total = comp_pnl['total'] or 0 if comp_pnl else 0
+        manual_total_30d = comp_wr['total_30d'] or 0 if comp_wr else 0
+        manual_wins_30d = comp_wr['wins_30d'] or 0 if comp_wr else 0
+
+        # 2. Авто-сигналы
+        auto_rows = conn.execute("""
+            SELECT price, outcome, actual_outcome, resolved_at
+            FROM compound_opportunities
+            WHERE status = 'RESOLVED' AND virtual_bought_price IS NULL
+        """).fetchall()
+
+        auto_total = len(auto_rows)
+        auto_pnl_7d = 0.0
+        auto_pnl_30d = 0.0
+        auto_total_30d = 0
+        auto_wins_30d = 0
+
+        now = datetime.now(timezone.utc)
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
+
+        for r in auto_rows:
+            price = r['price']
+            outcome = r['outcome']
+            actual = r['actual_outcome']
+            resolved_at_str = r['resolved_at']
+
+            try:
+                res_at = datetime.fromisoformat(resolved_at_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+
+            if price is not None and outcome is not None and actual is not None and price > 0:
+                is_win = (actual.upper() == outcome.upper())
+                pnl_val = (virtual_stake / price) * (1.0 - price) * 0.98 if is_win else -virtual_stake
+
+                if res_at >= seven_days_ago:
+                    auto_pnl_7d += pnl_val
+                if res_at >= thirty_days_ago:
+                    auto_pnl_30d += pnl_val
+                    auto_total_30d += 1
+                    if is_win:
+                        auto_wins_30d += 1
+
+        total_signals = manual_total + auto_total
+        pnl_7d = manual_pnl_7d + auto_pnl_7d
+        pnl_30d = manual_pnl_30d + auto_pnl_30d
+        total_30d = manual_total_30d + auto_total_30d
+        wins_30d = manual_wins_30d + auto_wins_30d
+
+        stats['favourite_compounding']['pnl_7d'] = round(pnl_7d, 2)
+        stats['favourite_compounding']['pnl_30d'] = round(pnl_30d, 2)
+        stats['favourite_compounding']['signals_count'] = max(stats['favourite_compounding']['signals_count'], total_signals)
+        
+        if total_30d > 0:
+            stats['favourite_compounding']['win_rate'] = wins_30d / total_30d
+
     except Exception as e:
-        logger.warning(f"[Overview] compound_virtual_trades_history недоступна: {e}")
+        logger.warning(f"[Overview] Ошибка при расчете статистики favourite_compounding: {e}", exc_info=True)
 
     try:
         parlays_pnl = conn.execute("""
@@ -316,7 +371,7 @@ def get_overview_stats() -> dict:
         _load_signals_pnl(conn, stats)
         _load_penny_stocks_stats(conn, stats, virtual_stake)
         _load_whale_stats(conn, stats, virtual_stake)
-        _load_compounding_stats(conn, stats)
+        _load_compounding_stats(conn, stats, virtual_stake)
 
         # 3. Обновляем статус-эмодзи
         for stype, sdata in stats.items():
@@ -366,20 +421,35 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         elif stype == 'whale':
             rows = conn.execute("""
                 SELECT date(sold_at) as date, 
-                       SUM(CASE WHEN bought_outcome_price > 0 THEN (pnl_cents / bought_outcome_price) * ? ELSE 0.0 END) as daily_pnl
+                       SUM((pnl_cents / bought_outcome_price) * ?) as daily_pnl
                 FROM whale_virtual_trades_history
-                WHERE sold_at >= ? AND sold_at IS NOT NULL
+                WHERE sold_at >= ? AND sold_at IS NOT NULL AND bought_outcome_price > 0
                 GROUP BY date(sold_at)
                 ORDER BY date(sold_at) ASC
             """, (virtual_stake, period_start)).fetchall()
         elif stype == 'favourite_compounding':
             rows = conn.execute("""
-                SELECT date(sold_at) as date, SUM(pnl_usd) as daily_pnl
-                FROM compound_virtual_trades_history
-                WHERE sold_at >= ? AND sold_at IS NOT NULL
-                GROUP BY date(sold_at)
-                ORDER BY date(sold_at) ASC
-            """, (period_start,)).fetchall()
+                SELECT date(ts) as date, SUM(pnl) as daily_pnl
+                FROM (
+                    SELECT sold_at as ts, pnl_usd as pnl
+                    FROM compound_virtual_trades_history
+                    WHERE sold_at >= ? AND sold_at IS NOT NULL
+                    
+                    UNION ALL
+                    
+                    SELECT resolved_at as ts,
+                        CASE WHEN UPPER(actual_outcome) = UPPER(outcome) THEN
+                            (? / price) * (1.0 - price) * 0.98
+                        ELSE
+                            -?
+                        END as pnl
+                    FROM compound_opportunities
+                    WHERE status = 'RESOLVED' AND virtual_bought_price IS NULL
+                      AND resolved_at >= ? AND price > 0 AND actual_outcome IS NOT NULL
+                )
+                GROUP BY date(ts)
+                ORDER BY date(ts) ASC
+            """, (period_start, virtual_stake, virtual_stake, period_start)).fetchall()
         elif stype == 'compound_parlays':
             rows = conn.execute("""
                 SELECT date(updated_at) as date,
@@ -535,7 +605,16 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 else:
                     row_dict['pnl_realized'] = 0.0
             else:
-                row_dict['pnl_realized'] = round((row_dict['pnl_realized'] or 0.0) * virtual_stake, 2)
+                bought_price = row_dict.get('bought_outcome_price')
+                if not bought_price or bought_price <= 0:
+                    if init is not None and outcome_to_track is not None:
+                        track_up = outcome_to_track.upper()
+                        bought_price = (1.0 - init) if track_up == 'NO' else init
+                
+                if bought_price and bought_price > 0:
+                    row_dict['pnl_realized'] = round((virtual_stake / bought_price) * (row_dict['pnl_realized'] or 0.0), 2)
+                else:
+                    row_dict['pnl_realized'] = 0.0
 
             return row_dict
 
@@ -554,10 +633,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         resolved_offset = (resolved_page - 1) * resolved_limit
         resolved_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized
+                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price
                 FROM penny_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -595,10 +674,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         wins_offset = (wins_page - 1) * wins_limit
         wins_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized
+                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price
                 FROM penny_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -614,10 +693,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         losses_offset = (losses_page - 1) * losses_limit
         losses_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized
+                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price
                 FROM penny_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -794,9 +873,9 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             SELECT
                 COUNT(*) as count,
                 SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
-                MAX(pnl_cents) as best_pnl,
-                AVG(pnl_cents) as avg_pnl,
-                SUM(pnl_cents) as total_pnl
+                MAX(CASE WHEN bought_outcome_price > 0 THEN pnl_cents / bought_outcome_price ELSE 0.0 END) as best_pnl,
+                AVG(CASE WHEN bought_outcome_price > 0 THEN pnl_cents / bought_outcome_price ELSE 0.0 END) as avg_pnl,
+                SUM(CASE WHEN bought_outcome_price > 0 THEN pnl_cents / bought_outcome_price ELSE 0.0 END) as total_pnl
             FROM penny_virtual_trades_history
         """).fetchone()
 

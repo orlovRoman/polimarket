@@ -1625,15 +1625,18 @@ def save_signal(signal: Signal, details_obj=None, or_ignore: bool = False) -> bo
             else:
                 estimated_prob = getattr(signal, 'confidence', 0.5)
         
+        market_price = getattr(signal, 'entry_price', None)
+        strategy_type = signal.type if hasattr(signal, 'type') else None
+        
         if or_ignore:
             cursor.execute("""
-                INSERT OR IGNORE INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob))
+                INSERT OR IGNORE INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability, market_price_at_signal, strategy_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob, market_price, strategy_type))
         else:
             cursor.execute("""
-                INSERT INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO signals (id, type, market_id, platform, edge, confidence, priority, summary, details, status, created_at, target_outcome, estimated_probability, market_price_at_signal, strategy_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     type=excluded.type,
                     market_id=excluded.market_id,
@@ -1645,8 +1648,10 @@ def save_signal(signal: Signal, details_obj=None, or_ignore: bool = False) -> bo
                     details=excluded.details,
                     status=excluded.status,
                     target_outcome=excluded.target_outcome,
-                    estimated_probability=excluded.estimated_probability
-            """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob))
+                    estimated_probability=excluded.estimated_probability,
+                    market_price_at_signal=excluded.market_price_at_signal,
+                    strategy_type=excluded.strategy_type
+            """, (signal.id, signal.type, signal.market_id, signal.platform, signal.edge, signal.confidence, signal.priority, signal.summary, details_str, getattr(signal, 'status', 'PENDING'), signal.created_at.isoformat(), target_outcome, estimated_prob, market_price, strategy_type))
         return cursor.rowcount > 0
 
 def save_arbitrage_signal_to_db(arb_signal) -> bool:
@@ -2534,7 +2539,7 @@ def add_penny_stock_to_monitoring(market_id: str, title: str, url: str, initial_
         from datetime import datetime, timedelta, timezone
         close_time = (
             datetime.now(timezone.utc) + timedelta(days=30)
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        ).strftime("%Y-%m-%d %H:%M:%S+00:00")
 
     with get_connection() as conn:
         conn.execute("""
@@ -2821,7 +2826,7 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
         from datetime import datetime, timedelta, timezone
         close_time = (
             datetime.now(timezone.utc) + timedelta(days=30)
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        ).strftime("%Y-%m-%d %H:%M:%S+00:00")
 
     with get_connection() as conn:
         conn.execute("""
@@ -3267,6 +3272,14 @@ def get_compound_settings() -> dict:
                     final_settings[k] = float(default_val)
             except (ValueError, TypeError):
                 continue
+
+    if "max_concurrent_chains" in final_settings:
+        chains = int(final_settings["max_concurrent_chains"])
+        if chains <= 0:
+            chains = 1
+        MAX_ALLOWED_CHAINS = 20
+        final_settings["max_concurrent_chains"] = float(min(chains, MAX_ALLOWED_CHAINS))
+
     return final_settings
 
 def save_compound_setting(key: str, value: str) -> None:
