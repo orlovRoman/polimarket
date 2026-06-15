@@ -143,54 +143,61 @@ def get_overview_stats() -> dict:
         stats['penny_stocks']['signals_count'] = total
 
         # 2.6 Отдельно догружаем статистику для whale из виртуальной истории сделок китов.
-        whale_pnl = conn.execute("""
-            SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_cents ELSE 0.0 END) as pnl_7d,
-                SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_cents ELSE 0.0 END) as pnl_30d
-            FROM whale_virtual_trades_history
-        """).fetchone()
-        if whale_pnl:
-            stats['whale']['pnl_7d'] = round((whale_pnl['pnl_7d'] or 0.0) * virtual_stake, 2)
-            stats['whale']['pnl_30d'] = round((whale_pnl['pnl_30d'] or 0.0) * virtual_stake, 2)
-            stats['whale']['signals_count'] = whale_pnl['total']
+        try:
+            whale_pnl = conn.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_cents ELSE 0.0 END) as pnl_7d,
+                    SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_cents ELSE 0.0 END) as pnl_30d
+                FROM whale_virtual_trades_history
+            """).fetchone()
+            if whale_pnl:
+                stats['whale']['pnl_7d'] = round((whale_pnl['pnl_7d'] or 0.0) * virtual_stake, 2)
+                stats['whale']['pnl_30d'] = round((whale_pnl['pnl_30d'] or 0.0) * virtual_stake, 2)
+                stats['whale']['signals_count'] = whale_pnl['total']
 
-        # 2.7 Рассчитываем win_rate для penny_stocks и whale (за последние 30 дней)
+            whale_wr = conn.execute("""
+                SELECT 
+                    COUNT(*) as total_30d,
+                    SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins_30d
+                FROM whale_virtual_trades_history
+                WHERE sold_at >= datetime('now', '-30 days')
+            """).fetchone()
+            if whale_wr and whale_wr['total_30d'] is not None and whale_wr['total_30d'] > 0:
+                stats['whale']['win_rate'] = (whale_wr['wins_30d'] or 0) / whale_wr['total_30d']
+        except Exception as e:
+            logger.warning(f"[Overview] whale_virtual_trades_history недоступна: {e}")
+
+        # 2.7 Рассчитываем win_rate для penny_stocks (за последние 30 дней)
         if total_30d > 0:
             stats['penny_stocks']['win_rate'] = wins_30d / total_30d
 
-        whale_wr = conn.execute("""
-            SELECT 
-                COUNT(*) as total_30d,
-                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins_30d
-            FROM whale_virtual_trades_history
-            WHERE sold_at >= datetime('now', '-30 days')
-        """).fetchone()
-        if whale_wr and whale_wr['total_30d'] is not None and whale_wr['total_30d'] > 0:
-            stats['whale']['win_rate'] = (whale_wr['wins_30d'] or 0) / whale_wr['total_30d']
 
         # 2.8 Догружаем статистику для favourite_compounding из compound_virtual_trades_history
-        comp_pnl = conn.execute("""
-            SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_usd ELSE 0.0 END) as pnl_7d,
-                SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_usd ELSE 0.0 END) as pnl_30d
-            FROM compound_virtual_trades_history
-        """).fetchone()
-        if comp_pnl:
-            stats['favourite_compounding']['pnl_7d'] = round(comp_pnl['pnl_7d'] or 0.0, 2)
-            stats['favourite_compounding']['pnl_30d'] = round(comp_pnl['pnl_30d'] or 0.0, 2)
-            stats['favourite_compounding']['signals_count'] = comp_pnl['total']
+        try:
+            comp_pnl = conn.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_usd ELSE 0.0 END) as pnl_7d,
+                    SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_usd ELSE 0.0 END) as pnl_30d
+                FROM compound_virtual_trades_history
+            """).fetchone()
+            if comp_pnl:
+                stats['favourite_compounding']['pnl_7d'] = round(comp_pnl['pnl_7d'] or 0.0, 2)
+                stats['favourite_compounding']['pnl_30d'] = round(comp_pnl['pnl_30d'] or 0.0, 2)
+                stats['favourite_compounding']['signals_count'] = comp_pnl['total']
 
-        comp_wr = conn.execute("""
-            SELECT 
-                COUNT(*) as total_30d,
-                SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins_30d
-            FROM compound_virtual_trades_history
-            WHERE sold_at >= datetime('now', '-30 days')
-        """).fetchone()
-        if comp_wr and comp_wr['total_30d'] is not None and comp_wr['total_30d'] > 0:
-            stats['favourite_compounding']['win_rate'] = (comp_wr['wins_30d'] or 0) / comp_wr['total_30d']
+            comp_wr = conn.execute("""
+                SELECT 
+                    COUNT(*) as total_30d,
+                    SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins_30d
+                FROM compound_virtual_trades_history
+                WHERE sold_at >= datetime('now', '-30 days')
+            """).fetchone()
+            if comp_wr and comp_wr['total_30d'] is not None and comp_wr['total_30d'] > 0:
+                stats['favourite_compounding']['win_rate'] = (comp_wr['wins_30d'] or 0) / comp_wr['total_30d']
+        except Exception as e:
+            logger.warning(f"[Overview] compound_virtual_trades_history недоступна: {e}")
 
         # 3. Обновляем статус-эмодзи
         for stype, sdata in stats.items():
@@ -236,7 +243,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
             rows = conn.execute("""
                 SELECT date(sold_at) as date, SUM(pnl_cents) as daily_pnl
                 FROM whale_virtual_trades_history
-                WHERE sold_at >= ?
+                WHERE sold_at >= ? AND sold_at IS NOT NULL
                 GROUP BY date(sold_at)
                 ORDER BY date(sold_at) ASC
             """, (period_start,)).fetchall()
@@ -244,7 +251,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
             rows = conn.execute("""
                 SELECT date(sold_at) as date, SUM(pnl_usd) as daily_pnl
                 FROM compound_virtual_trades_history
-                WHERE sold_at >= ?
+                WHERE sold_at >= ? AND sold_at IS NOT NULL
                 GROUP BY date(sold_at)
                 ORDER BY date(sold_at) ASC
             """, (period_start,)).fetchall()

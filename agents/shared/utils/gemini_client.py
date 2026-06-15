@@ -244,7 +244,6 @@ def extract_response_text(result: dict) -> str:
 
 def extract_json_from_llm(text: str) -> str:
     """Извлекает JSON из ответа LLM, убирая markdown-обёртки."""
-    import re
     # Попытка 1: найти ```json ... ``` блок
     match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
     if match:
