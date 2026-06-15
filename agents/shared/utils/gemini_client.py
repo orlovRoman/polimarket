@@ -384,6 +384,25 @@ def _send_cerebras(payload: dict, model: str, api_key: str, timeout: int) -> Tup
 # Для добавления 3-го провайдера достаточно прописать его ключ, модели и функцию-обработчик здесь.
 # ВАЖНО: ключи gemini['keys'] формируются динамически внутри generate_content_with_fallback,
 # чтобы prepend-ить первичный api_key, переданный в аргументах.
+def _get_openrouter_models() -> list[str]:
+    default_models = [
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "openai/gpt-oss-120b:free",
+        "google/gemma-4-31b-it:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "nousresearch/hermes-3-llama-3.1-405b:free"
+    ]
+    env_model = os.getenv("OPENROUTER_MODEL")
+    if env_model:
+        models = [env_model]
+        for m in default_models:
+            if m != env_model:
+                models.append(m)
+        return models
+    return default_models
+
 PROVIDERS_CONFIG: dict = {
     "gemini": {
         # keys будут собраны динамически (prepend api_key + secondary из env)
@@ -398,15 +417,7 @@ PROVIDERS_CONFIG: dict = {
     },
     "openrouter": {
         "keys": [os.getenv("OPENROUTER_API_KEY", "")],
-        "models": [
-            os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free"),
-            "openai/gpt-oss-120b:free",
-            "google/gemma-4-31b-it:free",
-            "nvidia/nemotron-3-ultra-550b-a55b:free",
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "qwen/qwen3-next-80b-a3b-instruct:free",
-            "nousresearch/hermes-3-llama-3.1-405b:free"
-        ],
+        "models": _get_openrouter_models(),
         "send_func": _send_openrouter
     },
     "cerebras": {

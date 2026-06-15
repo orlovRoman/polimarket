@@ -1229,8 +1229,10 @@ def get_nice_model_name(model_id: str) -> str:
         return "🧠 Gemini 2.5 Pro"
     elif "llama-3.3" in model_lower:
         return "🦙 Llama 3.3"
-    elif "nemotron-3-super" in model_lower or "nemotron-3-nano" in model_lower:
+    elif "nemotron-3-super" in model_lower:
         return "🟢 Nemotron 3 Super"
+    elif "nemotron-3-nano" in model_lower:
+        return "🟢 Nemotron 3 Nano"
     elif "nemotron-3-ultra" in model_lower:
         return "🟢 Nemotron 3 Ultra"
     elif "nemotron" in model_lower:
