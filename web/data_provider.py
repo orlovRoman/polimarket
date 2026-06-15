@@ -1767,9 +1767,10 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
     """
     Собирает данные для дашборда Favourite Compounding (активные, завершенные позиции, статистика, ручной портфель, история ручных сделок).
     """
-    from agents.shared.python.db import get_connection
+    from agents.shared.python.db import get_connection, get_compound_settings
     with get_connection() as conn:
-        virtual_stake = get_global_virtual_stake(conn)
+        cfg = get_compound_settings()
+        virtual_stake = float(cfg.get('virtual_stake', 50.0))
         # Подсчет общего количества активных
         active_total = conn.execute("""
             SELECT COUNT(*) as cnt
@@ -1816,8 +1817,8 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                 row_dict['pnl_is_hypothetical'] = None
                 return row_dict
 
-            pnl_auto = None
-            if price is not None and outcome is not None and price > 0:
+            pnl_auto = row_dict.get('pnl_auto')
+            if pnl_auto is None and price is not None and outcome is not None and price > 0:
                 actual_up = actual.upper()
                 outcome_up = outcome.upper()
                 if actual_up == outcome_up:
@@ -1915,7 +1916,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
 
         # === 1. АВТО-СТАТИСТИКА (СИГНАЛЫ АГЕНТОВ) ===
         all_resolved_auto = conn.execute("""
-            SELECT price, outcome, actual_outcome, resolved_at
+            SELECT price, outcome, actual_outcome, resolved_at, pnl_usd
             FROM compound_opportunities
             WHERE status = 'RESOLVED' AND virtual_bought_price IS NULL
             ORDER BY resolved_at ASC
@@ -1945,7 +1946,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                 
                 if is_win:
                     auto_wins += 1
-                    pnl_val = (virtual_stake / price) * (1.0 - price) * 0.98
+                    pnl_val = r['pnl_usd'] if r['pnl_usd'] is not None else (virtual_stake / price) * (1.0 - price) * 0.98
                     sum_won += pnl_val
                     if streak_type == "WIN":
                         current_streak += 1
@@ -1953,7 +1954,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                         streak_type = "WIN"
                         current_streak = 1
                 else:
-                    pnl_val = -virtual_stake
+                    pnl_val = r['pnl_usd'] if r['pnl_usd'] is not None else -virtual_stake
                     sum_lost += virtual_stake
                     if streak_type == "LOSS":
                         current_streak += 1

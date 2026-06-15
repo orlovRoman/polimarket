@@ -485,13 +485,7 @@ def _resolve_compound_outcomes() -> int:
     virtual_stake = cfg.get("virtual_stake", 50.0)
     
     # Находим все неразрешенные compound-позиции, у которых наступило время закрытия или которые уже разрешены оракулом
-    try:
-        with get_connection() as conn:
-            row = conn.execute("SELECT value FROM memory WHERE key = 'global_virtual_stake'").fetchone()
-            if row and row['value']:
-                virtual_stake = float(row['value'])
-    except Exception:
-        pass
+    # Используем виртуальную ставку только из настроек стратегии
 
     with get_connection() as conn:
         to_resolve_rows = conn.execute("""
