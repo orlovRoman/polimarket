@@ -8,6 +8,7 @@ from pathlib import Path
 
 from agents.shared.utils.database import DatabaseManager
 from agents.shared.utils.obsidian_adapter import ObsidianAdapter
+from agents.shared.utils.gemini_client import extract_json_from_llm
 
 class NexusAgent:
     """
@@ -227,12 +228,7 @@ class NexusAgent:
                 logger.warning("[NEXUS SCREENER] Пустой ответ от модели. Возвращаем пустой результат.")
                 return {"top_candidates": [], "correlations": []}
 
-            import re
-            match = re.search(r'```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```', text, re.DOTALL)
-            if match:
-                text = match.group(1)
-            else:
-                text = text.strip()
+            text = extract_json_from_llm(text)
 
             try:
                 result = json.loads(text, strict=False)

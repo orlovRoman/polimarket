@@ -733,7 +733,7 @@
             chainsTbody.innerHTML = chains.map(chain => {
                 let statusBadge = `<span class="badge badge-gray">${chain.status}</span>`;
                 if (chain.status === 'WAITING_NEXT' || chain.status === 'WAITING_RESOLUTION') {
-                    statusBadge = `<span class="badge badge-yellow" style="color:#000;">${chain.status}</span>`;
+                    statusBadge = `<span class="badge badge-yellow">${chain.status}</span>`;
                 } else if (chain.status === 'COMPLETED') {
                     statusBadge = `<span class="badge badge-green">COMPLETED</span>`;
                 } else if (chain.status === 'FAILED') {
@@ -745,7 +745,7 @@
                     const currentBet = chain.bets[chain.bets.length - 1];
                     let betStatus = currentBet.status;
                     let betBadge = `<span class="badge badge-gray">${betStatus}</span>`;
-                    if (betStatus === 'PENDING') betBadge = `<span class="badge badge-yellow" style="color:#000;">PENDING</span>`;
+                    if (betStatus === 'PENDING') betBadge = `<span class="badge badge-yellow">PENDING</span>`;
                     else if (betStatus === 'WON') betBadge = `<span class="badge badge-green">WON</span>`;
                     else if (betStatus === 'LOST') betBadge = `<span class="badge badge-red">LOST</span>`;
                     
@@ -761,12 +761,16 @@
                         </div>
                     `;
                 }
+                let displayStep = chain.current_step;
+                if (chain.status === 'WAITING_RESOLUTION') {
+                    displayStep += 1;
+                }
                 
                 return `
                     <tr>
                         <td><b>#${chain.id}</b></td>
                         <td>${statusBadge}</td>
-                        <td>Шаг ${chain.current_step} / ${chain.target_steps}</td>
+                        <td>Шаг ${displayStep} / ${chain.target_steps}</td>
                         <td>$${chain.current_stake.toFixed(2)}</td>
                         <td>${currentBetHtml}</td>
                     </tr>

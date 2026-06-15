@@ -3,7 +3,7 @@ import re
 import json
 from typing import Optional, List
 import logging
-from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
+from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text, extract_json_from_llm
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from core.models import Market
 
@@ -94,11 +94,7 @@ class NewsProcessor:
 
         try:
             content = extract_response_text(result)
-            match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
-            if match:
-                content = match.group(1)
-            else:
-                content = content.strip()
+            content = extract_json_from_llm(content)
             data = json.loads(content, strict=False)
             relevant_indices = data.get("relevant_indices", [])
 
@@ -284,11 +280,7 @@ class NewsProcessor:
             
         try:
             content = extract_response_text(result)
-            match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
-            if match:
-                content = match.group(1)
-            else:
-                content = content.strip()
+            content = extract_json_from_llm(content)
             data = json.loads(content, strict=False)
             keywords = data.get("keywords", [])
             

@@ -242,6 +242,22 @@ def extract_response_text(result: dict) -> str:
         raw = json.dumps(result)
         raise ValueError(f"Не удалось извлечь текст ответа. API вернуло: {raw[:MAX_ERR_DUMP]}{'...' if len(raw) > MAX_ERR_DUMP else ''}") from e
 
+def extract_json_from_llm(text: str) -> str:
+    """Извлекает JSON из ответа LLM, убирая markdown-обёртки."""
+    import re
+    # Попытка 1: найти ```json ... ``` блок
+    match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+    if match:
+        return match.group(1).strip()
+    # Попытка 2: найти первый { или [ и взять весь остаток
+    for start_char, end_char in [('{', '}'), ('[', ']')]:
+        idx = text.find(start_char)
+        if idx != -1:
+            last = text.rfind(end_char)
+            if last > idx:
+                return text[idx:last+1]
+    return text.strip()
+
 def _is_safe_char(ch: str) -> bool:
     cp = ord(ch)
     # Разрешаем: printable ASCII + Unicode + таб/новая строка/возврат каретки
