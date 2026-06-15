@@ -227,14 +227,15 @@ class NexusAgent:
                 logger.warning("[NEXUS SCREENER] Пустой ответ от модели. Возвращаем пустой результат.")
                 return {"top_candidates": [], "correlations": []}
 
-            # Снимаем markdown-обёртку ```json ... ``` если есть
-            if text.startswith("```"):
-                lines = text.split("\n")
-                # убираем первую и последнюю строки (``` и ```)
-                text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            import re
+            match = re.search(r'```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```', text, re.DOTALL)
+            if match:
+                text = match.group(1)
+            else:
+                text = text.strip()
 
             try:
-                result = json.loads(text)
+                result = json.loads(text, strict=False)
             except json.JSONDecodeError as e:
                 logger.error(f"[NEXUS SCREENER] JSONDecodeError: {e}. Ответ: {text[:300]}")
                 return {"top_candidates": [], "correlations": []}

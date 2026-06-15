@@ -94,7 +94,12 @@ class NewsProcessor:
 
         try:
             content = extract_response_text(result)
-            data = json.loads(content)
+            match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if match:
+                content = match.group(1)
+            else:
+                content = content.strip()
+            data = json.loads(content, strict=False)
             relevant_indices = data.get("relevant_indices", [])
 
             if not relevant_indices:
@@ -279,7 +284,12 @@ class NewsProcessor:
             
         try:
             content = extract_response_text(result)
-            data = json.loads(content)
+            match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if match:
+                content = match.group(1)
+            else:
+                content = content.strip()
+            data = json.loads(content, strict=False)
             keywords = data.get("keywords", [])
             
             if not keywords:
