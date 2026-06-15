@@ -957,9 +957,44 @@ async def api_save_compound_settings(request):
         return web.json_response({"error": "Invalid JSON"}, status=400)
         
     from agents.shared.python.db import save_compound_setting
+    
+    # Validation logic
     for k, v in body.items():
-        if k in ["min_price", "min_volume", "max_hours", "virtual_stake", "enabled", "min_confidence"]:
-            save_compound_setting(k, str(v))
+        if v is None:
+            continue
+            
+        if k == "min_price":
+            try:
+                val = float(v)
+                if 0.01 <= val <= 0.99:
+                    save_compound_setting(k, str(val))
+            except ValueError: pass
+        elif k == "min_volume":
+            try:
+                val = float(v)
+                if val >= 0:
+                    save_compound_setting(k, str(val))
+            except ValueError: pass
+        elif k == "max_hours":
+            try:
+                val = int(v)
+                if val >= 0:
+                    save_compound_setting(k, str(val))
+            except ValueError: pass
+        elif k == "virtual_stake":
+            try:
+                val = int(v)
+                if val >= 0:
+                    save_compound_setting(k, str(val))
+            except ValueError: pass
+        elif k == "min_confidence":
+            try:
+                val = float(v)
+                if 0.0 <= val <= 1.0:
+                    save_compound_setting(k, str(val))
+            except ValueError: pass
+        elif k == "enabled":
+            save_compound_setting(k, "1" if v else "0")
             
     return web.json_response({"status": "ok"})
 

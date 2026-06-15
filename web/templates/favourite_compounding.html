@@ -297,12 +297,22 @@
     }
     
     async function saveCompoundSettings() {
+        const toFloat = (id) => {
+            const v = parseFloat(document.getElementById(id).value);
+            return isNaN(v) ? null : v;
+        };
+        
+        const toInt = (id) => {
+            const v = parseInt(document.getElementById(id).value, 10);
+            return isNaN(v) ? null : v;
+        };
+
         const payload = {
-            min_price: parseFloat(document.getElementById('setting-min-price').value),
-            min_volume: parseFloat(document.getElementById('setting-min-volume').value),
-            max_hours: parseFloat(document.getElementById('setting-max-hours').value),
-            virtual_stake: parseFloat(document.getElementById('setting-virtual-stake').value),
-            min_confidence: parseFloat(document.getElementById('setting-min-confidence').value),
+            min_price: toFloat('setting-min-price'),
+            min_volume: toFloat('setting-min-volume'),
+            max_hours: toInt('setting-max-hours'),
+            virtual_stake: toInt('setting-virtual-stake'),
+            min_confidence: toFloat('setting-min-confidence'),
             enabled: document.getElementById('setting-enabled').checked ? 1 : 0
         };
         
