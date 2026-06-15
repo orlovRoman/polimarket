@@ -29,13 +29,19 @@ def get_status_emoji(sharpe: float | None, win_rate: float | None) -> str:
         return "🟢"
     return "🟡"
 
+STRATEGY_ALIASES = {
+    'favourite_compound': 'favourite_compounding',
+    'compound_parlay': 'compound_parlays',
+    'temporal': 'temporal_corridor',
+    'synthetic': 'synthetic_corridor',
+    'cross': 'cross_platform',
+}
+
 def normalize_strategy_name(name: str) -> str:
     if not name:
         return ""
     name = name.lower().strip()
-    if name == 'favourite_compound':
-        return 'favourite_compounding'
-    return name
+    return STRATEGY_ALIASES.get(name, name)
 
 def _load_strategy_metrics(conn, stats):
     """
@@ -71,8 +77,12 @@ def _load_signals_pnl(conn, stats):
     for r in rows_pnl:
         stype = normalize_strategy_name(r['strategy_type'])
         if stype in stats:
-            stats[stype]['pnl_7d'] = round(r['pnl_7d'] or 0.0, 2)
-            stats[stype]['pnl_30d'] = round(r['pnl_30d'] or 0.0, 2)
+            new_pnl_7d = round(r['pnl_7d'] or 0.0, 2)
+            new_pnl_30d = round(r['pnl_30d'] or 0.0, 2)
+            if new_pnl_7d != 0.0 or stats[stype]['pnl_7d'] == 0.0:
+                stats[stype]['pnl_7d'] = new_pnl_7d
+            if new_pnl_30d != 0.0 or stats[stype]['pnl_30d'] == 0.0:
+                stats[stype]['pnl_30d'] = new_pnl_30d
             current = stats[stype].get('signals_count') or 0
             stats[stype]['signals_count'] = max(current, r['total'] or 0)
 

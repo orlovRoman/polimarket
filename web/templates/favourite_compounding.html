@@ -524,6 +524,11 @@
 
 
         } else if (currentTab === 'chains') {
+            document.getElementById('kpi-wins-count').textContent = '0';
+            document.getElementById('kpi-losses-count').textContent = '0';
+            document.getElementById('kpi-wins-count-card').style.display = 'none';
+            document.getElementById('kpi-losses-count-card').style.display = 'none';
+
             kpiActiveTitle.textContent = "Активных цепочек";
             let activeChains = 0;
             let resolvedChains = 0;

@@ -2531,8 +2531,10 @@ def add_penny_stock_to_monitoring(market_id: str, title: str, url: str, initial_
     init_p = _round_price(initial_price)
     
     if not close_time:
-        from datetime import datetime, timedelta
-        close_time = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+        from datetime import datetime, timedelta, timezone
+        close_time = (
+            datetime.now(timezone.utc) + timedelta(days=30)
+        ).strftime("%Y-%m-%d %H:%M:%S")
 
     with get_connection() as conn:
         conn.execute("""
@@ -2816,8 +2818,10 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
     init_p = _round_price(initial_price)
     
     if not close_time:
-        from datetime import datetime, timedelta
-        close_time = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+        from datetime import datetime, timedelta, timezone
+        close_time = (
+            datetime.now(timezone.utc) + timedelta(days=30)
+        ).strftime("%Y-%m-%d %H:%M:%S")
 
     with get_connection() as conn:
         conn.execute("""
