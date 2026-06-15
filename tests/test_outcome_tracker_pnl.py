@@ -205,9 +205,8 @@ class TestResolveCompoundByMarketId:
         assert count == 1
         mock_resolve_sig.assert_called_once()
         # Должен искать по market_id, не по opp["id"]
-        call_args = conn_mock.execute.call_args
-        assert "market_id" in call_args[0][0]
-
+        queries = [call[0][0] for call in conn_mock.execute.call_args_list]
+        assert any("market_id" in q for q in queries)
     @patch("services.outcome_tracker._fetch_resolution", return_value="NO")
     @patch("services.outcome_tracker._resolve_signal")
     @patch("agents.shared.python.db.resolve_compound_opportunity")

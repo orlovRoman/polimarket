@@ -37,6 +37,7 @@
 
 <div class="opinion-tabs" style="margin-bottom: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 12px; display: flex; gap: 8px;">
     <button id="compound-tab-auto" class="opinion-tab-btn active" onclick="switchCompoundTab('auto')">🤖 Авто-сигналы агентов</button>
+    <button id="compound-tab-chains" class="opinion-tab-btn" onclick="switchCompoundTab('chains')">🔗 Авто-цепочки (Parlays)</button>
     <button id="compound-tab-manual" class="opinion-tab-btn" onclick="switchCompoundTab('manual')">💼 Ручной портфель</button>
     <button id="compound-tab-losses" class="opinion-tab-btn" onclick="switchCompoundTab('losses')">🔴 Проигранные рынки</button>
     <button class="opinion-tab-btn" style="margin-left: auto; background: var(--surface-light);" onclick="toggleCompoundSettings()">⚙️ Настройки стратегии</button>
@@ -64,6 +65,14 @@
         <div>
             <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Базовая уверенность LLM (0.0 - 1.0)</label>
             <input type="number" id="setting-min-confidence" step="0.05" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Макс. одновременных цепочек</label>
+            <input type="number" id="setting-max-concurrent-chains" step="1" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Длина цепочки (шаги)</label>
+            <input type="number" id="setting-chain-length" step="1" min="2" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
         </div>
         <div style="display: flex; align-items: flex-end;">
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-secondary); font-size: 0.9rem;">
@@ -206,6 +215,28 @@
     <div id="active-pagination"></div>
 </div>
 
+<div id="chains-card" class="table-card" style="display: none;">
+    <div class="table-title">🔗 Активные цепочки реинвестирования (Parlays)</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID Цепочки</th>
+                    <th>Статус</th>
+                    <th>Прогресс</th>
+                    <th>Текущий стейк</th>
+                    <th>Текущий рынок</th>
+                </tr>
+            </thead>
+            <tbody id="chains-tbody">
+                <tr>
+                    <td colspan="5" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <div id="resolved-card" class="table-card">
     <div class="table-title">Завершенные compound-рынки (Авто-сигналы)</div>
     <div class="table-wrapper">
@@ -312,6 +343,8 @@
                 document.getElementById('setting-max-hours').value = data.max_hours;
                 document.getElementById('setting-virtual-stake').value = data.virtual_stake;
                 document.getElementById('setting-min-confidence').value = data.min_confidence;
+                document.getElementById('setting-max-concurrent-chains').value = data.max_concurrent_chains || 3;
+                document.getElementById('setting-chain-length').value = data.chain_length || 3;
                 document.getElementById('setting-enabled').checked = data.enabled === 1;
             }
         } catch (e) {
@@ -336,6 +369,8 @@
             max_hours: toInt('setting-max-hours'),
             virtual_stake: toInt('setting-virtual-stake'),
             min_confidence: toFloat('setting-min-confidence'),
+            max_concurrent_chains: toInt('setting-max-concurrent-chains'),
+            chain_length: toInt('setting-chain-length'),
             enabled: document.getElementById('setting-enabled').checked ? 1 : 0
         };
         
@@ -446,20 +481,28 @@
         document.getElementById('compound-tab-auto').classList.toggle('active', tab === 'auto');
         document.getElementById('compound-tab-manual').classList.toggle('active', tab === 'manual');
         document.getElementById('compound-tab-losses').classList.toggle('active', tab === 'losses');
+        document.getElementById('compound-tab-chains').classList.toggle('active', tab === 'chains');
         
         if (tab === 'auto') {
             document.getElementById('top-grid').style.display = 'none';
             document.getElementById('resolved-card').style.display = 'block';
             document.getElementById('history-card').style.display = 'none';
             document.getElementById('losses-card').style.display = 'none';
-        } else if (tab === 'losses') {
             document.getElementById('top-grid').style.display = 'none';
             document.getElementById('resolved-card').style.display = 'none';
+            document.getElementById('chains-card').style.display = 'none';
             document.getElementById('history-card').style.display = 'none';
             document.getElementById('losses-card').style.display = 'block';
+        } else if (tab === 'chains') {
+            document.getElementById('top-grid').style.display = 'none';
+            document.getElementById('resolved-card').style.display = 'none';
+            document.getElementById('chains-card').style.display = 'block';
+            document.getElementById('history-card').style.display = 'none';
+            document.getElementById('losses-card').style.display = 'none';
         } else {
             document.getElementById('top-grid').style.display = 'grid';
             document.getElementById('resolved-card').style.display = 'none';
+            document.getElementById('chains-card').style.display = 'none';
             document.getElementById('history-card').style.display = 'block';
             document.getElementById('losses-card').style.display = 'none';
         }
@@ -634,6 +677,10 @@
         sortDataArray(activeData, sortState.active.col, sortState.active.dir);
         renderActiveTable(activeData);
         
+        if (lastFetchedData.chains) {
+            renderChainsTable(lastFetchedData.chains);
+        }
+        
         let winsData = [...lastFetchedData.resolved_wins];
         winsData.forEach(row => {
             row.was_correct = row.outcome === row.actual_outcome;
@@ -706,6 +753,55 @@
                         <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${row.obviousness_reason || ''}">${row.obviousness_reason || '—'}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.close_time)}</td>
                         <td><div style="display: flex; gap: 6px; align-items: center; white-space: nowrap;">${actionBtn}${deleteBtn}</div></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+    function renderChainsTable(chains) {
+        const chainsTbody = document.getElementById('chains-tbody');
+        if (!chains || chains.length === 0) {
+            chainsTbody.innerHTML = `<tr><td colspan="5" style="text-align: center;" class="text-muted">Нет активных или недавних цепочек</td></tr>`;
+        } else {
+            chainsTbody.innerHTML = chains.map(chain => {
+                let statusBadge = `<span class="badge badge-gray">${chain.status}</span>`;
+                if (chain.status === 'WAITING_NEXT' || chain.status === 'WAITING_RESOLUTION') {
+                    statusBadge = `<span class="badge badge-yellow" style="color:#000;">${chain.status}</span>`;
+                } else if (chain.status === 'COMPLETED') {
+                    statusBadge = `<span class="badge badge-green">COMPLETED</span>`;
+                } else if (chain.status === 'FAILED') {
+                    statusBadge = `<span class="badge badge-red">FAILED</span>`;
+                }
+
+                let currentBetHtml = '<span class="text-muted">Ожидание возможности</span>';
+                if (chain.bets && chain.bets.length > 0) {
+                    const currentBet = chain.bets[chain.bets.length - 1];
+                    let betStatus = currentBet.status;
+                    let betBadge = `<span class="badge badge-gray">${betStatus}</span>`;
+                    if (betStatus === 'PENDING') betBadge = `<span class="badge badge-yellow" style="color:#000;">PENDING</span>`;
+                    else if (betStatus === 'WON') betBadge = `<span class="badge badge-green">WON</span>`;
+                    else if (betStatus === 'LOST') betBadge = `<span class="badge badge-red">LOST</span>`;
+                    
+                    let oppLink = currentBet.url ? `<a href="${currentBet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${currentBet.title}</a>` : `Рынок #${currentBet.opp_id}`;
+                    
+                    currentBetHtml = `
+                        <div style="font-size: 0.9rem;">
+                            <div>${oppLink}</div>
+                            <div style="margin-top:4px; font-size:0.8rem; color:var(--text-secondary);">
+                                Исходом: <b>${currentBet.target_outcome}</b> | 
+                                ${betBadge} | Вход: ${formatPriceCents(currentBet.bet_price)}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                return `
+                    <tr>
+                        <td><b>#${chain.id}</b></td>
+                        <td>${statusBadge}</td>
+                        <td>Шаг ${chain.current_step} / ${chain.target_steps}</td>
+                        <td>$${chain.current_stake.toFixed(2)}</td>
+                        <td>${currentBetHtml}</td>
                     </tr>
                 `;
             }).join('');

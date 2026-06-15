@@ -418,6 +418,60 @@ def _send_telegram_summary(resolved_items: list[tuple[dict, str]]) -> None:
     except Exception as e:
         logger.error(f"[OutcomeTracker] Ошибка при отправке сводки в Telegram: {e}")
 
+def _resolve_chain_bets_for_opportunity(opp: dict, res: str) -> None:
+    from agents.shared.python.db import get_connection
+    target_outcome = opp.get("outcome", "YES")
+    was_correct = res == target_outcome
+    price = float(opp.get("price", 0.95))
+    
+    try:
+        with get_connection() as conn:
+            bets = conn.execute("SELECT * FROM compound_chain_bets WHERE opp_id = ? AND status = 'PENDING'", (opp["id"],)).fetchall()
+            if not bets:
+                return
+            for bet in bets:
+                bet_id = bet["id"]
+                chain_id = bet["chain_id"]
+                
+                chain = conn.execute("SELECT * FROM compound_chains WHERE id = ?", (chain_id,)).fetchone()
+                if not chain: continue
+                
+                current_stake = float(chain["current_stake"])
+                current_step = int(chain["current_step"])
+                target_steps = int(chain["target_steps"])
+                
+                if was_correct:
+                    contracts = current_stake / price
+                    raw_profit = (contracts * 1.0) - current_stake
+                    # Polymarket fee 2% (в ROICalculator.POLY_FEE_PCT)
+                    profit_after_fee = raw_profit * 0.98
+                    new_stake = current_stake + profit_after_fee
+                    payout = new_stake
+                    
+                    conn.execute("UPDATE compound_chain_bets SET status = 'WON', payout = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?", (payout, bet_id))
+                    
+                    new_step = current_step + 1
+                    if new_step >= target_steps:
+                        new_status = 'COMPLETED'
+                    else:
+                        new_status = 'WAITING_NEXT'
+                        
+                    conn.execute(
+                        "UPDATE compound_chains SET status = ?, current_stake = ?, current_step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (new_status, new_stake, new_step, chain_id)
+                    )
+                    logger.info(f"[Chains] Цепочка #{chain_id} выиграла шаг {new_step}. Новый стейк: ${new_stake:.2f}. Статус: {new_status}")
+                else:
+                    conn.execute("UPDATE compound_chain_bets SET status = 'LOST', payout = 0, resolved_at = CURRENT_TIMESTAMP WHERE id = ?", (bet_id,))
+                    conn.execute(
+                        "UPDATE compound_chains SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (chain_id,)
+                    )
+                    logger.info(f"[Chains] Цепочка #{chain_id} проиграла на шаге {current_step + 1}. Статус: FAILED")
+            conn.commit()
+    except Exception as e:
+        logger.error(f"[Chains] Ошибка авторезолюции цепочек: {e}", exc_info=True)
+
 def _resolve_compound_outcomes() -> int:
     """Авторезолюция compound_opportunities по резолюции рынков. Возвращает количество разрешенных позиций."""
     from agents.shared.python.db import (
@@ -496,6 +550,9 @@ def _resolve_compound_outcomes() -> int:
             # Если статус NEW или куплена только вручную, всё равно закрываем саму возможность
             resolve_compound_opportunity(opp["id"], res, None)
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} (без PnL / только ручная сделка)")
+            
+        # 3. Автоматические цепочки
+        _resolve_chain_bets_for_opportunity(opp, res)
             
         resolved_count += 1
 

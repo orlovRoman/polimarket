@@ -151,52 +151,32 @@ class TestFakeCursorFetchoneContract:
 
 class TestOrchestratorAccuracyContextMinSamples:
 
-    def _make_fake_memory(self, total: int):
-        def fake_get(key):
-            if key.endswith("_evaluated_total"):
-                return total
-            if key.endswith("_correct_total"):
-                return total
-            if key.endswith("_accuracy_pct"):
-                return 100.0 if total > 0 else None
-            return None
-        return fake_get
-
-    @patch("agents.shared.python.db.get_memory")
-    def test_returns_none_when_below_min_samples(self, mock_get_memory):
-        """evaluated_total=3 < min_samples=5 → None (контекст потерян тихо)."""
-        mock_get_memory.side_effect = self._make_fake_memory(3)
-        try:
-            from agents.shared.python.db import get_agent_accuracy_context
-        except ImportError:
-            pytest.skip("get_agent_accuracy_context не найдена")
+    @patch("agents.shared.python.db.get_agent_accuracy")
+    def test_returns_none_when_below_min_samples(self, mock_get_acc):
+        """evaluated_total=3 < min_samples=5 → None."""
+        mock_get_acc.return_value = {"total": 3, "correct": 2, "incorrect": 1, "accuracy": 0.66}
+        from agents.shared.python.db import get_agent_accuracy_context
 
         result = get_agent_accuracy_context("scout", min_samples=5)
         assert result is None, \
             f"Ожидался None при 3 < 5 семплах, получено: {result!r}"
 
-    @patch("agents.shared.python.db.get_memory")
-    def test_returns_context_when_at_min_samples(self, mock_get_memory):
+    @patch("agents.shared.python.db.get_agent_accuracy")
+    def test_returns_context_when_at_min_samples(self, mock_get_acc):
         """evaluated_total=5 == min_samples=5 → должен вернуть строку."""
-        mock_get_memory.side_effect = self._make_fake_memory(5)
-        try:
-            from agents.shared.python.db import get_agent_accuracy_context
-        except ImportError:
-            pytest.skip("get_agent_accuracy_context не найдена")
+        mock_get_acc.return_value = {"total": 5, "correct": 4, "incorrect": 1, "accuracy": 0.8}
+        from agents.shared.python.db import get_agent_accuracy_context
 
         result = get_agent_accuracy_context("scout", min_samples=5)
         assert result is not None, "При ровно 5 семплах должен вернуть контекст"
         assert isinstance(result, str)
 
-    @patch("agents.shared.python.db.get_memory")
-    def test_min_samples_1_always_returned_context(self, mock_get_memory):
-        """Регресс: min_samples=1 + 1 семпл → должен вернуть контекст (было раньше)."""
-        mock_get_memory.side_effect = self._make_fake_memory(1)
-        try:
-            from agents.shared.python.db import get_agent_accuracy_context
-        except ImportError:
-            pytest.skip("get_agent_accuracy_context не найдена")
+    @patch("agents.shared.python.db.get_agent_accuracy")
+    def test_min_samples_1_always_returned_context(self, mock_get_acc):
+        """Регресс: min_samples=1 + 1 семпл → должен вернуть контекст."""
+        mock_get_acc.return_value = {"total": 1, "correct": 1, "incorrect": 0, "accuracy": 1.0}
+        from agents.shared.python.db import get_agent_accuracy_context
 
         result = get_agent_accuracy_context("scout", min_samples=1)
-        assert result is not None, \
-            "При min_samples=1 и 1 семпле должен вернуть контекст (регресс)"
+        assert result is not None
+        assert isinstance(result, str)

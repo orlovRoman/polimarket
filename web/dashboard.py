@@ -993,6 +993,18 @@ async def api_save_compound_settings(request):
                 if 0.0 <= val <= 1.0:
                     save_compound_setting(k, str(val))
             except ValueError: pass
+        elif k == "max_concurrent_chains":
+            try:
+                val = int(v)
+                if val >= 1:
+                    save_compound_setting(k, str(val))
+            except ValueError: pass
+        elif k == "chain_length":
+            try:
+                val = int(v)
+                if val >= 2:
+                    save_compound_setting(k, str(val))
+            except ValueError: pass
         elif k == "enabled":
             save_compound_setting(k, "1" if v else "0")
             

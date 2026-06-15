@@ -1839,6 +1839,35 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
 
         virtual_history = [dict(r) for r in history_rows]
 
+        # Цепочки реинвестирования (Parlays)
+        chains_rows = conn.execute("SELECT * FROM compound_chains ORDER BY id DESC LIMIT 50").fetchall()
+        chains = [dict(c) for c in chains_rows]
+        
+        if chains:
+            chain_ids = [c["id"] for c in chains]
+            placeholders = ",".join("?" * len(chain_ids))
+            bets_rows = conn.execute(
+                f"""
+                SELECT b.*, o.title, o.url, o.outcome as target_outcome 
+                FROM compound_chain_bets b
+                LEFT JOIN compound_opportunities o ON b.opp_id = o.id
+                WHERE b.chain_id IN ({placeholders}) 
+                ORDER BY b.chain_id DESC, b.step_index ASC
+                """, 
+                chain_ids
+            ).fetchall()
+            
+            bets_by_chain = {}
+            for b in bets_rows:
+                b_dict = dict(b)
+                c_id = b_dict["chain_id"]
+                if c_id not in bets_by_chain:
+                    bets_by_chain[c_id] = []
+                bets_by_chain[c_id].append(b_dict)
+                
+            for c in chains:
+                c["bets"] = bets_by_chain.get(c["id"], [])
+
     return {
         'active': active,
         'resolved_wins': resolved_wins,
@@ -1850,7 +1879,8 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         'total_active': active_total,
         'wins_total': wins_total,
         'losses_total': losses_total,
-        'history_total': history_total
+        'history_total': history_total,
+        'chains': chains
     }
 
 def get_eval_status() -> dict:
