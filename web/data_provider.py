@@ -29,6 +29,14 @@ def get_status_emoji(sharpe: float | None, win_rate: float | None) -> str:
         return "🟢"
     return "🟡"
 
+def normalize_strategy_name(name: str) -> str:
+    if not name:
+        return ""
+    name = name.lower().strip()
+    if name == 'favourite_compound':
+        return 'favourite_compounding'
+    return name
+
 def get_overview_stats() -> dict:
     """
     Агрегирует общие метрики по всем стратегиям:
@@ -57,15 +65,16 @@ def get_overview_stats() -> dict:
     with get_connection() as conn:
         # 1. Читаем последние метрики из strategy_metrics
         rows = conn.execute("""
-            SELECT strategy_type, win_rate, sharpe_ratio
+            SELECT strategy_type, win_rate, sharpe_ratio, total_signals
             FROM strategy_metrics
             WHERE id IN (SELECT MAX(id) FROM strategy_metrics GROUP BY strategy_type)
         """).fetchall()
         for r in rows:
-            stype = r['strategy_type']
+            stype = normalize_strategy_name(r['strategy_type'])
             if stype in stats:
                 stats[stype]['win_rate'] = r['win_rate']
                 stats[stype]['sharpe'] = r['sharpe_ratio']
+                stats[stype]['signals_count'] = r['total_signals'] or 0
 
         # 2. Вычисляем rolling PnL и общее число сигналов из signals
         rows_pnl = conn.execute("""
@@ -78,11 +87,11 @@ def get_overview_stats() -> dict:
             GROUP BY strategy_type
         """).fetchall()
         for r in rows_pnl:
-            stype = r['strategy_type']
+            stype = normalize_strategy_name(r['strategy_type'])
             if stype in stats:
                 stats[stype]['pnl_7d'] = round(r['pnl_7d'] or 0.0, 2)
                 stats[stype]['pnl_30d'] = round(r['pnl_30d'] or 0.0, 2)
-                stats[stype]['signals_count'] = r['total']
+                stats[stype]['signals_count'] = max(stats[stype]['signals_count'], r['total'] or 0)
 
         # 2.5 Загружаем статистику для penny_stocks по авто-сигналам агентов из penny_stocks_monitoring.
         penny_rows = conn.execute("""
@@ -154,7 +163,7 @@ def get_overview_stats() -> dict:
             if whale_pnl:
                 stats['whale']['pnl_7d'] = round((whale_pnl['pnl_7d'] or 0.0) * virtual_stake, 2)
                 stats['whale']['pnl_30d'] = round((whale_pnl['pnl_30d'] or 0.0) * virtual_stake, 2)
-                stats['whale']['signals_count'] = whale_pnl['total']
+                stats['whale']['signals_count'] = max(stats['whale']['signals_count'], whale_pnl['total'] or 0)
 
             whale_wr = conn.execute("""
                 SELECT 
@@ -185,7 +194,7 @@ def get_overview_stats() -> dict:
             if comp_pnl:
                 stats['favourite_compounding']['pnl_7d'] = round(comp_pnl['pnl_7d'] or 0.0, 2)
                 stats['favourite_compounding']['pnl_30d'] = round(comp_pnl['pnl_30d'] or 0.0, 2)
-                stats['favourite_compounding']['signals_count'] = comp_pnl['total']
+                stats['favourite_compounding']['signals_count'] = max(stats['favourite_compounding']['signals_count'], comp_pnl['total'] or 0)
 
             comp_wr = conn.execute("""
                 SELECT 

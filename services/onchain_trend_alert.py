@@ -15,7 +15,8 @@ def _log_whale_signal_to_eval(
     title: str = None,
     url: str = None,
     is_single: bool = False,
-    is_series: bool = False
+    is_series: bool = False,
+    close_time: str = None
 ):
     try:
         from core.eval.signal_logger import SignalLogger, StrategyType
@@ -29,8 +30,7 @@ def _log_whale_signal_to_eval(
         else:
             sig_id = f"sig-whale-{market_id}-{ts}"
 
-        close_time = None
-        if market_id:
+        if not close_time and market_id:
             try:
                 from agents.shared.python.db import get_connection
                 with get_connection() as conn:
@@ -83,7 +83,8 @@ def _log_whale_signal_to_eval(
                 predicted_outcome=side,
                 edge=edge,
                 confidence=0.5,
-                wallet_address=metadata_extra.get("wallet_address")
+                wallet_address=metadata_extra.get("wallet_address"),
+                close_time=close_time
             )
         except Exception as db_e:
             logger.error(f"[OnchainTrend] Ошибка сохранения Whale-сигнала в мониторинг: {db_e}", exc_info=True)
@@ -124,7 +125,8 @@ def _process_spike_row(row: dict) -> Optional[dict]:
                 "vol_prev": row['vol_prev']
             },
             title=row.get('title'),
-            url=row.get('url')
+            url=row.get('url'),
+            close_time=row.get('close_time')
         )
 
     except Exception as e:
@@ -145,6 +147,7 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
                     m.title,
                     m.url,
                     m.price,
+                    m.close_time,
                     SUM(CASE WHEN t.timestamp > datetime('now', '-2 hours')
                              THEN t.amount_usd ELSE 0.0 END) AS vol_recent,
                     SUM(CASE WHEN t.timestamp BETWEEN datetime('now', '-4 hours')
@@ -214,7 +217,8 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
             },
             title=row.get('title'),
             url=row.get('url'),
-            is_single=True
+            is_single=True,
+            close_time=row.get('close_time')
         )
 
     except Exception as e:
@@ -237,7 +241,8 @@ def scan_large_single_bets() -> list[dict]:
                     t.price,
                     m.title,
                     m.url,
-                    m.price as market_price
+                    m.price as market_price,
+                    m.close_time
                 FROM trader_transactions t
                 JOIN markets m ON t.market_id = m.id
                 WHERE t.timestamp > datetime('now', '-2 hours')
@@ -292,7 +297,8 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
             },
             title=row.get('title'),
             url=row.get('url'),
-            is_series=True
+            is_series=True,
+            close_time=row.get('close_time')
         )
 
     except Exception as e:
@@ -318,7 +324,8 @@ def scan_wallet_series() -> list[dict]:
                     AVG(t.price) as avg_price,
                     m.title,
                     m.url,
-                    m.price as market_price
+                    m.price as market_price,
+                    m.close_time
                 FROM trader_transactions t
                 JOIN markets m ON t.market_id = m.id
                 WHERE t.timestamp > datetime('now', '-1 hour')

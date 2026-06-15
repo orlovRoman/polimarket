@@ -17,6 +17,7 @@ def isolated_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "_db_initialized", False)
     
     db_module.init_db()
+    
     yield db_path
     db_module._db_initialized = False
 

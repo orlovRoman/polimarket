@@ -392,6 +392,10 @@ async def scheduled_penny_discovery():
                 logger.error(f"Ошибка анализа Penny Stock {m.id}: {exc}", exc_info=True)
             
             # Добавляем в мониторинг сразу со всеми полученными прогнозами
+            close_time_str = None
+            if m.close_time:
+                close_time_str = m.close_time.strftime("%Y-%m-%d %H:%M:%S")
+
             add_penny_stock_to_monitoring(
                 market_id=m.id,
                 title=m.title,
@@ -399,7 +403,8 @@ async def scheduled_penny_discovery():
                 initial_price=m.price,
                 predicted_outcome=pred_out,
                 edge=edge_val,
-                confidence=conf_val
+                confidence=conf_val,
+                close_time=close_time_str
             )
             
             new_discovered += 1

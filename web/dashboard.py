@@ -440,6 +440,10 @@ async def api_discover_penny_stocks(request):
                 )
                 continue
                 
+            close_time_str = None
+            if m.close_time:
+                close_time_str = m.close_time.strftime("%Y-%m-%d %H:%M:%S")
+
             # Добавляем в мониторинг как неанализированный
             await asyncio.to_thread(
                 add_penny_stock_to_monitoring,
@@ -447,7 +451,8 @@ async def api_discover_penny_stocks(request):
                 title=m.title,
                 url=m.url,
                 initial_price=m.price,
-                predicted_outcome=None
+                predicted_outcome=None,
+                close_time=close_time_str
             )
             new_discovered_markets.append(m)
             

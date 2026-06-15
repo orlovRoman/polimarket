@@ -2526,13 +2526,19 @@ def _round_price(price: float | None) -> float | None:
     return rounded
 
 def add_penny_stock_to_monitoring(market_id: str, title: str, url: str, initial_price: float,
-                                  predicted_outcome: str = None, edge: float = None, confidence: float = None) -> None:
+                                  predicted_outcome: str = None, edge: float = None, confidence: float = None,
+                                  close_time: str = None) -> None:
     init_p = _round_price(initial_price)
+    
+    if not close_time:
+        from datetime import datetime, timedelta
+        close_time = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+
     with get_connection() as conn:
         conn.execute("""
             INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time)
-            VALUES (?, 'Polymarket', ?, ?, 'YES', ?, datetime('now', '+30 days'))
-        """, (market_id, title, url, initial_price))
+            VALUES (?, 'Polymarket', ?, ?, 'YES', ?, ?)
+        """, (market_id, title, url, initial_price, close_time))
         
         conn.execute("""
             INSERT INTO penny_stocks_monitoring
@@ -2806,13 +2812,18 @@ def update_whale_settings(settings: dict) -> None:
 
 def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_price: float,
                                   predicted_outcome: str = None, edge: float = None, confidence: float = None,
-                                  wallet_address: str = None) -> None:
+                                  wallet_address: str = None, close_time: str = None) -> None:
     init_p = _round_price(initial_price)
+    
+    if not close_time:
+        from datetime import datetime, timedelta
+        close_time = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+
     with get_connection() as conn:
         conn.execute("""
             INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time)
-            VALUES (?, 'Polymarket', ?, ?, 'YES', ?, datetime('now', '+30 days'))
-        """, (market_id, title, url, initial_price))
+            VALUES (?, 'Polymarket', ?, ?, 'YES', ?, ?)
+        """, (market_id, title, url, initial_price, close_time))
         
         conn.execute("""
             INSERT INTO whale_stocks_monitoring
