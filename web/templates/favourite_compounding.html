@@ -166,7 +166,7 @@
     </div>
 </div>
 
-<div class="table-card">
+<div id="active-card" class="table-card">
     <div class="table-title">Активные compound-возможности</div>
     <div class="table-wrapper">
         <table>
@@ -464,24 +464,28 @@
         
         if (tab === 'auto') {
             document.getElementById('top-grid').style.display = 'none';
+            document.getElementById('active-card').style.display = 'block';
             document.getElementById('resolved-card').style.display = 'block';
             document.getElementById('chains-card').style.display = 'none';
             document.getElementById('history-card').style.display = 'none';
             document.getElementById('losses-card').style.display = 'none';
         } else if (tab === 'losses') {
             document.getElementById('top-grid').style.display = 'none';
+            document.getElementById('active-card').style.display = 'none';
             document.getElementById('resolved-card').style.display = 'none';
             document.getElementById('chains-card').style.display = 'none';
             document.getElementById('history-card').style.display = 'none';
             document.getElementById('losses-card').style.display = 'block';
         } else if (tab === 'chains') {
             document.getElementById('top-grid').style.display = 'none';
+            document.getElementById('active-card').style.display = 'none';
             document.getElementById('resolved-card').style.display = 'none';
             document.getElementById('chains-card').style.display = 'block';
             document.getElementById('history-card').style.display = 'none';
             document.getElementById('losses-card').style.display = 'none';
         } else {
             document.getElementById('top-grid').style.display = 'grid';
+            document.getElementById('active-card').style.display = 'none';
             document.getElementById('resolved-card').style.display = 'none';
             document.getElementById('chains-card').style.display = 'none';
             document.getElementById('history-card').style.display = 'block';
