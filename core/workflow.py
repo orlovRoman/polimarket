@@ -669,7 +669,12 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
             swing_signal = None
         else:
             swing_signal = raw_swing
-        save_checkpoint(f"swing_{m.id}", status="ok")
+            
+        try:
+            _chk_edge_swing = float(swing_signal.edge) if swing_signal and getattr(swing_signal, 'edge', None) is not None else None
+        except (TypeError, ValueError):
+            _chk_edge_swing = None
+        save_checkpoint(f"swing_{m.id}", status="ok", edge=_chk_edge_swing)
     # ────────────────────────────────────────────────────────────────────────
         
     if signal is not None or swing_signal is not None:

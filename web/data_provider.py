@@ -277,7 +277,12 @@ def _load_compounding_stats(conn, stats, virtual_stake):
             resolved_at_str = r['resolved_at']
 
             try:
-                res_at = datetime.fromisoformat(resolved_at_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
+                s = resolved_at_str.replace(" ", "T")
+                if s.endswith("Z"):
+                    s = s[:-1]
+                if "+" in s:
+                    s = s.split("+")[0]
+                res_at = datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
             except Exception:
                 continue
 
@@ -421,7 +426,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         elif stype == 'whale':
             rows = conn.execute("""
                 SELECT date(sold_at) as date, 
-                       SUM((pnl_cents / bought_outcome_price) * ?) as daily_pnl
+                       SUM((COALESCE(pnl_cents, 0.0) / bought_outcome_price) * ?) as daily_pnl
                 FROM whale_virtual_trades_history
                 WHERE sold_at >= ? AND sold_at IS NOT NULL AND bought_outcome_price > 0
                 GROUP BY date(sold_at)
@@ -608,10 +613,15 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 bought_price = row_dict.get('bought_outcome_price')
                 if not bought_price or bought_price <= 0:
                     if init is not None and outcome_to_track is not None:
-                        track_up = outcome_to_track.upper()
-                        bought_price = (1.0 - init) if track_up == 'NO' else init
+                        try:
+                            track_up = outcome_to_track.upper()
+                            init_f = float(init)
+                            if 0.0 < init_f < 1.0:
+                                bought_price = (1.0 - init_f) if track_up == 'NO' else init_f
+                        except (ValueError, TypeError):
+                            bought_price = None
                 
-                if bought_price and bought_price > 0:
+                if bought_price and 0.0 < bought_price < 1.0:
                     row_dict['pnl_realized'] = round((virtual_stake / bought_price) * (row_dict['pnl_realized'] or 0.0), 2)
                 else:
                     row_dict['pnl_realized'] = 0.0

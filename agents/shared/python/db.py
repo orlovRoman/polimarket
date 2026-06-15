@@ -3259,6 +3259,9 @@ def get_compound_settings() -> dict:
         try:
             if k == "enabled":
                 final_settings[k] = int(float(v))
+            elif k == "max_concurrent_chains":
+                val = int(float(v))
+                final_settings[k] = max(1, min(20, val))
             else:
                 final_settings[k] = float(v)
         except (ValueError, TypeError):
