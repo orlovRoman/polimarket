@@ -2775,7 +2775,8 @@ async def callback_analyze_market(callback: CallbackQuery) -> None:
             
         except Exception as e:
             logger.error(f"[Manual Analysis] Ошибка ручного анализа: {e}", exc_info=True)
-            await status_msg.reply(f"🔴 Ошибка во время ручного анализа: <code>{e}</code>", parse_mode="HTML")
+            import html
+            await status_msg.reply(f"🔴 Ошибка во время ручного анализа: <code>{html.escape(str(e))}</code>", parse_mode="HTML")
             
     asyncio.create_task(run_analysis_task())
 

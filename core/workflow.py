@@ -832,6 +832,10 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         update_state(scout_status="⚪️ Идея не найдена", swing_status="⚪️ Идея не найдена")
 
     if summary_callback and decision.status in ('saved', 'no_consensus'):
+        import html
+        def h(text):
+            return html.escape(str(text)) if text else ""
+
         # Определяем действие
         price_yes = int(m.price * 100)
         price_no = 100 - price_yes
@@ -839,35 +843,35 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         # Заголовок — обсуждение рынка
         summary_text = (
             "🗣️ <b>Обсуждение рынка:</b>\n"
-            f"<a href='{m.url}'>{m.title}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n\n"
+            f"<a href='{m.url}'>{h(m.title)}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n\n"
         )
         
         # Источник (если event-driven)
         if context.trigger_type == "event_driven" and context.source_url and context.source_url.strip():
             source_label = context.source_text or "Источник"
-            summary_text += f"📡 <b>Триггер:</b> <a href='{context.source_url}'>{source_label}</a>\n\n"
+            summary_text += f"📡 <b>Триггер:</b> <a href='{context.source_url}'>{h(source_label)}</a>\n\n"
         elif context.trigger_type == "scheduled":
             summary_text += "🔄 <b>Триггер:</b> Плановый скан\n\n"
         elif context.trigger_type == "manual":
             summary_text += "👤 <b>Триггер:</b> Ручной запуск\n\n"
         else:
-            summary_text += f"⚡ <b>Триггер:</b> {context.trigger_type}\n\n"
+            summary_text += f"⚡ <b>Триггер:</b> {h(context.trigger_type)}\n\n"
         
         # Детальная аналитика по каждому агенту
         if signal:
             summary_text += "🧠 <b>SCOUT (Фундаментал):</b>\n"
             cause = getattr(signal, 'signal_cause', '') or getattr(signal, 'summary', '')
             if cause:
-                summary_text += f"🎯 <b>Причина:</b> {cause}\n"
+                summary_text += f"🎯 <b>Причина:</b> {h(cause)}\n"
             risk = getattr(signal, 'signal_risk', '') or getattr(signal, 'details', '')
             if risk:
-                summary_text += f"⚖️ <b>Риск:</b> {risk}\n"
+                summary_text += f"⚖️ <b>Риск:</b> {h(risk)}\n"
             oracle_risk = getattr(signal, 'oracle_risk', '')
             if oracle_risk:
-                summary_text += f"👁️ <b>Оракул-риск:</b> {oracle_risk}\n"
+                summary_text += f"👁️ <b>Оракул-риск:</b> {h(oracle_risk)}\n"
             verdict = getattr(signal, 'signal_verdict', '') or getattr(signal, 'trade_action', '')
             if verdict:
-                summary_text += f"📝 <b>Вердикт:</b> {verdict}\n"
+                summary_text += f"📝 <b>Вердикт:</b> {h(verdict)}\n"
             summary_text += "\n"
         else:
             summary_text += "🧠 <b>SCOUT (Фундаментал):</b>\n⚠️ Ошибка оценки рынка или превышение лимитов запросов к API.\n\n"
@@ -876,21 +880,21 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             summary_text += "🏄 <b>SWING (Хайп):</b>\n"
             catalyst = getattr(swing_signal, 'catalyst', '')
             if catalyst:
-                summary_text += f"🚀 <b>Катализатор:</b> {catalyst}\n"
+                summary_text += f"🚀 <b>Катализатор:</b> {h(catalyst)}\n"
             else:
                 quiet_reason = getattr(swing_signal, 'catalyst_absence_reason', '')
                 if quiet_reason:
-                    summary_text += f"💤 <b>Почему тихо:</b> {quiet_reason}\n"
+                    summary_text += f"💤 <b>Почему тихо:</b> {h(quiet_reason)}\n"
             risk = getattr(swing_signal, 'swing_risk', '') or getattr(swing_signal, 'details', '')
             if risk:
-                summary_text += f"⚖️ <b>Риск:</b> {risk}\n"
+                summary_text += f"⚖️ <b>Риск:</b> {h(risk)}\n"
             verdict = getattr(swing_signal, 'swing_verdict', '') or getattr(swing_signal, 'recommendation', '')
             if verdict:
-                summary_text += f"📝 <b>Вердикт:</b> {verdict}\n"
+                summary_text += f"📝 <b>Вердикт:</b> {h(verdict)}\n"
             summary_text += "\n"
         elif getattr(context, 'swing_skipped', False):
             reason = getattr(context, 'swing_skip_reason', 'пропущен (flat price/noise)')
-            summary_text += f"🏄 <b>SWING (Хайп):</b>\n💤 {reason}\n\n"
+            summary_text += f"🏄 <b>SWING (Хайп):</b>\n💤 {h(reason)}\n\n"
         else:
             summary_text += "🏄 <b>SWING (Хайп):</b>\n⚠️ Ошибка оценки рынка или превышение лимитов запросов к API.\n\n"
             
@@ -898,16 +902,16 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             shadow_status = "✅ СОГЛАСЕН" if opinion_shadow.agree else "❌ ПРОТИВ"
             summary_text += f"🛡️ <b>SHADOW (Инфраструктура):</b> {shadow_status}\n"
             liq = getattr(opinion_shadow, 'liquidity_risk', 'MEDIUM').upper()
-            summary_text += f"💧 <b>Риск ликвидности:</b> {liq}\n"
+            summary_text += f"💧 <b>Риск ликвидности:</b> {h(liq)}\n"
             ob = getattr(opinion_shadow, 'orderbook_facts', '')
             if ob:
-                summary_text += f"📊 <b>Ордербук:</b> {ob}\n"
+                summary_text += f"📊 <b>Ордербук:</b> {h(ob)}\n"
             execution_risk = getattr(opinion_shadow, 'risk_assessment', '')
             if execution_risk:
-                summary_text += f"⚖️ <b>Исполнение:</b> {execution_risk}\n"
+                summary_text += f"⚖️ <b>Исполнение:</b> {h(execution_risk)}\n"
             verdict = getattr(opinion_shadow, 'shadow_verdict', '') or getattr(opinion_shadow, 'opinion', '')
             if verdict:
-                summary_text += f"📝 <b>Вердикт:</b> {verdict}\n"
+                summary_text += f"📝 <b>Вердикт:</b> {h(verdict)}\n"
             summary_text += "\n"
             
         # Арбитраж из math_filter (если есть)
@@ -925,7 +929,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
                             instruction += f" при цене {last_price:.3f}"
                     except Exception as db_err:
                         logger.error(f"Ошибка получения последней цены из БД для fallback-инструкции: {db_err}")
-                summary_text += f"⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{instruction}\n\n"
+                summary_text += f"⚡️ <b>Арбитраж ({math_result.spread_pct:.1f}%):</b>\n{h(instruction)}\n\n"
             elif math_result.decision == FilterDecision.AMBIGUOUS and math_result.spread_pct > 0:
                 if not api_key:
                     summary_text += f"⚠️ <b>Возможен арбитраж ({math_result.spread_pct:.1f}%):</b>\nНе подтверждён (нет API-ключа для проверки)\n\n"
