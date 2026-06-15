@@ -125,20 +125,7 @@
     </div>
 </div>
 
-<div class="kpi-row" style="margin-top: 16px;">
-    <div class="kpi-card" style="border-left: 3px solid var(--accent-blue);">
-        <div class="kpi-title" title="Текущая серия побед или поражений">Current Streak</div>
-        <div class="kpi-value" id="kpi-current-streak">—</div>
-    </div>
-    <div class="kpi-card" style="border-left: 3px solid var(--accent-red);">
-        <div class="kpi-title" title="Максимальная просадка от пика">Max Drawdown</div>
-        <div class="kpi-value text-red" id="kpi-max-drawdown">$0.00</div>
-    </div>
-    <div class="kpi-card" style="border-left: 3px solid var(--accent-green);">
-        <div class="kpi-title" title="Рекомендуемая доля капитала на сделку">Kelly Fraction (Rec.)</div>
-        <div class="kpi-value text-green" id="kpi-kelly-fraction">—</div>
-    </div>
-</div>
+
 
 <div id="top-grid" style="display: none; grid-template-columns: 1fr; gap: 24px; margin-bottom: 32px;">
     <div id="portfolio-card" class="table-card" style="height: 380px; margin-bottom: 0; display: flex; flex-direction: column; padding: 24px;">
@@ -534,11 +521,31 @@
             document.getElementById('kpi-wins-count').textContent = data.wins_total ?? 0;
             document.getElementById('kpi-losses-count').textContent = data.losses_total ?? 0;
             
-            // New metrics
-            document.getElementById('kpi-current-streak').textContent = data.stats.current_streak || "0";
-            document.getElementById('kpi-max-drawdown').textContent = data.stats.max_drawdown ? `-$${Math.abs(data.stats.max_drawdown).toFixed(2)}` : "$0.00";
-            document.getElementById('kpi-kelly-fraction').textContent = data.stats.kelly_fraction !== undefined ? `${data.stats.kelly_fraction}%` : "—";
 
+
+        } else if (currentTab === 'chains') {
+            kpiActiveTitle.textContent = "Активных цепочек";
+            let activeChains = 0;
+            let resolvedChains = 0;
+            if (data.chains) {
+                activeChains = data.chains.filter(c => ['NEW', 'WAITING_NEXT', 'WAITING_RESOLUTION'].includes(c.status)).length;
+                resolvedChains = data.chains.filter(c => ['COMPLETED', 'FAILED'].includes(c.status)).length;
+            }
+            kpiActive.textContent = activeChains;
+            kpiResolvedTitle.textContent = "Цепочек завершено";
+            kpiResolvedCount.textContent = resolvedChains;
+            
+            kpiWinrate.textContent = "—";
+            kpiAvgEntry.textContent = "—";
+            
+            kpiBestTrade.innerHTML = "—";
+            kpiAvgPnLTitle.textContent = "Ср. PnL";
+            kpiAvgPnL.innerHTML = "—";
+            kpiTotalPnLTitle.textContent = "Общий PnL";
+            kpiTotalPnL.innerHTML = "—";
+
+            document.getElementById('kpi-wins-count-card').style.display = 'none';
+            document.getElementById('kpi-losses-count-card').style.display = 'none';
         } else {
             kpiActiveTitle.textContent = "Активных сделок";
             kpiActive.textContent = data.portfolio ? data.portfolio.length : 0;
