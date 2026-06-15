@@ -1229,12 +1229,24 @@ def get_nice_model_name(model_id: str) -> str:
         return "🧠 Gemini 2.5 Pro"
     elif "llama-3.3" in model_lower:
         return "🦙 Llama 3.3"
+    elif "nemotron-3-super" in model_lower or "nemotron-3-nano" in model_lower:
+        return "🟢 Nemotron 3 Super"
+    elif "nemotron-3-ultra" in model_lower:
+        return "🟢 Nemotron 3 Ultra"
     elif "nemotron" in model_lower:
-        return "🟢 Nemotron 3 (Free)"
+        return "🟢 Nemotron"
     elif "glm-4.5-air" in model_lower or "glm_45" in model_lower:
-        return "🟣 GLM 4.5 Air (Free)"
+        return "🟣 GLM 4.5 Air"
+    elif "qwen3-next" in model_lower:
+        return "🤖 Qwen 3 Next"
     elif "qwen" in model_lower:
         return "🤖 Qwen"
+    elif "hermes-3-llama" in model_lower:
+        return "🦅 Hermes 3 Llama"
+    elif "gemma-4" in model_lower:
+        return "💎 Gemma 4"
+    elif "gpt-oss" in model_lower:
+        return "🌐 GPT-OSS"
     elif "cerebras_round_robin" in model_lower:
         return "⚡ Cerebras (Round Robin)"
     elif "cerebras" in model_lower:
