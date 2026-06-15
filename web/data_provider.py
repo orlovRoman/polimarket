@@ -375,7 +375,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
             rows = conn.execute("""
                 SELECT date(resolved_at) as date, SUM(pnl_realized) as daily_pnl
                 FROM signals
-                WHERE strategy_type = ?
+                WHERE LOWER(strategy_type) = LOWER(?)
                   AND status IN ('WIN', 'LOSS')
                   AND resolved_at >= ?
                 GROUP BY date(resolved_at)
@@ -1387,7 +1387,7 @@ def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 5
     from agents.shared.python.db import get_connection
     
     # 1. Формируем условия фильтрации
-    where_clauses = ["s.strategy_type = ?"]
+    where_clauses = ["LOWER(s.strategy_type) = LOWER(?)"]
     params = [strategy]
     
     if days is not None:
@@ -1483,7 +1483,7 @@ def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 5
                 SELECT 
                     s.estimated_probability, s.predicted_probability, s.status, s.edge
                 FROM signals s
-                WHERE s.strategy_type = ?
+                WHERE LOWER(s.strategy_type) = LOWER(?)
             """
             stats_params = [strategy]
             if days is not None:
