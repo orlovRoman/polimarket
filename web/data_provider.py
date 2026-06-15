@@ -400,8 +400,11 @@ def get_memory_stats() -> dict:
         stats['total_keys'] = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM memory WHERE expires_at IS NOT NULL AND expires_at < datetime('now')")
         stats['expired_keys'] = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM vault_index")
-        stats['vault_files'] = cursor.fetchone()[0]
+        try:
+            cursor.execute("SELECT COUNT(*) FROM vault_index")
+            stats['vault_files'] = cursor.fetchone()[0]
+        except Exception:
+            stats['vault_files'] = 0
     return stats
 
 def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, list[dict]]:

@@ -1852,14 +1852,11 @@ def get_relevant_facts(context_keywords: list = None, limit: int = 20) -> list:
         return results[:limit]
 
 def cleanup_expired_memory():
-    """Удаляет записи с истёкшим TTL из таблицы memory, а также мусорные ключи."""
+    """Удаляет записи с истёкшим TTL из таблицы memory."""
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM memory WHERE expires_at IS NOT NULL AND expires_at < datetime('now')")
         count = cursor.rowcount
-        # Удаляем мусорные ключи
-        cursor.execute("DELETE FROM memory WHERE key = 'agent_config_SwingAgent' OR key = 'agent_config_ArbitrageAgent'")
-        count += cursor.rowcount
     return count
 
 def upsert_known_whale(address: str, alias: str, win_rate: float,
