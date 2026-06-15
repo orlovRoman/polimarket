@@ -3254,10 +3254,15 @@ def get_compound_settings() -> dict:
                 final_settings[k] = float(v)
         except (ValueError, TypeError):
             default_val = COMPOUND_DEFAULTS.get(k)
-            if k == "enabled":
-                final_settings[k] = int(default_val)
-            else:
-                final_settings[k] = float(default_val)
+            if default_val is None:
+                continue
+            try:
+                if k == "enabled":
+                    final_settings[k] = int(float(default_val))
+                else:
+                    final_settings[k] = float(default_val)
+            except (ValueError, TypeError):
+                continue
     return final_settings
 
 def save_compound_setting(key: str, value: str) -> None:

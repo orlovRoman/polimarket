@@ -73,7 +73,8 @@ def _load_signals_pnl(conn, stats):
         if stype in stats:
             stats[stype]['pnl_7d'] = round(r['pnl_7d'] or 0.0, 2)
             stats[stype]['pnl_30d'] = round(r['pnl_30d'] or 0.0, 2)
-            stats[stype]['signals_count'] = max(stats[stype]['signals_count'], r['total'] or 0)
+            current = stats[stype].get('signals_count') or 0
+            stats[stype]['signals_count'] = max(current, r['total'] or 0)
 
 def _load_penny_stocks_stats(conn, stats, virtual_stake):
     """

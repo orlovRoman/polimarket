@@ -566,6 +566,7 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
 
 async def _should_ignore_message(event, target_chat_id) -> tuple[bool, Optional[object]]:
     """Возвращает (should_ignore, chat_or_None)."""
+    chat = None
     try:
         chat = await event.get_chat()
         chat_id_str = str(getattr(chat, 'id', ''))

@@ -9,7 +9,9 @@ def _normalize_close_time(raw_close) -> Optional[str]:
     if not raw_close:
         return None
     try:
-        ct = raw_close.replace('Z', '+00:00') if isinstance(raw_close, str) else str(raw_close)
+        if isinstance(raw_close, datetime):
+            return raw_close.strftime("%Y-%m-%d %H:%M:%S")
+        ct = str(raw_close).replace('Z', '+00:00')
         return datetime.fromisoformat(ct).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return None
