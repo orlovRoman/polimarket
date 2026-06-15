@@ -312,24 +312,27 @@
         padding-bottom: 12px;
     }
     .opinion-tab-btn {
-        background: none;
-        border: 1px solid transparent;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         color: var(--text-secondary);
-        padding: 8px 16px;
+        padding: 10px 20px;
         cursor: pointer;
         font-weight: 600;
-        border-radius: 6px;
-        transition: all 0.2s;
-        font-size: 0.85rem;
+        border-radius: 8px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        font-size: 0.95rem;
     }
     .opinion-tab-btn:hover {
         color: var(--text-primary);
-        background: rgba(255, 255, 255, 0.03);
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.2);
+        transform: translateY(-1px);
     }
     .opinion-tab-btn.active {
-        color: var(--text-primary);
-        background: rgba(139, 92, 246, 0.15);
-        border-color: rgba(139, 92, 246, 0.3);
+        color: #ffffff;
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(59, 130, 246, 0.2));
+        border-color: rgba(139, 92, 246, 0.5);
+        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.15);
     }
     .opinion-pane {
         display: none;
