@@ -564,29 +564,30 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
     except Exception as e:
         logger.error(f"[Listener] Ошибка запуска мгновенного сканирования: {e}\n{traceback.format_exc()}")
 
-async def _should_ignore_message(event, target_chat_id) -> bool:
+async def _should_ignore_message(event, target_chat_id) -> tuple[bool, Optional[object]]:
+    """Возвращает (should_ignore, chat_or_None)."""
     try:
         chat = await event.get_chat()
         chat_id_str = str(getattr(chat, 'id', ''))
         if target_chat_id:
             clean_target = target_chat_id.replace('-100', '').lstrip('-')
             if clean_target in chat_id_str:
-                return True
+                return True, None
 
         text = event.message.message
         if not text:
-            return True
+            return True, None
 
         if TELEGRAM_BOT_ID:
             sender = await event.get_sender()
             if getattr(sender, 'id', None) == int(TELEGRAM_BOT_ID):
-                return True
+                return True, None
     except Exception:
-        pass
+        return False, None
 
     if is_bot_message(event.message.message):
-        return True
-    return False
+        return True, None
+    return False, chat
 
 async def _resolve_chat_entity(chat, client):
     if not getattr(chat, 'username', None):
@@ -739,10 +740,12 @@ async def handle_incoming_telegram_message(
     target_sources,
     target_chat_id
 ):
-    if await _should_ignore_message(event, target_chat_id):
+    should_ignore, chat = await _should_ignore_message(event, target_chat_id)
+    if should_ignore:
         return
 
-    chat = await event.get_chat()
+    if chat is None:
+        chat = await event.get_chat()
     text = event.message.message
     if event.message.entities:
         text = restore_markdown_links(text, event.message.entities)

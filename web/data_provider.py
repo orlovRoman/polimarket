@@ -38,6 +38,10 @@ def normalize_strategy_name(name: str) -> str:
     return name
 
 def _load_strategy_metrics(conn, stats):
+    """
+    Внутренний хелпер для get_overview_stats. Должен вызываться только
+    внутри одной транзакции (разделяя общее соединение conn).
+    """
     rows = conn.execute("""
         SELECT strategy_type, win_rate, sharpe_ratio, total_signals
         FROM strategy_metrics
@@ -51,6 +55,10 @@ def _load_strategy_metrics(conn, stats):
             stats[stype]['signals_count'] = r['total_signals'] or 0
 
 def _load_signals_pnl(conn, stats):
+    """
+    Внутренний хелпер для get_overview_stats. Должен вызываться только
+    внутри одной транзакции (разделяя общее соединение conn).
+    """
     rows_pnl = conn.execute("""
         SELECT strategy_type,
                COUNT(*) as total,
@@ -67,7 +75,11 @@ def _load_signals_pnl(conn, stats):
             stats[stype]['pnl_30d'] = round(r['pnl_30d'] or 0.0, 2)
             stats[stype]['signals_count'] = max(stats[stype]['signals_count'], r['total'] or 0)
 
-def _load_penny_stocks_stats(conn, stats):
+def _load_penny_stocks_stats(conn, stats, virtual_stake):
+    """
+    Внутренний хелпер для get_overview_stats. Должен вызываться только
+    внутри одной транзакции (разделяя общее соединение conn).
+    """
     penny_rows = conn.execute("""
         SELECT
             predicted_outcome, actual_outcome, initial_price, resolved_at
@@ -85,8 +97,6 @@ def _load_penny_stocks_stats(conn, stats):
     seven_days_ago = now - timedelta(days=7)
     thirty_days_ago = now - timedelta(days=30)
     
-    virtual_stake = get_global_virtual_stake(conn)
-
     for r in penny_rows:
         pred = r['predicted_outcome']
         act = r['actual_outcome']
@@ -123,11 +133,15 @@ def _load_penny_stocks_stats(conn, stats):
 
     stats['penny_stocks']['pnl_7d'] = round(pnl_7d, 2)
     stats['penny_stocks']['pnl_30d'] = round(pnl_30d, 2)
-    stats['penny_stocks']['signals_count'] = total
+    stats['penny_stocks']['signals_count'] = max(stats['penny_stocks']['signals_count'], total)
     if total_30d > 0:
         stats['penny_stocks']['win_rate'] = wins_30d / total_30d
 
 def _load_whale_stats(conn, stats, virtual_stake):
+    """
+    Внутренний хелпер для get_overview_stats. Должен вызываться только
+    внутри одной транзакции (разделяя общее соединение conn).
+    """
     try:
         whale_pnl = conn.execute("""
             SELECT
@@ -154,6 +168,10 @@ def _load_whale_stats(conn, stats, virtual_stake):
         logger.warning(f"[Overview] whale_virtual_trades_history недоступна: {e}")
 
 def _load_compounding_stats(conn, stats):
+    """
+    Внутренний хелпер для get_overview_stats. Должен вызываться только
+    внутри одной транзакции (разделяя общее соединение conn).
+    """
     try:
         comp_pnl = conn.execute("""
             SELECT
@@ -208,7 +226,7 @@ def get_overview_stats() -> dict:
         virtual_stake = get_global_virtual_stake(conn)
         _load_strategy_metrics(conn, stats)
         _load_signals_pnl(conn, stats)
-        _load_penny_stocks_stats(conn, stats)
+        _load_penny_stocks_stats(conn, stats, virtual_stake)
         _load_whale_stats(conn, stats, virtual_stake)
         _load_compounding_stats(conn, stats)
 
