@@ -486,8 +486,10 @@
         if (tab === 'auto') {
             document.getElementById('top-grid').style.display = 'none';
             document.getElementById('resolved-card').style.display = 'block';
+            document.getElementById('chains-card').style.display = 'none';
             document.getElementById('history-card').style.display = 'none';
             document.getElementById('losses-card').style.display = 'none';
+        } else if (tab === 'losses') {
             document.getElementById('top-grid').style.display = 'none';
             document.getElementById('resolved-card').style.display = 'none';
             document.getElementById('chains-card').style.display = 'none';

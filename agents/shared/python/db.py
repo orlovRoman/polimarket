@@ -83,6 +83,7 @@ def get_connection():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -2999,25 +3000,29 @@ def upsert_compound_opportunity(opp: dict) -> bool:
     if isinstance(close_time_str, datetime):
         close_time_str = close_time_str.strftime("%Y-%m-%d %H:%M:%S")
         
-    with get_connection() as conn:
-        existing = conn.execute(
-            "SELECT id FROM compound_opportunities WHERE id = ?", (opp["id"],)
-        ).fetchone()
-        if existing:
-            return False
-        conn.execute("""
-            INSERT INTO compound_opportunities
-              (id, market_id, title, url, price, volume_usd, close_time,
-               hours_left, spread_pct, roi_net_pct, confidence,
-               obviousness_reason, status, outcome, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP)
-        """, (
-            opp["id"], opp["market_id"], opp["title"], opp["url"],
-            opp["price"], opp["volume_usd"], close_time_str,
-            opp["hours_left"], opp.get("spread_pct"), opp["roi_net_pct"],
-            opp["confidence"], opp.get("obviousness_reason"),
-            opp.get("outcome", "YES"),
-        ))
+    try:
+        with get_connection() as conn:
+            existing = conn.execute(
+                "SELECT id FROM compound_opportunities WHERE id = ?", (opp["id"],)
+            ).fetchone()
+            if existing:
+                return False
+            conn.execute("""
+                INSERT INTO compound_opportunities
+                  (id, market_id, title, url, price, volume_usd, close_time,
+                   hours_left, spread_pct, roi_net_pct, confidence,
+                   obviousness_reason, status, outcome, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP)
+            """, (
+                opp["id"], opp["market_id"], opp["title"], opp["url"],
+                opp["price"], opp["volume_usd"], close_time_str,
+                opp["hours_left"], opp.get("spread_pct"), opp["roi_net_pct"],
+                opp["confidence"], opp.get("obviousness_reason"),
+                opp.get("outcome", "YES"),
+            ))
+    except Exception as e:
+        logger.error(f"[DB] Ошибка upsert_compound_opportunity: {e}")
+        return False
         
     # Попытаться аллоцировать эту возможность в цепочку (если возможно)
     allocate_opportunity_to_chain(opp["id"], opp["market_id"], float(opp["price"]))
@@ -3026,24 +3031,28 @@ def upsert_compound_opportunity(opp: dict) -> bool:
 def save_compound_opportunity(opp) -> None:
     """Сохраняет FavouriteOpportunity в таблицу compound_opportunities."""
     close_time_str = opp.close_time.isoformat() if hasattr(opp.close_time, 'isoformat') else str(opp.close_time)
-    with get_connection() as conn:
-        existing = conn.execute(
-            "SELECT id FROM compound_opportunities WHERE id = ?", (opp.opp_id,)
-        ).fetchone()
-        if existing:
-            return
-        conn.execute("""
-            INSERT INTO compound_opportunities 
-              (id, market_id, title, url, price, volume_usd, close_time,
-               hours_left, spread_pct, roi_net_pct, confidence, obviousness_reason,
-               status, outcome, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP)
-        """, (
-            opp.opp_id, opp.market_id, opp.title, opp.url,
-            opp.price, opp.volume_usd, close_time_str,
-            opp.hours_left, opp.spread_pct, opp.roi_net_pct,
-            opp.confidence, opp.obviousness_reason, opp.outcome
-        ))
+    try:
+        with get_connection() as conn:
+            existing = conn.execute(
+                "SELECT id FROM compound_opportunities WHERE id = ?", (opp.opp_id,)
+            ).fetchone()
+            if existing:
+                return
+            conn.execute("""
+                INSERT INTO compound_opportunities 
+                  (id, market_id, title, url, price, volume_usd, close_time,
+                   hours_left, spread_pct, roi_net_pct, confidence, obviousness_reason,
+                   status, outcome, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP)
+            """, (
+                opp.opp_id, opp.market_id, opp.title, opp.url,
+                opp.price, opp.volume_usd, close_time_str,
+                opp.hours_left, opp.spread_pct, opp.roi_net_pct,
+                opp.confidence, opp.obviousness_reason, opp.outcome
+            ))
+    except Exception as e:
+        logger.error(f"[DB] Ошибка save_compound_opportunity: {e}")
+        return
         
     allocate_opportunity_to_chain(opp.opp_id, opp.market_id, float(opp.price))
 
@@ -3462,201 +3471,6 @@ def get_all_compound_chains(limit: int = 50) -> list[dict]:
     try:
         with get_connection() as conn:
             cursor = conn.execute(
-                (tag_clean,)
-            )
-            changes = res.rowcount
-        if changes > 0:
-            logger.info(f"[Blacklist] Тег {tag_clean!r} удален из черного списка.")
-            return True
-        return False
-    except Exception as e:
-        logger.error(f"[Blacklist] Ошибка удаления тега {tag_clean!r}: {e}")
-        return False
-
-def get_blacklist_tags() -> list[str]:
-    """Возвращает список всех заблокированных тегов в нижнем регистре."""
-    try:
-        with get_connection() as conn:
-            rows = conn.execute("SELECT tag FROM blacklist_tags").fetchall()
-        return [r["tag"] for r in rows]
-    except Exception as e:
-        logger.error(f"[Blacklist] Ошибка получения черного списка тегов: {e}")
-        return []
-
-def get_strategy_first_signal_date(strategy_type: str) -> Optional[datetime]:
-    """Возвращает дату самого первого сигнала для заданной стратегии."""
-    try:
-        with get_connection() as conn:
-            row = conn.execute(
-                "SELECT MIN(created_at) as first_date FROM signals WHERE strategy_type = ?",
-                (strategy_type,)
-            ).fetchone()
-            if row and row["first_date"]:
-                date_str = row["first_date"]
-                if "Z" in date_str:
-                    date_str = date_str.replace("Z", "+00:00")
-                dt = datetime.fromisoformat(date_str)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return dt
-    except Exception as e:
-        logger.error(f"[DB] Ошибка получения даты первого сигнала для {strategy_type}: {e}")
-    return None
-
-def delete_market_record(table_name: str, record_id: str) -> bool:
-    """
-    Мягко удаляет запись (устанавливает статус DELETED / deleted) в одной из таблиц:
-    - penny_stocks_monitoring (по market_id)
-    - synthetic_corridors (по signal_id)
-    - temporal_corridors (по id или signal_id)
-    - cross_arbitrage_signals (по id)
-    """
-    allowed_tables = {
-        "penny_stocks_monitoring": ("market_id", "DELETED"),
-        "synthetic_corridors": ("signal_id", "DELETED"),
-        "temporal_corridors": ("signal_id", "DELETED"),
-        "cross_arbitrage_signals": ("id", "deleted")
-    }
-    if table_name not in allowed_tables:
-        logger.error(f"[DB] Таблица {table_name} не поддерживается для мягкого удаления.")
-        return False
-        
-    pk_col, deleted_status = allowed_tables[table_name]
-    
-    try:
-        with get_connection() as conn:
-            actual_pk = pk_col
-            val_to_bind = record_id
-            if table_name == "temporal_corridors":
-                if isinstance(record_id, int) or (isinstance(record_id, str) and record_id.isdigit()):
-                    actual_pk = "id"
-                    val_to_bind = int(record_id)
-                    
-            query = f"UPDATE {table_name} SET status = ? WHERE {actual_pk} = ?"
-            cursor = conn.execute(query, (deleted_status, val_to_bind))
-            conn.commit()
-            
-            affected = cursor.rowcount
-            logger.info(f"[DB] Мягкое удаление в {table_name}: изменено {affected} строк для {actual_pk}={record_id}")
-            return affected > 0
-    except Exception as e:
-        logger.error(f"[DB] Ошибка мягкого удаления в {table_name} для ID {record_id}: {e}", exc_info=True)
-        return False
-
-def get_agent_accuracy_context(agent_name: str, min_samples: int = 5) -> str | None:
-    """Возвращает строку с контекстом точности агента для промпта."""
-    try:
-        stats = get_agent_accuracy(agent_name.upper())
-        if not stats['total']:
-            return None
-        if stats['total'] < min_samples:
-            logger.warning(
-                f"[DB] Недостаточно данных для оценки точности {agent_name}: "
-                f"оценено {stats['total']} рынков, требуется минимум {min_samples}."
-            )
-            return None
-        accuracy = stats['accuracy'] or 0
-        return (
-            f"📊 Твоя статистика: {stats['correct']}/{stats['total']} правильных прогнозов "
-            f"({accuracy:.0%} точность). "
-            f"Ошибок: {stats['incorrect']}.\n"
-        )
-    except Exception as e:
-        logger.warning(f"Не удалось получить контекст точности для {agent_name}: {e}")
-        return None
-
-# =====================================================================
-# COMPOUND CHAINS (Автоматические реинвест-цепочки)
-# =====================================================================
-
-def get_active_compound_chains() -> list[dict]:
-    try:
-        with get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM compound_chains WHERE status IN ('WAITING_NEXT', 'WAITING_RESOLUTION') ORDER BY id ASC"
-            )
-            return [dict(row) for row in cursor.fetchall()]
-    except Exception as e:
-        logger.error(f"[DB] Ошибка get_active_compound_chains: {e}")
-        return []
-
-def get_compound_chain_by_id(chain_id: int) -> dict:
-    try:
-        with get_connection() as conn:
-            row = conn.execute("SELECT * FROM compound_chains WHERE id = ?", (chain_id,)).fetchone()
-            return dict(row) if row else None
-    except Exception as e:
-        logger.error(f"[DB] Ошибка get_compound_chain_by_id: {e}")
-        return None
-
-def create_compound_chain(initial_stake: float, target_steps: int) -> int:
-    try:
-        with get_connection() as conn:
-            cursor = conn.execute(
-                "INSERT INTO compound_chains (status, initial_stake, current_stake, target_steps, current_step) VALUES (?, ?, ?, ?, ?)",
-                ('WAITING_NEXT', initial_stake, initial_stake, target_steps, 0)
-            )
-            conn.commit()
-            return cursor.lastrowid
-    except Exception as e:
-        logger.error(f"[DB] Ошибка create_compound_chain: {e}")
-        return None
-
-def add_bet_to_compound_chain(chain_id: int, step_index: int, opp_id: str, bet_price: float) -> int:
-    try:
-        with get_connection() as conn:
-            cursor = conn.execute(
-                "INSERT INTO compound_chain_bets (chain_id, step_index, opp_id, bet_price, status) VALUES (?, ?, ?, ?, ?)",
-                (chain_id, step_index, opp_id, bet_price, 'PENDING')
-            )
-            conn.execute(
-                "UPDATE compound_chains SET status = 'WAITING_RESOLUTION', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (chain_id,)
-            )
-            conn.commit()
-            return cursor.lastrowid
-    except Exception as e:
-        logger.error(f"[DB] Ошибка add_bet_to_compound_chain: {e}")
-        return None
-
-def update_compound_chain_status(chain_id: int, status: str, current_stake: float, current_step: int) -> None:
-    try:
-        with get_connection() as conn:
-            conn.execute(
-                "UPDATE compound_chains SET status = ?, current_stake = ?, current_step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (status, current_stake, current_step, chain_id)
-            )
-            conn.commit()
-    except Exception as e:
-        logger.error(f"[DB] Ошибка update_compound_chain_status: {e}")
-
-def update_compound_chain_bet_status(bet_id: int, status: str, payout: float = None) -> None:
-    try:
-        with get_connection() as conn:
-            conn.execute(
-                "UPDATE compound_chain_bets SET status = ?, payout = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (status, payout, bet_id)
-            )
-            conn.commit()
-    except Exception as e:
-        logger.error(f"[DB] Ошибка update_compound_chain_bet_status: {e}")
-
-def get_compound_chain_bets(chain_id: int) -> list[dict]:
-    try:
-        with get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM compound_chain_bets WHERE chain_id = ? ORDER BY step_index ASC",
-                (chain_id,)
-            )
-            return [dict(row) for row in cursor.fetchall()]
-    except Exception as e:
-        logger.error(f"[DB] Ошибка get_compound_chain_bets: {e}")
-        return []
-
-def get_all_compound_chains(limit: int = 50) -> list[dict]:
-    try:
-        with get_connection() as conn:
-            cursor = conn.execute(
                 "SELECT * FROM compound_chains ORDER BY id DESC LIMIT ?", (limit,)
             )
             return [dict(row) for row in cursor.fetchall()]
@@ -3695,12 +3509,20 @@ def allocate_opportunity_to_chain(opp_id: str, market_id: str, price: float) -> 
             if waiting_chain:
                 chain_id = waiting_chain["id"]
                 step_index = waiting_chain["current_step"] + 1
+                try:
+                    conn.execute("BEGIN")
+                except:
+                    pass
                 conn.execute(
                     "INSERT INTO compound_chain_bets (chain_id, step_index, opp_id, bet_price, status) VALUES (?, ?, ?, ?, ?)",
                     (chain_id, step_index, opp_id, price, 'PENDING')
                 )
                 conn.execute(
-                    "UPDATE compound_chains SET status = 'WAITING_RESOLUTION', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    """UPDATE compound_chains 
+                       SET status = 'WAITING_RESOLUTION', 
+                           current_step = current_step + 1,
+                           updated_at = CURRENT_TIMESTAMP 
+                       WHERE id = ?""",
                     (chain_id,)
                 )
                 conn.commit()
@@ -3712,6 +3534,10 @@ def allocate_opportunity_to_chain(opp_id: str, market_id: str, price: float) -> 
             active_count = active_count_row["cnt"] if active_count_row else 0
             
             if active_count < max_chains:
+                try:
+                    conn.execute("BEGIN")
+                except:
+                    pass
                 cursor = conn.execute(
                     "INSERT INTO compound_chains (status, initial_stake, current_stake, target_steps, current_step) VALUES (?, ?, ?, ?, ?)",
                     ('WAITING_RESOLUTION', initial_stake, initial_stake, target_steps, 0)

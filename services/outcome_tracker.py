@@ -442,9 +442,10 @@ def _resolve_chain_bets_for_opportunity(opp: dict, res: str) -> None:
                 
                 if was_correct:
                     contracts = current_stake / price
-                    raw_profit = (contracts * 1.0) - current_stake
-                    # Polymarket fee 2% (в ROICalculator.POLY_FEE_PCT)
-                    profit_after_fee = raw_profit * 0.98
+                    gross_payout = contracts * 1.0
+                    profit = gross_payout - current_stake
+                    # Polymarket fee 2%
+                    profit_after_fee = profit * (1 - 0.02)
                     new_stake = current_stake + profit_after_fee
                     payout = new_stake
                     
