@@ -638,7 +638,11 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
         signal = None
     else:
         signal = raw_scout
-        save_checkpoint(f"scout_{m.id}", status="ok", edge=signal.edge if signal else None)
+        try:
+            _chk_edge = float(signal.edge) if signal and signal.edge is not None else None
+        except (TypeError, ValueError):
+            _chk_edge = None
+        save_checkpoint(f"scout_{m.id}", status="ok", edge=_chk_edge)
 
     # Обработка SWING
     if isinstance(raw_swing, LLMUnavailableError):
