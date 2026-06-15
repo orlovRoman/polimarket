@@ -62,6 +62,19 @@ COMPOUND_DEFAULTS = {
 
 logger = logging.getLogger("NexusPolyBot.DB")
 
+def _parse_dt_utc(s: str) -> datetime | None:
+    """Парсит строку в UTC-aware datetime, сохраняя корректный offset."""
+    if not s:
+        return None
+    try:
+        s_norm = s.strip().replace(" ", "T", 1)
+        dt = datetime.fromisoformat(s_norm)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
 _thread_local = threading.local()
 
 def _ensure_initializing(fn):
@@ -103,12 +116,9 @@ def _is_market_active(close_time_str: str, now_utc: datetime) -> bool:
     if not close_time_str:
         return False
     try:
-        clean_str = close_time_str.strip()
-        if " " in clean_str and "T" not in clean_str:
-            clean_str = clean_str.replace(" ", "T")
-        dt = datetime.fromisoformat(clean_str)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+        dt = _parse_dt_utc(close_time_str)
+        if dt is None:
+            return False
         return dt > now_utc
     except Exception:
         return False
@@ -1331,7 +1341,9 @@ def is_alert_already_sent(alert_key: str, ttl_hours: int = 12) -> bool:
         if not row:
             return False
         sent_at_str = str(row["sent_at"]).replace(" ", "T").replace("Z", "+00:00")
-        sent_at = datetime.fromisoformat(sent_at_str)
+        sent_at = _parse_dt_utc(sent_at_str)
+        if not sent_at:
+            return False
         # Учитываем, что sent_at сохраняется в UTC
         if sent_at.tzinfo is None:
             sent_at = sent_at.replace(tzinfo=timezone.utc)
@@ -3372,7 +3384,7 @@ def get_strategy_first_signal_date(strategy_type: str) -> Optional[datetime]:
                 date_str = row["first_date"]
                 if "Z" in date_str:
                     date_str = date_str.replace("Z", "+00:00")
-                dt = datetime.fromisoformat(date_str)
+                dt = _parse_dt_utc(date_str)
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
                 return dt

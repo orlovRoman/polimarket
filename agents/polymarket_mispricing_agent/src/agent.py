@@ -5,7 +5,7 @@ from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
 from core.math_filter import math_pre_filter, FilterDecision
-from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes, get_performance_summary, save_agent_episode, get_agent_accuracy_context
+from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes, get_performance_summary, save_agent_episode, get_agent_accuracy_context, _parse_dt_utc
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 import logging
@@ -391,7 +391,7 @@ class ScoutAgent:
                 url=row['url'],
                 outcome=row['outcome'],
                 price=row['price'],
-                close_time=datetime.fromisoformat(row['close_time'])
+                close_time=_parse_dt_utc(row['close_time'])
             )
             
             logger.info(f"Анализируем: {market.title} (Цена: {market.price})...")

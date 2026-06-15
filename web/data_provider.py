@@ -7,6 +7,22 @@ from typing import Optional, Any
 
 logger = logging.getLogger("NexusPolyBot.DataProvider")
 
+def _parse_dt_utc(s: str) -> datetime | None:
+    """Парсит строку в UTC-aware datetime, сохраняя корректный offset."""
+    if not s:
+        return None
+    try:
+        # Нормализуем пробел → T, но НЕ трогаем timezone-суффикс
+        s_norm = s.strip().replace(" ", "T", 1)
+        dt = datetime.fromisoformat(s_norm)
+        # Если нет tzinfo — предполагаем UTC
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        # Конвертируем в UTC (сохраняет корректный момент времени)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
 def get_global_virtual_stake(conn) -> float:
     """Считывает глобальную ставку из БД с фоллбеком на конфиг."""
     try:
@@ -115,7 +131,9 @@ def _load_penny_stocks_stats(conn, stats, virtual_stake):
         res_at_str = r['resolved_at']
         
         try:
-            res_at = datetime.fromisoformat(res_at_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
+            res_at = _parse_dt_utc(res_at_str)
+            if res_at is None:
+                continue
         except Exception:
             continue
 
@@ -203,7 +221,9 @@ def _load_whale_stats(conn, stats, virtual_stake):
                     pnl_val = (virtual_stake / bought_outcome) * (sold_outcome - bought_outcome)
 
             try:
-                res_at = datetime.fromisoformat(resolved_at_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
+                res_at = _parse_dt_utc(resolved_at_str)
+                if res_at is None:
+                    continue
             except Exception:
                 continue
 
@@ -622,6 +642,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                             bought_price = None
                 
                 if bought_price and 0.0 < bought_price < 1.0:
+                    # pnl_realized is already raw profit/loss (e.g. 0.95 or -1.0)
                     row_dict['pnl_realized'] = round((virtual_stake / bought_price) * (row_dict['pnl_realized'] or 0.0), 2)
                 else:
                     row_dict['pnl_realized'] = 0.0

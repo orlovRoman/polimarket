@@ -111,7 +111,7 @@
         } else {
             tbody.innerHTML = displaySignals.map(sig => {
                 const prob = sig.estimated_probability === null ? sig.predicted_probability : sig.estimated_probability;
-                const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
+                const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : sig.status === 'ARCHIVED' ? 'badge-gray' : 'badge-blue';
                 const displayStatus = sig.status === 'ARCHIVED' ? 'ОЖИДАЕТ ИТОГА' : sig.status;
                 return `
                     <tr>
