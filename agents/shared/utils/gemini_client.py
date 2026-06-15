@@ -518,6 +518,48 @@ _GEMINI_KEY_ENV_NAMES = [
     "GOOGLE_API_KEY_THIRD",
 ]
 
+# ── Фикс 2: Per-provider cooldown при 429 ───────────────────────────────────
+# Если провайдер вернул 429, не трогаем его следующие N секунд.
+# Словарь разделяется всеми агентами (singleton на уровне модуля).
+_provider_cooldowns: dict[str, float] = {}  # provider → time.monotonic() until
+_cooldown_lock = Lock()
+
+def _is_on_cooldown(provider: str) -> bool:
+    with _cooldown_lock:
+        return time.monotonic() < _provider_cooldowns.get(provider, 0)
+
+def _set_provider_cooldown(provider: str, seconds: float = 60.0):
+    with _cooldown_lock:
+        deadline = time.monotonic() + seconds
+        # Обновляем только если новый дедлайн позже текущего
+        if deadline > _provider_cooldowns.get(provider, 0):
+            _provider_cooldowns[provider] = deadline
+            remaining = seconds
+            logger.warning(
+                f"[rate_cooldown] Провайдер '{provider}' на cooldown {remaining:.0f}s "
+                f"(следующий запрос не раньше чем через {remaining:.0f}с)"
+            )
+
+# ── Фикс 3: Runtime-дисквалификация модели при 404 ──────────────────────────
+# Если модель вернула 404, пропускаем её до перезапуска процесса.
+# Ключ: "provider:model" — разделяется всеми агентами.
+_disqualified_models: set[str] = set()
+_disqualify_lock = Lock()
+
+def _disqualify_model(provider: str, model: str):
+    key = f"{provider}:{model}"
+    with _disqualify_lock:
+        if key not in _disqualified_models:
+            _disqualified_models.add(key)
+            logger.error(
+                f"[disqualify] Модель '{model}' на '{provider}' дисквалифицирована "
+                f"(404 Not Found) — не будет вызываться до перезапуска."
+            )
+
+def _is_disqualified(provider: str, model: str) -> bool:
+    return f"{provider}:{model}" in _disqualified_models
+# ────────────────────────────────────────────────────────────────────────────
+
 def _collect_gemini_keys(primary_key: str) -> list[str]:
     """Собирает все Gemini ключи в детерминированном порядке."""
     keys = []
@@ -739,6 +781,21 @@ def generate_content_with_fallback(
     # 4. Перебираем plans и ключи
     last_provider = None
     for provider, model in plans:
+        # Фикс 2: пропускаем провайдер если он на cooldown (был 429 недавно)
+        if _is_on_cooldown(provider):
+            with _cooldown_lock:
+                remaining = max(0, _provider_cooldowns.get(provider, 0) - time.monotonic())
+            logger.info(
+                f"[{agent_name}] Провайдер '{provider}' на cooldown, пропускаем "
+                f"(осталось ~{remaining:.0f}с). Модель: {model}"
+            )
+            continue
+
+        # Фикс 3: пропускаем модели, дисквалифицированные через 404
+        if _is_disqualified(provider, model):
+            logger.debug(f"[{agent_name}] Пропуск дисквалифицированной модели '{model}' ({provider})")
+            continue
+
         if last_provider and last_provider != provider:
             logger.info(f"[{agent_name}] Переключение провайдера: {last_provider} -> {provider} (модель {model})")
         last_provider = provider
@@ -791,11 +848,17 @@ def generate_content_with_fallback(
                     elif provider == "gemini":
                         k_idx = int(get_memory("gem_key_rr_index") or 0)
                         save_memory("gem_key_rr_index", (k_idx + 1) % max(len(_active_gemini_keys_for_rr), 1))
+                    # Фикс 2: если это последний ключ для данного провайдера —
+                    # выставляем cooldown, чтобы не долбиться снова сразу после
+                    if key_idx == len(keys) - 1:
+                        _set_provider_cooldown(provider, seconds=60.0)
                     continue
                 
                 # Если это 404 (Model Not Found) — сразу выходим из попыток и переходим к следующей модели
                 if _is_model_not_found_error(e):
                     logger.error(f"[{agent_name}] 404: модель {model} на {provider} не существует или удалена. Пропускаем.")
+                    # Фикс 3: дисквалифицируем модель до перезапуска процесса
+                    _disqualify_model(provider, model)
                     if provider == "cerebras":  # двигаем RR при 404 тоже
                         _cer_idx_now = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]

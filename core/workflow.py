@@ -609,37 +609,64 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     from core.guards import LLMUnavailableError
     from core.checkpoint import save_checkpoint
-    
-    # SCOUT
-    try:
-        signal = await scout.estimate_market(context, price_history=price_history or [])
-        save_checkpoint(f"scout_{m.id}", status="ok", edge=signal.edge if signal else None)
-    except LLMUnavailableError:
+
+    # ── SCOUT + SWING параллельно ────────────────────────────────────────────
+    # Оба агента запускаются одновременно через asyncio.gather.
+    # Время пары = MAX(t_scout, t_swing) вместо SUM(t_scout + t_swing).
+    # Логика пропуска SWING (flat+noise без сильного SCOUT-сигнала)
+    # применяется пост-фактум: результат SWING отбрасывается если нужно.
+    scout_coro = scout.estimate_market(context, price_history=price_history or [])
+    swing_coro = swing.estimate_market(context, price_history=price_history)
+
+    async def _safe_scout():
+        return await scout_coro if asyncio.iscoroutine(scout_coro) else scout_coro
+
+    async def _safe_swing():
+        return await swing_coro if asyncio.iscoroutine(swing_coro) else swing_coro
+
+    raw_scout, raw_swing = await asyncio.gather(
+        _safe_scout(), _safe_swing(), return_exceptions=True
+    )
+
+    # Обработка SCOUT
+    if isinstance(raw_scout, LLMUnavailableError):
         save_checkpoint(f"scout_{m.id}", status="llm_unavailable")
-        raise
-    except Exception as e:
-        save_checkpoint(f"scout_{m.id}", status="error", error=str(e))
+        raise raw_scout
+    elif isinstance(raw_scout, Exception):
+        logger.warning(f"  [SCOUT] Ошибка оценки: {raw_scout}")
+        save_checkpoint(f"scout_{m.id}", status="error", error=str(raw_scout))
         signal = None
-        
-    # SWING
-    try:
-        has_strong_scout = signal and getattr(signal, 'edge', 0) >= 0.55
+    else:
+        signal = raw_scout
+        save_checkpoint(f"scout_{m.id}", status="ok", edge=signal.edge if signal else None)
+
+    # Обработка SWING
+    if isinstance(raw_swing, LLMUnavailableError):
+        save_checkpoint(f"swing_{m.id}", status="llm_unavailable")
+        raise raw_swing
+    elif isinstance(raw_swing, Exception):
+        logger.warning(f"  [SWING] Ошибка оценки: {raw_swing}")
+        save_checkpoint(f"swing_{m.id}", status="error", error=str(raw_swing))
+        swing_signal = None
+    else:
+        # Пост-фактум: применяем бизнес-логику пропуска SWING
+        # (эквивалентно условию в прежнем последовательном коде)
+        try:
+            _edge = float(getattr(signal, 'edge', 0) or 0) if signal else 0.0
+        except (TypeError, ValueError):
+            _edge = 0.0
+        has_strong_scout = signal is not None and _edge >= 0.55
         is_flat_or_noise = not velocity.has_anomaly and velocity.suspicion in ("ORGANIC", "NOISE")
         has_enough_history = len(price_history or []) >= 3
         if is_flat_or_noise and has_enough_history and not has_strong_scout:
-            logger.info("  SWING: пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)")
+            logger.info("  SWING: результат отброшен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)")
             context.swing_skipped = True
-            context.swing_skip_reason = "Пропущен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)"
+            context.swing_skip_reason = "Отброшен (flat price/noise с достаточной историей, нет сильного SCOUT-сигнала)"
             swing_signal = None
         else:
-            swing_signal = await swing.estimate_market(context, price_history=price_history)
+            swing_signal = raw_swing
         save_checkpoint(f"swing_{m.id}", status="ok")
-    except LLMUnavailableError:
-        save_checkpoint(f"swing_{m.id}", status="llm_unavailable")
-        raise
-    except Exception as e:
-        save_checkpoint(f"swing_{m.id}", status="error", error=str(e))
-        swing_signal = None
+    # ────────────────────────────────────────────────────────────────────────
         
     if signal is not None or swing_signal is not None:
         save_memory(last_analysis_key, datetime.now(timezone.utc).isoformat(),

@@ -213,7 +213,19 @@ Description:
                 }
             )
         data = resp.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        # Фикс 4: безопасное извлечение candidates (защита от safety-блоков и пустых ответов)
+        candidates = data.get("candidates")
+        if not candidates:
+            logger.warning("[resolution_extractor] LLM ответ без candidates (safety block или пустой ответ)")
+            return None
+        parts = candidates[0].get("content", {}).get("parts", [])
+        if not parts:
+            logger.warning("[resolution_extractor] candidates есть, но parts пустой")
+            return None
+        text = parts[0].get("text")
+        if not text:
+            logger.warning("[resolution_extractor] parts[0] не содержит текста")
+            return None
         import json
         parsed = json.loads(text)
 
