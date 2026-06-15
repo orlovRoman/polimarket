@@ -118,21 +118,6 @@ def resolve_closed_markets():
                     outcome=outcome_label
                 )
                 
-                # Обновляем накопленную точность в memory
-                from agents.shared.python.db import get_memory, save_memory
-                total_correct_key = f"{agent_name.lower()}_correct_total"
-                total_eval_key   = f"{agent_name.lower()}_evaluated_total"
-                accuracy_key     = f"{agent_name.lower()}_accuracy_pct"
-
-                prev_correct  = get_memory(total_correct_key) or 0
-                prev_total    = get_memory(total_eval_key)    or 0
-                new_correct   = prev_correct + (1 if is_win else 0)
-                new_total     = prev_total + 1
-                new_accuracy  = round(new_correct / new_total * 100, 1) if new_total > 0 else 0.0
-
-                save_memory(total_correct_key, new_correct, category='fact', priority=7)
-                save_memory(total_eval_key,    new_total,   category='fact', priority=7)
-                save_memory(accuracy_key,      new_accuracy, category='fact', priority=9)
 
                 
             except Exception as e:

@@ -62,18 +62,7 @@ COMPOUND_DEFAULTS = {
 
 logger = logging.getLogger("NexusPolyBot.DB")
 
-def _parse_dt_utc(s: str) -> datetime | None:
-    """Парсит строку в UTC-aware datetime, сохраняя корректный offset."""
-    if not s:
-        return None
-    try:
-        s_norm = s.strip().replace(" ", "T", 1)
-        dt = datetime.fromisoformat(s_norm)
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-    except (ValueError, TypeError):
-        return None
+from agents.shared.python.utils import _parse_dt_utc
 
 _thread_local = threading.local()
 
@@ -1774,11 +1763,11 @@ def save_memory(key: str, value: Any, category: str = 'general', ttl: int = None
     :param priority: Приоритет для ранжирования (0-10, выше = важнее)
     """
     now_dt = datetime.now(timezone.utc)
-    now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+    now_str = now_dt.isoformat()
     expires_at_str = None
     if ttl is not None:
         from datetime import timedelta
-        expires_at_str = (now_dt + timedelta(seconds=ttl)).strftime("%Y-%m-%d %H:%M:%S")
+        expires_at_str = (now_dt + timedelta(seconds=ttl)).isoformat()
     
     with get_connection() as conn:
         conn.execute(
@@ -1806,6 +1795,11 @@ def get_memory(key: str, default: Any = None) -> Any:
             except json.JSONDecodeError:
                 return row['value']
         return default
+
+def delete_memory(key: str) -> None:
+    """Удаляет запись из долгосрочной памяти по ключу."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM memory WHERE key = ?", (key,))
 
 def get_active_facts(limit: int = 30) -> list:
     """Загружает актуальные приоритетные факты. Обёртка для обратной совместимости."""
@@ -1858,11 +1852,14 @@ def get_relevant_facts(context_keywords: list = None, limit: int = 20) -> list:
         return results[:limit]
 
 def cleanup_expired_memory():
-    """Удаляет записи с истёкшим TTL из таблицы memory."""
+    """Удаляет записи с истёкшим TTL из таблицы memory, а также мусорные ключи."""
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM memory WHERE expires_at IS NOT NULL AND expires_at < datetime('now')")
         count = cursor.rowcount
+        # Удаляем мусорные ключи
+        cursor.execute("DELETE FROM memory WHERE key = 'agent_config_SwingAgent' OR key = 'agent_config_ArbitrageAgent'")
+        count += cursor.rowcount
     return count
 
 def upsert_known_whale(address: str, alias: str, win_rate: float,
@@ -2294,22 +2291,7 @@ def update_episodes_for_market(market_id: str, resolved_outcome: str):
     if episodes:
         logger.info(f"[Memory] Обновлено {len(episodes)} эпизодов для рынка {market_id} → {resolved_outcome}")
 
-    # Обновляем накопленную статистику точности в memory для каждого затронутого агента после коммита транзакции
-    for agent_name in updated_agents:
-        stats = get_agent_accuracy(agent_name)
-        if stats['total'] > 0:
-            save_memory(
-                f"{agent_name.lower()}_accuracy_pct",
-                round(stats['accuracy'] * 100, 1),
-                category='fact',
-                priority=8
-            )
-            save_memory(
-                f"{agent_name.lower()}_evaluated_total",
-                stats['total'],
-                category='fact',
-                priority=8
-            )
+    pass
 
 def get_agent_accuracy(agent_name: str) -> dict:
     """Возвращает статистику точности агента по завершённым эпизодам."""

@@ -7,21 +7,7 @@ from typing import Optional, Any
 
 logger = logging.getLogger("NexusPolyBot.DataProvider")
 
-def _parse_dt_utc(s: str) -> datetime | None:
-    """Парсит строку в UTC-aware datetime, сохраняя корректный offset."""
-    if not s:
-        return None
-    try:
-        # Нормализуем пробел → T, но НЕ трогаем timezone-суффикс
-        s_norm = s.strip().replace(" ", "T", 1)
-        dt = datetime.fromisoformat(s_norm)
-        # Если нет tzinfo — предполагаем UTC
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        # Конвертируем в UTC (сохраняет корректный момент времени)
-        return dt.astimezone(timezone.utc)
-    except (ValueError, TypeError):
-        return None
+from agents.shared.python.utils import _parse_dt_utc
 
 def get_global_virtual_stake(conn) -> float:
     """Считывает глобальную ставку из БД с фоллбеком на конфиг."""
@@ -402,6 +388,20 @@ def get_overview_stats() -> dict:
         for stype, sdata in stats.items():
             sdata['status_emoji'] = get_status_emoji(sdata['sharpe'], sdata['win_rate'])
 
+    return stats
+
+def get_memory_stats() -> dict:
+    """Возвращает статистику использования SQLite memory и RAG."""
+    from agents.shared.python.db import get_connection
+    stats = {'total_keys': 0, 'expired_keys': 0, 'vault_files': 0}
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM memory")
+        stats['total_keys'] = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM memory WHERE expires_at IS NOT NULL AND expires_at < datetime('now')")
+        stats['expired_keys'] = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM vault_index")
+        stats['vault_files'] = cursor.fetchone()[0]
     return stats
 
 def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, list[dict]]:

@@ -547,7 +547,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
                     # Роутим AMBIGUOUS через мини-LLM
                     if mf.decision == FilterDecision.AMBIGUOUS:
                         if api_key:
-                            arb_verdict = route_ambiguous(mf, m, peer_market, api_key=api_key)
+                            arb_verdict = await asyncio.to_thread(route_ambiguous, mf, m, peer_market, api_key=api_key)
                             if arb_verdict and arb_verdict.get("confirmed_arb"):
                                 logger.info(f"[arb_router] Арбитраж подтверждён: {m.title} ↔ {peer_market.title}")
                                 # Апгрейдим mf до confirmed для отображения в Telegram
@@ -619,10 +619,12 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     swing_coro = swing.estimate_market(context, price_history=price_history)
 
     async def _safe_scout():
-        return await scout_coro if asyncio.iscoroutine(scout_coro) else scout_coro
+        if isinstance(scout_coro, Exception): raise scout_coro
+        return await scout_coro
 
     async def _safe_swing():
-        return await swing_coro if asyncio.iscoroutine(swing_coro) else swing_coro
+        if isinstance(swing_coro, Exception): raise swing_coro
+        return await swing_coro
 
     raw_scout, raw_swing = await asyncio.gather(
         _safe_scout(), _safe_swing(), return_exceptions=True
@@ -646,8 +648,11 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
     # Обработка SWING
     if isinstance(raw_swing, LLMUnavailableError):
+        logger.warning(f"  [SWING] LLM недоступен, продолжаем без SWING: {raw_swing}")
         save_checkpoint(f"swing_{m.id}", status="llm_unavailable")
-        raise raw_swing
+        swing_signal = None
+        if signal is None:
+            raise raw_swing
     elif isinstance(raw_swing, Exception):
         logger.warning(f"  [SWING] Ошибка оценки: {raw_swing}")
         save_checkpoint(f"swing_{m.id}", status="error", error=str(raw_swing))

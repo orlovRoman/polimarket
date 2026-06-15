@@ -227,7 +227,11 @@ Description:
             logger.warning("[resolution_extractor] parts[0] не содержит текста")
             return None
         import json
-        parsed = json.loads(text)
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as e:
+            logger.warning(f"[resolution_extractor] Невалидный JSON от LLM: {e}\nТекст: {text[:200]!r}")
+            return None
 
         domain = parsed.get("source_domain")
         rss = KNOWN_RSS_MAP.get(domain) if domain else None

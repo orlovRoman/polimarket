@@ -37,7 +37,8 @@ async def scheduled_job():
             processed_count = await asyncio.to_thread(engine.run_team_discussion)
         
         if processed_count and processed_count > 0:
-            save_memory("last_scan_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            from datetime import timezone
+            save_memory("last_scan_time", datetime.now(timezone.utc).isoformat())
         
         expired = cleanup_expired_memory()
         if expired > 0:
@@ -548,6 +549,29 @@ async def scheduled_whale_discovery():
     except Exception as e:
         logger.error(f"Ошибка при автоматическом поиске китов: {e}", exc_info=True)
 
+async def scheduled_agent_accuracy_recalc():
+    try:
+        logger.info(">>> Запуск периодического пересчета точности агентов...")
+        from agents.shared.python.db import get_agent_accuracy, save_memory
+        for agent_name in ["SCOUT", "SWING", "SHADOW"]:
+            stats = get_agent_accuracy(agent_name)
+            if stats['total'] > 0:
+                save_memory(
+                    f"{agent_name.lower()}_accuracy_pct",
+                    round(stats['accuracy'] * 100, 1),
+                    category='fact',
+                    priority=8
+                )
+                save_memory(
+                    f"{agent_name.lower()}_evaluated_total",
+                    stats['total'],
+                    category='fact',
+                    priority=8
+                )
+        logger.info("<<< Пересчет точности завершен.")
+    except Exception as e:
+        logger.error(f"Ошибка в scheduled_agent_accuracy_recalc: {e}", exc_info=True)
+
 async def scheduled_whale_monitor():
     try:
         logger.info(">>> Запуск мониторинга Whale Following...")
@@ -915,6 +939,15 @@ async def start_system():
         misfire_grace_time=600
     )
 
+
+    scheduler.add_job(
+        scheduled_agent_accuracy_recalc,
+        trigger="interval",
+        hours=1,
+        id="agent_accuracy_recalc_job",
+        replace_existing=True,
+        misfire_grace_time=600
+    )
 
     # Outcome Tracker — авторезолюция сигналов и автокалибровка параметров
     from core.config_provider import ConfigProvider

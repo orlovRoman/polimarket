@@ -522,7 +522,22 @@ _GEMINI_KEY_ENV_NAMES = [
 # Если провайдер вернул 429, не трогаем его следующие N секунд.
 # Словарь разделяется всеми агентами (singleton на уровне модуля).
 _provider_cooldowns: dict[str, float] = {}  # provider → time.monotonic() until
+
+import asyncio as _asyncio
+from threading import Lock
+
+# Для синхронных вызовов (старые агенты)
 _cooldown_lock = Lock()
+_disqualify_lock = Lock()
+
+# Для async-контекста (workflow.py с gather)
+_async_cooldown_lock: _asyncio.Lock | None = None
+
+def _get_async_cooldown_lock() -> _asyncio.Lock:
+    global _async_cooldown_lock
+    if _async_cooldown_lock is None:
+        _async_cooldown_lock = _asyncio.Lock()
+    return _async_cooldown_lock
 
 def _is_on_cooldown(provider: str) -> bool:
     with _cooldown_lock:
@@ -575,6 +590,7 @@ def _collect_gemini_keys(primary_key: str) -> list[str]:
 
 
 _failure_lock = Lock()
+_rr_lock = Lock()
 
 def _increment_failure(agent_name: str) -> int:
     """Атомарно увеличивает счетчик ошибок для агента с использованием блокировки."""
@@ -582,7 +598,7 @@ def _increment_failure(agent_name: str) -> int:
     fail_key = f"consecutive_failures_{agent_name}"
     with _failure_lock:
         failures = int(get_memory(fail_key) or 0) + 1
-        save_memory(fail_key, failures)
+        save_memory(fail_key, failures, category='operational', ttl=3600)
         return failures
 
 
@@ -602,10 +618,11 @@ def generate_content_with_fallback(
     import random
     
     # Снимаем один snapshot индексов ротации, чтобы избежать race conditions
-    cer_rr_idx_snapshot = int(get_memory("cer_rr_index") or 0)
-    gem_rr_idx_snapshot = int(get_memory("gem_rr_index") or 0)
-    gem_key_rr_idx_snapshot = int(get_memory("gem_key_rr_index") or 0)
-    or_rr_idx_snapshot = int(get_memory("or_rr_index") or 0)
+    with _rr_lock:
+        cer_rr_idx_snapshot = int(get_memory("cer_rr_index") or 0)
+        gem_rr_idx_snapshot = int(get_memory("gem_rr_index") or 0)
+        gem_key_rr_idx_snapshot = int(get_memory("gem_key_rr_index") or 0)
+        or_rr_idx_snapshot = int(get_memory("or_rr_index") or 0)
 
     if "PYTEST_CURRENT_TEST" not in os.environ:
         time.sleep(random.uniform(0, 2.0))
@@ -689,7 +706,8 @@ def generate_content_with_fallback(
     if "cerebras" in active_providers:
         cer_models = providers["cerebras"]["models"]
         if len(cer_models) > 0:
-            save_memory("cer_rr_index", (cer_rr_idx_snapshot + 1) % len(cer_models))
+            with _rr_lock:
+                save_memory("cer_rr_index", (cer_rr_idx_snapshot + 1) % len(cer_models), category='operational')
         cer_rotated = cer_models[cer_rr_idx_snapshot % max(len(cer_models), 1):] + cer_models[:cer_rr_idx_snapshot % max(len(cer_models), 1)]
         cer_seen: set = set()
         for _cm in cer_rotated:
@@ -702,7 +720,8 @@ def generate_content_with_fallback(
         or_models = providers["openrouter"]["models"]
         agent_override = os.getenv(f"OPENROUTER_MODEL_{agent_name.upper()}")
         if len(or_models) > 0:
-            save_memory("or_rr_index", (or_rr_idx_snapshot + 1) % len(or_models))
+            with _rr_lock:
+                save_memory("or_rr_index", (or_rr_idx_snapshot + 1) % len(or_models), category='operational')
         if agent_override:
             plans.append(("openrouter", agent_override))
         else:
@@ -717,9 +736,11 @@ def generate_content_with_fallback(
     if "gemini" in active_providers:
         gem_models = providers["gemini"]["models"]
         if len(gem_models) > 0:
-            save_memory("gem_rr_index", (gem_rr_idx_snapshot + 1) % len(gem_models))
+            with _rr_lock:
+                save_memory("gem_rr_index", (gem_rr_idx_snapshot + 1) % len(gem_models), category='operational')
             
-        save_memory("gem_key_rr_index", (gem_key_rr_idx_snapshot + 1) % max(len(_active_gemini_keys_for_rr), 1))
+        with _rr_lock:
+            save_memory("gem_key_rr_index", (gem_key_rr_idx_snapshot + 1) % max(len(_active_gemini_keys_for_rr), 1), category='operational')
         
         # Строим список: начинаем с текущего индекса, идём по кругу
         idx = gem_rr_idx_snapshot % max(len(gem_models), 1)
@@ -823,7 +844,7 @@ def generate_content_with_fallback(
                     input_tokens=in_tokens, output_tokens=out_tokens, total_tokens=total_tokens,
                     latency_ms=latency_ms, market_id=market_id
                 )
-                save_memory(f"consecutive_failures_{agent_name}", 0)
+                save_memory(f"consecutive_failures_{agent_name}", 0, category='operational', ttl=3600)
                 return result, model
                 
             except Exception as e:
@@ -842,12 +863,14 @@ def generate_content_with_fallback(
                         f"[{agent_name}] 429 Rate Limit на {provider} ({model}) ключ {key_idx+1}. Переходим к следующему ключу."
                     )
                     if provider == "cerebras":
-                        _cer_idx_now = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]
-                        save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
+                        with _rr_lock:
+                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
+                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models), category='operational')
                     elif provider == "gemini":
-                        k_idx = int(get_memory("gem_key_rr_index") or 0)
-                        save_memory("gem_key_rr_index", (k_idx + 1) % max(len(_active_gemini_keys_for_rr), 1))
+                        with _rr_lock:
+                            k_idx = int(get_memory("gem_key_rr_index") or 0)
+                            save_memory("gem_key_rr_index", (k_idx + 1) % max(len(_active_gemini_keys_for_rr), 1), category='operational')
                     # Фикс 2: если это последний ключ для данного провайдера —
                     # выставляем cooldown, чтобы не долбиться снова сразу после
                     if key_idx == len(keys) - 1:
@@ -860,9 +883,10 @@ def generate_content_with_fallback(
                     # Фикс 3: дисквалифицируем модель до перезапуска процесса
                     _disqualify_model(provider, model)
                     if provider == "cerebras":  # двигаем RR при 404 тоже
-                        _cer_idx_now = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]
-                        save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
+                        with _rr_lock:
+                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
+                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models), category='operational')
                     skip_model = True
                     break
                 
@@ -887,9 +911,10 @@ def generate_content_with_fallback(
                 logger.warning(f"[{agent_name}] Ошибка вызова {provider} ({model}) с ключом {key_idx+1}: {error_msg}")
                 if provider == "cerebras":
                     if isinstance(e, requests.exceptions.HTTPError):
-                        _cer_idx_now = int(get_memory("cer_rr_index") or 0)
                         cer_models = providers["cerebras"]["models"]
-                        save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models))
+                        with _rr_lock:
+                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
+                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models), category='operational')
                 
             
             

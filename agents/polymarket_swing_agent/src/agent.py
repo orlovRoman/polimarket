@@ -335,8 +335,10 @@ class SwingAgent:
         
         analysis = None
         signal = None
+        import asyncio
         for attempt in range(3):
-            result, _ = generate_content_with_fallback(
+            result, _ = await asyncio.to_thread(
+                generate_content_with_fallback,
                 api_key=self.api_key,
                 payload=payload,
                 default_model=self.model,

@@ -67,6 +67,10 @@ async def api_overview(request):
     data = await asyncio.to_thread(data_provider.get_overview_stats)
     return web.json_response(data)
 
+async def api_memory_stats(request):
+    data = await asyncio.to_thread(data_provider.get_memory_stats)
+    return web.json_response(data)
+
 async def api_eval_status(request):
     data = await asyncio.to_thread(data_provider.get_eval_status)
     return web.json_response(data)
@@ -1033,6 +1037,7 @@ def create_dashboard_app() -> web.Application:
     
     # JSON API маршруты
     app.router.add_get("/api/overview", api_overview)
+    app.router.add_get("/api/memory-stats", api_memory_stats)
     app.router.add_get("/api/eval-status", api_eval_status)
     app.router.add_get("/api/penny-stocks", api_penny_stocks)
     app.router.add_get("/api/favourite-compounding", api_favourite_compounding)

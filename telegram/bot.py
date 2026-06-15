@@ -1485,7 +1485,7 @@ async def callback_save_model(callback: CallbackQuery) -> None:
     
     from agents.shared.python.db import save_memory
     config = {"provider": provider, "model": model_name}
-    await asyncio.to_thread(save_memory, f"agent_config_{agent}", config)
+    await asyncio.to_thread(save_memory, f"agent_config_{agent}", config, ttl=30*24*3600)
     
     engine = get_core_engine()
     if engine:

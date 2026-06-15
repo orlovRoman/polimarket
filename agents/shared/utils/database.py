@@ -64,9 +64,7 @@ class DatabaseManager:
 
     def delete_memory(self, key: str) -> None:
         """Удаляет ключ из долгосрочной памяти."""
-        with self._get_connection() as conn:
-            conn.execute("DELETE FROM memory WHERE key = ?", (key,))
-            conn.commit()
+        _db.delete_memory(key)
 
     # --- Токены и модели ---
     def get_token_usage_last_24h(self, agent_name: str) -> Dict[str, int]:
