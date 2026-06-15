@@ -112,7 +112,7 @@
             tbody.innerHTML = displaySignals.map(sig => {
                 const prob = sig.estimated_probability === null ? sig.predicted_probability : sig.estimated_probability;
                 const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
-                const displayStatus = sig.status === 'ARCHIVED' ? 'ЗАКРЫТ' : sig.status;
+                const displayStatus = sig.status === 'ARCHIVED' ? 'ОЖИДАЕТ ИТОГА' : sig.status;
                 return `
                     <tr>
                         <td class="text-muted" style="font-size:0.8rem;">${sig.id.slice(0, 8)}...</td>
