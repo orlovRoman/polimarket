@@ -37,6 +37,148 @@ def normalize_strategy_name(name: str) -> str:
         return 'favourite_compounding'
     return name
 
+def _load_strategy_metrics(conn, stats):
+    rows = conn.execute("""
+        SELECT strategy_type, win_rate, sharpe_ratio, total_signals
+        FROM strategy_metrics
+        WHERE id IN (SELECT MAX(id) FROM strategy_metrics GROUP BY strategy_type)
+    """).fetchall()
+    for r in rows:
+        stype = normalize_strategy_name(r['strategy_type'])
+        if stype in stats:
+            stats[stype]['win_rate'] = r['win_rate']
+            stats[stype]['sharpe'] = r['sharpe_ratio']
+            stats[stype]['signals_count'] = r['total_signals'] or 0
+
+def _load_signals_pnl(conn, stats):
+    rows_pnl = conn.execute("""
+        SELECT strategy_type,
+               COUNT(*) as total,
+               SUM(CASE WHEN resolved_at >= datetime('now', '-7 days') THEN pnl_realized ELSE 0 END) as pnl_7d,
+               SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') THEN pnl_realized ELSE 0 END) as pnl_30d
+        FROM signals
+        WHERE status IN ('WIN', 'LOSS') AND strategy_type IS NOT NULL
+        GROUP BY strategy_type
+    """).fetchall()
+    for r in rows_pnl:
+        stype = normalize_strategy_name(r['strategy_type'])
+        if stype in stats:
+            stats[stype]['pnl_7d'] = round(r['pnl_7d'] or 0.0, 2)
+            stats[stype]['pnl_30d'] = round(r['pnl_30d'] or 0.0, 2)
+            stats[stype]['signals_count'] = max(stats[stype]['signals_count'], r['total'] or 0)
+
+def _load_penny_stocks_stats(conn, stats):
+    penny_rows = conn.execute("""
+        SELECT
+            predicted_outcome, actual_outcome, initial_price, resolved_at
+        FROM penny_stocks_monitoring
+        WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
+    """).fetchall()
+
+    total = len(penny_rows)
+    pnl_7d = 0.0
+    pnl_30d = 0.0
+    wins_30d = 0
+    total_30d = 0
+    
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+    thirty_days_ago = now - timedelta(days=30)
+    
+    virtual_stake = get_global_virtual_stake(conn)
+
+    for r in penny_rows:
+        pred = r['predicted_outcome']
+        act = r['actual_outcome']
+        init_price = r['initial_price']
+        res_at_str = r['resolved_at']
+        
+        try:
+            res_at = datetime.fromisoformat(res_at_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+
+        pred_up = pred.upper() if pred else ""
+        act_up = act.upper() if act else ""
+
+        buy_price = init_price if pred_up == 'YES' else (1.0 - init_price)
+        if not (0.001 < buy_price < 0.999):
+            continue
+            
+        is_win = (pred_up == act_up)
+        
+        if is_win:
+            pnl = (virtual_stake / buy_price) * (1.0 - buy_price)
+        else:
+            pnl = -virtual_stake
+            
+        if res_at >= seven_days_ago:
+            pnl_7d += pnl
+            
+        if res_at >= thirty_days_ago:
+            pnl_30d += pnl
+            total_30d += 1
+            if is_win:
+                wins_30d += 1
+
+    stats['penny_stocks']['pnl_7d'] = round(pnl_7d, 2)
+    stats['penny_stocks']['pnl_30d'] = round(pnl_30d, 2)
+    stats['penny_stocks']['signals_count'] = total
+    if total_30d > 0:
+        stats['penny_stocks']['win_rate'] = wins_30d / total_30d
+
+def _load_whale_stats(conn, stats, virtual_stake):
+    try:
+        whale_pnl = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_cents ELSE 0.0 END) as pnl_7d,
+                SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_cents ELSE 0.0 END) as pnl_30d
+            FROM whale_virtual_trades_history
+        """).fetchone()
+        if whale_pnl:
+            stats['whale']['pnl_7d'] = round((whale_pnl['pnl_7d'] or 0.0) * virtual_stake, 2)
+            stats['whale']['pnl_30d'] = round((whale_pnl['pnl_30d'] or 0.0) * virtual_stake, 2)
+            stats['whale']['signals_count'] = max(stats['whale']['signals_count'], whale_pnl['total'] or 0)
+
+        whale_wr = conn.execute("""
+            SELECT 
+                COUNT(*) as total_30d,
+                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins_30d
+            FROM whale_virtual_trades_history
+            WHERE sold_at >= datetime('now', '-30 days')
+        """).fetchone()
+        if whale_wr and whale_wr['total_30d'] is not None and whale_wr['total_30d'] > 0:
+            stats['whale']['win_rate'] = (whale_wr['wins_30d'] or 0) / whale_wr['total_30d']
+    except Exception as e:
+        logger.warning(f"[Overview] whale_virtual_trades_history недоступна: {e}")
+
+def _load_compounding_stats(conn, stats):
+    try:
+        comp_pnl = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_usd ELSE 0.0 END) as pnl_7d,
+                SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_usd ELSE 0.0 END) as pnl_30d
+            FROM compound_virtual_trades_history
+        """).fetchone()
+        if comp_pnl:
+            stats['favourite_compounding']['pnl_7d'] = round(comp_pnl['pnl_7d'] or 0.0, 2)
+            stats['favourite_compounding']['pnl_30d'] = round(comp_pnl['pnl_30d'] or 0.0, 2)
+            stats['favourite_compounding']['signals_count'] = max(stats['favourite_compounding']['signals_count'], comp_pnl['total'] or 0)
+
+        comp_wr = conn.execute("""
+            SELECT 
+                COUNT(*) as total_30d,
+                SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins_30d
+            FROM compound_virtual_trades_history
+            WHERE sold_at >= datetime('now', '-30 days')
+        """).fetchone()
+        if comp_wr and comp_wr['total_30d'] is not None and comp_wr['total_30d'] > 0:
+            stats['favourite_compounding']['win_rate'] = (comp_wr['wins_30d'] or 0) / comp_wr['total_30d']
+    except Exception as e:
+        logger.warning(f"[Overview] compound_virtual_trades_history недоступна: {e}")
+
 def get_overview_stats() -> dict:
     """
     Агрегирует общие метрики по всем стратегиям:
@@ -63,155 +205,16 @@ def get_overview_stats() -> dict:
         stats[s] = dict(DEFAULT_STRATEGY_STATS)
 
     with get_connection() as conn:
-        # 1. Читаем последние метрики из strategy_metrics
-        rows = conn.execute("""
-            SELECT strategy_type, win_rate, sharpe_ratio, total_signals
-            FROM strategy_metrics
-            WHERE id IN (SELECT MAX(id) FROM strategy_metrics GROUP BY strategy_type)
-        """).fetchall()
-        for r in rows:
-            stype = normalize_strategy_name(r['strategy_type'])
-            if stype in stats:
-                stats[stype]['win_rate'] = r['win_rate']
-                stats[stype]['sharpe'] = r['sharpe_ratio']
-                stats[stype]['signals_count'] = r['total_signals'] or 0
-
-        # 2. Вычисляем rolling PnL и общее число сигналов из signals
-        rows_pnl = conn.execute("""
-            SELECT strategy_type,
-                   COUNT(*) as total,
-                   SUM(CASE WHEN resolved_at >= datetime('now', '-7 days') THEN pnl_realized ELSE 0 END) as pnl_7d,
-                   SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') THEN pnl_realized ELSE 0 END) as pnl_30d
-            FROM signals
-            WHERE status IN ('WIN', 'LOSS') AND strategy_type IS NOT NULL
-            GROUP BY strategy_type
-        """).fetchall()
-        for r in rows_pnl:
-            stype = normalize_strategy_name(r['strategy_type'])
-            if stype in stats:
-                stats[stype]['pnl_7d'] = round(r['pnl_7d'] or 0.0, 2)
-                stats[stype]['pnl_30d'] = round(r['pnl_30d'] or 0.0, 2)
-                stats[stype]['signals_count'] = max(stats[stype]['signals_count'], r['total'] or 0)
-
-        # 2.5 Загружаем статистику для penny_stocks по авто-сигналам агентов из penny_stocks_monitoring.
-        penny_rows = conn.execute("""
-            SELECT
-                predicted_outcome, actual_outcome, initial_price, resolved_at
-            FROM penny_stocks_monitoring
-            WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
-        """).fetchall()
-
-        total = len(penny_rows)
-        pnl_7d = 0.0
-        pnl_30d = 0.0
-        wins_30d = 0
-        total_30d = 0
-        
-        now = datetime.now(timezone.utc)
-        seven_days_ago = now - timedelta(days=7)
-        thirty_days_ago = now - timedelta(days=30)
-        
         virtual_stake = get_global_virtual_stake(conn)
-
-        for r in penny_rows:
-            pred = r['predicted_outcome']
-            act = r['actual_outcome']
-            init_price = r['initial_price']
-            res_at_str = r['resolved_at']
-            
-            try:
-                res_at = datetime.fromisoformat(res_at_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
-            except Exception:
-                continue
-
-            pred_up = pred.upper() if pred else ""
-            act_up = act.upper() if act else ""
-
-            buy_price = init_price if pred_up == 'YES' else (1.0 - init_price)
-            if not (0.001 < buy_price < 0.999):
-                continue
-                
-            is_win = (pred_up == act_up)
-            
-            if is_win:
-                pnl = (virtual_stake / buy_price) * (1.0 - buy_price)
-            else:
-                pnl = -virtual_stake
-                
-            if res_at >= seven_days_ago:
-                pnl_7d += pnl
-                
-            if res_at >= thirty_days_ago:
-                pnl_30d += pnl
-                total_30d += 1
-                if is_win:
-                    wins_30d += 1
-
-        stats['penny_stocks']['pnl_7d'] = round(pnl_7d, 2)
-        stats['penny_stocks']['pnl_30d'] = round(pnl_30d, 2)
-        stats['penny_stocks']['signals_count'] = total
-
-        # 2.6 Отдельно догружаем статистику для whale из виртуальной истории сделок китов.
-        try:
-            whale_pnl = conn.execute("""
-                SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_cents ELSE 0.0 END) as pnl_7d,
-                    SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_cents ELSE 0.0 END) as pnl_30d
-                FROM whale_virtual_trades_history
-            """).fetchone()
-            if whale_pnl:
-                stats['whale']['pnl_7d'] = round((whale_pnl['pnl_7d'] or 0.0) * virtual_stake, 2)
-                stats['whale']['pnl_30d'] = round((whale_pnl['pnl_30d'] or 0.0) * virtual_stake, 2)
-                stats['whale']['signals_count'] = max(stats['whale']['signals_count'], whale_pnl['total'] or 0)
-
-            whale_wr = conn.execute("""
-                SELECT 
-                    COUNT(*) as total_30d,
-                    SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins_30d
-                FROM whale_virtual_trades_history
-                WHERE sold_at >= datetime('now', '-30 days')
-            """).fetchone()
-            if whale_wr and whale_wr['total_30d'] is not None and whale_wr['total_30d'] > 0:
-                stats['whale']['win_rate'] = (whale_wr['wins_30d'] or 0) / whale_wr['total_30d']
-        except Exception as e:
-            logger.warning(f"[Overview] whale_virtual_trades_history недоступна: {e}")
-
-        # 2.7 Рассчитываем win_rate для penny_stocks (за последние 30 дней)
-        if total_30d > 0:
-            stats['penny_stocks']['win_rate'] = wins_30d / total_30d
-
-
-        # 2.8 Догружаем статистику для favourite_compounding из compound_virtual_trades_history
-        try:
-            comp_pnl = conn.execute("""
-                SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN sold_at >= datetime('now', '-7 days') THEN pnl_usd ELSE 0.0 END) as pnl_7d,
-                    SUM(CASE WHEN sold_at >= datetime('now', '-30 days') THEN pnl_usd ELSE 0.0 END) as pnl_30d
-                FROM compound_virtual_trades_history
-            """).fetchone()
-            if comp_pnl:
-                stats['favourite_compounding']['pnl_7d'] = round(comp_pnl['pnl_7d'] or 0.0, 2)
-                stats['favourite_compounding']['pnl_30d'] = round(comp_pnl['pnl_30d'] or 0.0, 2)
-                stats['favourite_compounding']['signals_count'] = max(stats['favourite_compounding']['signals_count'], comp_pnl['total'] or 0)
-
-            comp_wr = conn.execute("""
-                SELECT 
-                    COUNT(*) as total_30d,
-                    SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins_30d
-                FROM compound_virtual_trades_history
-                WHERE sold_at >= datetime('now', '-30 days')
-            """).fetchone()
-            if comp_wr and comp_wr['total_30d'] is not None and comp_wr['total_30d'] > 0:
-                stats['favourite_compounding']['win_rate'] = (comp_wr['wins_30d'] or 0) / comp_wr['total_30d']
-        except Exception as e:
-            logger.warning(f"[Overview] compound_virtual_trades_history недоступна: {e}")
+        _load_strategy_metrics(conn, stats)
+        _load_signals_pnl(conn, stats)
+        _load_penny_stocks_stats(conn, stats)
+        _load_whale_stats(conn, stats, virtual_stake)
+        _load_compounding_stats(conn, stats)
 
         # 3. Обновляем статус-эмодзи
         for stype, sdata in stats.items():
             sdata['status_emoji'] = get_status_emoji(sdata['sharpe'], sdata['win_rate'])
-
 
     return stats
 

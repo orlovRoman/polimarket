@@ -564,49 +564,35 @@ async def trigger_nexus_scan(market_id: str, amount_usd: float = 0.0, source: st
     except Exception as e:
         logger.error(f"[Listener] Ошибка запуска мгновенного сканирования: {e}\n{traceback.format_exc()}")
 
-async def handle_incoming_telegram_message(
-    event,
-    client,
-    news_processor,
-    target_sources,
-    target_chat_id
-):
-    # Игнорируем сообщения из целевого (target) канала, куда пишет сам бот,
-    # чтобы предотвратить бесконечные циклы анализа.
-    chat = await event.get_chat()
-    chat_id_str = str(getattr(chat, 'id', ''))
-    if target_chat_id:
-        clean_target = target_chat_id.replace('-100', '').lstrip('-')
-        if clean_target in chat_id_str:
-            return
-
-    text = event.message.message
-    if not text:
-        return
-
-    # Восстанавливаем скрытые markdown-ссылки из entities
-    if event.message.entities:
-        text = restore_markdown_links(text, event.message.entities)
-
-    # Защита от бесконечного цикла:
-    # Приоритет 1 — проверяем sender ID (надёжно, не зависит от текста)
+async def _should_ignore_message(event, target_chat_id) -> bool:
     try:
+        chat = await event.get_chat()
+        chat_id_str = str(getattr(chat, 'id', ''))
+        if target_chat_id:
+            clean_target = target_chat_id.replace('-100', '').lstrip('-')
+            if clean_target in chat_id_str:
+                return True
+
+        text = event.message.message
+        if not text:
+            return True
+
         if TELEGRAM_BOT_ID:
             sender = await event.get_sender()
             if getattr(sender, 'id', None) == int(TELEGRAM_BOT_ID):
-                return
+                return True
     except Exception:
-        pass  # TELEGRAM_BOT_ID не задан — используем fallback
+        pass
 
-    # Приоритет 2 — точные строки-сигнатуры бота (fallback)
-    if is_bot_message(text):
-        return
-        
-    # Если username не получен — пробуем получить полный entity
+    if is_bot_message(event.message.message):
+        return True
+    return False
+
+async def _resolve_chat_entity(chat, client):
     if not getattr(chat, 'username', None):
         cached_username = _get_cached_username(chat.id)
         if cached_username:
-            chat = SimpleNamespace(
+            return SimpleNamespace(
                 username=cached_username,
                 id=chat.id,
                 title=getattr(chat, 'title', '')
@@ -616,14 +602,152 @@ async def handle_incoming_telegram_message(
                 full_entity = await client.get_entity(chat.id)
                 uname = getattr(full_entity, 'username', None)
                 if uname:
-                    _set_cached_username(chat.id, uname)   # кэшируем только строку
-                    chat = full_entity
+                    _set_cached_username(chat.id, uname)
+                    return full_entity
             except FloodWaitError as e:
-                logger.warning(f"[Listener] ⏳ FloodWait: get_entity заблокирован на {e.seconds}с "
-                               f"для chat {chat.id}. Используем числовой ID.")
+                logger.warning(f"[Listener] ⏳ FloodWait: get_entity заблокирован на {e.seconds}с для chat {chat.id}. Используем числовой ID.")
             except Exception as e:
                 logger.warning(f"[Listener] ⚠️ Не удалось получить полный entity для {chat.id}: {e}")
+    return chat
 
+async def _process_target_source_analysis(chat, msg_id, text, tg_post_url, chat_name):
+    post_id = await asyncio.to_thread(save_telegram_post, str(chat.id), msg_id, text)
+    if post_id and TELEGRAM_GROUP2_TARGET_ID:
+        logger.info(f"[Listener] 🧠 Триггерим глубокий анализ поста из {chat_name} (ID: {post_id})...")
+        
+        source_label = chat_name
+        if text:
+            first_line = text.split('\n')[0][:30]
+            source_label = f"[{chat_name}] {first_line}..."
+            
+        async with httpx.AsyncClient(timeout=_API_ANALYZE_TIMEOUT) as c:
+            try:
+                await c.post(
+                    f"http://127.0.0.1:8000/api/analyze/{post_id}",
+                    json={
+                        "post_id": post_id, 
+                        "chat_id": str(TELEGRAM_GROUP2_TARGET_ID),
+                        "source_chat_id": str(chat.id),
+                        "source_username": getattr(chat, 'username', None),
+                        "source_message_id": msg_id,
+                        "source_url": tg_post_url,
+                        "source_text": source_label
+                    }
+                )
+            except httpx.TimeoutException:
+                logger.warning(f"[Listener] ⏱️ Таймаут при вызове /api/analyze/{post_id} (>{_API_ANALYZE_TIMEOUT}с) — анализ не запущен")
+            except Exception as e:
+                logger.error(f"[Listener] Ошибка вызова API: {e}\n{traceback.format_exc()}")
+
+async def _process_whale_channel_message(chat_name, text, entities, tg_post_url, is_target_source):
+    if chat_name.lower() == "radarpolybot":
+        bet_info = parse_radar_signal(text, entities)
+        logger.info(f"[Listener] 🎯 radarpolybot сигнал: outcome={bet_info['outcome']} | "
+                    f"amount=${bet_info['amount_usd']:,.0f} | entry={bet_info['entry_price']} | "
+                    f"now={bet_info['current_price']} | market_url={bet_info['market_url']}")
+    else:
+        bet_info = parse_whale_alert(text, entities)
+
+    if bet_info["wallet"] and bet_info["market_url"]:
+        market_ids = await resolve_market_ids_from_url(bet_info["market_url"], text)
+        if market_ids:
+            for m_id in market_ids:
+                await asyncio.to_thread(
+                    save_trader_transaction,
+                    wallet_address=bet_info["wallet"],
+                    market_id=m_id,
+                    outcome=bet_info["outcome"] or "YES",
+                    amount_usd=bet_info["amount_usd"],
+                    price=bet_info["price"],
+                    alias=bet_info["alias"]
+                )
+                logger.info(f"[Listener] ✅ Сделка сохранена: Кошелек {bet_info['wallet']} | Сумма ${bet_info['amount_usd']:,.0f} | Исход {bet_info['outcome']} | Рынок {m_id}")
+
+            if bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and not is_target_source:
+                await trigger_nexus_scan(
+                    market_ids[0],
+                    amount_usd=bet_info["amount_usd"],
+                    source="whale",
+                    market_url=bet_info["market_url"] or "",
+                    post_url=tg_post_url,
+                    post_text=f"[{chat_name}] whale signal"
+                )
+    elif bet_info["market_url"] and not bet_info["wallet"]:
+        market_ids = await resolve_market_ids_from_url(bet_info["market_url"], text)
+        if market_ids and bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and not is_target_source:
+            logger.warning("[Listener] ⚠️ Нет кошелька, но есть market_url. Только скан.")
+            await trigger_nexus_scan(
+                market_ids[0],
+                amount_usd=bet_info["amount_usd"],
+                source="whale",
+                market_url=bet_info["market_url"],
+                post_url=tg_post_url,
+                post_text=f"[{chat_name}] whale signal"
+            )
+
+async def _process_news_channel_message(chat_name, text, entities, tg_post_url, news_processor, is_target_source):
+    if not is_target_source:
+        pm_url = None
+        if entities:
+            for ent in entities:
+                if hasattr(ent, 'url') and ent.url:
+                    if 'polymarket.com/event/' in ent.url or 'polymarket.com/market/' in ent.url:
+                        pm_url = ent.url.split('?')[0]
+                        break
+
+        if not pm_url:
+            pm_url_match = re.search(
+                r'https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+', text
+            )
+            if pm_url_match:
+                pm_url = pm_url_match.group(0)
+
+        if pm_url:
+            market_ids = await resolve_market_ids_from_url(pm_url, text)
+            if market_ids:
+                logger.info(f"[Listener] 🔗 Найден прямой URL рынка в сигнале из {chat_name}. Триггерим.")
+                await trigger_nexus_scan(
+                    market_ids[0],
+                    amount_usd=0.0,
+                    source=chat_name,
+                    market_url=pm_url,
+                    post_url=tg_post_url,
+                    post_text=f"[{chat_name}] news signal"
+                )
+            else:
+                logger.info(f"[Listener] ⚪️ Пост был в группе {chat_name}, но рынок с URL {pm_url} не определен (пропускаем).")
+            return
+
+        markets = news_processor.find_relevant_markets(text)
+        if markets:
+            logger.info(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
+            await trigger_nexus_scan(
+                markets[0].id,
+                amount_usd=0.0,
+                source=chat_name,
+                market_url=getattr(markets[0], 'url', ''),
+                post_url=tg_post_url,
+                post_text=f"[{chat_name}] news signal"
+            )
+        else:
+            logger.info(f"[Listener] ⚪️ Пост был в группе {chat_name}, но соответствующий рынок не определен (пропускаем).")
+
+async def handle_incoming_telegram_message(
+    event,
+    client,
+    news_processor,
+    target_sources,
+    target_chat_id
+):
+    if await _should_ignore_message(event, target_chat_id):
+        return
+
+    chat = await event.get_chat()
+    text = event.message.message
+    if event.message.entities:
+        text = restore_markdown_links(text, event.message.entities)
+
+    chat = await _resolve_chat_entity(chat, client)
     chat_name = chat.username or chat.title or str(chat.id)
     msg_id = event.message.id
     
@@ -632,146 +756,16 @@ async def handle_incoming_telegram_message(
     logger.info(f"[Listener] 🔗 source_url = {tg_post_url}")
     
     try:
-        is_target_source = False
-        if _is_target_source_match(chat_name, chat.id, target_sources):
-            is_target_source = True
-            
+        is_target_source = _is_target_source_match(chat_name, chat.id, target_sources)
+        if is_target_source:
             if "polymarketalerthub" in chat_name.lower():
                 logger.warning("[Listener] ⚠️ ВНИМАНИЕ: polymarketalerthub добавлен в target_sources! Это приведет к двойному анализу (глубокий API + быстрый Nexus).")
-                
-            # 1. Запускаем глубокий Event-Driven анализ
-            post_id = await asyncio.to_thread(save_telegram_post, str(chat.id), msg_id, text)
-            if post_id and TELEGRAM_GROUP2_TARGET_ID:
-                logger.info(f"[Listener] 🧠 Триггерим глубокий анализ поста из {chat_name} (ID: {post_id})...")
-                
-                source_label = chat_name
-                if text:
-                    first_line = text.split('\n')[0][:30]
-                    source_label = f"[{chat_name}] {first_line}..."
-                    
-                async with httpx.AsyncClient(timeout=_API_ANALYZE_TIMEOUT) as c:
-                    try:
-                        await c.post(
-                            f"http://127.0.0.1:8000/api/analyze/{post_id}",
-                            json={
-                                "post_id": post_id, 
-                                "chat_id": str(TELEGRAM_GROUP2_TARGET_ID),
-                                "source_chat_id": str(chat.id),
-                                "source_username": getattr(chat, 'username', None),
-                                "source_message_id": msg_id,
-                                "source_url": tg_post_url,
-                                "source_text": source_label
-                            }
-                        )
-                    except httpx.TimeoutException:
-                        logger.warning(f"[Listener] ⏱️ Таймаут при вызове /api/analyze/{post_id} (>{_API_ANALYZE_TIMEOUT}с) — анализ не запущен")
-                    except Exception as e:
-                        logger.error(f"[Listener] Ошибка вызова API: {e}\n{traceback.format_exc()}")
+            await _process_target_source_analysis(chat, msg_id, text, tg_post_url, chat_name)
 
         if chat_name.lower() in _WHALE_CHANNELS:
-            # ── Ветка для whale/trader каналов ──────────────────────────────
-            # Каждый канал имеет свой формат — выбираем нужный парсер
-            if chat_name.lower() == "radarpolybot":
-                bet_info = parse_radar_signal(text, event.message.entities)
-                logger.info(f"[Listener] 🎯 radarpolybot сигнал: outcome={bet_info['outcome']} | "
-                            f"amount=${bet_info['amount_usd']:,.0f} | entry={bet_info['entry_price']} | "
-                            f"now={bet_info['current_price']} | market_url={bet_info['market_url']}")
-            else:
-                bet_info = parse_whale_alert(text, event.message.entities)
-        
-            if bet_info["wallet"] and bet_info["market_url"]:
-                market_ids = await resolve_market_ids_from_url(bet_info["market_url"], text)
-                if market_ids:
-                    for m_id in market_ids:
-                        await asyncio.to_thread(
-                            save_trader_transaction,
-                            wallet_address=bet_info["wallet"],
-                            market_id=m_id,
-                            outcome=bet_info["outcome"] or "YES",
-                            amount_usd=bet_info["amount_usd"],
-                            price=bet_info["price"],
-                            alias=bet_info["alias"]
-                        )
-                        logger.info(f"[Listener] ✅ Сделка сохранена: "
-                                    f"Кошелек {bet_info['wallet']} | "
-                                    f"Сумма ${bet_info['amount_usd']:,.0f} | "
-                                    f"Исход {bet_info['outcome']} | "
-                                    f"Рынок {m_id}")
-        
-                    # Запускаем точечный скан если сумма достаточна и это не целевой глубокий анализ
-                    if bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and not is_target_source:
-                        await trigger_nexus_scan(
-                            market_ids[0],
-                            amount_usd=bet_info["amount_usd"],
-                            source="whale",
-                            market_url=bet_info["market_url"] or "",
-                            post_url=tg_post_url,
-                            post_text=f"[{chat_name}] whale signal"
-                        )
-            elif bet_info["market_url"] and not bet_info["wallet"]:
-                # Есть URL рынка но нет кошелька — минимальный триггер без сохранения транзакции
-                market_ids = await resolve_market_ids_from_url(bet_info["market_url"], text)
-                if market_ids and bet_info["amount_usd"] >= WHALE_ALERT_MIN_USD and not is_target_source:
-                    logger.warning("[Listener] ⚠️ Нет кошелька, но есть market_url. Только скан.")
-                    await trigger_nexus_scan(
-                        market_ids[0],
-                        amount_usd=bet_info["amount_usd"],
-                        source="whale",
-                        market_url=bet_info["market_url"],
-                        post_url=tg_post_url,
-                        post_text=f"[{chat_name}] whale signal"
-                    )
-        
+            await _process_whale_channel_message(chat_name, text, event.message.entities, tg_post_url, is_target_source)
         else:
-            # ── Ветка для новостных каналов ──────────────────────────────────
-            if not is_target_source:
-                # Приоритет 1: URL рынка в entities (скрытые ссылки)
-                pm_url = None
-                if event.message.entities:
-                    for ent in event.message.entities:
-                        if hasattr(ent, 'url') and ent.url:
-                            if 'polymarket.com/event/' in ent.url or 'polymarket.com/market/' in ent.url:
-                                pm_url = ent.url.split('?')[0]
-                                break
-        
-                # Приоритет 2: сырой URL в тексте
-                if not pm_url:
-                    pm_url_match = re.search(
-                        r'https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+', text
-                    )
-                    if pm_url_match:
-                        pm_url = pm_url_match.group(0)
-        
-                if pm_url:
-                    market_ids = await resolve_market_ids_from_url(pm_url, text)
-                    if market_ids:
-                        logger.info(f"[Listener] 🔗 Найден прямой URL рынка в сигнале из {chat_name}. Триггерим.")
-                        await trigger_nexus_scan(
-                            market_ids[0],
-                            amount_usd=0.0,
-                            source=chat_name,
-                            market_url=pm_url,
-                            post_url=tg_post_url,
-                            post_text=f"[{chat_name}] news signal"
-                        )
-                    else:
-                        logger.info(f"[Listener] ⚪️ Пост был в группе {chat_name}, но рынок с URL {pm_url} не определен (пропускаем).")
-                    return  # не переходим к LLM-поиску других рынков, если был указан конкретный URL
-        
-                # Приоритет 3: LLM — только если URL не нашли
-                markets = news_processor.find_relevant_markets(text)
-                if markets:
-                    logger.info(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
-                    await trigger_nexus_scan(
-                        markets[0].id,
-                        amount_usd=0.0,
-                        source=chat_name,
-                        market_url=getattr(markets[0], 'url', ''),
-                        post_url=tg_post_url,
-                        post_text=f"[{chat_name}] news signal"
-                    )
-                else:
-                    logger.info(f"[Listener] ⚪️ Пост был в группе {chat_name}, но соответствующий рынок не определен (пропускаем).")
+            await _process_news_channel_message(chat_name, text, event.message.entities, tg_post_url, news_processor, is_target_source)
                 
     except Exception as e:
         logger.error(f"[Listener] ❌ Ошибка при обработке сообщения: {e}\n{traceback.format_exc()}")
