@@ -168,6 +168,9 @@ def _load_whale_stats(conn, stats, virtual_stake):
         now = datetime.now(timezone.utc)
         seven_days_ago = now - timedelta(days=7)
         thirty_days_ago = now - timedelta(days=30)
+        
+        thirty_days_rows = 0
+        wins_30d = 0
 
         for r in rows:
             pnl_realized = r['pnl_realized']
@@ -198,10 +201,15 @@ def _load_whale_stats(conn, stats, virtual_stake):
                 pnl_7d += pnl_val
             if res_at >= thirty_days_ago:
                 pnl_30d += pnl_val
+                thirty_days_rows += 1
+                if pnl_val > 0:
+                    wins_30d += 1
 
         stats['whale']['pnl_7d'] = round(pnl_7d, 2)
         stats['whale']['pnl_30d'] = round(pnl_30d, 2)
         stats['whale']['signals_count'] = max(stats['whale']['signals_count'], total)
+        if thirty_days_rows > 0:
+            stats['whale']['win_rate'] = wins_30d / thirty_days_rows
 
     except Exception as e:
         logger.warning(f"[Overview] Ошибка при загрузке статистики китов: {e}", exc_info=True)
@@ -348,9 +356,9 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         elif stype == 'whale':
             rows = conn.execute("""
                 SELECT date(sold_at) as date, 
-                       SUM((pnl_cents / bought_outcome_price) * ?) as daily_pnl
+                       SUM(CASE WHEN bought_outcome_price > 0 THEN (pnl_cents / bought_outcome_price) * ? ELSE 0.0 END) as daily_pnl
                 FROM whale_virtual_trades_history
-                WHERE sold_at >= ? AND sold_at IS NOT NULL AND bought_outcome_price > 0
+                WHERE sold_at >= ? AND sold_at IS NOT NULL
                 GROUP BY date(sold_at)
                 ORDER BY date(sold_at) ASC
             """, (virtual_stake, period_start)).fetchall()

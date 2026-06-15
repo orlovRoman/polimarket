@@ -57,7 +57,7 @@ COMPOUND_DEFAULTS = {
     "enabled": "1",
     "min_confidence": "0.35",
     "chain_length": "3",
-    "max_concurrent_chains": "3"
+    "max_concurrent_chains": "10"
 }
 
 logger = logging.getLogger("NexusPolyBot.DB")
