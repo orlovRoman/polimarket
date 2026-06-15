@@ -16,6 +16,42 @@
     <button id="compound-tab-auto" class="opinion-tab-btn active" onclick="switchCompoundTab('auto')">🤖 Авто-сигналы агентов</button>
     <button id="compound-tab-manual" class="opinion-tab-btn" onclick="switchCompoundTab('manual')">💼 Ручной портфель</button>
     <button id="compound-tab-losses" class="opinion-tab-btn" onclick="switchCompoundTab('losses')">🔴 Проигранные рынки</button>
+    <button class="opinion-tab-btn" style="margin-left: auto; background: var(--surface-light);" onclick="toggleCompoundSettings()">⚙️ Настройки стратегии</button>
+</div>
+
+<div id="compound-settings-panel" class="table-card" style="display: none; margin-bottom: 24px; padding: 20px;">
+    <div class="table-title" style="margin-bottom: 16px;">Настройки фильтров Favourite Compounding</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Мин. цена фаворита (0.01 - 0.99)</label>
+            <input type="number" id="setting-min-price" step="0.01" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Мин. объем пула (USD)</label>
+            <input type="number" id="setting-min-volume" step="10" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Макс. часов до закрытия (часы)</label>
+            <input type="number" id="setting-max-hours" step="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Виртуальная ставка (USD)</label>
+            <input type="number" id="setting-virtual-stake" step="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Базовая уверенность LLM (0.0 - 1.0)</label>
+            <input type="number" id="setting-min-confidence" step="0.05" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div style="display: flex; align-items: flex-end;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-secondary); font-size: 0.9rem;">
+                <input type="checkbox" id="setting-enabled" style="width: 16px; height: 16px;">
+                Стратегия включена
+            </label>
+        </div>
+    </div>
+    <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+        <button class="badge badge-green" style="border: none; padding: 8px 16px; font-size: 0.9rem; font-weight: 600; cursor: pointer;" onclick="saveCompoundSettings()">Сохранить настройки</button>
+    </div>
 </div>
 
 <div class="kpi-row">
@@ -233,6 +269,59 @@
         losses: { page: 1, limit: 50, total: 0 },
         history: { page: 1, limit: 50, total: 0 }
     };
+    
+    async function toggleCompoundSettings() {
+        const panel = document.getElementById('compound-settings-panel');
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+            await loadCompoundSettings();
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+    
+    async function loadCompoundSettings() {
+        try {
+            const data = await fetchJSON('/api/compound-settings');
+            if (data) {
+                document.getElementById('setting-min-price').value = data.min_price;
+                document.getElementById('setting-min-volume').value = data.min_volume;
+                document.getElementById('setting-max-hours').value = data.max_hours;
+                document.getElementById('setting-virtual-stake').value = data.virtual_stake;
+                document.getElementById('setting-min-confidence').value = data.min_confidence;
+                document.getElementById('setting-enabled').checked = data.enabled === 1;
+            }
+        } catch (e) {
+            console.error("Ошибка загрузки настроек", e);
+        }
+    }
+    
+    async function saveCompoundSettings() {
+        const payload = {
+            min_price: parseFloat(document.getElementById('setting-min-price').value),
+            min_volume: parseFloat(document.getElementById('setting-min-volume').value),
+            max_hours: parseFloat(document.getElementById('setting-max-hours').value),
+            virtual_stake: parseFloat(document.getElementById('setting-virtual-stake').value),
+            min_confidence: parseFloat(document.getElementById('setting-min-confidence').value),
+            enabled: document.getElementById('setting-enabled').checked ? 1 : 0
+        };
+        
+        try {
+            const res = await fetch('/api/compound-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                alert("Настройки успешно сохранены!");
+                document.getElementById('compound-settings-panel').style.display = 'none';
+            } else {
+                alert("Ошибка сохранения настроек");
+            }
+        } catch (e) {
+            console.error("Ошибка сохранения:", e);
+        }
+    }
 
     function formatDate(dateStr) {
         if (!dateStr) return "—";

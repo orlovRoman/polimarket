@@ -945,6 +945,24 @@ async def api_save_settings(request):
         )
     return web.json_response({"status": "ok"})
 
+async def api_get_compound_settings(request):
+    from agents.shared.python.db import get_compound_settings
+    settings = get_compound_settings()
+    return web.json_response(settings)
+
+async def api_save_compound_settings(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+        
+    from agents.shared.python.db import save_compound_setting
+    for k, v in body.items():
+        if k in ["min_price", "min_volume", "max_hours", "virtual_stake", "enabled", "min_confidence"]:
+            save_compound_setting(k, str(v))
+            
+    return web.json_response({"status": "ok"})
+
 # === Фабрика приложения ===
 
 def create_dashboard_app() -> web.Application:
@@ -987,6 +1005,9 @@ def create_dashboard_app() -> web.Application:
     app.router.add_post("/api/delete-market", api_delete_market)
     app.router.add_get("/api/settings", api_get_settings)
     app.router.add_post("/api/settings", api_save_settings)
+    
+    app.router.add_get("/api/compound-settings", api_get_compound_settings)
+    app.router.add_post("/api/compound-settings", api_save_compound_settings)
 
     
     logger.info("Application routes successfully registered.")
