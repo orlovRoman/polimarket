@@ -140,27 +140,6 @@
     </div>
 </div>
 
-<div id="segments-card" class="table-card" style="margin-top: 24px; margin-bottom: 24px;">
-    <div class="table-title">Аналитика по сегментам вероятности (цены фаворита)</div>
-    <div class="table-wrapper" style="min-height: auto;">
-        <table>
-            <thead>
-                <tr>
-                    <th>Ценовой сегмент</th>
-                    <th>Сделок</th>
-                    <th>Win Rate</th>
-                    <th>Средний PnL</th>
-                </tr>
-            </thead>
-            <tbody id="segments-tbody">
-                <tr>
-                    <td colspan="4" style="text-align: center;" class="text-muted">Загрузка данных...</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
 <div id="top-grid" style="display: none; grid-template-columns: 1fr; gap: 24px; margin-bottom: 32px;">
     <div id="portfolio-card" class="table-card" style="height: 380px; margin-bottom: 0; display: flex; flex-direction: column; padding: 24px;">
         <div class="table-title" style="margin-bottom: 10px;">Виртуальный портфель</div>
@@ -555,21 +534,7 @@
             document.getElementById('kpi-current-streak').textContent = data.stats.current_streak || "0";
             document.getElementById('kpi-max-drawdown').textContent = data.stats.max_drawdown ? `-$${Math.abs(data.stats.max_drawdown).toFixed(2)}` : "$0.00";
             document.getElementById('kpi-kelly-fraction').textContent = data.stats.kelly_fraction !== undefined ? `${data.stats.kelly_fraction}%` : "—";
-            
-            // Segments
-            const segmentsTbody = document.getElementById('segments-tbody');
-            if (data.stats.segments && data.stats.segments.length > 0) {
-                segmentsTbody.innerHTML = data.stats.segments.map(seg => `
-                    <tr>
-                        <td><strong>${seg.name}</strong></td>
-                        <td>${seg.count}</td>
-                        <td>${seg.win_rate}%</td>
-                        <td>${formatPnLUSD(seg.avg_pnl)}</td>
-                    </tr>
-                `).join('');
-            } else {
-                segmentsTbody.innerHTML = `<tr><td colspan="4" style="text-align: center;" class="text-muted">Нет данных</td></tr>`;
-            }
+
         } else {
             kpiActiveTitle.textContent = "Активных сделок";
             kpiActive.textContent = data.portfolio ? data.portfolio.length : 0;
