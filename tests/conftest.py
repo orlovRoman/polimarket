@@ -5,59 +5,32 @@ from pathlib import Path
 from unittest.mock import patch
 from core.onchain_gate import GateResult
 
-# Глобально оборачиваем sqlite3.connect для отключения проверок внешних ключей в тестах
-class SQLiteCursorProxy:
-    def __init__(self, cur):
-        self._cur = cur
+class TestCursor(sqlite3.Cursor):
+    def execute(self, sql, *params):
+        if isinstance(sql, str) and "PRAGMA foreign_keys" in sql:
+            return super().execute("PRAGMA foreign_keys = OFF")
+        return super().execute(sql, *params)
+
+class TestConnection(sqlite3.Connection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cursor_factory = TestCursor
 
     def execute(self, sql, *params):
         if isinstance(sql, str) and "PRAGMA foreign_keys" in sql:
-            return self._cur.execute("PRAGMA foreign_keys = OFF")
-        return self._cur.execute(sql, *params)
+            return super().execute("PRAGMA foreign_keys = OFF")
+        return super().execute(sql, *params)
 
-    def __getattr__(self, name):
-        return getattr(self._cur, name)
-
-    def __setattr__(self, name, value):
-        if name == "_cur":
-            super().__setattr__(name, value)
-        else:
-            setattr(self._cur, name, value)
-
-class SQLiteConnectionProxy:
-    def __init__(self, conn):
-        self._conn = conn
-
-    def execute(self, sql, *params):
-        if isinstance(sql, str) and "PRAGMA foreign_keys" in sql:
-            return self._conn.execute("PRAGMA foreign_keys = OFF")
-        return self._conn.execute(sql, *params)
-
-    def cursor(self, *args, **kwargs):
-        cur = self._conn.cursor(*args, **kwargs)
-        return SQLiteCursorProxy(cur)
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-    def __setattr__(self, name, value):
-        if name == "_conn":
-            super().__setattr__(name, value)
-        else:
-            setattr(self._conn, name, value)
-
-    def __enter__(self):
-        self._conn.__enter__()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        return self._conn.__exit__(exc_type, exc_val, exc_tb)
-
-original_connect = sqlite3.connect
-def mock_connect(*args, **kwargs):
-    conn = original_connect(*args, **kwargs)
-    return SQLiteConnectionProxy(conn)
-sqlite3.connect = mock_connect
+@pytest.fixture(autouse=True)
+def disable_foreign_keys(monkeypatch):
+    """Отключает FK-проверки для всех тестов через monkeypatch."""
+    original_connect = sqlite3.connect
+    
+    def patched_connect(*args, **kwargs):
+        kwargs['factory'] = TestConnection
+        return original_connect(*args, **kwargs)
+    
+    monkeypatch.setattr(sqlite3, "connect", patched_connect)
 
 # Настраиваем фиктивные переменные окружения для тестов до импорта модулей
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "123456:test_token")

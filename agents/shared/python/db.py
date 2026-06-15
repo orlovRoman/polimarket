@@ -3240,8 +3240,25 @@ def get_compound_settings() -> dict:
     with get_connection() as conn:
         rows = conn.execute("SELECT key, value FROM compound_settings").fetchall()
     result = dict(COMPOUND_DEFAULTS)
-    result.update({r["key"]: r["value"] for r in rows})
-    return {k: float(v) if k not in ("enabled",) else int(v) for k, v in result.items()}
+    for r in rows:
+        val = r["value"]
+        if val is not None and str(val).strip() != "":
+            result[r["key"]] = str(val)
+            
+    final_settings = {}
+    for k, v in result.items():
+        try:
+            if k == "enabled":
+                final_settings[k] = int(float(v))
+            else:
+                final_settings[k] = float(v)
+        except (ValueError, TypeError):
+            default_val = COMPOUND_DEFAULTS.get(k)
+            if k == "enabled":
+                final_settings[k] = int(default_val)
+            else:
+                final_settings[k] = float(default_val)
+    return final_settings
 
 def save_compound_setting(key: str, value: str) -> None:
     with get_connection() as conn:

@@ -234,6 +234,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
     def get_curve_for_strategy(conn, stype):
+        stype = normalize_strategy_name(stype)
         if stype == 'penny_stocks':
             rows = conn.execute("""
                 SELECT date(resolved_at) as date,

@@ -5,6 +5,15 @@ from agents.shared.python.db import get_connection, is_alert_already_sent, mark_
 
 logger = logging.getLogger("NexusPolyBot.OnchainTrend")
 
+def _normalize_close_time(raw_close) -> Optional[str]:
+    if not raw_close:
+        return None
+    try:
+        ct = raw_close.replace('Z', '+00:00') if isinstance(raw_close, str) else str(raw_close)
+        return datetime.fromisoformat(ct).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return None
+
 def _log_whale_signal_to_eval(
     market_id: str,
     side: str,
@@ -126,7 +135,7 @@ def _process_spike_row(row: dict) -> Optional[dict]:
             },
             title=row.get('title'),
             url=row.get('url'),
-            close_time=row.get('close_time')
+            close_time=_normalize_close_time(row.get('close_time'))
         )
 
     except Exception as e:
@@ -218,7 +227,7 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
             title=row.get('title'),
             url=row.get('url'),
             is_single=True,
-            close_time=row.get('close_time')
+            close_time=_normalize_close_time(row.get('close_time'))
         )
 
     except Exception as e:
@@ -298,7 +307,7 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
             title=row.get('title'),
             url=row.get('url'),
             is_series=True,
-            close_time=row.get('close_time')
+            close_time=_normalize_close_time(row.get('close_time'))
         )
 
     except Exception as e:
