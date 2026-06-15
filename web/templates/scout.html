@@ -112,13 +112,14 @@
             tbody.innerHTML = displaySignals.map(sig => {
                 const prob = sig.estimated_probability === null ? sig.predicted_probability : sig.estimated_probability;
                 const statusClass = sig.status === 'WIN' ? 'badge-green' : sig.status === 'LOSS' ? 'badge-red' : 'badge-blue';
+                const displayStatus = sig.status === 'ARCHIVED' ? 'ЗАКРЫТ' : sig.status;
                 return `
                     <tr>
                         <td class="text-muted" style="font-size:0.8rem;">${sig.id.slice(0, 8)}...</td>
                         <td><a href="${sig.market_url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${sig.market_title}</a></td>
                         <td><span class="badge ${sig.target_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${sig.target_outcome}</span> (${prob === null ? '—' : formatPercent(prob)})</td>
                         <td>${sig.market_price_at_signal === null ? '—' : formatPercent(sig.market_price_at_signal)}</td>
-                        <td><span class="badge ${statusClass}">${sig.status}</span></td>
+                        <td><span class="badge ${statusClass}">${displayStatus}</span></td>
                         <td>${formatPnL(sig.pnl_realized)}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(sig.created_at)}</td>
                     </tr>

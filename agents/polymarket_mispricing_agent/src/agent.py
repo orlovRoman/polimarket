@@ -349,6 +349,7 @@ class ScoutAgent:
                     type="MISPRICING",
                     market_id=market.id,
                     platform=market.platform,
+                    entry_price=market.price,
                     edge=round(edge, 4),
                     confidence=confidence,
                     priority=priority,
