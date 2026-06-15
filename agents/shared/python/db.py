@@ -2530,6 +2530,11 @@ def add_penny_stock_to_monitoring(market_id: str, title: str, url: str, initial_
     init_p = _round_price(initial_price)
     with get_connection() as conn:
         conn.execute("""
+            INSERT OR IGNORE INTO markets (id, question, url, active, closed)
+            VALUES (?, ?, ?, 1, 0)
+        """, (market_id, title, url))
+        
+        conn.execute("""
             INSERT INTO penny_stocks_monitoring
             (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
              predicted_outcome, edge, confidence, status)
@@ -2804,6 +2809,11 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
                                   wallet_address: str = None) -> None:
     init_p = _round_price(initial_price)
     with get_connection() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO markets (id, question, url, active, closed)
+            VALUES (?, ?, ?, 1, 0)
+        """, (market_id, title, url))
+        
         conn.execute("""
             INSERT INTO whale_stocks_monitoring
             (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
