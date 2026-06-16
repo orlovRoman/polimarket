@@ -757,11 +757,11 @@
             chainsTbody.innerHTML = chains.map(chain => {
                 let statusBadge = `<span class="badge badge-gray" style="margin-left: 6px;">${chain.status}</span>`;
                 if (chain.status === 'WAITING_NEXT' || chain.status === 'WAITING_RESOLUTION') {
-                    statusBadge = `<span class="badge badge-yellow" style="margin-left: 6px;">${chain.status}</span>`;
+                    statusBadge = `<span class="badge badge-yellow" style="margin-left: 6px;">В ПРОЦЕССЕ</span>`;
                 } else if (chain.status === 'COMPLETED') {
-                    statusBadge = `<span class="badge badge-green" style="margin-left: 6px;">COMPLETED</span>`;
+                    statusBadge = `<span class="badge badge-green" style="margin-left: 6px;">ЗАВЕРШЕНА</span>`;
                 } else if (chain.status === 'FAILED') {
-                    statusBadge = `<span class="badge badge-red" style="margin-left: 6px;">FAILED</span>`;
+                    statusBadge = `<span class="badge badge-red" style="margin-left: 6px;">ПРЕРВАНА</span>`;
                 }
 
                 let historyHtml = '<div style="font-size: 0.85rem; color: var(--text-secondary);">Нет завершенных шагов</div>';
@@ -788,8 +788,8 @@
                             
                             let oppLink = bet.url ? `<a href="${bet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${bet.title || 'Рынок #' + bet.opp_id}</a>` : `Рынок #${bet.opp_id}`;
                             pastBetsList.push(`
-                                <div style="margin-bottom: 4px; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px;" title="${bet.title || 'Рынок #' + bet.opp_id}">
-                                    <span class="text-muted">Шаг ${bet.step_index + 1}:</span> ${oppLink} &nbsp;${betPnlHtml}
+                                <div style="margin-bottom: 4px; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px;" title="${bet.title ? bet.title.replace(/"/g, '&quot;') : 'Рынок #' + bet.opp_id}">
+                                    <span class="text-muted">Шаг ${bet.step_index}:</span> ${oppLink} &nbsp;${betPnlHtml}
                                 </div>
                             `);
                         }
