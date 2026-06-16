@@ -76,7 +76,7 @@ class TestRunCalibrationReturnType:
 
         with patch("agents.orchestrator.scripts.calibrate.get_connection",
                    side_effect=lambda: mock_conn(db)), \
-             patch("agents.orchestrator.scripts.calibrate._call_llm_for_calibration",
+             patch("agents.orchestrator.scripts.calibrate.generate_content_with_fallback",
                    side_effect=Exception("API Error")):
             from agents.orchestrator.scripts.calibrate import run_calibration
             result = await run_calibration(window_days=7)
@@ -137,7 +137,9 @@ class TestRunCalibrationReturnType:
 
         with patch("agents.orchestrator.scripts.calibrate.get_connection",
                    side_effect=lambda: mock_conn(db)), \
-             patch("agents.orchestrator.scripts.calibrate._call_llm_for_calibration",
+             patch("agents.orchestrator.scripts.calibrate.generate_content_with_fallback",
+                   return_value=({"candidates": [{"content": {"parts": [{"text": llm_json_response}]}}]}, "gemini-2.5-pro")), \
+             patch("agents.orchestrator.scripts.calibrate.extract_response_text",
                    return_value=llm_json_response), \
              patch("agents.shared.python.db.get_memory", return_value=""):
             from agents.orchestrator.scripts.calibrate import run_calibration

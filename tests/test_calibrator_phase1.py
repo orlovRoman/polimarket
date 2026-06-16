@@ -190,16 +190,18 @@ class TestRunCalibration:
         def mock_conn():
             yield db
 
+        llm_json_response = json.dumps({
+            "scout_overlay": "Снизь уверенность на 10% в спорте",
+            "swing_overlay": "",
+            "shadow_overlay": "Будь строже к политическим рынкам",
+            "reasoning": "Win rate у SCOUT низкий"
+        })
+
         with patch("agents.orchestrator.scripts.calibrate.get_connection", side_effect=mock_conn), \
              patch("agents.orchestrator.scripts.calibrate.generate_content_with_fallback",
-                   return_value=(mock_llm_response, "gemini-2.5-pro")), \
-             patch("agents.shared.utils.gemini_client.extract_response_text",
-                   return_value=json.dumps({
-                       "scout_overlay": "Снизь уверенность на 10% в спорте",
-                       "swing_overlay": "",
-                       "shadow_overlay": "Будь строже к политическим рынкам",
-                       "reasoning": "Win rate у SCOUT низкий"
-                   })), \
+                   return_value=({"candidates": [{"content": {"parts": [{"text": llm_json_response}]}}]}, "gemini-2.5-pro")), \
+             patch("agents.orchestrator.scripts.calibrate.extract_response_text",
+                   return_value=llm_json_response), \
              patch("agents.shared.python.db.get_memory", return_value=""):
             from agents.orchestrator.scripts.calibrate import run_calibration
             await run_calibration(window_days=7)

@@ -3,9 +3,10 @@ import json
 import logging
 from datetime import datetime, timezone
 import asyncio
+import functools
 
 from agents.shared.python.db import get_connection, save_memory
-from agents.shared.utils.gemini_client import generate_content_with_fallback
+from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
 from .calibration_metrics import get_all_metrics
 from .calibration_report import generate_calibration_report
 
@@ -29,7 +30,7 @@ CALIBRATION_SYSTEM_PROMPT = """ТЫ — СТРАТЕГИЧЕСКИЙ КАЛИБ�
 Не возвращай ничего, кроме валидного JSON (без markdown-блоков, только сырой JSON).
 """
 
-async def run_calibration(window_days: int = 7):
+async def run_calibration(window_days: int = 7, trigger_type: str = "scheduled") -> tuple[str, bool]:
     logger.info(f"Начало цикла калибровки за последние {window_days} дней...")
     
     with get_connection() as conn:
@@ -48,8 +49,8 @@ async def run_calibration(window_days: int = 7):
             conn.execute("""
                 INSERT INTO calibration_runs (trigger_type, window_days, signals_analyzed, metrics_json, status)
                 VALUES (?, ?, ?, ?, ?)
-            """, ("schedule", window_days, total_analyzed, metrics_json, "skipped_low_data"))
-            return
+            """, (trigger_type, window_days, total_analyzed, metrics_json, "skipped_low_data"))
+            return report_text, False
             
         # 3. Формируем запрос к LLM
         payload = {
@@ -76,18 +77,16 @@ async def run_calibration(window_days: int = 7):
         logger.info("Вызов LLM (CALIBRATOR)...")
         try:
             import config
-            import asyncio
             llm_result, _ = await asyncio.to_thread(
-                generate_content_with_fallback,
-                api_key=config.GOOGLE_API_KEY,
-                payload=payload,
-                default_model="gemini-2.5-pro", # Лучше использовать pro для аналитики
-                agent_name="CALIBRATOR"
+                functools.partial(
+                    generate_content_with_fallback,
+                    api_key=config.GOOGLE_API_KEY,
+                    payload=payload,
+                    default_model="gemini-2.5-pro",
+                    agent_name="CALIBRATOR"
+                )
             )
-            
-            from agents.shared.utils.gemini_client import extract_response_text
             response_text = extract_response_text(llm_result)
-            
             # Парсим JSON
             calib_data = json.loads(response_text)
             
@@ -96,8 +95,8 @@ async def run_calibration(window_days: int = 7):
             conn.execute("""
                 INSERT INTO calibration_runs (trigger_type, window_days, signals_analyzed, metrics_json, status)
                 VALUES (?, ?, ?, ?, ?)
-            """, ("schedule", window_days, total_analyzed, metrics_json, f"error: {str(e)[:50]}"))
-            return
+            """, (trigger_type, window_days, total_analyzed, metrics_json, f"error: {str(e)[:50]}"))
+            return report_text, False
             
         # 4. Сохраняем overlay в memory и записываем параметры в calibration_params
         scout_overlay = calib_data.get("scout_overlay", "").strip()
@@ -126,9 +125,10 @@ async def run_calibration(window_days: int = 7):
         conn.execute("""
             INSERT INTO calibration_runs (trigger_type, window_days, signals_analyzed, metrics_json, nexus_response, params_proposed, status)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("schedule", window_days, total_analyzed, metrics_json, response_text, params_proposed, "completed"))
+        """, (trigger_type, window_days, total_analyzed, metrics_json, response_text, params_proposed, "completed"))
         
         logger.info(f"Калибровка завершена. Предложено {params_proposed} параметров.")
+        return report_text, (params_proposed > 0)
 
 def _save_param(conn, strategy_type: str, new_value: str, reason: str, old_value: str):
     # Сохраняем в таблицу
