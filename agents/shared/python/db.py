@@ -835,7 +835,7 @@ def _init_db_impl(conn: sqlite3.Connection):
             approved_at TIMESTAMP,
             approved_by TEXT DEFAULT 'dashboard',
             auto_applied INTEGER DEFAULT 0,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 

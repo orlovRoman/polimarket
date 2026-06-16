@@ -24,7 +24,7 @@ class CalibrationProvider:
             conn.row_factory = dict_factory
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, strategy_type, param_name, param_value, previous_value, reason, updated_at 
+                SELECT id, strategy_type, param_name, param_value, previous_value, reason, created_at 
                 FROM calibration_params 
                 WHERE status = 'pending'
                 ORDER BY id ASC
@@ -73,7 +73,7 @@ class CalibrationProvider:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE calibration_params 
-                SET status = 'rejected', updated_at = CURRENT_TIMESTAMP 
+                SET status = 'rejected' 
                 WHERE id = ? AND status = 'pending'
             """, (param_id,))
             if cursor.rowcount > 0:

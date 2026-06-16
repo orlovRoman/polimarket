@@ -49,9 +49,9 @@ class TestRunCalibrationReturnType:
     @pytest.mark.asyncio
     async def test_returns_tuple_on_low_data(self, db):
         """Меньше 5 рынков → (str, False)."""
+        from agents.orchestrator.scripts.calibrate import run_calibration
         with patch("agents.orchestrator.scripts.calibrate.get_connection",
                    side_effect=lambda: mock_conn(db)):
-            from agents.orchestrator.scripts.calibrate import run_calibration
             result = await run_calibration(window_days=7)
 
         assert isinstance(result, tuple), f"Ожидался tuple, получен {type(result)}"
@@ -74,11 +74,11 @@ class TestRunCalibrationReturnType:
                 (i, f"m{i}", "PASS", 1, 0.6, 0.6, None)
             )
 
+        from agents.orchestrator.scripts.calibrate import run_calibration
         with patch("agents.orchestrator.scripts.calibrate.get_connection",
                    side_effect=lambda: mock_conn(db)), \
              patch("agents.orchestrator.scripts.calibrate.generate_content_with_fallback",
                    side_effect=Exception("API Error")):
-            from agents.orchestrator.scripts.calibrate import run_calibration
             result = await run_calibration(window_days=7)
 
         assert isinstance(result, tuple)
@@ -88,9 +88,9 @@ class TestRunCalibrationReturnType:
     @pytest.mark.asyncio
     async def test_trigger_type_saved_correctly(self, db):
         """trigger_type='manual' должен сохраняться в БД, а не 'schedule'."""
+        from agents.orchestrator.scripts.calibrate import run_calibration
         with patch("agents.orchestrator.scripts.calibrate.get_connection",
                    side_effect=lambda: mock_conn(db)):
-            from agents.orchestrator.scripts.calibrate import run_calibration
             await run_calibration(window_days=7, trigger_type="manual")
 
         row = db.execute(
@@ -103,9 +103,9 @@ class TestRunCalibrationReturnType:
     @pytest.mark.asyncio
     async def test_scheduled_trigger_saved_correctly(self, db):
         """trigger_type='scheduled' должен сохраняться."""
+        from agents.orchestrator.scripts.calibrate import run_calibration
         with patch("agents.orchestrator.scripts.calibrate.get_connection",
                    side_effect=lambda: mock_conn(db)):
-            from agents.orchestrator.scripts.calibrate import run_calibration
             await run_calibration(window_days=7, trigger_type="scheduled")
 
         row = db.execute(
@@ -135,6 +135,7 @@ class TestRunCalibrationReturnType:
             "reasoning": "win rate низкий"
         })
 
+        from agents.orchestrator.scripts.calibrate import run_calibration
         with patch("agents.orchestrator.scripts.calibrate.get_connection",
                    side_effect=lambda: mock_conn(db)), \
              patch("agents.orchestrator.scripts.calibrate.generate_content_with_fallback",
@@ -142,7 +143,6 @@ class TestRunCalibrationReturnType:
              patch("agents.orchestrator.scripts.calibrate.extract_response_text",
                    return_value=llm_json_response), \
              patch("agents.shared.python.db.get_memory", return_value=""):
-            from agents.orchestrator.scripts.calibrate import run_calibration
             result = await run_calibration(window_days=7, trigger_type="manual")
 
         report, has_updates = result
