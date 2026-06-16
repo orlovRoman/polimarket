@@ -123,6 +123,14 @@
         <div class="kpi-title" id="kpi-losses-count-title">Количество проигрышей</div>
         <div class="kpi-value text-red" id="kpi-losses-count" style="color: var(--accent-red); font-weight: 600;">0</div>
     </div>
+    <div class="kpi-card" id="kpi-total-won-card" style="display: none;">
+        <div class="kpi-title" id="kpi-total-won-title">Всего выиграно</div>
+        <div class="kpi-value text-green" id="kpi-total-won" style="color: var(--accent-green); font-weight: 600;">$0.00</div>
+    </div>
+    <div class="kpi-card" id="kpi-total-lost-card" style="display: none;">
+        <div class="kpi-title" id="kpi-total-lost-title">Всего проиграно</div>
+        <div class="kpi-value text-red" id="kpi-total-lost" style="color: var(--accent-red); font-weight: 600;">$0.00</div>
+    </div>
 </div>
 
 
@@ -816,7 +824,7 @@
                         <td>${formatPriceCents(row.price)}</td>
                         <td>${directionBadge}</td>
                         <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
-                        <td>${row.pnl_auto === null ? '—' : formatPnLUnit(row.pnl_auto)}</td>
+                        <td>${row.pnl_auto === null ? '—' : formatPnLUSD(row.pnl_auto)}</td>
                         <td>${resultBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
                         <td>${deleteBtn}</td>

@@ -261,7 +261,7 @@ def _load_compounding_stats(conn, stats, virtual_stake):
 
         # 2. Авто-сигналы
         auto_rows = conn.execute("""
-            SELECT price, outcome, actual_outcome, resolved_at
+            SELECT price, outcome, actual_outcome, resolved_at, pnl_usd
             FROM compound_opportunities
             WHERE status = 'RESOLVED' AND virtual_bought_price IS NULL
         """).fetchall()
@@ -281,20 +281,22 @@ def _load_compounding_stats(conn, stats, virtual_stake):
             outcome = r['outcome']
             actual = r['actual_outcome']
             resolved_at_str = r['resolved_at']
+            pnl_db = r['pnl_usd']
 
             try:
-                s = resolved_at_str.replace(" ", "T")
-                if s.endswith("Z"):
-                    s = s[:-1]
-                if "+" in s:
-                    s = s.split("+")[0]
-                res_at = datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+                res_at = _parse_dt_utc(resolved_at_str)
+                if res_at is None:
+                    continue
             except Exception:
                 continue
 
             if price is not None and outcome is not None and actual is not None and price > 0:
                 is_win = (actual.upper() == outcome.upper())
-                pnl_val = (virtual_stake / price) * (1.0 - price) * 0.98 if is_win else -virtual_stake
+                
+                if pnl_db is not None:
+                    pnl_val = pnl_db
+                else:
+                    pnl_val = (virtual_stake / price) * (1.0 - price) * 0.98 if is_win else -virtual_stake
 
                 if res_at >= seven_days_ago:
                     auto_pnl_7d += pnl_val
@@ -1796,18 +1798,22 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         active = [dict(r) for r in active_rows]
 
         # Подсчет общего количества выигранных
-        wins_total = conn.execute("""
-            SELECT COUNT(*) as cnt
+        wins_total_row = conn.execute("""
+            SELECT COUNT(*) as cnt, SUM(pnl_usd) as total_pnl
             FROM compound_opportunities
             WHERE status = 'RESOLVED' AND actual_outcome IS NOT NULL AND actual_outcome = outcome
-        """).fetchone()['cnt']
+        """).fetchone()
+        wins_total = wins_total_row['cnt']
+        total_won_usd = wins_total_row['total_pnl'] or 0.0
 
         # Подсчет общего количества проигранных
-        losses_total = conn.execute("""
-            SELECT COUNT(*) as cnt
+        losses_total_row = conn.execute("""
+            SELECT COUNT(*) as cnt, SUM(pnl_usd) as total_pnl
             FROM compound_opportunities
             WHERE status = 'RESOLVED' AND actual_outcome IS NOT NULL AND actual_outcome != outcome
-        """).fetchone()['cnt']
+        """).fetchone()
+        losses_total = losses_total_row['cnt']
+        total_lost_usd = losses_total_row['total_pnl'] or 0.0
 
         def _process_compound_resolved_row(r, virtual_stake):
             row_dict = dict(r)
@@ -2126,6 +2132,9 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         'manual_stats': manual_stats,
         'virtual_history': virtual_history,
         'total_active': active_total,
+        'total_won_usd': total_won_usd,
+        'total_lost_usd': total_lost_usd,
+
         'wins_total': wins_total,
         'losses_total': losses_total,
         'history_total': history_total,
