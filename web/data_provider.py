@@ -468,11 +468,13 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
                     UNION ALL
                     
                     SELECT resolved_at as ts,
-                        CASE WHEN UPPER(actual_outcome) = UPPER(outcome) THEN
-                            (? / price) * (1.0 - price) * 0.98
-                        ELSE
-                            -?
-                        END as pnl
+                        COALESCE(pnl_usd, 
+                            CASE WHEN UPPER(actual_outcome) = UPPER(outcome) THEN
+                                (? / price) * (1.0 - price) * 0.98
+                            ELSE
+                                -?
+                            END
+                        ) as pnl
                     FROM compound_opportunities
                     WHERE status = 'RESOLVED' AND virtual_bought_price IS NULL
                       AND resolved_at >= ? AND price > 0 AND actual_outcome IS NOT NULL
