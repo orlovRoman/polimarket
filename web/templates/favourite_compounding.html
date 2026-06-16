@@ -196,7 +196,7 @@
             <thead>
                 <tr>
                     <th>ID Цепочки</th>
-                    <th>Статус</th>
+                    <th>История шагов</th>
                     <th>Прогресс</th>
                     <th>Текущий стейк</th>
                     <th>Текущий рынок</th>
@@ -755,36 +755,66 @@
             chainsTbody.innerHTML = `<tr><td colspan="5" style="text-align: center;" class="text-muted">Нет активных или недавних цепочек</td></tr>`;
         } else {
             chainsTbody.innerHTML = chains.map(chain => {
-                let statusBadge = `<span class="badge badge-gray">${chain.status}</span>`;
+                let statusBadge = `<span class="badge badge-gray" style="margin-left: 6px;">${chain.status}</span>`;
                 if (chain.status === 'WAITING_NEXT' || chain.status === 'WAITING_RESOLUTION') {
-                    statusBadge = `<span class="badge badge-yellow">${chain.status}</span>`;
+                    statusBadge = `<span class="badge badge-yellow" style="margin-left: 6px;">${chain.status}</span>`;
                 } else if (chain.status === 'COMPLETED') {
-                    statusBadge = `<span class="badge badge-green">COMPLETED</span>`;
+                    statusBadge = `<span class="badge badge-green" style="margin-left: 6px;">COMPLETED</span>`;
                 } else if (chain.status === 'FAILED') {
-                    statusBadge = `<span class="badge badge-red">FAILED</span>`;
+                    statusBadge = `<span class="badge badge-red" style="margin-left: 6px;">FAILED</span>`;
                 }
 
+                let historyHtml = '<div style="font-size: 0.85rem; color: var(--text-secondary);">Нет завершенных шагов</div>';
                 let currentBetHtml = '<span class="text-muted">Ожидание возможности</span>';
+                
                 if (chain.bets && chain.bets.length > 0) {
-                    const currentBet = chain.bets[chain.bets.length - 1];
-                    let betStatus = currentBet.status;
-                    let betBadge = `<span class="badge badge-gray">${betStatus}</span>`;
-                    if (betStatus === 'PENDING') betBadge = `<span class="badge badge-yellow">PENDING</span>`;
-                    else if (betStatus === 'WON') betBadge = `<span class="badge badge-green">WON</span>`;
-                    else if (betStatus === 'LOST') betBadge = `<span class="badge badge-red">LOST</span>`;
+                    let currentStakeForStep = chain.initial_stake;
+                    let pastBetsList = [];
+                    let currentBet = null;
                     
-                    let oppLink = currentBet.url ? `<a href="${currentBet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${currentBet.title}</a>` : `Рынок #${currentBet.opp_id}`;
+                    chain.bets.forEach(bet => {
+                        if (bet.status === 'PENDING') {
+                            currentBet = bet;
+                        } else {
+                            let betPnlHtml = '';
+                            if (bet.status === 'WON') {
+                                let pnl = bet.payout - currentStakeForStep;
+                                betPnlHtml = `<span style="color: var(--accent-green);">+$${pnl.toFixed(2)}</span>`;
+                                currentStakeForStep = bet.payout;
+                            } else if (bet.status === 'LOST') {
+                                betPnlHtml = `<span style="color: var(--accent-red);">-$${currentStakeForStep.toFixed(2)}</span>`;
+                                currentStakeForStep = 0;
+                            }
+                            
+                            let oppLink = bet.url ? `<a href="${bet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${bet.title || 'Рынок #' + bet.opp_id}</a>` : `Рынок #${bet.opp_id}`;
+                            pastBetsList.push(`
+                                <div style="margin-bottom: 4px; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px;" title="${bet.title || 'Рынок #' + bet.opp_id}">
+                                    <span class="text-muted">Шаг ${bet.step_index + 1}:</span> ${oppLink} &nbsp;${betPnlHtml}
+                                </div>
+                            `);
+                        }
+                    });
                     
-                    currentBetHtml = `
-                        <div style="font-size: 0.9rem;">
-                            <div>${oppLink}</div>
-                            <div style="margin-top:4px; font-size:0.8rem; color:var(--text-secondary);">
-                                Исходом: <b>${currentBet.target_outcome}</b> | 
-                                ${betBadge} | Вход: ${formatPriceCents(currentBet.bet_price)}
+                    if (pastBetsList.length > 0) {
+                        historyHtml = pastBetsList.join('');
+                    }
+
+                    if (currentBet) {
+                        let oppLink = currentBet.url ? `<a href="${currentBet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${currentBet.title}</a>` : `Рынок #${currentBet.opp_id}`;
+                        currentBetHtml = `
+                            <div style="font-size: 0.9rem;">
+                                <div>${oppLink}</div>
+                                <div style="margin-top:4px; font-size:0.8rem; color:var(--text-secondary);">
+                                    Исходом: <b>${currentBet.target_outcome}</b> | 
+                                    <span class="badge badge-yellow">PENDING</span> | Вход: ${formatPriceCents(currentBet.bet_price)}
+                                </div>
                             </div>
-                        </div>
-                    `;
+                        `;
+                    } else if (chain.status === 'COMPLETED' || chain.status === 'FAILED') {
+                         currentBetHtml = `<span class="text-muted">Цепочка завершена</span>`;
+                    }
                 }
+
                 let displayStep = chain.current_step;
                 if (chain.status === 'WAITING_RESOLUTION') {
                     displayStep += 1;
@@ -792,10 +822,10 @@
                 
                 return `
                     <tr>
-                        <td><b>#${chain.id}</b></td>
-                        <td>${statusBadge}</td>
-                        <td>Шаг ${displayStep} / ${chain.target_steps}</td>
-                        <td>$${chain.current_stake.toFixed(2)}</td>
+                        <td style="white-space: nowrap;"><b>#${chain.id}</b>${statusBadge}</td>
+                        <td>${historyHtml}</td>
+                        <td style="white-space: nowrap;">Шаг ${displayStep} / ${chain.target_steps}</td>
+                        <td style="white-space: nowrap;">$${chain.current_stake.toFixed(2)}</td>
                         <td>${currentBetHtml}</td>
                     </tr>
                 `;
