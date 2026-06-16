@@ -167,7 +167,7 @@ def build_search_query(market_title: str) -> str:
     return " ".join(keywords[:6])
 
 
-def deduplicate_results(rss_results: list, grounding_results: list) -> list:
+def deduplicate_results(rss_results: list = None, grounding_results: list = None) -> list:
     """
     Дедуплицирует результаты поиска по хэшу названия/текста.
     """

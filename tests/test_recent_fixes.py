@@ -171,8 +171,7 @@ class TestCloseTimeFallback:
                 market_id="test-penny-1",
                 title="Test Market",
                 url="https://example.com",
-                initial_price=0.5,
-                close_time=None  # ← явно без close_time
+                initial_price=0.5
             )
 
         row = db.execute(
@@ -193,8 +192,7 @@ class TestCloseTimeFallback:
                 market_id="test-whale-1",
                 title="Whale Market",
                 url="https://example.com",
-                initial_price=0.4,
-                close_time=None
+                initial_price=0.4
             )
 
         row = db.execute(

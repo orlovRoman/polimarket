@@ -377,6 +377,7 @@ async def background_analyze_penny_markets(markets):
                     pre_orderbook = None
                 
                 def dummy_update(**kwargs):
+                    """Empty callback."""
                     pass
                 
                 logger.info(f"Background analysis starting for penny stock: {m.title}")

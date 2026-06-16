@@ -10,7 +10,9 @@ def test_only_one_resolution_job_registered():
     class FakeScheduler:
         def add_job(self, func, *a, id=None, **kw):
             jobs_added.append({"func": getattr(func, "__name__", str(func)), "id": id})
-        def start(self): pass
+        def start(self):
+            """Start scheduler."""
+            pass
 
     with patch("main.AsyncIOScheduler", return_value=FakeScheduler()), \
          patch("main.asyncio.create_task"), \

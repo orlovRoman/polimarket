@@ -128,6 +128,7 @@ def test_session_dedup_per_trigger_type_is_same_market():
 
 class MockExecutor:
     def __init__(self, *args, **kwargs):
+        """Init mock executor."""
         pass
     def submit(self, fn, *args, **kwargs):
         from concurrent.futures import Future
@@ -139,6 +140,7 @@ class MockExecutor:
             f.set_exception(e)
         return f
     def shutdown(self, *args, **kwargs):
+        """Shutdown mock executor."""
         pass
 
 def test_save_memory_called_before_llm():

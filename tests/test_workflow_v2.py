@@ -32,7 +32,7 @@ def test_run_screening_returns_empty_list_when_market_id_set():
 
 def test_run_screening_result_is_iterable():
     from core.workflow import run_screening
-    result = run_screening(MagicMock(), "sports", None)
+    result = run_screening(MagicMock(), "sports", "")
     # Не должно бросать TypeError
     items = list(result)
     assert items == []

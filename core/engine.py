@@ -199,7 +199,7 @@ class CoreEngine:
                     obj = getattr(self, attr, None)
                     if obj and hasattr(obj, "close"):
                         try: obj.close()
-                        except: pass
+                        except Exception: pass
                 CoreEngine._instance = None  # позволяет пересоздать после исправления конфига
                 raise
 

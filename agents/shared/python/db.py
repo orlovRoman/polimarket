@@ -3135,7 +3135,7 @@ def mark_compound_bought(opp_id: str) -> None:
                     opp_dict["price"]
                 ))
 
-def resolve_compound_opportunity(opp_id: str, outcome: str, pnl_usd: float, exit_price: float = None) -> None:
+def resolve_compound_opportunity(opp_id: str, outcome: str, pnl_usd: float = None, exit_price: float = None) -> None:
     with get_connection() as conn:
         conn.execute("""
             UPDATE compound_opportunities
@@ -3565,7 +3565,7 @@ def allocate_opportunity_to_chain(opp_id: str, market_id: str, price: float) -> 
                 step_index = waiting_chain["current_step"] + 1
                 try:
                     conn.execute("BEGIN")
-                except:
+                except Exception:
                     pass
                 conn.execute(
                     "INSERT INTO compound_chain_bets (chain_id, step_index, opp_id, bet_price, status) VALUES (?, ?, ?, ?, ?)",
@@ -3590,7 +3590,7 @@ def allocate_opportunity_to_chain(opp_id: str, market_id: str, price: float) -> 
             if active_count < max_chains:
                 try:
                     conn.execute("BEGIN")
-                except:
+                except Exception:
                     pass
                 cursor = conn.execute(
                     "INSERT INTO compound_chains (status, initial_stake, current_stake, target_steps, current_step) VALUES (?, ?, ?, ?, ?)",

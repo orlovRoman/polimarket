@@ -374,6 +374,7 @@ async def scheduled_penny_discovery():
                     pre_orderbook = None
                 
                 def dummy_update(**kwargs):
+                    """Empty callback for scanning."""
                     pass
                 
                 signal, swing_signal, _ = await run_agent_evaluation(
