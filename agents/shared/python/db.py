@@ -839,6 +839,22 @@ def _init_db_impl(conn: sqlite3.Connection):
         )
     """)
 
+    # Таблица calibration_runs
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS calibration_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            trigger_type TEXT NOT NULL,
+            window_days INTEGER NOT NULL,
+            signals_analyzed INTEGER NOT NULL,
+            metrics_json TEXT NOT NULL,
+            nexus_response TEXT,
+            params_proposed INTEGER DEFAULT 0,
+            params_applied INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'completed'
+        )
+    """)
+
     # Миграция idea_audit: добавление scout_probability
     idea_audit_cols = {row[1] for row in cursor.execute("PRAGMA table_info(idea_audit)").fetchall()}
     if "scout_probability" not in idea_audit_cols:

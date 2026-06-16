@@ -26,6 +26,11 @@ class ShadowAgent:
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
 
+        from agents.shared.python.db import get_memory
+        overlay = get_memory("shadow_overlay_prompt", "")
+        if overlay:
+            self.system_instruction += f"\n\n[CALIBRATOR OVERLAY INSTRUCTION]:\n{overlay}\n"
+
     @with_retry(max_attempts=3, initial_backoff=2.0)
     def analyze_idea(self, context: 'MarketContext', scout_opinion: str, price_history: list = None) -> Optional[AgentOpinion]:
         """

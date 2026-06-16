@@ -31,6 +31,12 @@ class ScoutAgent:
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
             self.system_instruction = f.read()
+            
+        from agents.shared.python.db import get_memory
+        overlay = get_memory("scout_overlay_prompt", "")
+        if overlay:
+            self.system_instruction += f"\n\n[CALIBRATOR OVERLAY INSTRUCTION]:\n{overlay}\n"
+            
         self._adapter = None
 
     @with_retry(max_attempts=3, initial_backoff=2.0)

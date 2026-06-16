@@ -75,7 +75,7 @@ def test_scanners_use_instance_fetch():
 
     _cache.clear()
     with patch("services.temporal_corridor_scanner.PolymarketAdapter") as MockAdapterClass, \
-         patch("services.temporal_corridor_scanner.load_events_from_raw", return_value=[]), \
+         patch("services.temporal_corridor_scanner.load_events_from_raw", return_value=([], {})), \
          patch("services.temporal_corridor_scanner.find_candidates", return_value=[]):
         
         mock_instance = MockAdapterClass.return_value
