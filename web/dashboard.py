@@ -61,6 +61,10 @@ async def handle_corridors(request):
     html = await asyncio.to_thread(render_template, "corridors.html")
     return web.Response(text=html, content_type="text/html")
 
+async def handle_calibration(request):
+    html = await asyncio.to_thread(render_template, "calibration.html")
+    return web.Response(text=html, content_type="text/html")
+
 # === JSON API хэндлеры ===
 
 async def api_overview(request):
@@ -207,6 +211,41 @@ async def api_corridors(request):
         cross_limit=cross_limit
     )
     return web.json_response(data)
+
+async def api_calibration_runs(request):
+    from web.calibration_provider import CalibrationProvider
+    data = await asyncio.to_thread(CalibrationProvider.get_recent_calibration_runs, 10)
+    return web.json_response(data)
+
+async def api_calibration_pending(request):
+    from web.calibration_provider import CalibrationProvider
+    data = await asyncio.to_thread(CalibrationProvider.get_pending_calibration_params)
+    return web.json_response(data)
+
+async def api_calibration_overlays(request):
+    from web.calibration_provider import CalibrationProvider
+    data = await asyncio.to_thread(CalibrationProvider.get_current_overlays)
+    return web.json_response(data)
+
+async def api_calibration_approve(request):
+    try:
+        body = await request.json()
+        param_id = int(body.get("id"))
+    except Exception:
+        return web.json_response({"error": "Invalid request body"}, status=400)
+    from web.calibration_provider import CalibrationProvider
+    success = await asyncio.to_thread(CalibrationProvider.approve_calibration_param, param_id, "dashboard")
+    return web.json_response({"status": "ok" if success else "failed"})
+
+async def api_calibration_reject(request):
+    try:
+        body = await request.json()
+        param_id = int(body.get("id"))
+    except Exception:
+        return web.json_response({"error": "Invalid request body"}, status=400)
+    from web.calibration_provider import CalibrationProvider
+    success = await asyncio.to_thread(CalibrationProvider.reject_calibration_param, param_id)
+    return web.json_response({"status": "ok" if success else "failed"})
 
 async def api_delete_market(request):
     try:
@@ -1035,6 +1074,7 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/scout", handle_scout)
     app.router.add_get("/whale", handle_whale)
     app.router.add_get("/corridors", handle_corridors)
+    app.router.add_get("/calibration", handle_calibration)
     
     # JSON API маршруты
     app.router.add_get("/api/overview", api_overview)
@@ -1063,6 +1103,12 @@ def create_dashboard_app() -> web.Application:
     app.router.add_post("/api/delete-market", api_delete_market)
     app.router.add_get("/api/settings", api_get_settings)
     app.router.add_post("/api/settings", api_save_settings)
+    
+    app.router.add_get("/api/calibration/runs", api_calibration_runs)
+    app.router.add_get("/api/calibration/pending", api_calibration_pending)
+    app.router.add_get("/api/calibration/overlays", api_calibration_overlays)
+    app.router.add_post("/api/calibration/approve", api_calibration_approve)
+    app.router.add_post("/api/calibration/reject", api_calibration_reject)
     
     app.router.add_get("/api/compound-settings", api_get_compound_settings)
     app.router.add_post("/api/compound-settings", api_save_compound_settings)

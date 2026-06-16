@@ -75,9 +75,13 @@ async def run_calibration(window_days: int = 7):
         # Вызываем LLM
         logger.info("Вызов LLM (CALIBRATOR)...")
         try:
-            llm_result, _, _ = await generate_content_with_fallback(
+            import config
+            import asyncio
+            llm_result, _ = await asyncio.to_thread(
+                generate_content_with_fallback,
+                api_key=config.GOOGLE_API_KEY,
                 payload=payload,
-                model_name="gemini-2.5-pro", # Лучше использовать pro для аналитики
+                default_model="gemini-2.5-pro", # Лучше использовать pro для аналитики
                 agent_name="CALIBRATOR"
             )
             
@@ -101,16 +105,21 @@ async def run_calibration(window_days: int = 7):
         shadow_overlay = calib_data.get("shadow_overlay", "").strip()
         reasoning = calib_data.get("reasoning", "No reasoning provided")
         
+        from agents.shared.python.db import get_memory
+        old_scout = get_memory("scout_overlay_prompt", "")
+        old_swing = get_memory("swing_overlay_prompt", "")
+        old_shadow = get_memory("shadow_overlay_prompt", "")
+        
         params_proposed = 0
         
         if scout_overlay:
-            _save_param(conn, "scout", scout_overlay, reasoning)
+            _save_param(conn, "scout", scout_overlay, reasoning, old_scout)
             params_proposed += 1
         if swing_overlay:
-            _save_param(conn, "swing", swing_overlay, reasoning)
+            _save_param(conn, "swing", swing_overlay, reasoning, old_swing)
             params_proposed += 1
         if shadow_overlay:
-            _save_param(conn, "shadow", shadow_overlay, reasoning)
+            _save_param(conn, "shadow", shadow_overlay, reasoning, old_shadow)
             params_proposed += 1
             
         # 5. Сохраняем run
@@ -121,11 +130,7 @@ async def run_calibration(window_days: int = 7):
         
         logger.info(f"Калибровка завершена. Предложено {params_proposed} параметров.")
 
-def _save_param(conn, strategy_type: str, new_value: str, reason: str):
-    # Получаем старое значение из памяти
-    from agents.shared.python.db import get_memory
-    old_value = get_memory(f"{strategy_type}_overlay_prompt", "")
-    
+def _save_param(conn, strategy_type: str, new_value: str, reason: str, old_value: str):
     # Сохраняем в таблицу
     conn.execute("""
         INSERT INTO calibration_params (strategy_type, param_name, param_value, previous_value, reason, status)

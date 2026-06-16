@@ -82,6 +82,7 @@ def get_brier_score(conn, window_days: int) -> dict:
         FROM idea_audit a
         JOIN markets m ON a.market_id = m.id
         WHERE a.scout_probability IS NOT NULL
+          AND a.scout_probability BETWEEN 0.0 AND 1.0
           AND m.outcome IN ('YES', 'NO')
           AND a.created_at >= datetime('now', ?)
     """, (f'-{window_days} days',)).fetchall()

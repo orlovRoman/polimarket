@@ -30,12 +30,7 @@ class ScoutAgent:
         # Загружаем детальные системные инструкции из файла конфигурации агента
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
-            self.system_instruction = f.read()
-            
-        from agents.shared.python.db import get_memory
-        overlay = get_memory("scout_overlay_prompt", "")
-        if overlay:
-            self.system_instruction += f"\n\n[CALIBRATOR OVERLAY INSTRUCTION]:\n{overlay}\n"
+            self.base_system_instruction = f.read()
             
         self._adapter = None
 
@@ -231,11 +226,18 @@ class ScoutAgent:
             "required": ["estimate_probability", "confidence", "priority", "reasoning", "signal", "cause", "risk", "oracle_risk", "verdict"]
         }
 
+        # Динамически загружаем overlay (обновляется без перезапуска агента)
+        from agents.shared.python.db import get_memory
+        overlay = get_memory("scout_overlay_prompt", "")
+        current_system_instruction = self.base_system_instruction
+        if overlay:
+            current_system_instruction += f"\n\n[CALIBRATOR OVERLAY INSTRUCTION]:\n{overlay}\n"
+
         payload = {
             "contents": [
                 {"role": "user", "parts": [{"text": prompt}]}
             ],
-            "systemInstruction": {"parts": [{"text": self.system_instruction}]},
+            "systemInstruction": {"parts": [{"text": current_system_instruction}]},
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": schema

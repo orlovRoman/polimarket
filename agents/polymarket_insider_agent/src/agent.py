@@ -24,12 +24,7 @@ class ShadowAgent:
         # Загружаем детальные системные инструкции из файла конфигурации агента
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(base_path, "GEMINI.md"), "r", encoding="utf-8") as f:
-            self.system_instruction = f.read()
-
-        from agents.shared.python.db import get_memory
-        overlay = get_memory("shadow_overlay_prompt", "")
-        if overlay:
-            self.system_instruction += f"\n\n[CALIBRATOR OVERLAY INSTRUCTION]:\n{overlay}\n"
+            self.base_system_instruction = f.read()
 
     @with_retry(max_attempts=3, initial_backoff=2.0)
     def analyze_idea(self, context: 'MarketContext', scout_opinion: str, price_history: list = None) -> Optional[AgentOpinion]:
@@ -141,9 +136,16 @@ class ShadowAgent:
             "required": ["opinion", "confidence", "agree", "orderbook_facts", "risk_assessment", "shadow_verdict", "liquidity_risk"]
         }
 
+        # Динамически загружаем overlay
+        from agents.shared.python.db import get_memory
+        overlay = get_memory("shadow_overlay_prompt", "")
+        current_system_instruction = self.base_system_instruction
+        if overlay:
+            current_system_instruction += f"\n\n[CALIBRATOR OVERLAY INSTRUCTION]:\n{overlay}\n"
+
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "systemInstruction": {"parts": [{"text": self.system_instruction}]},
+            "systemInstruction": {"parts": [{"text": current_system_instruction}]},
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": schema
