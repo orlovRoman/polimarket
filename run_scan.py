@@ -21,7 +21,7 @@ def main():
         data = resp.json()
         logger.info(f"Loaded {len(data)} events")
         
-        events = load_events_with_levels_from_raw(data)
+        events, _ = load_events_with_levels_from_raw(data)
         logger.info(f"Parsed {len(events)} valid leveled events")
     except requests.exceptions.RequestException as e:
         logger.error(f"HTTP Request failed: {e}")

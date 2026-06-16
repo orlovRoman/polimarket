@@ -15,7 +15,7 @@ def test_corridor_funnel_logs_rejection_reasons():
          patch("services.synthetic_corridor_scanner.logger") as mock_logger:
         
         mock_events.return_value = []
-        mock_levels.return_value = []
+        mock_levels.return_value = ([], {})
         mock_v.return_value = [mock_violation]
         mock_ob.return_value = {
             "real_spread_pct": 0.2, 

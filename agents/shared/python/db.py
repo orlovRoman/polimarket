@@ -288,6 +288,7 @@ def _init_db_impl(conn: sqlite3.Connection):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             market_id TEXT NOT NULL,
             market_title TEXT,
+            scout_probability REAL,
             scout_edge REAL,
             swing_found INTEGER,
             shadow_agree INTEGER,
@@ -830,10 +831,28 @@ def _init_db_impl(conn: sqlite3.Connection):
             param_value REAL NOT NULL,
             previous_value REAL NOT NULL,
             reason TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            approved_at TIMESTAMP,
+            approved_by TEXT DEFAULT 'dashboard',
             auto_applied INTEGER DEFAULT 0,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Миграция idea_audit: добавление scout_probability
+    idea_audit_cols = {row[1] for row in cursor.execute("PRAGMA table_info(idea_audit)").fetchall()}
+    if "scout_probability" not in idea_audit_cols:
+        cursor.execute("ALTER TABLE idea_audit ADD COLUMN scout_probability REAL")
+
+    # Миграция calibration_params: добавление status, approved_at, approved_by
+    calib_params_cols = {row[1] for row in cursor.execute("PRAGMA table_info(calibration_params)").fetchall()}
+    for col, col_type, default in [
+        ("status", "TEXT", "'pending'"),
+        ("approved_at", "TIMESTAMP", "NULL"),
+        ("approved_by", "TEXT", "'dashboard'"),
+    ]:
+        if col not in calib_params_cols:
+            cursor.execute(f"ALTER TABLE calibration_params ADD COLUMN {col} {col_type} DEFAULT {default}")
 
     # Миграция wallets: добавляем поля для p-value фильтра
     wallet_cols = {row[1] for row in cursor.execute("PRAGMA table_info(wallets)").fetchall()}
@@ -1354,11 +1373,12 @@ def save_idea_audit(market_id: str, market_title: str, audit_data: dict):
         with get_connection() as conn:
             conn.execute("""
                 INSERT INTO idea_audit 
-                (market_id, market_title, scout_edge, swing_found, shadow_agree, shadow_confidence,
+                (market_id, market_title, scout_probability, scout_edge, swing_found, shadow_agree, shadow_confidence,
                  shadow_reason, final_outcome)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 market_id, market_title,
+                audit_data.get("scout_probability"),
                 audit_data.get("scout_edge"),
                 audit_data.get("swing_found", 0),
                 audit_data.get("shadow_agree"),
@@ -2288,7 +2308,12 @@ def update_episodes_for_market(market_id: str, resolved_outcome: str):
     if episodes:
         logger.info(f"[Memory] Обновлено {len(episodes)} эпизодов для рынка {market_id} → {resolved_outcome}")
 
-    pass
+    if updated_agents:
+        for agent_name in updated_agents:
+            accuracy = get_agent_accuracy(agent_name)
+            if accuracy["total"] > 0:
+                save_memory(f"{agent_name.lower()}_evaluated_total", accuracy["total"])
+                save_memory(f"{agent_name.lower()}_accuracy_pct", round(accuracy["accuracy"] * 100.0, 1))
 
 def get_agent_accuracy(agent_name: str) -> dict:
     """Возвращает статистику точности агента по завершённым эпизодам."""
@@ -3136,6 +3161,11 @@ def mark_compound_bought(opp_id: str) -> None:
                 ))
 
 def resolve_compound_opportunity(opp_id: str, outcome: str, pnl_usd: float = None, exit_price: float = None) -> None:
+    if pnl_usd is None:
+        import logging
+        logger = logging.getLogger(f"NexusPolyBot.{__name__}")
+        logger.warning("resolve_compound_opportunity called with pnl_usd=None, opp_id=%s", opp_id)
+        pnl_usd = 0.0
     with get_connection() as conn:
         conn.execute("""
             UPDATE compound_opportunities

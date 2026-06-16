@@ -62,7 +62,7 @@ def test_scanners_use_instance_fetch():
     from services.temporal_corridor_scanner import run_temporal_corridor_scan
     
     with patch("services.synthetic_corridor_scanner.PolymarketAdapter") as MockAdapterClass, \
-         patch("services.synthetic_corridor_scanner.load_events_with_levels_from_raw", return_value=[]), \
+         patch("services.synthetic_corridor_scanner.load_events_with_levels_from_raw", return_value=([], {})), \
          patch("services.synthetic_corridor_scanner.find_violations", return_value=[]):
         
         mock_instance = MockAdapterClass.return_value

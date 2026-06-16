@@ -974,6 +974,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
             logger.error(f"summary_callback error in process_consensus: {cb_err}")
         
     audit = {
+        "scout_probability": signal.estimated_probability if signal else None,
         "scout_edge": signal.edge if signal else None,
         "swing_found": 1 if swing_signal else 0,
         "shadow_agree": int(opinion_shadow.agree) if opinion_shadow else None,
