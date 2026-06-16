@@ -318,6 +318,22 @@ async def scheduled_daily_evaluation():
     except Exception as e:
         logger.error(f"Ошибка во время ежедневного оценивания: {e}", exc_info=True)
 
+async def scheduled_calibration():
+    try:
+        logger.info(">>> Запуск автоматической калибровки агентов (NEXUS)...")
+        from agents.orchestrator.scripts.calibrate import run_calibration
+        report, has_updates = await run_calibration(trigger_type="scheduled")
+        if has_updates:
+            from telegram.bot import bot
+            from config import AUTHORIZED_CHAT_ID
+            import asyncio
+            msg = f"🔍 <b>Калибровка завершена</b>\n\nNEXUS предложил новые обновления промптов.\nЗайдите в Дашборд -> Calibration (NEXUS), чтобы рассмотреть их."
+            await asyncio.to_thread(bot.send_message, chat_id=AUTHORIZED_CHAT_ID, text=msg, parse_mode="HTML")
+        logger.info("<<< Автоматическая калибровка агентов завершена.")
+    except Exception as e:
+        logger.error(f"Ошибка во время автоматической калибровки: {e}", exc_info=True)
+
+
 async def scheduled_weekly_evaluation():
     try:
         logger.info(">>> Запуск еженедельного глубокого оценивания стратегий (Evaluation Engine)...")
@@ -979,6 +995,15 @@ async def start_system():
         id="favourite_compounding",
         replace_existing=True,
         misfire_grace_time=600,
+    )
+
+    scheduler.add_job(
+        scheduled_calibration,
+        trigger="interval",
+        hours=24,
+        id="nexus_calibration_job",
+        replace_existing=True,
+        misfire_grace_time=3600,
     )
 
     logger.info("🤖 Бот NEXUS запускается...")

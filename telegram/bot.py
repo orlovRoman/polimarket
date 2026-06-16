@@ -140,6 +140,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="penny", description="Меню Penny Stocks (дешевые рынки)"),
         BotCommand(command="compound", description="Favourite Compounding (≥95¢)"),
         BotCommand(command="blacklist", description="Черный список тегов"),
+        BotCommand(command="calibrate", description="Запуск калибровки агентов NEXUS"),
         BotCommand(command="reindex", description="Переиндексировать базу знаний Obsidian RAG"),
     ]
     await bot.set_my_commands(commands)
@@ -1818,6 +1819,22 @@ def build_scan_keyboard() -> InlineKeyboardMarkup:
         text="🌐 Все (авто-микс)", callback_data="scan_all"
     )])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+@dp.message(Command("calibrate"))
+async def command_calibrate_handler(message: types.Message) -> None:
+    status_msg = await message.answer("🔄 <b>Запуск ручной калибровки агентов (NEXUS)...</b>\nЭто может занять 1-2 минуты.", parse_mode="HTML")
+    try:
+        from agents.orchestrator.scripts.calibrate import run_calibration
+        report, has_updates = await run_calibration(trigger_type="manual")
+        
+        reply_text = f"✅ <b>Калибровка завершена</b>\n\n<pre>{report}</pre>"
+        if has_updates:
+            reply_text += "\n\n⚠️ <b>NEXUS предложил обновления.</b>\nПерейдите в Дашборд -> Calibration (NEXUS) для подтверждения."
+            
+        await status_msg.edit_text(reply_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка при калибровке через Telegram: {e}", exc_info=True)
+        await status_msg.edit_text(f"❌ <b>Ошибка калибровки:</b> {e}", parse_mode="HTML")
 
 @dp.message(Command("scan"))
 async def command_scan_handler(message: types.Message) -> None:
