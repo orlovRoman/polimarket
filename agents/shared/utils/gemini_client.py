@@ -518,6 +518,12 @@ _GEMINI_KEY_ENV_NAMES = [
     "GOOGLE_API_KEY_THIRD",
 ]
 
+_CEREBRAS_KEY_ENV_NAMES = [
+    "CEREBRAS_API_KEY",
+    "CEREBRAS_API_KEY_SECONDARY",
+    "CEREBRAS_API_KEY_THIRD",
+]
+
 # ── Фикс 2: Per-provider cooldown при 429 ───────────────────────────────────
 # Если провайдер вернул 429, не трогаем его следующие N секунд.
 # Словарь разделяется всеми агентами (singleton на уровне модуля).
@@ -588,6 +594,19 @@ def _collect_gemini_keys(primary_key: str) -> list[str]:
                 keys.append(val)
     return keys
 
+def _collect_cerebras_keys(primary_key: str) -> list[str]:
+    """Собирает все Cerebras ключи в детерминированном порядке."""
+    keys = []
+    if primary_key and primary_key.strip():
+        keys.append(primary_key.strip())
+    for name in _CEREBRAS_KEY_ENV_NAMES[1:]:
+        val = os.getenv(name, "")
+        if val and val.strip():
+            val = val.strip()
+            if val not in keys:
+                keys.append(val)
+    return keys
+
 
 _failure_lock = Lock()
 _rr_lock = Lock()
@@ -620,6 +639,7 @@ def generate_content_with_fallback(
     # Снимаем один snapshot индексов ротации, чтобы избежать race conditions
     with _rr_lock:
         cer_rr_idx_snapshot = int(get_memory("cer_rr_index") or 0)
+        cer_key_rr_idx_snapshot = int(get_memory("cer_key_rr_index") or 0)
         gem_rr_idx_snapshot = int(get_memory("gem_rr_index") or 0)
         gem_key_rr_idx_snapshot = int(get_memory("gem_key_rr_index") or 0)
         or_rr_idx_snapshot = int(get_memory("or_rr_index") or 0)
@@ -653,6 +673,21 @@ def generate_content_with_fallback(
         
     _active_gemini_keys_for_rr = _gemini_keys
 
+    _cerebras_keys_override = PROVIDERS_CONFIG["cerebras"].get("keys") or []
+    if _cerebras_keys_override and len(_cerebras_keys_override) > 1 and "csk-" not in _cerebras_keys_override[0]:
+        # If overridden in test
+        _cer_keys = list(_cerebras_keys_override)
+    else:
+        cer_primary = os.getenv("CEREBRAS_API_KEY", "")
+        all_cer_keys = _collect_cerebras_keys(cer_primary)
+        
+        if all_cer_keys:
+            _cer_keys = all_cer_keys[cer_key_rr_idx_snapshot % max(len(all_cer_keys), 1):] + all_cer_keys[:cer_key_rr_idx_snapshot % max(len(all_cer_keys), 1)]
+        else:
+            _cer_keys = []
+            
+    _active_cerebras_keys_for_rr = _cer_keys
+
     # Разделяем дефолтную модель по провайдерам, чтобы не слать некорректные модели в Gemini API
     is_gemini_model = default_model.startswith("gemini-") or default_model in PROVIDERS_CONFIG["gemini"]["models"]
     # Покрываем все известные Cerebras-префиксы + динамическую проверку по списку моделей
@@ -678,7 +713,7 @@ def generate_content_with_fallback(
             "send_func": PROVIDERS_CONFIG["openrouter"]["send_func"],
         },
         "cerebras": {
-            "keys": [k for k in PROVIDERS_CONFIG["cerebras"]["keys"] if k and k.strip()],
+            "keys": _cer_keys,
             "models": list(dict.fromkeys(
                 ([default_model] if is_cerebras_model else []) + list(PROVIDERS_CONFIG["cerebras"]["models"])
             )),
@@ -863,10 +898,9 @@ def generate_content_with_fallback(
                         f"[{agent_name}] 429 Rate Limit на {provider} ({model}) ключ {key_idx+1}. Переходим к следующему ключу."
                     )
                     if provider == "cerebras":
-                        cer_models = providers["cerebras"]["models"]
                         with _rr_lock:
-                            _cer_idx_now = int(get_memory("cer_rr_index") or 0)
-                            save_memory("cer_rr_index", (_cer_idx_now + 1) % len(cer_models), category='operational')
+                            k_idx = int(get_memory("cer_key_rr_index") or 0)
+                            save_memory("cer_key_rr_index", (k_idx + 1) % max(len(_active_cerebras_keys_for_rr), 1), category='operational')
                     elif provider == "gemini":
                         with _rr_lock:
                             k_idx = int(get_memory("gem_key_rr_index") or 0)
