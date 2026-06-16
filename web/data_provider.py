@@ -1815,7 +1815,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             WHERE status = 'RESOLVED' AND actual_outcome IS NOT NULL AND actual_outcome != outcome
         """).fetchone()
         losses_total = losses_total_row['cnt']
-        total_lost_usd = losses_total_row['total_pnl'] or 0.0
+        total_lost_usd = abs(losses_total_row['total_pnl'] or 0.0)
 
         def _process_compound_resolved_row(r, virtual_stake):
             row_dict = dict(r)

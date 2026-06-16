@@ -778,9 +778,12 @@
                         } else {
                             let betPnlHtml = '';
                             if (bet.status === 'WON') {
-                                let pnl = bet.payout - currentStakeForStep;
-                                betPnlHtml = `<span style="color: var(--accent-green);">+$${pnl.toFixed(2)}</span>`;
-                                currentStakeForStep = bet.payout;
+                                const payout = (bet.payout != null && !isNaN(bet.payout)) ? bet.payout : currentStakeForStep;
+                                const pnl = payout - currentStakeForStep;
+                                betPnlHtml = pnl !== 0
+                                    ? `<span style="color: var(--accent-green);">+$${pnl.toFixed(2)}</span>`
+                                    : '';
+                                currentStakeForStep = payout;
                             } else if (bet.status === 'LOST') {
                                 betPnlHtml = `<span style="color: var(--accent-red);">-$${currentStakeForStep.toFixed(2)}</span>`;
                                 currentStakeForStep = 0;
