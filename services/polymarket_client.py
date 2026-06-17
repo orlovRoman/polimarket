@@ -39,6 +39,11 @@ def get_market_resolution(market_id: str) -> Optional[str]:
         resp.raise_for_status()
         data = resp.json()
         
+        # 1. Проверяем, закрыт ли рынок. Если нет — резолюция невозможна.
+        closed = data.get("closed", False)
+        if not closed:
+            return None
+            
         # Проверяем статус UMA-резолюции, если он есть.
         # Если статус UMA не равен 'resolved', рынок еще находится в процессе (proposed/disputed),
         # и доверять текущим исходам или ценам нельзя.
@@ -47,12 +52,12 @@ def get_market_resolution(market_id: str) -> Optional[str]:
             logger.info(f"[PolymarketClient] Рынок {market_id} закрыт, но статус UMA '{uma_status}' не равен 'resolved'. Пропускаем.")
             return None
             
-        # 1. Проверяем поле winner (YES/NO)
+        # 2. Проверяем поле winner (YES/NO)
         winner = data.get("winner")
         if winner and str(winner).upper() in ("YES", "NO"):
             return str(winner).upper()
 
-        # 2. Проверяем через tokens (YES/NO токены с ценой >= 0.99)
+        # 3. Проверяем через tokens (YES/NO токены с ценой >= 0.99)
         tokens = data.get("tokens", [])
         if tokens:
             for token in tokens:
@@ -65,11 +70,7 @@ def get_market_resolution(market_id: str) -> Optional[str]:
                 except (ValueError, TypeError):
                     continue
 
-        # 3. Fallback: проверяем closed + outcomePrices
-        closed = data.get("closed", False)
-        if not closed:
-            return None
-
+        # 4. Fallback: проверяем outcomePrices
         prices_float = parse_outcome_prices(data.get("outcomePrices"))
         if prices_float:
             winner_index = next(

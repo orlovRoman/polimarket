@@ -286,6 +286,9 @@ async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
 
         if close_time_passed:
             if not resolution_result:
+                if market_obj and getattr(market_obj, 'closed', None) is False:
+                    logger.info(f"[PennyMonitor] {m_id}: close_time прошел, но рынок еще открыт по данным адаптера. Пропускаем.")
+                    continue
                 resolution_result = await asyncio.to_thread(_fetch_resolution, m_id)
             if resolution_result in ("YES", "NO"):
                 resolve_penny_stock(m_id, resolution_result)

@@ -128,17 +128,6 @@ def _fetch_resolution(market_id: str) -> Optional[str]:
     except Exception as exc:
         logger.warning(f"[OutcomeTracker] Live API недоступен для {market_id}: {exc}")
 
-    # Fallback: пробуем взять из локальной БД
-    try:
-        with get_connection() as conn:
-            row = conn.execute(
-                "SELECT outcome FROM markets WHERE id = ?", (market_id,)
-            ).fetchone()
-        if row and row["outcome"] and row["outcome"].upper() in ("YES", "NO"):
-            return row["outcome"].upper()
-    except Exception as exc:
-        logger.error(f"[OutcomeTracker] Ошибка при чтении из БД для {market_id}: {exc}")
-
     return None
 
 
@@ -493,10 +482,7 @@ def _resolve_compound_outcomes() -> int:
             FROM compound_opportunities o
             LEFT JOIN markets m ON o.market_id = m.id
             WHERE o.status != 'RESOLVED'
-              AND (
-                  datetime(o.close_time) < datetime('now')
-                  OR m.outcome IN ('YES', 'NO')
-              )
+              AND datetime(o.close_time) < datetime('now', '-15 minutes')
         """).fetchall()
     to_resolve = [dict(r) for r in to_resolve_rows]
     resolved_count = 0
