@@ -317,7 +317,7 @@
         <div style="display:flex;gap:15px;">
             <button class="btn-action btn-primary" onclick="forceRunCalibration()" id="btn-force-run">
                 <svg style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                Принудительный запуск
+                <span id="text-force-run">Принудительный запуск</span>
                 <svg class="spinner" id="spinner-force-run" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 1 10 10"></path></svg>
             </button>
             <button class="btn-action btn-warning" onclick="toggleSchedule()" id="btn-toggle-schedule">
@@ -379,6 +379,32 @@
     <div class="params-grid" id="overlays-container">
         <!-- Заполняется через JS -->
     </div>
+
+    <!-- История предложенных параметров -->
+    <div class="section-title" style="margin-top: 20px;">
+        <svg style="width:20px;height:20px;fill:none;stroke:#10b981;stroke-width:2;" viewBox="0 0 24 24">
+            <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        История предложений (Approved / Rejected)
+    </div>
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Агент</th>
+                    <th>Параметр</th>
+                    <th>Значение</th>
+                    <th>Статус</th>
+                    <th>Дата изменения</th>
+                </tr>
+            </thead>
+            <tbody id="params-history-table-body">
+                <!-- Заполняется через JS -->
+                <tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">Загрузка...</td></tr>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <script>
@@ -389,15 +415,23 @@
 
     async function loadData() {
         try {
-            const [runsRes, pendingRes, overlaysRes] = await Promise.all([
+            const [runsRes, pendingRes, overlaysRes, historyParamsRes, statusRes] = await Promise.all([
                 fetchJSON('/api/calibration/runs'),
                 fetchJSON('/api/calibration/pending'),
-                fetchJSON('/api/calibration/overlays')
+                fetchJSON('/api/calibration/overlays'),
+                fetchJSON('/api/calibration/history?limit=20'),
+                fetchJSON('/api/calibration/schedule_status')
             ]);
             
             renderMetricsAndRuns(runsRes);
             renderPendingParams(pendingRes);
             renderOverlays(overlaysRes);
+            renderParamsHistory(historyParamsRes);
+            
+            if (statusRes && statusRes.status === 'ok') {
+                isSchedulePaused = statusRes.paused;
+                updateScheduleButtonUI();
+            }
         } catch (e) {
             console.error("Ошибка загрузки данных", e);
             showToast("Ошибка загрузки данных калибровки", "error");
@@ -591,7 +625,62 @@
         });
     }
 
+    function renderParamsHistory(params) {
+        const tbody = document.getElementById('params-history-table-body');
+        tbody.innerHTML = '';
+        
+        if (!params || params.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">Нет истории параметров</td></tr>';
+            return;
+        }
+
+        params.forEach(p => {
+            if (p.status === 'pending') return;
+
+            const tr = document.createElement('tr');
+            
+            const strategy = p.strategy_type.toUpperCase();
+            const badgeClass = `badge-${strategy.toLowerCase()}`;
+            
+            let statusColor = "var(--text-secondary)";
+            let statusText = p.status;
+            let actionDate = p.created_at;
+            
+            if (p.status === "approved") {
+                statusColor = "#10b981";
+                statusText = "Принят";
+                actionDate = p.approved_at;
+            } else if (p.status === "rejected") {
+                statusColor = "#ef4444";
+                statusText = "Отклонён";
+                actionDate = p.rejected_at;
+            }
+            
+            tr.innerHTML = `
+                <td>#${p.id}</td>
+                <td><span class="param-agent-badge ${badgeClass}">${strategy}</span></td>
+                <td><code>${escapeHTML(p.param_name)}</code></td>
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHTML(p.param_value)}">
+                    ${escapeHTML(p.param_value)}
+                </td>
+                <td style="color:${statusColor};font-weight:bold;">${statusText}</td>
+                <td>${formatDate(actionDate)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        if (tbody.children.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">Нет истории параметров</td></tr>';
+        }
+    }
+
     async function approveParam(id) {
+        if (!confirm('Принять это предложение и применить overlay-промпт к агенту?')) return;
+        
+        const card = document.querySelector(`button[onclick="approveParam(${id})"]`)?.closest('.param-card');
+        const buttons = card ? card.querySelectorAll('button') : [];
+        buttons.forEach(btn => btn.disabled = true);
+
         try {
             const res = await fetch('/api/calibration/approve', {
                 method: 'POST',
@@ -603,14 +692,21 @@
                 loadData();
             } else {
                 showToast("Ошибка сервера", "error");
+                buttons.forEach(btn => btn.disabled = false);
             }
         } catch(e) {
             showToast("Сетевая ошибка", "error");
+            buttons.forEach(btn => btn.disabled = false);
         }
     }
 
     async function rejectParam(id) {
         if (!confirm('Отклонить это предложение?')) return;
+        
+        const card = document.querySelector(`button[onclick="rejectParam(${id})"]`)?.closest('.param-card');
+        const buttons = card ? card.querySelectorAll('button') : [];
+        buttons.forEach(btn => btn.disabled = true);
+
         try {
             const res = await fetch('/api/calibration/reject', {
                 method: 'POST',
@@ -622,9 +718,11 @@
                 loadData();
             } else {
                 showToast("Ошибка сервера", "error");
+                buttons.forEach(btn => btn.disabled = false);
             }
         } catch(e) {
             showToast("Сетевая ошибка", "error");
+            buttons.forEach(btn => btn.disabled = false);
         }
     }
 
@@ -643,8 +741,12 @@
 
     async function forceRunCalibration() {
         const btn = document.getElementById('btn-force-run');
+        const textSpan = document.getElementById('text-force-run');
         const spinner = document.getElementById('spinner-force-run');
+        
         btn.disabled = true;
+        const oldText = textSpan.textContent;
+        textSpan.textContent = "Запуск (до 30 сек)...";
         spinner.style.display = 'inline-block';
         try {
             const res = await fetch('/api/calibration/force_run', { method: 'POST' });
@@ -659,16 +761,32 @@
             showToast("Сетевая ошибка", "error");
         } finally {
             btn.disabled = false;
+            textSpan.textContent = oldText;
             spinner.style.display = 'none';
+        }
+    }
+
+    function updateScheduleButtonUI() {
+        const btn = document.getElementById('btn-toggle-schedule');
+        const textSpan = document.getElementById('text-toggle');
+        const icon = document.getElementById('icon-toggle');
+        
+        if (isSchedulePaused) {
+            textSpan.textContent = "Возобновить расписание";
+            icon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>'; // Play icon
+            btn.classList.remove('btn-warning');
+            btn.classList.add('btn-primary');
+        } else {
+            textSpan.textContent = "Приостановить расписание";
+            icon.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>'; // Pause icon
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-warning');
         }
     }
 
     let isSchedulePaused = false;
     async function toggleSchedule() {
         const btn = document.getElementById('btn-toggle-schedule');
-        const textSpan = document.getElementById('text-toggle');
-        const icon = document.getElementById('icon-toggle');
-        
         btn.disabled = true;
         const action = isSchedulePaused ? 'resume' : 'pause';
         
@@ -681,17 +799,10 @@
             const data = await res.json();
             if (res.ok) {
                 isSchedulePaused = !isSchedulePaused;
+                updateScheduleButtonUI();
                 if (isSchedulePaused) {
-                    textSpan.textContent = "Возобновить расписание";
-                    icon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>'; // Play icon
-                    btn.classList.remove('btn-warning');
-                    btn.classList.add('btn-primary');
                     showToast("Расписание приостановлено", "success");
                 } else {
-                    textSpan.textContent = "Приостановить расписание";
-                    icon.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>'; // Pause icon
-                    btn.classList.remove('btn-primary');
-                    btn.classList.add('btn-warning');
                     showToast("Расписание возобновлено", "success");
                 }
             } else {

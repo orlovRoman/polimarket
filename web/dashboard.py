@@ -11,6 +11,13 @@ from web import data_provider
 logger = logging.getLogger("NexusPolyBot.Dashboard")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+_scheduler = None
+_calibration_running = False
+
+def set_scheduler(scheduler):
+    global _scheduler
+    _scheduler = scheduler
+
 def render_template(page_name: str) -> str:
     """Читает base.html и вставляет контент конкретной страницы."""
     base_path = TEMPLATES_DIR / "base.html"
@@ -52,10 +59,6 @@ async def handle_favourite_compounding(request):
 async def handle_scout(request):
     html = await asyncio.to_thread(render_template, "scout.html")
     return web.Response(text=html, content_type="text/html")
-_scheduler = None
-def set_scheduler(scheduler):
-    global _scheduler
-    _scheduler = scheduler
 
 async def handle_whale(request):
     html = await asyncio.to_thread(render_template, "whale.html")
@@ -259,12 +262,30 @@ async def api_calibration_reject(request):
     success = await asyncio.to_thread(CalibrationProvider.reject_calibration_param, param_id)
     return web.json_response({"status": "ok" if success else "failed"})
 async def api_calibration_force_run(request):
+    global _calibration_running
+    if _calibration_running:
+        return web.json_response({"error": "Calibration is already running. Please wait."}, status=409)
+    _calibration_running = True
     try:
         from agents.orchestrator.scripts.calibrate import run_calibration
         report, has_updates = await run_calibration(window_days=7, trigger_type="manual")
         return web.json_response({"status": "ok", "has_updates": has_updates, "report": report})
     except Exception as e:
         logger.error(f"Force run failed: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+    finally:
+        _calibration_running = False
+
+async def api_calibration_schedule_status(request):
+    if not _scheduler:
+        return web.json_response({"error": "Scheduler not available"}, status=500)
+    try:
+        job = _scheduler.get_job("nexus_calibration_job")
+        if not job:
+            return web.json_response({"status": "ok", "paused": True})
+        is_paused = job.next_run_time is None
+        return web.json_response({"status": "ok", "paused": is_paused})
+    except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
 async def api_calibration_toggle_schedule(request):
@@ -1145,6 +1166,7 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/calibration/pending", api_calibration_pending)
     app.router.add_get("/api/calibration/history", api_calibration_history)
     app.router.add_get("/api/calibration/overlays", api_calibration_overlays)
+    app.router.add_get("/api/calibration/schedule_status", api_calibration_schedule_status)
     app.router.add_post("/api/calibration/approve", api_calibration_approve)
     app.router.add_post("/api/calibration/reject", api_calibration_reject)
     app.router.add_post("/api/calibration/force_run", api_calibration_force_run)

@@ -837,6 +837,7 @@ def _init_db_impl(conn: sqlite3.Connection):
             rejected_at TIMESTAMP,
             rejected_by TEXT DEFAULT 'dashboard',
             auto_applied INTEGER DEFAULT 0,
+            run_id INTEGER REFERENCES calibration_runs(id) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -849,6 +850,8 @@ def _init_db_impl(conn: sqlite3.Connection):
         cursor.execute("ALTER TABLE calibration_params ADD COLUMN rejected_at TIMESTAMP")
     if 'rejected_by' not in params_cols:
         cursor.execute("ALTER TABLE calibration_params ADD COLUMN rejected_by TEXT DEFAULT 'dashboard'")
+    if 'run_id' not in params_cols:
+        cursor.execute("ALTER TABLE calibration_params ADD COLUMN run_id INTEGER REFERENCES calibration_runs(id) DEFAULT NULL")
 
     # Таблица calibration_runs
     cursor.execute("""

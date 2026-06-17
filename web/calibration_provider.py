@@ -47,6 +47,13 @@ class CalibrationProvider:
             strategy = param['strategy_type'].lower()
             val = param['param_value']
             
+            # Сначала обновляем статус в БД
+            cursor.execute("""
+                UPDATE calibration_params 
+                SET status = 'approved', approved_at = CURRENT_TIMESTAMP, approved_by = ? 
+                WHERE id = ?
+            """, (approved_by, param_id))
+            
             # Сохраняем в память
             from agents.shared.python.db import save_memory
             if param['param_name'] == 'overlay_prompt':
@@ -58,28 +65,19 @@ class CalibrationProvider:
                 except Exception as e:
                     logger.error(f"Error saving parameter to memory: {e}")
                     
-            # Обновляем статус
-            cursor.execute("""
-                UPDATE calibration_params 
-                SET status = 'approved', approved_at = CURRENT_TIMESTAMP, approved_by = ? 
-                WHERE id = ?
-            """, (approved_by, param_id))
-            conn.commit()
             return True
 
     @staticmethod
     def reject_calibration_param(param_id: int, rejected_by: str = "dashboard") -> bool:
         with get_connection() as conn:
+            conn.row_factory = dict_factory
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE calibration_params 
                 SET status = 'rejected', rejected_at = CURRENT_TIMESTAMP, rejected_by = ?
                 WHERE id = ? AND status = 'pending'
             """, (rejected_by, param_id))
-            if cursor.rowcount > 0:
-                conn.commit()
-                return True
-            return False
+            return cursor.rowcount > 0
 
     @staticmethod
     def get_calibration_history(limit: int = 50) -> List[Dict[str, Any]]:

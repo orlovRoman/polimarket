@@ -43,9 +43,18 @@ def db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             strategy_type TEXT, param_name TEXT, param_value TEXT,
             previous_value TEXT, reason TEXT, status TEXT DEFAULT 'pending',
+            run_id INTEGER REFERENCES calibration_runs(id) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE TABLE memory (key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE memory (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            category TEXT DEFAULT 'general',
+            ttl INTEGER DEFAULT NULL,
+            priority INTEGER DEFAULT 0,
+            expires_at DATETIME DEFAULT NULL
+        );
     """)
     yield conn
     conn.close()
@@ -179,9 +188,11 @@ class TestRunCalibration:
         mock_llm_response = {
             "candidates": [{"content": {"parts": [{"text": json.dumps({
                 "scout_overlay": "Снизь уверенность на 10% в спорте",
+                "scout_reasoning": "Win rate у SCOUT низкий",
                 "swing_overlay": "",
+                "swing_reasoning": "",
                 "shadow_overlay": "Будь строже к политическим рынкам",
-                "reasoning": "Win rate у SCOUT низкий"
+                "shadow_reasoning": "shadow reasoning"
             })}]}}]
         }
 
@@ -192,9 +203,11 @@ class TestRunCalibration:
 
         llm_json_response = json.dumps({
             "scout_overlay": "Снизь уверенность на 10% в спорте",
+            "scout_reasoning": "Win rate у SCOUT низкий",
             "swing_overlay": "",
+            "swing_reasoning": "",
             "shadow_overlay": "Будь строже к политическим рынкам",
-            "reasoning": "Win rate у SCOUT низкий"
+            "shadow_reasoning": "shadow reasoning"
         })
 
         with patch("agents.orchestrator.scripts.calibrate.get_connection", side_effect=mock_conn), \
