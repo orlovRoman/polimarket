@@ -2619,7 +2619,7 @@ def add_penny_stock_to_monitoring(market_id: str, title: str, url: str, initial_
     with get_connection() as conn:
         conn.execute("""
             INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time)
-            VALUES (?, 'Polymarket', ?, ?, 'YES', ?, ?)
+            VALUES (?, 'Polymarket', ?, ?, 'unknown', ?, ?)
         """, (market_id, title, url, initial_price, close_time))
         
         conn.execute("""
@@ -2756,15 +2756,20 @@ def sell_virtual_penny_stock(market_id: str) -> None:
         """, (market_id,))
 
 def resolve_penny_stock(market_id: str, actual_outcome: str) -> None:
+    assert actual_outcome in ("YES", "NO"), f"Invalid resolution: {actual_outcome}"
+    
     with get_connection() as conn:
-        # 1. Проверяем, был ли рынок в виртуальном портфеле
+        # 1. Проверяем, был ли рынок в виртуальном портфеле и его статус
         row = conn.execute("""
-            SELECT title, url, initial_price, predicted_outcome, virtual_bought_price, virtual_bought_at, bet_size_usdc
+            SELECT title, url, initial_price, predicted_outcome, virtual_bought_price, virtual_bought_at, bet_size_usdc, status
             FROM penny_stocks_monitoring
             WHERE market_id = ?
         """, (market_id,)).fetchone()
         
-        if row and row['virtual_bought_price'] is not None:
+        if not row or row['status'] == 'RESOLVED':
+            return
+            
+        if row['virtual_bought_price'] is not None:
             v_bought = row['virtual_bought_price']
             v_bought_at = row['virtual_bought_at']
             v_bet_size = row['bet_size_usdc']

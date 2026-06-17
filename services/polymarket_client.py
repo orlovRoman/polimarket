@@ -39,6 +39,14 @@ def get_market_resolution(market_id: str) -> Optional[str]:
         resp.raise_for_status()
         data = resp.json()
         
+        # Проверяем статус UMA-резолюции, если он есть.
+        # Если статус UMA не равен 'resolved', рынок еще находится в процессе (proposed/disputed),
+        # и доверять текущим исходам или ценам нельзя.
+        uma_status = data.get("umaResolutionStatus")
+        if uma_status and str(uma_status).lower() != "resolved":
+            logger.info(f"[PolymarketClient] Рынок {market_id} закрыт, но статус UMA '{uma_status}' не равен 'resolved'. Пропускаем.")
+            return None
+            
         # 1. Проверяем поле winner (YES/NO)
         winner = data.get("winner")
         if winner and str(winner).upper() in ("YES", "NO"):

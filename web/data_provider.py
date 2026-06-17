@@ -659,9 +659,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                     row_dict['pnl_realized'] = 0.0
             else:
                 bought_price = row_dict.get('bought_outcome_price')
+                bet_size = row_dict.get('bet_size_usdc') or virtual_stake
                 if bought_price and 0.0 < bought_price < 1.0:
                     # pnl_realized is already raw profit/loss (e.g. 0.95 or -1.0)
-                    row_dict['pnl_realized'] = round((virtual_stake / bought_price) * (row_dict['pnl_realized'] or 0.0), 2)
+                    row_dict['pnl_realized'] = round((bet_size / bought_price) * (row_dict['pnl_realized'] or 0.0), 2)
                 else:
                     row_dict['pnl_realized'] = 0.0
 
@@ -682,10 +683,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         resolved_offset = (resolved_page - 1) * resolved_limit
         resolved_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price
+                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price, h.bet_size_usdc as bet_size_usdc
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price
+                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price, SUM(bet_size_usdc) as bet_size_usdc
                 FROM penny_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -723,10 +724,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         wins_offset = (wins_page - 1) * wins_limit
         wins_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price
+                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price, h.bet_size_usdc as bet_size_usdc
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price
+                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price, SUM(bet_size_usdc) as bet_size_usdc
                 FROM penny_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -742,10 +743,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         losses_offset = (losses_page - 1) * losses_limit
         losses_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price
+                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price, h.bet_size_usdc as bet_size_usdc
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price
+                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price, SUM(bet_size_usdc) as bet_size_usdc
                 FROM penny_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
