@@ -140,3 +140,27 @@ def clean_database_garbage():
     except Exception:
         pass
 
+
+@pytest.fixture
+def isolated_db(tmp_path, monkeypatch):
+    """Изолированная база данных для тестирования настроек."""
+    import config
+    import agents.shared.python.db as db_module
+    db_path = tmp_path / "test_penny_settings.db"
+    
+    # Сбрасываем синглтон-провайдер кошелька, чтобы тесты не влияли друг на друга
+    from agents.shared.python.wallet.factory import reset_wallet_provider
+    reset_wallet_provider()
+    
+    # Патчим DB_PATH в config и db_module
+    monkeypatch.setattr(config, "DB_PATH", db_path)
+    monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(db_module, "_db_initialized", False)
+    
+    db_module.init_db()
+    
+    yield db_path
+    db_module._db_initialized = False
+    reset_wallet_provider()
+
+

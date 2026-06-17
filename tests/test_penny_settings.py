@@ -32,26 +32,6 @@ from agents.shared.python.penny_execution_service import (
 from agents.shared.python.wallet.factory import get_wallet_provider
 from agents.shared.python.wallet.models import BalanceInfo, CredentialsStatus
 
-@pytest.fixture
-def isolated_db(tmp_path, monkeypatch):
-    """Изолированная база данных для тестирования настроек."""
-    db_path = tmp_path / "test_penny_settings.db"
-    
-    # Сбрасываем синглтон-провайдер кошелька, чтобы тесты не влияли друг на друга
-    from agents.shared.python.wallet.factory import reset_wallet_provider
-    reset_wallet_provider()
-    
-    # Патчим DB_PATH в config и db_module
-    monkeypatch.setattr(config, "DB_PATH", db_path)
-    monkeypatch.setattr(db_module, "DB_PATH", db_path)
-    monkeypatch.setattr(db_module, "_db_initialized", False)
-    
-    db_module.init_db()
-    
-    yield db_path
-    db_module._db_initialized = False
-    reset_wallet_provider()
-
 # --- Тесты settings_db ---
 
 def test_init_penny_settings_table_creates_defaults(isolated_db):
@@ -376,14 +356,20 @@ def test_no_double_count_on_sell(isolated_db):
     sig = {"target_outcome": "YES", "probability": 0.05, "confidence": 0.6, "price": 0.05}
     execute_penny_trade("mkt_double", sig, cfg)
 
-    # До продажи: 2.4 (открытая позиция, масштабированная по confidence=0.6)
-    assert get_today_spent_budget() == pytest.approx(2.4)
+    # Вычисляем ожидаемый размер ставки:
+    # base = 2.0, min_conf = 0.5, confidence = 0.6.
+    # scaled = base * (1.0 + (confidence - min_conf) / (1.0 - min_conf))
+    # scaled = 2.0 * (1.0 + (0.6 - 0.5) / 0.5) = 2.0 * 1.2 = 2.4.
+    expected_bet = 2.4
+
+    # До продажи: 2.4 (открытая позиция, масштабированная по confidence)
+    assert get_today_spent_budget() == pytest.approx(expected_bet)
 
     # Продаем
     db_module.sell_virtual_penny_stock("mkt_double")
 
     # После продажи: все равно 2.4, но теперь из истории
-    assert get_today_spent_budget() == pytest.approx(2.4)
+    assert get_today_spent_budget() == pytest.approx(expected_bet)
 
 @pytest.mark.asyncio
 async def test_get_config_without_reset_does_not_modify(isolated_db):
@@ -520,7 +506,7 @@ async def test_monitor_spike_alert_sent_once(isolated_db):
     """Спайк-алерт отправляется ровно один раз, не повторно при следующем цикле."""
     from unittest.mock import AsyncMock
     bot_mock = AsyncMock()
-    db_module.add_penny_stock_to_monitoring("mkt_spike", "Spike Test", "http://x", 0.05)
+    db_module.add_penny_stock_to_monitoring("mkt_spike", "Spike Test", "http://spike-test", 0.05, predicted_outcome="YES")
     db_module.buy_virtual_penny_stock("mkt_spike", 0.05, 2.0)
 
     class FakeMarket:

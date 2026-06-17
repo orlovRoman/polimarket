@@ -5,6 +5,7 @@
 """
 import logging
 import asyncio
+import time
 from datetime import datetime, timezone
 from agents.shared.python.db import get_connection, buy_virtual_penny_stock
 from agents.shared.python.penny_settings_db import get_penny_stocks_config, PennyStocksConfig
@@ -146,7 +147,6 @@ def can_execute_penny_trade(signal: dict, cfg: PennyStocksConfig, preflight_cach
 
     # 3. Проверка preflight check
     if cfg.require_preflight_for_autobuy:
-        import time
         now = time.time()
         if (preflight_cache is not None 
                 and "preflight" in preflight_cache 

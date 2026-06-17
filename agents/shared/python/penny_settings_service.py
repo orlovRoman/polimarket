@@ -91,31 +91,43 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
     # 1. Читаем текущий конфиг
     current_cfg = get_penny_stocks_config()
 
-    # Сливаем входящие изменения с текущим конфигом для проверки бизнес-валидации
-    merged_updates = {}
-    for k in PENNY_FIELD_NAMES:
-        if k in updates:
-            merged_updates[k] = updates[k]
-        else:
-            # Превращаем bool обратно в 1/0 для совместимости с БД
-            val = getattr(current_cfg, k)
-            if isinstance(val, bool):
-                merged_updates[k] = "1" if val else "0"
-            else:
-                merged_updates[k] = str(val)
+    try:
+        base = {
+            "bet_size_usdc": current_cfg.bet_size_usdc,
+            "max_bet_size_usdc": current_cfg.max_bet_size_usdc,
+            "daily_budget_usdc": current_cfg.daily_budget_usdc,
+            "max_open_positions": current_cfg.max_open_positions,
+            "min_probability": current_cfg.min_probability,
+            "max_probability": current_cfg.max_probability,
+            "min_confidence_score": current_cfg.min_confidence_score,
+            "min_volume_24h": current_cfg.min_volume_24h,
+            "min_hours_to_close": current_cfg.min_hours_to_close,
+            "max_hours_to_close": current_cfg.max_hours_to_close,
+            "wallet_address": current_cfg.wallet_address,
+            "trading_mode": current_cfg.trading_mode,
+            "live_trading_enabled": current_cfg.live_trading_enabled,
+            "auto_buy_enabled": current_cfg.auto_buy_enabled,
+            "kill_switch": current_cfg.kill_switch,
+            "require_preflight_for_autobuy": current_cfg.require_preflight_for_autobuy,
+            "preflight_min_usdc_buffer": current_cfg.preflight_min_usdc_buffer
+        }
+    except Exception:
+        base = {}
+
+    effective = {**base, **{k: updates[k] for k in updates if k in PENNY_FIELD_NAMES}}
 
     # 2. Бизнес-валидация
     # Проверка типов и базовых инвариантов
     try:
-        val_bet_size = float(merged_updates.get("bet_size_usdc", 1.0))
-        val_max_bet = float(merged_updates.get("max_bet_size_usdc", 5.0))
-        val_max_positions = int(merged_updates.get("max_open_positions", 10))
-        val_daily_budget = float(merged_updates.get("daily_budget_usdc", 20.0))
-        val_min_prob = float(merged_updates.get("min_probability", 0.01))
-        val_max_prob = float(merged_updates.get("max_probability", 0.09))
-        val_min_conf = float(merged_updates.get("min_confidence_score", 0.5))
-        val_min_hours = float(merged_updates.get("min_hours_to_close", 2.0))
-        val_max_hours = float(merged_updates.get("max_hours_to_close", 168.0))
+        val_bet_size = float(effective.get("bet_size_usdc", 1.0))
+        val_max_bet = float(effective.get("max_bet_size_usdc", 5.0))
+        val_max_positions = int(effective.get("max_open_positions", 10))
+        val_daily_budget = float(effective.get("daily_budget_usdc", 20.0))
+        val_min_prob = float(effective.get("min_probability", 0.01))
+        val_max_prob = float(effective.get("max_probability", 0.09))
+        val_min_conf = float(effective.get("min_confidence_score", 0.5))
+        val_min_hours = float(effective.get("min_hours_to_close", 2.0))
+        val_max_hours = float(effective.get("max_hours_to_close", 168.0))
     except (ValueError, TypeError) as e:
         raise ValueError(f"Ошибка приведения типов параметров: {e}")
 
@@ -129,6 +141,15 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
         raise ValueError("Минимальный confidence должен быть между 0.0 и 1.0")
     if not (0.0 <= val_min_hours < val_max_hours):
         raise ValueError("Лимит часов до закрытия нарушает инвариант: 0 <= min_hours < max_hours")
+
+    # Для совместимости с остальной логикой сформируем merged_updates на основе effective
+    merged_updates = {}
+    for k in PENNY_FIELD_NAMES:
+        val = effective.get(k)
+        if isinstance(val, bool):
+            merged_updates[k] = "1" if val else "0"
+        else:
+            merged_updates[k] = str(val) if val is not None else ""
 
     # Запрет включения live режима торговли или live-исполнения, если бэкенд в paper режиме
     if app_mode != "live":
