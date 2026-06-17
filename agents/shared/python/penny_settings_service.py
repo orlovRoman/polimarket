@@ -10,7 +10,8 @@ from dataclasses import asdict
 from agents.shared.python.db import get_connection
 from agents.shared.python.penny_settings_db import (
     get_penny_stocks_config,
-    update_penny_stocks_config
+    update_penny_stocks_config,
+    PENNY_DEFAULTS
 )
 from agents.shared.python.wallet.factory import get_wallet_provider
 
@@ -249,5 +250,4 @@ PENNY_FIELD_NAMES: list[str] = [
 
 def reset_penny_config_to_defaults() -> dict:
     """Сбрасывает конфигурацию Penny Stocks к дефолтным значениям."""
-    from agents.shared.python.penny_settings_db import PENNY_DEFAULTS
     return save_penny_config(PENNY_DEFAULTS, changed_by='system', source='reset')

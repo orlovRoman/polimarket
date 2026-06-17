@@ -828,7 +828,7 @@
         if (!confirm("Вы действительно хотите сбросить все параметры Penny Stocks к их значениям по умолчанию? Все кастомные лимиты будут стерты.")) return;
         
         try {
-            const res = await fetch('/api/penny-stocks/config?reset=true');
+            const res = await fetch('/api/penny-stocks/config/reset', { method: 'POST' });
             const data = await res.json();
             if (data && data.ok) {
                 currentConfig = data.config;

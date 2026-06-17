@@ -87,7 +87,7 @@ def get_today_spent_budget() -> float:
         # 2. Суммируем открытые сегодня позиции
         row_active = conn.execute("""
             SELECT SUM(COALESCE(bet_size_usdc, 1.0)) FROM penny_stocks_monitoring
-            WHERE virtual_bought_at LIKE ?
+            WHERE virtual_bought_at LIKE ? AND virtual_bought_price IS NOT NULL
         """, (f"{today_date}%",)).fetchone()
         spent_active = row_active[0] if row_active and row_active[0] is not None else 0.0
         

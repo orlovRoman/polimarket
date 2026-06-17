@@ -311,7 +311,7 @@ def test_today_budget_independent_of_current_bet_size(isolated_db):
     assert execute_penny_trade("mkt_test_budget_1", sig1, cfg_active) is True
     assert execute_penny_trade("mkt_test_budget_2", sig2, cfg_active) is True
     
-    # Проверяем бюджет: должно быть 2 * 1.0 (поскольку confidence = 0.5) = 2.0
+    # Проверяем бюджет: должно быть 2 * 1.0 = 2.0
     assert get_today_spent_budget() == pytest.approx(2.0)
     
     # Меняем ставку на 5.0
@@ -361,15 +361,76 @@ def test_execute_penny_trade_no_outcome_price(isolated_db):
         assert row is not None
         assert row["virtual_bought_price"] == pytest.approx(0.05)
 
-def test_reset_to_defaults_via_api(isolated_db):
-    """Сброс через API должен возвращать значения из PENNY_DEFAULTS, а не из JS."""
-    from agents.shared.python.penny_settings_db import PENNY_DEFAULTS
-    # Меняем несколько параметров
+def test_no_double_count_on_sell(isolated_db):
+    """При продаже позиции бюджет не должен считаться дважды."""
+    update_penny_stocks_config({"auto_buy_enabled": "1", "bet_size_usdc": "2.0", "wallet_address": "0x123"})
+    cfg = get_penny_stocks_config()
+    db_module.add_penny_stock_to_monitoring(
+        "mkt_double", "Double Count Test", "http://x", 0.05,
+        predicted_outcome="YES", confidence=0.6
+    )
+    sig = {"target_outcome": "YES", "probability": 0.05, "confidence": 0.6, "price": 0.05}
+    execute_penny_trade("mkt_double", sig, cfg)
+
+    # До продажи: 2.4 (открытая позиция, масштабированная по confidence=0.6)
+    assert get_today_spent_budget() == pytest.approx(2.4)
+
+    # Продаем
+    db_module.sell_virtual_penny_stock("mkt_double")
+
+    # После продажи: все равно 2.4, но теперь из истории
+    assert get_today_spent_budget() == pytest.approx(2.4)
+
+@pytest.mark.asyncio
+async def test_get_config_without_reset_does_not_modify(isolated_db):
+    """GET /api/penny-stocks/config без ?reset не сбрасывает настройки."""
+    from aiohttp.test_utils import TestClient, TestServer
+    from web.dashboard import create_dashboard_app
+    update_penny_stocks_config({"bet_size_usdc": "3.5"})
+    
+    app = create_dashboard_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/penny-stocks/config")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["config"]["bet_size_usdc"] == pytest.approx(3.5)
+
+@pytest.mark.asyncio
+async def test_post_reset_endpoint_applies_defaults(isolated_db):
+    """POST /api/penny-stocks/config/reset применяет PENNY_DEFAULTS."""
+    from aiohttp.test_utils import TestClient, TestServer
+    from web.dashboard import create_dashboard_app
     update_penny_stocks_config({"bet_size_usdc": "3.5", "max_open_positions": "25"})
     
-    # Отправляем сброс к дефолтам через save_penny_config
-    from agents.shared.python.penny_settings_service import save_penny_config
-    result = save_penny_config({k: v for k, v in PENNY_DEFAULTS.items()})
-    assert result["ok"] is True
-    assert result["config"]["bet_size_usdc"] == 1.0
-    assert result["config"]["max_open_positions"] == 10
+    app = create_dashboard_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post("/api/penny-stocks/config/reset")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["ok"] is True
+        assert data["config"]["bet_size_usdc"] == pytest.approx(1.0)
+        assert data["config"]["max_open_positions"] == 10
+
+def test_migration_fills_bet_size_for_open_positions(isolated_db):
+    """После миграции открытые позиции получают актуальный bet_size из конфига."""
+    update_penny_stocks_config({"bet_size_usdc": "3.0"})
+    
+    # Эмулируем старую открытую позицию без bet_size
+    with db_module.get_connection() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO penny_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, virtual_bought_price, virtual_bought_at, bet_size_usdc)
+            VALUES ('legacy_market', 'Legacy Market', 'http://legacy', 0.05, 0.05, 0.05, 0.05, 'ACTIVE', 0.05, CURRENT_TIMESTAMP, NULL)
+        """)
+        conn.execute("UPDATE penny_stocks_monitoring SET bet_size_usdc = NULL WHERE market_id = 'legacy_market'")
+        
+    # Перезапускаем инициализацию
+    db_module._db_initialized = False
+    db_module.init_db()
+    
+    with db_module.get_connection() as conn:
+        row = conn.execute(
+            "SELECT bet_size_usdc FROM penny_stocks_monitoring WHERE market_id = 'legacy_market'"
+        ).fetchone()
+        
+    assert row is not None
+    assert row["bet_size_usdc"] == pytest.approx(3.0)

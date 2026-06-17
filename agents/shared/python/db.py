@@ -1010,6 +1010,16 @@ def _init_db_impl(conn: sqlite3.Connection):
         cursor.execute("ALTER TABLE penny_stocks_monitoring ADD COLUMN virtual_bought_at TIMESTAMP DEFAULT NULL")
     if 'bet_size_usdc' not in penny_cols:
         cursor.execute("ALTER TABLE penny_stocks_monitoring ADD COLUMN bet_size_usdc REAL DEFAULT NULL")
+        
+    try:
+        from agents.shared.python.penny_settings_db import get_penny_stocks_config
+        cfg = get_penny_stocks_config()
+        cursor.execute(
+            "UPDATE penny_stocks_monitoring SET bet_size_usdc = ? WHERE virtual_bought_price IS NOT NULL AND bet_size_usdc IS NULL",
+            (cfg.bet_size_usdc,)
+        )
+    except Exception:
+        pass
 
     # Миграция: добавляем bet_size_usdc в историю виртуальных сделок
     hist_cols = {row[1] for row in cursor.execute("PRAGMA table_info(penny_virtual_trades_history)").fetchall()}

@@ -1126,9 +1126,13 @@ async def handle_penny_stocks_settings(request):
     return web.Response(text=html, content_type="text/html")
 
 async def api_penny_stocks_config_get(request):
-    from agents.shared.python.penny_settings_service import load_penny_config, reset_penny_config_to_defaults
-    if request.query.get("reset") == "true":
-        await asyncio.to_thread(reset_penny_config_to_defaults)
+    from agents.shared.python.penny_settings_service import load_penny_config
+    data = await asyncio.to_thread(load_penny_config)
+    return web.json_response(data)
+
+async def api_penny_stocks_config_reset(request):
+    from agents.shared.python.penny_settings_service import reset_penny_config_to_defaults, load_penny_config
+    await asyncio.to_thread(reset_penny_config_to_defaults)
     data = await asyncio.to_thread(load_penny_config)
     return web.json_response(data)
 
@@ -1219,6 +1223,7 @@ def create_dashboard_app() -> web.Application:
     # Penny Stocks Settings API
     app.router.add_get("/api/penny-stocks/config", api_penny_stocks_config_get)
     app.router.add_post("/api/penny-stocks/config", api_penny_stocks_config_update)
+    app.router.add_post("/api/penny-stocks/config/reset", api_penny_stocks_config_reset)
     app.router.add_get("/api/penny-stocks/preflight", api_penny_stocks_preflight)
     app.router.add_post("/api/penny-stocks/rederive-creds", api_penny_stocks_rederive_creds)
 
