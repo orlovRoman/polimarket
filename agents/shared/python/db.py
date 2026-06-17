@@ -3634,7 +3634,6 @@ def allocate_opportunity_to_chain(opp_id: str, market_id: str, price: float) -> 
                 conn.execute(
                     """UPDATE compound_chains 
                        SET status = 'WAITING_RESOLUTION', 
-                           current_step = current_step + 1,
                            updated_at = CURRENT_TIMESTAMP 
                        WHERE id = ?""",
                     (chain_id,)

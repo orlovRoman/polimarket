@@ -1059,11 +1059,11 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             row_dict['current_outcome_price'] = current_outcome_price
             bought_outcome_price = row_dict.get('bought_outcome_price')
             raw_pnl = row_dict['pnl_cents'] or 0.0
-            if bought_outcome_price and bought_outcome_price > 0:
+            if bought_outcome_price and 0.0 < bought_outcome_price < 1.0:
                 shares = virtual_stake / bought_outcome_price
-                row_dict['pnl_cents'] = round(raw_pnl * shares, 4)
+                row_dict['pnl_cents'] = round(raw_pnl * shares, 2)
             else:
-                row_dict['pnl_cents'] = 0.0
+                row_dict['pnl_cents'] = round(raw_pnl * virtual_stake, 2)
             virtual_history.append(row_dict)
 
         # Последние проанализированные рынки для системных оповещений
@@ -1280,6 +1280,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         if win_stats and win_stats['count'] and win_stats['count'] > 0:
             win_rate = (win_stats['wins'] or 0) / win_stats['count']
         if stats_row:
+            # raw pnl from DB, not scaled yet
             best_pnl = (stats_row['best_pnl'] or 0.0) * virtual_stake
             avg_pnl = (stats_row['avg_pnl'] or 0.0) * virtual_stake
 
@@ -1301,7 +1302,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             WHERE status = 'ACTIVE' AND predicted_outcome IS NOT NULL
         """).fetchone()['cnt']
 
-        # 1. Кумулятивный PnL
+        # 1. Кумулятивный PnL (raw pnl from DB, not scaled yet)
         trades_pnl_row = conn.execute("SELECT SUM(pnl_cents) as total_pnl FROM whale_virtual_trades_history").fetchone()
         total_trades_pnl = (trades_pnl_row['total_pnl'] or 0.0) * virtual_stake if trades_pnl_row else 0.0
 
@@ -1456,11 +1457,11 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             row_dict['current_outcome_price'] = current_outcome_price
             bought_outcome_price = row_dict.get('bought_outcome_price')
             raw_pnl = row_dict['pnl_cents'] or 0.0
-            if bought_outcome_price and bought_outcome_price > 0:
+            if bought_outcome_price and 0.0 < bought_outcome_price < 1.0:
                 shares = virtual_stake / bought_outcome_price
-                row_dict['pnl_cents'] = round(raw_pnl * shares, 4)
+                row_dict['pnl_cents'] = round(raw_pnl * shares, 2)
             else:
-                row_dict['pnl_cents'] = 0.0
+                row_dict['pnl_cents'] = round(raw_pnl * virtual_stake, 2)
             virtual_history.append(row_dict)
 
         # Последние алерты по транзакциям китов для оповещений
@@ -2027,7 +2028,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             avg_win_pnl = sum_won / auto_wins
             if avg_win_pnl > 0:
                 b = avg_win_pnl / virtual_stake
-                kelly_fraction = (p * b - (1.0 - p)) / b
+                kelly_fraction = p - (1.0 - p) / b
                 kelly_fraction = max(0.0, kelly_fraction) * 0.5
         stats = {
             'active_count': active_total,
