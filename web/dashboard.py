@@ -239,7 +239,9 @@ async def api_calibration_history(request):
         limit = int(request.query.get("limit", 50))
     except ValueError:
         limit = 50
-    data = await asyncio.to_thread(CalibrationProvider.get_calibration_history, limit)
+    status_param = request.query.get("status")
+    statuses = [s.strip() for s in status_param.split(",") if s.strip()] if status_param else None
+    data = await asyncio.to_thread(CalibrationProvider.get_calibration_history, limit, statuses)
     return web.json_response(data)
 
 async def api_calibration_approve(request):

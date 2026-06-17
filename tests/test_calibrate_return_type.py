@@ -224,3 +224,44 @@ class TestRunCalibrationReturnType:
         assert isinstance(result, tuple)
         report, has_updates = result
         assert has_updates is False
+
+    @pytest.mark.asyncio
+    async def test_calibration_no_overlays_returns_false(self, db):
+        """LLM вернул все пустые overlay → (str, False), run записан как completed."""
+        for i in range(10):
+            db.execute(
+                "INSERT INTO signals VALUES (?,?,?,?,?,datetime('now','-1 day'))",
+                (i, "SCOUT", "ARCHIVED", 1, 5.0)
+            )
+        for i in range(10):
+            db.execute(
+                "INSERT INTO idea_audit VALUES (?,?,?,?,?,?,?,datetime('now','-1 day'))",
+                (i, f"m{i}", "PASS", 1, 0.6, 0.6, None)
+            )
+
+        import json
+        llm_json_response = json.dumps({
+            "scout_overlay": "",
+            "scout_reasoning": "no changes needed",
+            "swing_overlay": "",
+            "swing_reasoning": "",
+            "shadow_overlay": "",
+            "shadow_reasoning": ""
+        })
+
+        from agents.orchestrator.scripts.calibrate import run_calibration
+        with patch("agents.orchestrator.scripts.calibrate.get_connection",
+                   side_effect=lambda: mock_conn(db)), \
+             patch("agents.orchestrator.scripts.calibrate.generate_content_with_fallback",
+                   return_value=({"text": "mock"}, "gemini-2.5-pro")), \
+             patch("agents.orchestrator.scripts.calibrate.extract_response_text",
+                   return_value=llm_json_response):
+            result = await run_calibration(window_days=7)
+            
+        assert isinstance(result, tuple)
+        assert result[1] is False
+        
+        row = db.execute("SELECT status, params_proposed FROM calibration_runs ORDER BY id DESC LIMIT 1").fetchone()
+        assert row is not None
+        assert row["status"] == "completed"
+        assert row["params_proposed"] == 0

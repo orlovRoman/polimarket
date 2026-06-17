@@ -419,7 +419,7 @@
                 fetchJSON('/api/calibration/runs'),
                 fetchJSON('/api/calibration/pending'),
                 fetchJSON('/api/calibration/overlays'),
-                fetchJSON('/api/calibration/history?limit=20'),
+                fetchJSON('/api/calibration/history?limit=20&status=approved,rejected'),
                 fetchJSON('/api/calibration/schedule_status')
             ]);
             
@@ -635,8 +635,6 @@
         }
 
         params.forEach(p => {
-            if (p.status === 'pending') return;
-
             const tr = document.createElement('tr');
             
             const strategy = p.strategy_type.toUpperCase();

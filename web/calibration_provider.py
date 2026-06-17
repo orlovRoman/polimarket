@@ -80,17 +80,28 @@ class CalibrationProvider:
             return cursor.rowcount > 0
 
     @staticmethod
-    def get_calibration_history(limit: int = 50) -> List[Dict[str, Any]]:
+    def get_calibration_history(limit: int = 50, statuses: List[str] = None) -> List[Dict[str, Any]]:
         with get_connection() as conn:
             conn.row_factory = dict_factory
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, strategy_type, param_name, param_value, previous_value, reason, 
-                       status, created_at, approved_at, approved_by, rejected_at, rejected_by
-                FROM calibration_params 
-                ORDER BY id DESC
-                LIMIT ?
-            """, (limit,))
+            if statuses:
+                placeholders = ",".join("?" for _ in statuses)
+                cursor.execute(f"""
+                    SELECT id, strategy_type, param_name, param_value, previous_value, reason, 
+                           status, created_at, approved_at, approved_by, rejected_at, rejected_by
+                    FROM calibration_params 
+                    WHERE status IN ({placeholders})
+                    ORDER BY id DESC
+                    LIMIT ?
+                """, tuple(statuses) + (limit,))
+            else:
+                cursor.execute("""
+                    SELECT id, strategy_type, param_name, param_value, previous_value, reason, 
+                           status, created_at, approved_at, approved_by, rejected_at, rejected_by
+                    FROM calibration_params 
+                    ORDER BY id DESC
+                    LIMIT ?
+                """, (limit,))
             return cursor.fetchall()
 
     @staticmethod
