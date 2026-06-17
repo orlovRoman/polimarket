@@ -68,18 +68,32 @@ class CalibrationProvider:
             return True
 
     @staticmethod
-    def reject_calibration_param(param_id: int) -> bool:
+    def reject_calibration_param(param_id: int, rejected_by: str = "dashboard") -> bool:
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE calibration_params 
-                SET status = 'rejected' 
+                SET status = 'rejected', rejected_at = CURRENT_TIMESTAMP, rejected_by = ?
                 WHERE id = ? AND status = 'pending'
-            """, (param_id,))
+            """, (rejected_by, param_id))
             if cursor.rowcount > 0:
                 conn.commit()
                 return True
             return False
+
+    @staticmethod
+    def get_calibration_history(limit: int = 50) -> List[Dict[str, Any]]:
+        with get_connection() as conn:
+            conn.row_factory = dict_factory
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, strategy_type, param_name, param_value, previous_value, reason, 
+                       status, created_at, approved_at, approved_by, rejected_at, rejected_by
+                FROM calibration_params 
+                ORDER BY id DESC
+                LIMIT ?
+            """, (limit,))
+            return cursor.fetchall()
 
     @staticmethod
     def get_current_overlays() -> Dict[str, str]:

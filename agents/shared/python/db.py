@@ -834,10 +834,21 @@ def _init_db_impl(conn: sqlite3.Connection):
             status TEXT DEFAULT 'pending',
             approved_at TIMESTAMP,
             approved_by TEXT DEFAULT 'dashboard',
+            rejected_at TIMESTAMP,
+            rejected_by TEXT DEFAULT 'dashboard',
             auto_applied INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Миграция таблицы calibration_params
+    params_cols = {row[1] for row in cursor.execute("PRAGMA table_info(calibration_params)").fetchall()}
+    if 'updated_at' in params_cols and 'created_at' not in params_cols:
+        cursor.execute("ALTER TABLE calibration_params RENAME COLUMN updated_at TO created_at")
+    if 'rejected_at' not in params_cols:
+        cursor.execute("ALTER TABLE calibration_params ADD COLUMN rejected_at TIMESTAMP")
+    if 'rejected_by' not in params_cols:
+        cursor.execute("ALTER TABLE calibration_params ADD COLUMN rejected_by TEXT DEFAULT 'dashboard'")
 
     # Таблица calibration_runs
     cursor.execute("""

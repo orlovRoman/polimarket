@@ -33,6 +33,7 @@ def db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             strategy_type TEXT, param_name TEXT, param_value TEXT,
             previous_value TEXT, reason TEXT, status TEXT DEFAULT 'pending',
+            rejected_at TIMESTAMP, rejected_by TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE memory (key TEXT PRIMARY KEY, value TEXT);
     """)
@@ -144,6 +145,67 @@ class TestRunCalibrationReturnType:
                    return_value=llm_json_response), \
              patch("agents.shared.python.db.get_memory", return_value=""):
             result = await run_calibration(window_days=7, trigger_type="manual")
-
+            
+        assert isinstance(result, tuple)
         report, has_updates = result
         assert has_updates is True
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_invalid_json(self, db):
+        """LLM вернул не-JSON строку → (str, False), не крашится."""
+        for i in range(10):
+            db.execute(
+                "INSERT INTO signals VALUES (?,?,?,?,?,datetime('now','-1 day'))",
+                (i, "SCOUT", "ARCHIVED", 1, 5.0)
+            )
+        for i in range(10):
+            db.execute(
+                "INSERT INTO idea_audit VALUES (?,?,?,?,?,?,?,datetime('now','-1 day'))",
+                (i, f"m{i}", "PASS", 1, 0.6, 0.6, None)
+            )
+
+        from agents.orchestrator.scripts.calibrate import run_calibration
+        with patch("agents.orchestrator.scripts.calibrate.get_connection",
+                   side_effect=lambda: mock_conn(db)), \
+             patch("agents.orchestrator.scripts.calibrate.generate_content_with_fallback",
+                   return_value=({"text": "какой-то мусор"}, "gemini-2.5-pro")), \
+             patch("agents.orchestrator.scripts.calibrate.extract_response_text",
+                   return_value="не JSON вообще"):
+            result = await run_calibration(window_days=7)
+            
+        assert isinstance(result, tuple)
+        report, has_updates = result
+        assert has_updates is False
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_empty_new_params(self, db):
+        """LLM вернул new_params=[] → (str, False)."""
+        for i in range(10):
+            db.execute(
+                "INSERT INTO signals VALUES (?,?,?,?,?,datetime('now','-1 day'))",
+                (i, "SCOUT", "ARCHIVED", 1, 5.0)
+            )
+        for i in range(10):
+            db.execute(
+                "INSERT INTO idea_audit VALUES (?,?,?,?,?,?,?,datetime('now','-1 day'))",
+                (i, f"m{i}", "PASS", 1, 0.6, 0.6, None)
+            )
+
+        import json
+        llm_json_response = json.dumps({
+            "new_params": [],
+            "reasoning": "win rate ok"
+        })
+
+        from agents.orchestrator.scripts.calibrate import run_calibration
+        with patch("agents.orchestrator.scripts.calibrate.get_connection",
+                   side_effect=lambda: mock_conn(db)), \
+             patch("agents.orchestrator.scripts.calibrate.generate_content_with_fallback",
+                   return_value=({"text": "mock"}, "gemini-2.5-pro")), \
+             patch("agents.orchestrator.scripts.calibrate.extract_response_text",
+                   return_value=llm_json_response):
+            result = await run_calibration(window_days=7)
+            
+        assert isinstance(result, tuple)
+        report, has_updates = result
+        assert has_updates is False

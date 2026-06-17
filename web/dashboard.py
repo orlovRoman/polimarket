@@ -230,6 +230,14 @@ async def api_calibration_overlays(request):
     from web.calibration_provider import CalibrationProvider
     data = await asyncio.to_thread(CalibrationProvider.get_current_overlays)
     return web.json_response(data)
+async def api_calibration_history(request):
+    from web.calibration_provider import CalibrationProvider
+    try:
+        limit = int(request.query.get("limit", 50))
+    except ValueError:
+        limit = 50
+    data = await asyncio.to_thread(CalibrationProvider.get_calibration_history, limit)
+    return web.json_response(data)
 
 async def api_calibration_approve(request):
     try:
@@ -1135,6 +1143,7 @@ def create_dashboard_app() -> web.Application:
     
     app.router.add_get("/api/calibration/runs", api_calibration_runs)
     app.router.add_get("/api/calibration/pending", api_calibration_pending)
+    app.router.add_get("/api/calibration/history", api_calibration_history)
     app.router.add_get("/api/calibration/overlays", api_calibration_overlays)
     app.router.add_post("/api/calibration/approve", api_calibration_approve)
     app.router.add_post("/api/calibration/reject", api_calibration_reject)
