@@ -28,6 +28,14 @@ from core.engine import CoreEngine
 from agents.orchestrator.src.news_processor import NewsProcessor
 from core.arb_scanner import _PRICE_TAG_RE
 
+def clean_market_url(url: str) -> str:
+    if not url:
+        return ""
+    # Убираем query-параметры и заменяем /event/ на /market/ для совместимости
+    url = url.split("?")[0]
+    return url.replace("polymarket.com/event/", "polymarket.com/market/")
+
+
 logger = logging.getLogger("NexusPolyBot.telegram_listener")
 
 try:
@@ -327,7 +335,7 @@ def parse_whale_alert(text: str, entities=None) -> dict:
     
     for url in urls:
         if "polymarket.com/event/" in url or "polymarket.com/market/" in url:
-            result["market_url"] = url.split("?")[0] # убираем query-параметры
+            result["market_url"] = clean_market_url(url)
         elif "polymarket.com/profile/" in url:
             # Извлекаем кошелек из ссылки на профиль
             profile_match = re.search(r'polymarket\.com/profile/(0x[a-fA-F0-9]{40})', url)
@@ -434,7 +442,7 @@ def parse_radar_signal(text: str, entities=None) -> dict:
             url = ent.url
             if "polymarket.com/event/" in url or "polymarket.com/market/" in url:
                 if not result["market_url"]:
-                    result["market_url"] = url.split("?")[0]
+                    result["market_url"] = clean_market_url(url)
             elif "polymarket.com/profile/" in url:
                 profile_match = re.search(r'/profile/(0x[a-fA-F0-9]{40})', url)
                 if profile_match:
@@ -449,7 +457,7 @@ def parse_radar_signal(text: str, entities=None) -> dict:
     if not result["market_url"]:
         raw_urls = re.findall(r'https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+', text)
         if raw_urls:
-            result["market_url"] = raw_urls[0].split("?")[0]
+            result["market_url"] = clean_market_url(raw_urls[0])
 
     if not result["wallet"]:
         wallet_match = re.search(r'(0x[a-fA-F0-9]{40})', text)
@@ -694,7 +702,7 @@ async def _process_news_channel_message(chat_name, text, entities, tg_post_url, 
             for ent in entities:
                 if hasattr(ent, 'url') and ent.url:
                     if 'polymarket.com/event/' in ent.url or 'polymarket.com/market/' in ent.url:
-                        pm_url = ent.url.split('?')[0]
+                        pm_url = clean_market_url(ent.url)
                         break
 
         if not pm_url:
@@ -702,7 +710,7 @@ async def _process_news_channel_message(chat_name, text, entities, tg_post_url, 
                 r'https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+', text
             )
             if pm_url_match:
-                pm_url = pm_url_match.group(0)
+                pm_url = clean_market_url(pm_url_match.group(0))
 
         if pm_url:
             market_ids = await resolve_market_ids_from_url(pm_url, text)

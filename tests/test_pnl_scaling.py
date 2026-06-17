@@ -199,3 +199,33 @@ def test_compounding_chain_increment_flow():
     
     assert chain["current_step"] == 3
     assert chain["status"] == "COMPLETED"
+
+
+# ──────────────────────────────────────────────────────────────
+# Тест 7: Преобразование event-ссылок Polymarket в market-ссылки
+# ──────────────────────────────────────────────────────────────
+def test_polymarket_url_conversion():
+    """Проверяет преобразование ссылок /event/ -> /market/ и очистку от параметров."""
+    from services.telegram_listener import clean_market_url
+    from web.data_provider import clean_db_url
+
+    # Входящие некорректные ссылки (с event и query параметрами)
+    url_1 = "https://polymarket.com/event/fifwc-ksa-ury-2026-06-15-spread-home-1pt5?some_param=abc"
+    url_2 = "https://polymarket.com/event/will-saudi-arabia-be-the-furthest-advancing-afc-nation-at-the-world-cup-20260603202050233"
+    url_3 = "https://polymarket.com/market/fifwc-ksa-ury-2026-06-15-goals-federico-valverde-gte3?ref=123"
+
+    # Ожидаемый результат
+    expected_1 = "https://polymarket.com/market/fifwc-ksa-ury-2026-06-15-spread-home-1pt5"
+    expected_2 = "https://polymarket.com/market/will-saudi-arabia-be-the-furthest-advancing-afc-nation-at-the-world-cup-20260603202050233"
+    expected_3 = "https://polymarket.com/market/fifwc-ksa-ury-2026-06-15-goals-federico-valverde-gte3"
+
+    # Тестируем clean_market_url
+    assert clean_market_url(url_1) == expected_1
+    assert clean_market_url(url_2) == expected_2
+    assert clean_market_url(url_3) == expected_3
+    assert clean_market_url(None) == ""
+
+    # Тестируем clean_db_url
+    assert clean_db_url("https://polymarket.com/event/test-slug") == "https://polymarket.com/market/test-slug"
+    assert clean_db_url(None) is None
+

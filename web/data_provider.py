@@ -7,6 +7,11 @@ from typing import Optional, Any
 
 logger = logging.getLogger("NexusPolyBot.DataProvider")
 
+def clean_db_url(url: str) -> str:
+    if not url:
+        return url
+    return url.replace("polymarket.com/event/", "polymarket.com/market/")
+
 from agents.shared.python.utils import _parse_dt_utc
 
 def get_global_virtual_stake(conn) -> float:
@@ -570,6 +575,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         active = []
         for r in active_rows:
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             pred = row_dict['predicted_outcome']
             init = row_dict['initial_price']
             curr = row_dict['current_price']
@@ -598,6 +605,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         def _process_resolved_row(r):
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             pred = row_dict['predicted_outcome']
             init = row_dict['initial_price']
             curr = row_dict['current_price']
@@ -762,6 +771,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         portfolio = []
         for r in portfolio_rows:
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             pred = row_dict['predicted_outcome']
             init = row_dict['initial_price']
             v_bought = row_dict['virtual_bought_price']
@@ -1027,6 +1038,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         virtual_history = []
         for r in history_rows:
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             outcome = row_dict['outcome']
             mx = row_dict['max_price_seen']
             mn = row_dict['min_price_seen']
@@ -1131,6 +1144,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         active = []
         for r in active_rows:
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             pred = row_dict['predicted_outcome']
             init = row_dict['initial_price']
             curr = row_dict['current_price']
@@ -1178,6 +1193,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         resolved = []
         for r in resolved_rows:
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             pred = row_dict['predicted_outcome']
             init = row_dict['initial_price']
             curr = row_dict['current_price']
@@ -1226,6 +1243,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         portfolio = []
         for r in portfolio_rows:
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             pred = row_dict['predicted_outcome']
             init = row_dict['initial_price']
             v_bought = row_dict['virtual_bought_price']
@@ -1427,6 +1446,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         virtual_history = []
         for r in history_rows:
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             outcome = row_dict['outcome']
             mx = row_dict['max_price_seen']
             mn = row_dict['min_price_seen']
@@ -1820,7 +1841,12 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             LIMIT ? OFFSET ?
         """, (active_limit, active_offset)).fetchall()
 
-        active = [dict(r) for r in active_rows]
+        active = []
+        for r in active_rows:
+            row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
+            active.append(row_dict)
 
         # Подсчет общего количества выигранных
         wins_total_row = conn.execute("""
@@ -1842,6 +1868,8 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
 
         def _process_compound_resolved_row(r, virtual_stake):
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             price = row_dict['price']
             outcome = row_dict['outcome']
             actual = row_dict['actual_outcome']
@@ -1932,6 +1960,8 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         portfolio = []
         for r in portfolio_rows:
             row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
             v_bought = row_dict['virtual_bought_price']
             v_curr = row_dict['price']
             
@@ -2119,7 +2149,12 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             LIMIT ? OFFSET ?
         """, (history_limit, history_offset)).fetchall()
 
-        virtual_history = [dict(r) for r in history_rows]
+        virtual_history = []
+        for r in history_rows:
+            row_dict = dict(r)
+            if 'url' in row_dict:
+                row_dict['url'] = clean_db_url(row_dict['url'])
+            virtual_history.append(row_dict)
 
         # Цепочки реинвестирования (Parlays)
         chains_rows = conn.execute("SELECT * FROM compound_chains ORDER BY id DESC LIMIT 50").fetchall()
@@ -2142,6 +2177,8 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             bets_by_chain = {}
             for b in bets_rows:
                 b_dict = dict(b)
+                if 'url' in b_dict:
+                    b_dict['url'] = clean_db_url(b_dict['url'])
                 c_id = b_dict["chain_id"]
                 if c_id not in bets_by_chain:
                     bets_by_chain[c_id] = []
