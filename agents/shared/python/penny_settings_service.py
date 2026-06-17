@@ -11,7 +11,8 @@ from agents.shared.python.db import get_connection
 from agents.shared.python.penny_settings_db import (
     get_penny_stocks_config,
     update_penny_stocks_config,
-    PENNY_DEFAULTS
+    PENNY_DEFAULTS,
+    PennyStocksConfig
 )
 from agents.shared.python.wallet.factory import get_wallet_provider
 
