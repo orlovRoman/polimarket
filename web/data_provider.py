@@ -1057,7 +1057,13 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
 
             row_dict['current_outcome_price'] = current_outcome_price
-            row_dict['pnl_cents'] = round((row_dict['pnl_cents'] or 0.0) * virtual_stake, 2)
+            bought_outcome_price = row_dict.get('bought_outcome_price')
+            raw_pnl = row_dict['pnl_cents'] or 0.0
+            if bought_outcome_price and bought_outcome_price > 0:
+                shares = virtual_stake / bought_outcome_price
+                row_dict['pnl_cents'] = round(raw_pnl * shares, 4)
+            else:
+                row_dict['pnl_cents'] = 0.0
             virtual_history.append(row_dict)
 
         # Последние проанализированные рынки для системных оповещений
@@ -1448,7 +1454,13 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
 
             row_dict['current_outcome_price'] = current_outcome_price
-            row_dict['pnl_cents'] = round((row_dict['pnl_cents'] or 0.0) * virtual_stake, 2)
+            bought_outcome_price = row_dict.get('bought_outcome_price')
+            raw_pnl = row_dict['pnl_cents'] or 0.0
+            if bought_outcome_price and bought_outcome_price > 0:
+                shares = virtual_stake / bought_outcome_price
+                row_dict['pnl_cents'] = round(raw_pnl * shares, 4)
+            else:
+                row_dict['pnl_cents'] = 0.0
             virtual_history.append(row_dict)
 
         # Последние алерты по транзакциям китов для оповещений
