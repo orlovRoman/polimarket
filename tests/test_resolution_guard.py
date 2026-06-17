@@ -2,7 +2,7 @@
 """Тесты защитных механизмов резолюции рынков (Resolution Guards)."""
 import pytest
 from unittest.mock import patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from services.polymarket_client import get_market_resolution
 
 def test_active_market_not_resolved():
@@ -85,6 +85,57 @@ def test_uma_resolution_status_resolved():
     with patch("requests.get", return_value=mock_resp):
         res = get_market_resolution("m6")
         assert res == "YES"
+
+
+def test_negrisk_closed_false_but_ended_resolved():
+    """negRisk-рынок с closed=false, но endDate прошёл и цена NO=99.9% → должен разрешаться."""
+    from datetime import timedelta
+    past_date = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "closed": False,
+        "tokens": [],
+        "endDate": past_date,
+        "outcomePrices": "[\"0.0005\", \"0.9995\"]"
+    }
+    with patch("requests.get", return_value=mock_resp):
+        res = get_market_resolution("m_negrisk_ended")
+        assert res == "NO", f"negRisk-рынок с endDate в прошлом и NO=99.95% должен разрешиться как NO, получено: {res}"
+
+
+def test_negrisk_closed_false_not_ended_yet():
+    """negRisk-рынок с closed=false и endDate в будущем → НЕ разрешается, даже при NO=99%."""
+    from datetime import timedelta
+    future_date = (datetime.now(timezone.utc) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "closed": False,
+        "tokens": [],
+        "endDate": future_date,
+        "outcomePrices": "[\"0.01\", \"0.99\"]"
+    }
+    with patch("requests.get", return_value=mock_resp):
+        res = get_market_resolution("m_negrisk_active")
+        assert res is None, "negRisk с endDate в будущем не должен разрешаться"
+
+
+def test_negrisk_closed_false_ended_but_uncertain():
+    """negRisk-рынок с endDate в прошлом но ценой NO=95% (< 99.9%) → не разрешается."""
+    from datetime import timedelta
+    past_date = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "closed": False,
+        "tokens": [],
+        "endDate": past_date,
+        "outcomePrices": "[\"0.05\", \"0.95\"]"  # 95% < порог 99.9%
+    }
+    with patch("requests.get", return_value=mock_resp):
+        res = get_market_resolution("m_negrisk_uncertain")
+        assert res is None, "negRisk с неопределённой ценой (95%) не должен разрешаться"
 
 
 class TestCompoundResolutionGuard:

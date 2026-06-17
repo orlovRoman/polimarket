@@ -7,6 +7,7 @@ import requests
 import json
 import logging
 from typing import Optional
+from datetime import datetime, timezone
 
 logger = logging.getLogger("NexusPolyBot.PolymarketClient")
 
@@ -25,6 +26,55 @@ def parse_outcome_prices(raw_prices) -> list[float]:
         pass
     return []
 
+def _is_negrisk_resolved(data: dict, market_id: str) -> Optional[str]:
+    """
+    Специальная проверка для negRisk-рынков (tokens: []).
+    Такие рынки часто долго остаются closed=false даже после реального завершения.
+    Считаем рынок разрешённым, если выполнены ВСЕ три условия:
+      1. tokens пуст (признак negRisk-формата)
+      2. endDate уже прошёл (минимум на 1 час)
+      3. outcomePrices показывает явного победителя с уверенностью >= 99.9%
+    """
+    tokens = data.get("tokens", [])
+    if tokens:
+        # Это обычный рынок с токенами — данная функция не применяется
+        return None
+
+    end_date_str = data.get("endDate")
+    if not end_date_str:
+        return None
+
+    try:
+        end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        # Даём минимум 1 час после endDate для корректного обновления API
+        if now < end_date.replace(tzinfo=timezone.utc if end_date.tzinfo is None else end_date.tzinfo):
+            return None
+        hours_since_end = (now - end_date).total_seconds() / 3600
+        if hours_since_end < 1.0:
+            return None
+    except (ValueError, TypeError):
+        return None
+
+    # Проверяем outcomePrices с очень высоким порогом (0.999 = 99.9%)
+    prices_float = parse_outcome_prices(data.get("outcomePrices"))
+    if not prices_float:
+        return None
+
+    winner_index = next(
+        (i for i, p in enumerate(prices_float) if p >= 0.999),
+        None
+    )
+    if winner_index is not None:
+        outcome = "YES" if winner_index == 0 else "NO"
+        logger.info(
+            f"[PolymarketClient] negRisk рынок {market_id}: closed=false, "
+            f"но endDate {end_date_str} прошёл и outcomePrices={prices_float} → {outcome}"
+        )
+        return outcome
+
+    return None
+
 def get_market_resolution(market_id: str) -> Optional[str]:
     """
     Запрашивает статус рынка из Polymarket API.
@@ -39,9 +89,14 @@ def get_market_resolution(market_id: str) -> Optional[str]:
         resp.raise_for_status()
         data = resp.json()
         
-        # 1. Проверяем, закрыт ли рынок. Если нет — резолюция невозможна.
+        # 1. Проверяем, закрыт ли рынок.
         closed = data.get("closed", False)
         if not closed:
+            # Исключение: negRisk-рынки (tokens=[]) часто зависают в closed=false
+            # даже после реального завершения — обрабатываем их отдельно.
+            negrisk_result = _is_negrisk_resolved(data, market_id)
+            if negrisk_result:
+                return negrisk_result
             return None
             
         # Проверяем статус UMA-резолюции, если он есть.
@@ -84,3 +139,4 @@ def get_market_resolution(market_id: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"[PolymarketClient] Ошибка при получении резолюции для {market_id}: {e}")
         return None
+
