@@ -101,10 +101,10 @@ def _load_penny_stocks_stats(conn, stats, virtual_stake):
     """).fetchall()
 
     total = len(penny_rows)
+    total_valid = 0
+    total_wins = 0
     pnl_7d = 0.0
     pnl_30d = 0.0
-    wins_30d = 0
-    total_30d = 0
     
     now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
@@ -116,6 +116,9 @@ def _load_penny_stocks_stats(conn, stats, virtual_stake):
         init_price = r['initial_price']
         res_at_str = r['resolved_at']
         
+        if not pred or not act:
+            continue
+        
         try:
             res_at = _parse_dt_utc(res_at_str)
             if res_at is None:
@@ -123,14 +126,17 @@ def _load_penny_stocks_stats(conn, stats, virtual_stake):
         except Exception:
             continue
 
-        pred_up = pred.upper() if pred else ""
-        act_up = act.upper() if act else ""
+        pred_up = pred.upper()
+        act_up = act.upper()
 
         buy_price = init_price if pred_up == 'YES' else (1.0 - init_price)
         if not (0.001 < buy_price < 0.999):
             continue
             
         is_win = (pred_up == act_up)
+        total_valid += 1
+        if is_win:
+            total_wins += 1
         
         if is_win:
             pnl = (virtual_stake / buy_price) * (1.0 - buy_price)
@@ -142,15 +148,12 @@ def _load_penny_stocks_stats(conn, stats, virtual_stake):
             
         if res_at >= thirty_days_ago:
             pnl_30d += pnl
-            total_30d += 1
-            if is_win:
-                wins_30d += 1
 
     stats['penny_stocks']['pnl_7d'] = round(pnl_7d, 2)
     stats['penny_stocks']['pnl_30d'] = round(pnl_30d, 2)
     stats['penny_stocks']['signals_count'] = max(stats['penny_stocks']['signals_count'], total)
-    if total_30d > 0:
-        stats['penny_stocks']['win_rate'] = wins_30d / total_30d
+    if total_valid > 0:
+        stats['penny_stocks']['win_rate'] = total_wins / total_valid
 
 def _load_whale_stats(conn, stats, virtual_stake):
     """
@@ -437,10 +440,10 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
                                WHEN predicted_outcome = 'NO' THEN 
                                    (CASE WHEN actual_outcome = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
                                ELSE 0.0
-                           END) * (? / CASE 
+                           END) * (? / NULLIF(CASE 
                                WHEN predicted_outcome = 'NO' THEN 1.0 - initial_price 
                                ELSE initial_price 
-                           END)
+                           END, 0))
                        ) as daily_pnl
                 FROM penny_stocks_monitoring
                 WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL AND resolved_at >= ?
@@ -638,16 +641,6 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                     row_dict['pnl_realized'] = 0.0
             else:
                 bought_price = row_dict.get('bought_outcome_price')
-                if not bought_price or bought_price <= 0:
-                    if init is not None and outcome_to_track is not None:
-                        try:
-                            track_up = outcome_to_track.upper()
-                            init_f = float(init)
-                            if 0.0 < init_f < 1.0:
-                                bought_price = (1.0 - init_f) if track_up == 'NO' else init_f
-                        except (ValueError, TypeError):
-                            bought_price = None
-                
                 if bought_price and 0.0 < bought_price < 1.0:
                     # pnl_realized is already raw profit/loss (e.g. 0.95 or -1.0)
                     row_dict['pnl_realized'] = round((virtual_stake / bought_price) * (row_dict['pnl_realized'] or 0.0), 2)
