@@ -167,10 +167,11 @@ def _load_whale_stats(conn, stats, virtual_stake):
                 p.predicted_outcome, 
                 p.actual_outcome, 
                 p.resolved_at,
-                h.pnl_realized
+                h.pnl_realized,
+                h.bought_outcome_price
             FROM whale_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_realized
+                SELECT market_id, SUM(pnl_cents) as pnl_realized, AVG(bought_outcome_price) as bought_outcome_price
                 FROM whale_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -181,7 +182,6 @@ def _load_whale_stats(conn, stats, virtual_stake):
         pnl_30d = 0.0
         total = len(rows)
 
-        from datetime import datetime, timedelta, timezone
         now = datetime.now(timezone.utc)
         seven_days_ago = now - timedelta(days=7)
         thirty_days_ago = now - timedelta(days=30)
@@ -191,6 +191,7 @@ def _load_whale_stats(conn, stats, virtual_stake):
 
         for r in rows:
             pnl_realized = r['pnl_realized']
+            bought_price = r['bought_outcome_price']
             pnl_val = 0.0
             
             actual = r['actual_outcome']
@@ -198,14 +199,18 @@ def _load_whale_stats(conn, stats, virtual_stake):
             pred = r['predicted_outcome']
             resolved_at_str = r['resolved_at']
 
-            if pnl_realized is not None:
-                pnl_val = pnl_realized * virtual_stake
-            elif actual is not None and init is not None:
-                outcome_to_track = pred if pred is not None else 'YES'
-                track_up = outcome_to_track.upper()
-                act_up = actual.upper()
-                bought_outcome = (1.0 - init) if track_up == 'NO' else init
-                sold_outcome = 1.0 if act_up == track_up else 0.0
+            if not pred or not actual:
+                continue
+
+            pred_up = pred.upper()
+            act_up = actual.upper()
+            is_win = (pred_up == act_up)
+
+            if pnl_realized is not None and bought_price and 0.0 < bought_price < 1.0:
+                pnl_val = (virtual_stake / bought_price) * pnl_realized
+            elif init is not None:
+                bought_outcome = (1.0 - init) if pred_up == 'NO' else init
+                sold_outcome = 1.0 if is_win else 0.0
                 if bought_outcome > 0:
                     pnl_val = (virtual_stake / bought_outcome) * (sold_outcome - bought_outcome)
 
@@ -221,7 +226,7 @@ def _load_whale_stats(conn, stats, virtual_stake):
             if res_at >= thirty_days_ago:
                 pnl_30d += pnl_val
                 thirty_days_rows += 1
-                if pnl_val > 0:
+                if is_win:
                     wins_30d += 1
 
         stats['whale']['pnl_7d'] = round(pnl_7d, 2)
@@ -266,7 +271,9 @@ def _load_compounding_stats(conn, stats, virtual_stake):
         auto_rows = conn.execute("""
             SELECT price, outcome, actual_outcome, resolved_at, pnl_usd
             FROM compound_opportunities
-            WHERE status = 'RESOLVED' AND virtual_bought_price IS NULL
+            WHERE status = 'RESOLVED' AND market_id NOT IN (
+                SELECT DISTINCT market_id FROM compound_virtual_trades_history
+            )
         """).fetchall()
 
         auto_total = len(auto_rows)
@@ -479,8 +486,10 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
                             END
                         ) as pnl
                     FROM compound_opportunities
-                    WHERE status = 'RESOLVED' AND virtual_bought_price IS NULL
-                      AND resolved_at >= ? AND price > 0 AND actual_outcome IS NOT NULL
+                    WHERE status = 'RESOLVED' AND resolved_at >= ? AND price > 0 AND actual_outcome IS NOT NULL 
+                      AND market_id NOT IN (
+                        SELECT DISTINCT market_id FROM compound_virtual_trades_history
+                    )
                 )
                 GROUP BY date(ts)
                 ORDER BY date(ts) ASC
@@ -1244,19 +1253,27 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         # Статистика по истории виртуальных сделок
         stats_row = conn.execute("""
             SELECT
-                COUNT(*) as count,
-                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
                 MAX(pnl_cents) as best_pnl,
                 AVG(pnl_cents) as avg_pnl
             FROM whale_virtual_trades_history
             WHERE sold_at >= datetime('now', '-30 days')
         """).fetchone()
 
+        win_stats = conn.execute("""
+            SELECT 
+                COUNT(*) as count,
+                SUM(CASE WHEN UPPER(predicted_outcome) = UPPER(actual_outcome) THEN 1 ELSE 0 END) as wins
+            FROM whale_stocks_monitoring
+            WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL AND actual_outcome IS NOT NULL
+              AND resolved_at >= datetime('now', '-30 days')
+        """).fetchone()
+
         win_rate = None
         best_pnl = 0.0
         avg_pnl = 0.0
-        if stats_row and stats_row['count'] and stats_row['count'] > 0:
-            win_rate = stats_row['wins'] / stats_row['count']
+        if win_stats and win_stats['count'] and win_stats['count'] > 0:
+            win_rate = (win_stats['wins'] or 0) / win_stats['count']
+        if stats_row:
             best_pnl = (stats_row['best_pnl'] or 0.0) * virtual_stake
             avg_pnl = (stats_row['avg_pnl'] or 0.0) * virtual_stake
 
@@ -1845,7 +1862,8 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                 row_dict['pnl_realized'] = round(pnl_realized, 2)
                 row_dict['pnl_is_hypothetical'] = True
             else:
-                row_dict['pnl_is_hypothetical'] = None
+                row_dict['pnl_realized'] = 0.0
+                row_dict['pnl_is_hypothetical'] = True
 
             return row_dict
 
@@ -1915,14 +1933,15 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             row_dict['current_outcome_price'] = round(v_curr, 4) if v_curr is not None else None
             row_dict['pnl_usd'] = round(pnl_usd, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
-
             portfolio.append(row_dict)
 
         # === 1. АВТО-СТАТИСТИКА (СИГНАЛЫ АГЕНТОВ) ===
         all_resolved_auto = conn.execute("""
-            SELECT price, outcome, actual_outcome, resolved_at, pnl_usd
+            SELECT price, outcome, actual_outcome, pnl_usd
             FROM compound_opportunities
-            WHERE status = 'RESOLVED' AND virtual_bought_price IS NULL
+            WHERE status = 'RESOLVED' AND market_id NOT IN (
+                SELECT DISTINCT market_id FROM compound_virtual_trades_history
+            )
             ORDER BY resolved_at ASC
         """).fetchall()
 
@@ -1959,7 +1978,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                         current_streak = 1
                 else:
                     pnl_val = r['pnl_usd'] if r['pnl_usd'] is not None else -virtual_stake
-                    sum_lost += virtual_stake
+                    sum_lost += abs(pnl_val)
                     if streak_type == "LOSS":
                         current_streak += 1
                     else:
@@ -1996,8 +2015,8 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             avg_win_pnl = sum_won / auto_wins
             if avg_win_pnl > 0:
                 b = avg_win_pnl / virtual_stake
-                kelly_fraction = p - ((1.0 - p) / b)
-                kelly_fraction = max(0.0, kelly_fraction)
+                kelly_fraction = (p * b - (1.0 - p)) / b
+                kelly_fraction = max(0.0, kelly_fraction) * 0.5
         stats = {
             'active_count': active_total,
             'active_predicted_count': active_total,
