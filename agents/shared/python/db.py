@@ -1153,6 +1153,13 @@ def _init_db_impl(conn: sqlite3.Connection):
     if 'min_price_seen' not in hist_cols:
         cursor.execute("ALTER TABLE penny_virtual_trades_history ADD COLUMN min_price_seen REAL DEFAULT NULL")
 
+    # Инициализация таблицы настроек Penny Stocks
+    try:
+        from agents.shared.python.penny_settings_db import init_penny_settings_table
+        init_penny_settings_table(conn)
+    except Exception as e:
+        logger.error(f"Failed to initialize penny settings table: {e}", exc_info=True)
+
     conn.commit()
 
 

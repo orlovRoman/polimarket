@@ -1119,6 +1119,42 @@ async def api_save_compound_settings(request):
             
     return web.json_response({"status": "ok"})
 
+# === Penny Stocks Settings хэндлеры ===
+
+async def handle_penny_stocks_settings(request):
+    html = await asyncio.to_thread(render_template, "penny_stocks_settings.html")
+    return web.Response(text=html, content_type="text/html")
+
+async def api_penny_stocks_config_get(request):
+    from agents.shared.python.penny_settings_service import load_penny_config
+    data = await asyncio.to_thread(load_penny_config)
+    return web.json_response(data)
+
+async def api_penny_stocks_config_update(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    
+    from agents.shared.python.penny_settings_service import save_penny_config
+    try:
+        data = await asyncio.to_thread(save_penny_config, body)
+        return web.json_response(data)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        return web.json_response({"error": f"Internal error: {e}"}, status=500)
+
+async def api_penny_stocks_preflight(request):
+    from agents.shared.python.penny_settings_service import run_penny_preflight
+    data = await asyncio.to_thread(run_penny_preflight)
+    return web.json_response(data)
+
+async def api_penny_stocks_rederive_creds(request):
+    from agents.shared.python.penny_settings_service import rederive_penny_credentials
+    data = await asyncio.to_thread(rederive_penny_credentials)
+    return web.json_response(data)
+
 # === Фабрика приложения ===
 
 def create_dashboard_app() -> web.Application:
@@ -1130,6 +1166,7 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/favicon.png", handle_favicon)
     app.router.add_get("/", handle_overview)
     app.router.add_get("/penny-stocks", handle_penny_stocks)
+    app.router.add_get("/penny-settings", handle_penny_stocks_settings)
     app.router.add_get("/favourite-compounding", handle_favourite_compounding)
     app.router.add_get("/scout", handle_scout)
     app.router.add_get("/whale", handle_whale)
@@ -1177,7 +1214,12 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/compound-settings", api_get_compound_settings)
     app.router.add_post("/api/compound-settings", api_save_compound_settings)
 
-    
+    # Penny Stocks Settings API
+    app.router.add_get("/api/penny-stocks/config", api_penny_stocks_config_get)
+    app.router.add_post("/api/penny-stocks/config", api_penny_stocks_config_update)
+    app.router.add_get("/api/penny-stocks/preflight", api_penny_stocks_preflight)
+    app.router.add_post("/api/penny-stocks/rederive-creds", api_penny_stocks_rederive_creds)
+
     logger.info("Application routes successfully registered.")
     
     async def on_startup(app):

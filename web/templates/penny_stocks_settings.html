@@ -1,0 +1,881 @@
+<!-- penny_stocks_settings.html -->
+<style>
+    .settings-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-bottom: 32px;
+    }
+    @media (max-width: 1024px) {
+        .settings-container {
+            grid-template-columns: 1fr;
+        }
+    }
+    
+    .settings-card {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 24px;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+    
+    .settings-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding-bottom: 12px;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+    
+    label {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+    
+    input[type="text"], input[type="number"], select {
+        background: rgba(17, 24, 39, 0.5);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 10px 14px;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        font-family: 'Inter', sans-serif;
+        transition: all 0.2s ease;
+    }
+    
+    input[type="text"]:focus, input[type="number"]:focus, select:focus {
+        border-color: #8b5cf6;
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
+    }
+    
+    .status-banner {
+        padding: 14px 20px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+        font-family: 'Outfit', sans-serif;
+        font-weight: 500;
+        border: 1px solid;
+    }
+    
+    .banner-paper {
+        background-color: rgba(55, 65, 81, 0.3);
+        border-color: rgba(156, 163, 175, 0.2);
+        color: var(--text-secondary);
+    }
+    
+    .banner-live {
+        background-color: rgba(239, 68, 68, 0.15);
+        border-color: rgba(239, 68, 68, 0.3);
+        color: #f87171;
+        animation: pulseBorder 3s infinite;
+    }
+    
+    @keyframes pulseBorder {
+        0% { border-color: rgba(239, 68, 68, 0.3); }
+        50% { border-color: rgba(239, 68, 68, 0.8); }
+        100% { border-color: rgba(239, 68, 68, 0.3); }
+    }
+    
+    .btn-action {
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+        border: none;
+    }
+    
+    .btn-primary {
+        background-color: #8b5cf6;
+        color: white;
+    }
+    .btn-primary:hover {
+        background-color: #7c3aed;
+    }
+    .btn-primary:disabled {
+        background-color: rgba(139, 92, 246, 0.3);
+        color: rgba(255, 255, 255, 0.4);
+        cursor: not-allowed;
+    }
+    
+    .btn-danger {
+        background-color: #ef4444;
+        color: white;
+    }
+    .btn-danger:hover {
+        background-color: #dc2626;
+    }
+    
+    .btn-secondary {
+        background-color: rgba(55, 65, 81, 0.4);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
+    }
+    .btn-secondary:hover {
+        background-color: rgba(55, 65, 81, 0.7);
+    }
+    
+    /* Toggle switch style */
+    .switch-group {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 0;
+    }
+    
+    .switch {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 24px;
+    }
+    
+    .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+    
+    .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #374151;
+        transition: .3s;
+        border-radius: 24px;
+    }
+    
+    .slider:before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 4px;
+        bottom: 4px;
+        background-color: white;
+        transition: .3s;
+        border-radius: 50%;
+    }
+    
+    input:checked + .slider {
+        background-color: #10b981;
+    }
+    
+    input:checked + .slider:before {
+        transform: translateX(20px);
+    }
+    
+    input:disabled + .slider {
+        background-color: rgba(55, 65, 81, 0.2);
+        cursor: not-allowed;
+    }
+    
+    .help-text {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin: 2px 0 0 0;
+    }
+    
+    .alert-panel {
+        background-color: rgba(245, 158, 11, 0.1);
+        border: 1px solid rgba(245, 158, 11, 0.2);
+        border-radius: 8px;
+        padding: 14px;
+        color: #fbbf24;
+        font-size: 0.8rem;
+        display: flex;
+        gap: 10px;
+        line-height: 1.4;
+    }
+    
+    .check-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        border-radius: 6px;
+        background: rgba(17, 24, 39, 0.3);
+        border: 1px solid var(--border-color);
+        font-size: 0.85rem;
+    }
+    
+    .status-pass {
+        color: #10b981;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    
+    .status-fail {
+        color: #ef4444;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    
+    .sticky-header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: rgba(11, 15, 25, 0.85);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border-color);
+        padding: 14px 0;
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+</style>
+
+<!-- Sticky Header -->
+<div class="sticky-header">
+    <div style="display: flex; align-items: center; gap: 14px;">
+        <h2 style="margin: 0; font-family: 'Outfit', sans-serif; font-size: 1.35rem; color: var(--text-primary);">Параметры и управление</h2>
+        <span id="badge-mode-infra" class="status-badge" style="background-color: rgba(139,92,246,0.1); color: #8b5cf6; border-color: rgba(139,92,246,0.2);">
+            <span class="status-dot" style="background-color: #8b5cf6;"></span>
+            <span id="badge-mode-infra-text">Загрузка режима...</span>
+        </span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <button id="btn-killswitch" onclick="triggerKillSwitch()" class="btn-action btn-danger" style="padding: 10px 24px; box-shadow: 0 0 15px rgba(239,68,68,0.3);">
+            <svg style="width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+            🔴 АВАРИЙНЫЙ СТОП (KILL SWITCH)
+        </button>
+    </div>
+</div>
+
+<!-- Верхний баннер статуса бэкенда -->
+<div id="banner-status" class="status-banner banner-paper">
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <span id="banner-icon" style="font-size: 1.25rem;">📄</span>
+        <div>
+            <div style="font-weight: 600; font-size: 0.95rem;" id="banner-title">PAPER MODE (Виртуальная симуляция)</div>
+            <div style="font-size: 0.8rem; opacity: 0.85;" id="banner-desc">Бэкенд запущен без приватных ключей. Реальные сделки не могут быть исполнены.</div>
+        </div>
+    </div>
+    <div style="font-size: 0.8rem; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;" id="banner-provider-label">PAPER PROVIDER</div>
+</div>
+
+<div class="settings-container">
+    
+    <!-- Левая колонка: Настройки торговли и кошелька -->
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+        
+        <!-- Execution Safety -->
+        <div class="settings-card">
+            <h3 class="settings-title">
+                <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                Параметры безопасности (Execution Safety)
+            </h3>
+            
+            <div class="switch-group">
+                <div>
+                    <label style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">Блокировка всех операций (Kill Switch)</label>
+                    <p class="help-text">Моментально останавливает все автоматические сканирования и автопокупки.</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="cfg-kill-switch" onchange="toggleSettingField('kill_switch')">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="switch-group" style="border-top: 1px solid rgba(255,255,255,0.03); padding-top: 14px;">
+                <div>
+                    <label style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">Разрешить автопокупку (Auto Buy)</label>
+                    <p class="help-text">Бот будет автоматически входить в сделки по подходящим сигналам.</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="cfg-auto-buy" onchange="confirmAutoBuyChange(this)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="switch-group" style="border-top: 1px solid rgba(255,255,255,0.03); padding-top: 14px;">
+                <div>
+                    <label style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">Исполнение сделок (Live Trading Enabled)</label>
+                    <p class="help-text">Разрешает отправку реальных транзакций в блокчейн. Требует live-режим бэкенда.</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="cfg-live-trading" onchange="toggleSettingField('live_trading_enabled')">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+        
+        <!-- Wallet Settings -->
+        <div class="settings-card">
+            <h3 class="settings-title">
+                <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+                Настройки кошелька (Wallet Settings)
+            </h3>
+            
+            <div class="form-group">
+                <label for="cfg-wallet-address">Адрес кошелька (Deposit Address на Polymarket)</label>
+                <input type="text" id="cfg-wallet-address" placeholder="0x..." style="font-family: monospace;">
+                <p class="help-text">Кошелек, с которого будут отправляться ордера. Сеть: Polygon (Chain ID: 137).</p>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="cfg-trading-mode">Режим работы стратегии</label>
+                    <select id="cfg-trading-mode" onchange="handleTradingModeChange(this)">
+                        <option value="paper">Paper Trading (Виртуальный)</option>
+                        <option value="live">Live Trading (Реальный)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                    <button id="btn-rederive" onclick="rederiveCredentials()" class="btn-action btn-secondary" style="height: 42px;">
+                        🔑 Re-derive API Credentials
+                    </button>
+                    <span id="rederive-help-text" class="help-text" style="text-align: center; margin-top: 4px;">Simulated in paper mode</span>
+                </div>
+            </div>
+            
+            <div id="alert-wallet-live" class="alert-panel" style="display: none;">
+                <span>⚠️</span>
+                <div>
+                    <strong>Внимание: переключение в режим LIVE требует:</strong>
+                    <ul style="margin: 4px 0 0 0; padding-left: 16px;">
+                        <li>Наличие pUSD баланса на указанном кошельке.</li>
+                        <li>Выданные approvals (разрешения) для Polymarket CLOB контракта.</li>
+                        <li>Отсутствие открытых ордеров на старом кошельке.</li>
+                        <li>Ключи API будут пересозданы из нового кошелька при сохранении.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Bet Sizing -->
+        <div class="settings-card">
+            <h3 class="settings-title">
+                <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                Управление ставками (Bet Sizing)
+            </h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="cfg-bet-size">Базовая ставка ($ USDC)</label>
+                    <input type="number" id="cfg-bet-size" step="0.5" min="0.1">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-max-bet-size">Максимальная ставка ($ USDC)</label>
+                    <input type="number" id="cfg-max-bet-size" step="0.5" min="0.1">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="cfg-max-open-positions">Макс. открытых позиций</label>
+                    <input type="number" id="cfg-max-open-positions" step="1" min="1" max="50">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-daily-budget">Суточный бюджет ($ USDC)</label>
+                    <input type="number" id="cfg-daily-budget" step="1" min="1">
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    
+    <!-- Правая колонка: Фильтры стратегии, Preflight, Аудит -->
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+        
+        <!-- Preflight Check -->
+        <div class="settings-card">
+            <h3 class="settings-title">
+                <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                Диагностика готовности (Preflight Check)
+            </h3>
+            
+            <div class="switch-group" style="margin-bottom: 8px;">
+                <div>
+                    <label style="font-weight: 600; color: var(--text-primary);">Обязательный preflight для автопокупки</label>
+                    <p class="help-text">Бот откажется покупать актив, если preflight check выдал ошибки.</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="cfg-require-preflight" onchange="toggleSettingField('require_preflight_for_autobuy')">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="form-group">
+                <label for="cfg-preflight-buffer">Запас баланса поверх бюджета ($ USDC)</label>
+                <input type="number" id="cfg-preflight-buffer" step="1" min="0">
+                <p class="help-text">Сумма запаса на комиссии/округления при проверке preflight.</p>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;" id="preflight-results-container">
+                <div class="check-item">
+                    <span>Адрес кошелька</span>
+                    <span class="status-pass" id="chk-wallet">Ожидание...</span>
+                </div>
+                <div class="check-item">
+                    <span>Инфраструктура бэкенда (APP_MODE)</span>
+                    <span class="status-pass" id="chk-appmode">Ожидание...</span>
+                </div>
+                <div class="check-item">
+                    <span>Доступный баланс USDC</span>
+                    <span class="status-pass" id="chk-balance">Ожидание...</span>
+                </div>
+                <div class="check-item">
+                    <span>Разрешения (Allowances) CLOB</span>
+                    <span class="status-pass" id="chk-allowance">Ожидание...</span>
+                </div>
+                <div class="check-item">
+                    <span>Статус учетных данных (API Keys)</span>
+                    <span class="status-pass" id="chk-creds">Ожидание...</span>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 12px; margin-top: 6px;">
+                <button onclick="runPreflight()" class="btn-action btn-primary" style="flex: 1;">
+                    🔄 Запустить preflight-диагностику
+                </button>
+            </div>
+        </div>
+        
+        <!-- Strategy Filters -->
+        <div class="settings-card">
+            <h3 class="settings-title">
+                <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                Фильтры рынка (Strategy Filters)
+            </h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="cfg-min-probability">Мин. вероятность (исход 0-1)</label>
+                    <input type="number" id="cfg-min-probability" step="0.01" min="0.0" max="0.99">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-max-probability">Макс. вероятность (исход 0-1)</label>
+                    <input type="number" id="cfg-max-probability" step="0.01" min="0.01" max="1.0">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="cfg-min-confidence">Мин. уверенность (confidence 0-1)</label>
+                    <input type="number" id="cfg-min-confidence" step="0.05" min="0.0" max="1.0">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-min-volume">Мин. объем за 24 часа ($)</label>
+                    <input type="number" id="cfg-min-volume" step="50" min="0">
+                </div>
+            </div>
+            
+            <div class="form-row" style="border-top: 1px solid rgba(255,255,255,0.03); padding-top: 14px;">
+                <div class="form-group">
+                    <label for="cfg-min-hours">Мин. часов до закрытия</label>
+                    <input type="number" id="cfg-min-hours" step="0.5" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-max-hours">Макс. часов до закрытия</label>
+                    <input type="number" id="cfg-max-hours" step="1" min="1">
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    
+</div>
+
+<!-- Нижняя панель действий -->
+<div class="table-card" style="margin-bottom: 24px; padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(30, 41, 59, 0.4); border: 1px solid var(--border-color); border-radius: 12px;">
+    <div style="display: flex; gap: 12px;">
+        <button onclick="resetToDefaults()" class="btn-action btn-secondary">
+            🔄 Сбросить к дефолтам
+        </button>
+        <button onclick="exportSettingsJSON()" class="btn-action btn-secondary">
+            📥 Экспорт настроек (JSON)
+        </button>
+    </div>
+    <button id="btn-save-settings" onclick="saveSettingsForm()" class="btn-action btn-primary" style="padding: 12px 32px; font-size: 0.95rem; box-shadow: 0 0 20px rgba(139,92,246,0.25);">
+        💾 Сохранить изменения
+    </button>
+</div>
+
+<!-- Уведомления toast -->
+<div id="toast-container" class="toast-container"></div>
+
+<script>
+    let currentConfig = null;
+    let metaInfo = null;
+
+    // Регистрация автообновления (раз в 30 секунд подгружаем актуальные данные)
+    registerRefresh(async () => {
+        await loadConfig();
+    });
+
+    async function loadConfig() {
+        const data = await fetchJSON('/api/penny-stocks/config');
+        if (!data || !data.ok) {
+            showToast("Не удалось загрузить настройки с сервера", "error");
+            return;
+        }
+        
+        currentConfig = data.config;
+        metaInfo = data.meta;
+
+        // Заполняем поля формы
+        document.getElementById('cfg-wallet-address').value = currentConfig.wallet_address || "";
+        document.getElementById('cfg-trading-mode').value = currentConfig.trading_mode || "paper";
+        document.getElementById('cfg-bet-size').value = currentConfig.bet_size_usdc;
+        document.getElementById('cfg-max-bet-size').value = currentConfig.max_bet_size_usdc;
+        document.getElementById('cfg-max-open-positions').value = currentConfig.max_open_positions;
+        document.getElementById('cfg-daily-budget').value = currentConfig.daily_budget_usdc;
+        document.getElementById('cfg-min-probability').value = currentConfig.min_probability;
+        document.getElementById('cfg-max-probability').value = currentConfig.max_probability;
+        document.getElementById('cfg-min-confidence').value = currentConfig.min_confidence_score;
+        document.getElementById('cfg-min-volume').value = currentConfig.min_volume_24h;
+        document.getElementById('cfg-min-hours').value = currentConfig.min_hours_to_close;
+        document.getElementById('cfg-max-hours').value = currentConfig.max_hours_to_close;
+        document.getElementById('cfg-preflight-buffer').value = currentConfig.preflight_min_usdc_buffer;
+
+        // Заполняем тумблеры/чекбоксы
+        document.getElementById('cfg-kill-switch').checked = currentConfig.kill_switch;
+        document.getElementById('cfg-auto-buy').checked = currentConfig.auto_buy_enabled;
+        document.getElementById('cfg-live-trading').checked = currentConfig.live_trading_enabled;
+        document.getElementById('cfg-require-preflight').checked = currentConfig.require_preflight_for_autobuy;
+
+        // Корректируем UI на основе режима APP_MODE
+        updateModeUI();
+    }
+
+    function updateModeUI() {
+        const badge = document.getElementById('badge-mode-infra');
+        const badgeText = document.getElementById('badge-mode-infra-text');
+        const banner = document.getElementById('banner-status');
+        const bannerTitle = document.getElementById('banner-title');
+        const bannerDesc = document.getElementById('banner-desc');
+        const bannerIcon = document.getElementById('banner-icon');
+        const bannerProviderLabel = document.getElementById('banner-provider-label');
+        
+        const liveTradingSwitch = document.getElementById('cfg-live-trading');
+        const btnRederive = document.getElementById('btn-rederive');
+        const rederiveHelp = document.getElementById('rederive-help-text');
+
+        if (metaInfo.app_mode === 'live') {
+            badge.style.backgroundColor = 'rgba(239,68,68,0.1)';
+            badge.style.color = '#ef4444';
+            badge.style.borderColor = 'rgba(239,68,68,0.2)';
+            badge.querySelector('.status-dot').style.backgroundColor = '#ef4444';
+            badgeText.textContent = "Инфраструктура: LIVE";
+            
+            banner.className = "status-banner banner-live";
+            bannerIcon.textContent = "🔴";
+            bannerTitle.textContent = "LIVE MODE (Боевой бэкенд)";
+            bannerDesc.textContent = "Бэкенд запущен с доступом к секретным ключам. Сделки могут совершаться на блокчейне Polygon.";
+            bannerProviderLabel.textContent = metaInfo.is_mock ? "MOCK PROVIDER" : "REAL POLYMARKET CLIENT";
+            
+            liveTradingSwitch.disabled = false;
+            btnRederive.classList.remove('btn-secondary');
+            btnRederive.classList.add('btn-primary');
+            rederiveHelp.textContent = metaInfo.is_mock ? "Simulated in live mock provider" : "Generate credentials via CLOB API";
+        } else {
+            badge.style.backgroundColor = 'rgba(156,163,175,0.1)';
+            badge.style.color = '#9ca3af';
+            badge.style.borderColor = 'rgba(156,163,175,0.2)';
+            badge.querySelector('.status-dot').style.backgroundColor = '#9ca3af';
+            badgeText.textContent = "Инфраструктура: PAPER";
+            
+            banner.className = "status-banner banner-paper";
+            bannerIcon.textContent = "📄";
+            bannerTitle.textContent = "PAPER MODE (Виртуальная симуляция)";
+            bannerDesc.textContent = "Бэкенд запущен без приватных ключей. Реальные сделки не могут быть исполнены.";
+            bannerProviderLabel.textContent = "PAPER PROVIDER";
+            
+            // Запрещаем включение live-тумблера и помечаем его
+            liveTradingSwitch.checked = false;
+            liveTradingSwitch.disabled = true;
+            btnRederive.classList.remove('btn-primary');
+            btnRederive.classList.add('btn-secondary');
+            rederiveHelp.textContent = "Simulated in paper mode";
+        }
+        
+        // Кнопка Kill Switch подсвечивается ярким красным, если он активен
+        const btnKill = document.getElementById('btn-killswitch');
+        if (currentConfig.kill_switch) {
+            btnKill.style.backgroundColor = '#dc2626';
+            btnKill.style.boxShadow = '0 0 20px rgba(239, 68, 68, 0.6)';
+            btnKill.innerHTML = `<svg style="width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> ⚠️ СИСТЕМА ЗАБЛОКИРОВАНА`;
+        } else {
+            btnKill.style.backgroundColor = '#ef4444';
+            btnKill.style.boxShadow = 'none';
+            btnKill.innerHTML = `<svg style="width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg> 🔴 АВАРИЙНЫЙ СТОП (KILL SWITCH)`;
+        }
+    }
+
+    async function triggerKillSwitch() {
+        const newKillSwitchValue = !currentConfig.kill_switch;
+        const msg = newKillSwitchValue 
+            ? "Вы действительно хотите немедленно остановить все торговые операции стратегии Penny Stocks?"
+            : "Вы хотите разблокировать работу торговых операций Penny Stocks?";
+            
+        if (!confirm(msg)) return;
+        
+        const res = await fetch('/api/penny-stocks/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ kill_switch: newKillSwitchValue ? "1" : "0" })
+        });
+        
+        const data = await res.json();
+        if (data && data.ok) {
+            currentConfig.kill_switch = newKillSwitchValue;
+            document.getElementById('cfg-kill-switch').checked = newKillSwitchValue;
+            updateModeUI();
+            showToast(newKillSwitchValue ? "Аварийная блокировка активирована!" : "Система успешно разблокирована", "success");
+        } else {
+            showToast(data.error || "Ошибка переключения блокировки", "error");
+        }
+    }
+
+    function confirmAutoBuyChange(input) {
+        if (input.checked) {
+            const hasWallet = document.getElementById('cfg-wallet-address').value.trim() !== "";
+            if (!hasWallet) {
+                showToast("Включение автопокупки требует заполненного кошелька", "error");
+                input.checked = false;
+                return;
+            }
+            if (!confirm("Вы подтверждаете включение режима автоматической торговли? Бот сможет совершать сделки по входящим сигналам в рамках заданного бюджета.")) {
+                input.checked = false;
+                return;
+            }
+        }
+        toggleSettingField('auto_buy_enabled');
+    }
+
+    function handleTradingModeChange(select) {
+        const isLive = select.value === 'live';
+        const alertPanel = document.getElementById('alert-wallet-live');
+        alertPanel.style.display = isLive ? 'flex' : 'none';
+        
+        if (isLive && metaInfo.app_mode !== 'live') {
+            showToast("Невозможно использовать live-режим стратегии при paper-режиме бэкенда", "error");
+            select.value = 'paper';
+            alertPanel.style.display = 'none';
+        }
+    }
+
+    async function toggleSettingField(fieldName) {
+        let val = "0";
+        if (fieldName === 'kill_switch') {
+            val = document.getElementById('cfg-kill-switch').checked ? "1" : "0";
+        } else if (fieldName === 'auto_buy_enabled') {
+            val = document.getElementById('cfg-auto-buy').checked ? "1" : "0";
+        } else if (fieldName === 'live_trading_enabled') {
+            val = document.getElementById('cfg-live-trading').checked ? "1" : "0";
+        } else if (fieldName === 'require_preflight_for_autobuy') {
+            val = document.getElementById('cfg-require-preflight').checked ? "1" : "0";
+        }
+        
+        const updates = {};
+        updates[fieldName] = val;
+        
+        const res = await fetch('/api/penny-stocks/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(updates)
+        });
+        
+        const data = await res.json();
+        if (data && data.ok) {
+            currentConfig = data.config;
+            showToast("Флаг безопасности успешно обновлен", "success");
+            updateModeUI();
+        } else {
+            showToast(data.error || "Не удалось сохранить параметр", "error");
+            // Откатываем UI
+            loadConfig();
+        }
+    }
+
+    async function saveSettingsForm() {
+        const updates = {
+            wallet_address: document.getElementById('cfg-wallet-address').value.trim(),
+            trading_mode: document.getElementById('cfg-trading-mode').value,
+            bet_size_usdc: document.getElementById('cfg-bet-size').value,
+            max_bet_size_usdc: document.getElementById('cfg-max-bet-size').value,
+            max_open_positions: document.getElementById('cfg-max-open-positions').value,
+            daily_budget_usdc: document.getElementById('cfg-daily-budget').value,
+            min_probability: document.getElementById('cfg-min-probability').value,
+            max_probability: document.getElementById('cfg-max-probability').value,
+            min_confidence_score: document.getElementById('cfg-min-confidence').value,
+            min_volume_24h: document.getElementById('cfg-min-volume').value,
+            min_hours_to_close: document.getElementById('cfg-min-hours').value,
+            max_hours_to_close: document.getElementById('cfg-max-hours').value,
+            preflight_min_usdc_buffer: document.getElementById('cfg-preflight-buffer').value
+        };
+
+        const res = await fetch('/api/penny-stocks/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(updates)
+        });
+        
+        const data = await res.json();
+        if (data && data.ok) {
+            currentConfig = data.config;
+            showToast("Настройки сохранены успешно!", "success");
+            loadConfig();
+        } else {
+            showToast(data.error || "Не удалось сохранить настройки", "error");
+        }
+    }
+
+    async function runPreflight() {
+        const container = document.getElementById('preflight-results-container');
+        // Clear status fields to loading
+        ['chk-wallet', 'chk-appmode', 'chk-balance', 'chk-allowance', 'chk-creds'].forEach(id => {
+            const el = document.getElementById(id);
+            el.className = "text-muted";
+            el.textContent = "Проверка...";
+        });
+        
+        const data = await fetchJSON('/api/penny-stocks/preflight');
+        if (!data) {
+            showToast("Не удалось связаться с сервером префлайта", "error");
+            return;
+        }
+
+        // Заполняем статусы чеков
+        data.checks.forEach(chk => {
+            let elId = "";
+            if (chk.name === "wallet_address_present") elId = "chk-wallet";
+            else if (chk.name === "app_mode_live") elId = "chk-appmode";
+            else if (chk.name === "balance_budget") elId = "chk-balance";
+            else if (chk.name === "allowance") elId = "chk-allowance";
+            else if (chk.name === "credentials_status") elId = "chk-creds";
+            
+            if (elId) {
+                const el = document.getElementById(elId);
+                el.className = chk.status === 'pass' ? 'status-pass' : 'status-fail';
+                el.innerHTML = chk.status === 'pass' 
+                    ? `<svg style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> OK`
+                    : `<svg style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:3" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> FAIL`;
+                
+                // Добавим пояснительный текст рядом
+                if (chk.message) {
+                    el.title = chk.message;
+                }
+            }
+        });
+
+        if (data.ok) {
+            showToast("Диагностика Preflight успешно пройдена!", "success");
+        } else {
+            const errStr = data.errors.join(" | ");
+            showToast(`Диагностика не пройдена: ${errStr}`, "error");
+        }
+    }
+
+    async function rederiveCredentials() {
+        if (!confirm("Вы действительно хотите выполнить пересоздание API Credentials? Это переподпишет ключи для текущего кошелька.")) return;
+        
+        const res = await fetch('/api/penny-stocks/rederive-creds', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await res.json();
+        if (data && data.ok) {
+            showToast(data.message || "Учетные данные успешно сгенерированы", "success");
+        } else {
+            showToast(data.error || "Не удалось перевыпустить учетные данные", "error");
+        }
+    }
+
+    async function resetToDefaults() {
+        if (!confirm("Вы действительно хотите сбросить все параметры Penny Stocks к их значениям по умолчанию? Все кастомные лимиты будут стерты.")) return;
+        
+        // Дефолтные настройки
+        const defaults = {
+            wallet_address: "",
+            trading_mode: "paper",
+            live_trading_enabled: "0",
+            bet_size_usdc: "1.0",
+            max_bet_size_usdc: "5.0",
+            max_open_positions: "10",
+            daily_budget_usdc: "20.0",
+            min_probability: "0.01",
+            max_probability: "0.09",
+            min_confidence_score: "0.5",
+            min_volume_24h: "50.0",
+            min_hours_to_close: "2.0",
+            max_hours_to_close: "168.0",
+            auto_buy_enabled: "0",
+            kill_switch: "0",
+            require_preflight_for_autobuy: "1",
+            preflight_min_usdc_buffer: "5.0"
+        };
+        
+        const res = await fetch('/api/penny-stocks/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(defaults)
+        });
+        
+        const data = await res.json();
+        if (data && data.ok) {
+            currentConfig = data.config;
+            showToast("Параметры сброшены к дефолтным значениям", "success");
+            loadConfig();
+        } else {
+            showToast(data.error || "Ошибка сброса параметров", "error");
+        }
+    }
+
+    function exportSettingsJSON() {
+        if (!currentConfig) return;
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentConfig, null, 2));
+        const dlAnchorElem = document.createElement('a');
+        dlAnchorElem.setAttribute("href", dataStr);
+        dlAnchorElem.setAttribute("download", "penny_stocks_settings.json");
+        dlAnchorElem.click();
+        showToast("Конфигурация экспортирована в файл", "success");
+    }
+
+    // Первичная инициализация при загрузке страницы
+    window.addEventListener("DOMContentLoaded", () => {
+        loadConfig();
+    });
+</script>

@@ -19,6 +19,11 @@ VAULT_PATH = Path(os.getenv("VAULT_PATH", str(PROJECT_ROOT / "vault")))
 # Путь к SQLite базе данных
 DB_PATH = Path(os.getenv("DB_PATH", str(VAULT_PATH / "database.sqlite")))
 
+# Режим работы приложения: paper (виртуальный) или live (реальный)
+APP_MODE = os.getenv("APP_MODE", "paper").lower()
+PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
+DEPOSIT_WALLET_ADDRESS = os.getenv("DEPOSIT_WALLET_ADDRESS", "")
+
 # Настройки памяти
 MEMORY_FACTS_LIMIT = int(os.getenv("MEMORY_FACTS_LIMIT", "30"))  # Макс. фактов в системный промпт
 

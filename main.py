@@ -354,8 +354,20 @@ async def scheduled_penny_discovery():
             get_active_penny_stocks
         )
         from core.workflow import run_agent_evaluation
+        from agents.shared.python.penny_settings_db import get_penny_stocks_config
+        from agents.shared.python.penny_execution_service import (
+            should_skip_penny_scan,
+            passes_penny_filters,
+            passes_signal_filters,
+            execute_penny_trade
+        )
         import asyncio
         
+        cfg = get_penny_stocks_config()
+        if should_skip_penny_scan(cfg):
+            logger.info("Сканирование Penny Stocks пропущено (Kill Switch вкл.)")
+            return
+            
         engine = get_core_engine()
         selector = MarketSelector(engine.adapter)
         markets = selector.select(total_limit=10, category="penny_stocks")
@@ -368,6 +380,9 @@ async def scheduled_penny_discovery():
         new_discovered = 0
         for m in markets:
             if m.id in active_ids:
+                continue
+            
+            if not passes_penny_filters(m, cfg):
                 continue
             
             logger.info(f"Обнаружен новый Penny Stock: {m.title} ({m.price})")
@@ -424,6 +439,18 @@ async def scheduled_penny_discovery():
                 confidence=conf_val,
                 close_time=close_time_str
             )
+            
+            # Автопокупка при соответствии фильтрам
+            if pred_out:
+                sig_dict = {
+                    "target_outcome": pred_out,
+                    "probability": m.price,
+                    "confidence": conf_val,
+                    "price": m.price
+                }
+                if passes_signal_filters(sig_dict, cfg):
+                    if cfg.auto_buy_enabled:
+                        execute_penny_trade(m.id, sig_dict, cfg)
             
             new_discovered += 1
             price_cents = int(round(m.price * 100))
