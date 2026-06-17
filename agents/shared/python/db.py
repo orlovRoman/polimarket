@@ -1018,8 +1018,9 @@ def _init_db_impl(conn: sqlite3.Connection):
             "UPDATE penny_stocks_monitoring SET bet_size_usdc = ? WHERE virtual_bought_price IS NOT NULL AND bet_size_usdc IS NULL",
             (cfg.bet_size_usdc,)
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Не удалось заполнить legacy bet_size_usdc: {e}")
+
 
     # Миграция: добавляем bet_size_usdc в историю виртуальных сделок
     hist_cols = {row[1] for row in cursor.execute("PRAGMA table_info(penny_virtual_trades_history)").fetchall()}

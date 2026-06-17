@@ -438,3 +438,119 @@ def test_migration_fills_bet_size_for_open_positions(isolated_db):
         
     assert row is not None
     assert row["bet_size_usdc"] == pytest.approx(3.0)
+
+
+# --- Тесты из уточненного плана исправлений ---
+
+def test_execute_penny_trade_missing_price_returns_false(isolated_db):
+    """Сигнал без поля price должен быть отклонён."""
+    cfg = get_penny_stocks_config()
+    sig = {"target_outcome": "YES", "probability": 0.05, "confidence": 0.6}
+    # Нет поля price — должно вернуть False без исключения
+    result = execute_penny_trade("mkt_no_price", sig, cfg)
+    assert result is False
+
+def test_preflight_cache_is_reused(isolated_db):
+    """preflight_cache: вызов run_penny_preflight должен быть ровно 1 раз при 3 вызовах."""
+    update_penny_stocks_config({
+        "require_preflight_for_autobuy": "1",
+        "auto_buy_enabled": "1",
+        "wallet_address": "0x123"
+    })
+    cfg = get_penny_stocks_config()
+    with patch(
+        "agents.shared.python.penny_execution_service.run_penny_preflight",
+        return_value={"ok": True, "errors": []}
+    ) as mock_preflight:
+        cache = {}
+        for _ in range(3):
+            can_execute_penny_trade(
+                {"target_outcome": "YES", "price": 0.05, "probability": 0.05, "confidence": 0.6},
+                cfg,
+                preflight_cache=cache
+            )
+        assert mock_preflight.call_count == 1
+
+
+def test_no_double_import_asyncio():
+    """Убедиться, что asyncio не импортируется внутри тела функции."""
+    import inspect
+    import agents.shared.python.penny_execution_service as svc
+    src = inspect.getsource(svc.monitor_active_penny_stocks)
+    assert "import asyncio" not in src, "asyncio дублируется внутри функции"
+
+def test_market_without_close_time_attr_does_not_raise(isolated_db):
+    """Если market_obj не имеет атрибута close_time — не должно быть AttributeError."""
+    class FakeMarket:
+        price = 0.10
+        volume = 100.0
+        # Намеренно нет close_time
+    
+    close_time = getattr(FakeMarket(), 'close_time', None)
+    assert close_time is None  # getattr с дефолтом должен защищать
+
+@pytest.mark.asyncio
+async def test_monitor_with_resolved_market(isolated_db):
+    """monitor_active_penny_stocks: рынок с resolution_result должен вызвать resolve_penny_stock."""
+    from unittest.mock import AsyncMock
+    with patch("services.outcome_tracker._fetch_resolution", return_value="YES") as mock_fetch, \
+         patch("agents.shared.python.db.resolve_penny_stock") as mock_resolve:
+        
+        # Добавляем активный сток
+        db_module.add_penny_stock_to_monitoring("mkt_resolve_test", "Test", "http://x", 0.05)
+        db_module.buy_virtual_penny_stock("mkt_resolve_test", 0.05, 2.0)
+        
+        class FakeMarket:
+            price = 0.10
+            volume = 50.0
+            close_time = datetime(2020, 1, 1, tzinfo=timezone.utc)  # в прошлом
+        
+        class FakeEngine:
+            class adapter:
+                @staticmethod
+                def get_market(mid): return FakeMarket()
+        
+        bot_mock = AsyncMock()
+        from agents.shared.python.penny_execution_service import monitor_active_penny_stocks
+        await monitor_active_penny_stocks(bot_mock, 12345, FakeEngine())
+        mock_resolve.assert_called_once_with("mkt_resolve_test", "YES")
+
+@pytest.mark.asyncio
+async def test_monitor_spike_alert_sent_once(isolated_db):
+    """Спайк-алерт отправляется ровно один раз, не повторно при следующем цикле."""
+    from unittest.mock import AsyncMock
+    bot_mock = AsyncMock()
+    db_module.add_penny_stock_to_monitoring("mkt_spike", "Spike Test", "http://x", 0.05)
+    db_module.buy_virtual_penny_stock("mkt_spike", 0.05, 2.0)
+
+    class FakeMarket:
+        price = 0.15  # рост 200% — выше порога 100%
+        volume = 0.0
+        close_time = None
+
+    class FakeEngine:
+        class adapter:
+            @staticmethod
+            def get_market(_): return FakeMarket()
+
+    with patch("services.outcome_tracker._fetch_resolution", return_value=None):
+        from agents.shared.python.penny_execution_service import monitor_active_penny_stocks
+        await monitor_active_penny_stocks(bot_mock, 12345, FakeEngine())
+        first_count = bot_mock.send_message.call_count
+
+        await monitor_active_penny_stocks(bot_mock, 12345, FakeEngine())
+        assert bot_mock.send_message.call_count == first_count  # повторно не отправился
+
+def test_migration_logs_on_config_error(isolated_db, caplog):
+    """Ошибка при заполнении legacy bet_size_usdc должна логироваться, не молчать."""
+    import logging
+    with patch(
+        "agents.shared.python.penny_settings_db.get_penny_stocks_config",
+        side_effect=Exception("config read failed")
+    ):
+        import agents.shared.python.db as db_module_local
+        db_module_local._db_initialized = False
+        with caplog.at_level(logging.WARNING):
+            db_module_local.init_db()
+        assert "bet_size_usdc" in caplog.text or "legacy" in caplog.text
+

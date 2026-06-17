@@ -146,12 +146,19 @@ def can_execute_penny_trade(signal: dict, cfg: PennyStocksConfig, preflight_cach
 
     # 3. Проверка preflight check
     if cfg.require_preflight_for_autobuy:
-        if preflight_cache is not None and "preflight" in preflight_cache:
+        import time
+        now = time.time()
+        if (preflight_cache is not None 
+                and "preflight" in preflight_cache 
+                and "timestamp" in preflight_cache 
+                and now - preflight_cache["timestamp"] < 60.0):
             preflight = preflight_cache["preflight"]
         else:
             preflight = run_penny_preflight()
             if preflight_cache is not None:
                 preflight_cache["preflight"] = preflight
+                preflight_cache["timestamp"] = now
+
 
         if not preflight["ok"]:
             logger.warning(f"Сделка отклонена: preflight check провален. Ошибки: {preflight['errors']}")
@@ -196,8 +203,6 @@ async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
     - Проверяет закрытие рынков и фиксирует резолюцию (YES/NO).
     - Отправляет уведомления о закрытии в Telegram.
     """
-    import asyncio
-    from datetime import datetime, timezone
     from agents.shared.python.db import (
         get_active_penny_stocks,
         update_penny_stock_price,
@@ -205,6 +210,7 @@ async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
         resolve_penny_stock
     )
     from services.outcome_tracker import _fetch_resolution
+
     
     active_stocks = get_active_penny_stocks()
     if not active_stocks:
@@ -264,8 +270,9 @@ async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
         
         close_time_passed = False
         resolution_result = None
-        if market_obj and market_obj.close_time:
-            close_time_passed = market_obj.close_time < datetime.now(timezone.utc)
+        close_time = getattr(market_obj, 'close_time', None)
+        if close_time:
+            close_time_passed = close_time < datetime.now(timezone.utc)
         else:
             # Нет данных о close_time — пробуем resolution как fallback
             try:
@@ -275,6 +282,7 @@ async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
                     close_time_passed = True
             except Exception:
                 pass
+
 
         if close_time_passed:
             if not resolution_result:
