@@ -4,13 +4,10 @@ import json
 import sqlite3
 import requests
 import time
+import logging
 
-# Добавляем корневую директорию проекта в sys.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from core.logger import setup_logger
-
-logger = setup_logger("PennyFix")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("PennyFix")
 
 DB_PATH = "vault/database.sqlite"
 
