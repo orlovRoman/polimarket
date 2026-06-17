@@ -442,11 +442,12 @@ async def scheduled_penny_discovery():
             
             # Автопокупка при соответствии фильтрам
             if pred_out:
+                effective_price = m.price if pred_out == "YES" else (1.0 - m.price)
                 sig_dict = {
                     "target_outcome": pred_out,
                     "probability": m.price,
                     "confidence": conf_val,
-                    "price": m.price
+                    "price": effective_price
                 }
                 if passes_signal_filters(sig_dict, cfg):
                     if cfg.auto_buy_enabled:

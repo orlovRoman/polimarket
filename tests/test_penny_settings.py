@@ -37,6 +37,10 @@ def isolated_db(tmp_path, monkeypatch):
     """Изолированная база данных для тестирования настроек."""
     db_path = tmp_path / "test_penny_settings.db"
     
+    # Сбрасываем синглтон-провайдер кошелька, чтобы тесты не влияли друг на друга
+    from agents.shared.python.wallet.factory import reset_wallet_provider
+    reset_wallet_provider()
+    
     # Патчим DB_PATH в config и db_module
     monkeypatch.setattr(config, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
@@ -46,6 +50,7 @@ def isolated_db(tmp_path, monkeypatch):
     
     yield db_path
     db_module._db_initialized = False
+    reset_wallet_provider()
 
 # --- Тесты settings_db ---
 
@@ -277,3 +282,94 @@ def test_can_execute_penny_trade(isolated_db):
     save_penny_config({"kill_switch": "1"})
     cfg_kill = get_penny_stocks_config()
     assert can_execute_penny_trade(sig, cfg_kill) is False
+
+# --- Новые тесты для баг-фиксов ---
+
+def test_update_does_not_raise_on_nested_transaction(isolated_db):
+    """Обновление настроек не должно падать с ошибкой транзакции при повторных вызовах."""
+    for _ in range(3):
+        result = update_penny_stocks_config({"bet_size_usdc": "2.0"})
+        assert result["config"].bet_size_usdc == 2.0
+    # откатываем обратно
+    result = update_penny_stocks_config({"bet_size_usdc": "1.0"})
+    assert result["config"].bet_size_usdc == 1.0
+
+def test_today_budget_independent_of_current_bet_size(isolated_db):
+    """Потраченный бюджет считается по фактическим ставкам, а не по текущей базовой ставке."""
+    cfg = get_penny_stocks_config()
+    update_penny_stocks_config({"wallet_address": "0x123", "auto_buy_enabled": "1"})
+    cfg_active = get_penny_stocks_config()
+    
+    # Сначала добавляем рынки в мониторинг, чтобы UPDATE сработал
+    db_module.add_penny_stock_to_monitoring("mkt_test_budget_1", "Test Budget 1", "http://test1", 0.05, predicted_outcome="YES", confidence=0.5)
+    db_module.add_penny_stock_to_monitoring("mkt_test_budget_2", "Test Budget 2", "http://test2", 0.04, predicted_outcome="YES", confidence=0.5)
+    
+    # Делаем 2 виртуальные сделки при ставке 1.0 USDC
+    sig1 = {"target_outcome": "YES", "probability": 0.05, "confidence": 0.5, "price": 0.05}
+    sig2 = {"target_outcome": "YES", "probability": 0.04, "confidence": 0.5, "price": 0.04}
+    
+    assert execute_penny_trade("mkt_test_budget_1", sig1, cfg_active) is True
+    assert execute_penny_trade("mkt_test_budget_2", sig2, cfg_active) is True
+    
+    # Проверяем бюджет: должно быть 2 * 1.0 (поскольку confidence = 0.5) = 2.0
+    assert get_today_spent_budget() == pytest.approx(2.0)
+    
+    # Меняем ставку на 5.0
+    update_penny_stocks_config({"bet_size_usdc": "5.0"})
+    
+    # Потраченный бюджет должен остаться 2.0, а не увеличиться до 10.0
+    assert get_today_spent_budget() == pytest.approx(2.0)
+
+def test_wallet_provider_singleton_resets_on_mode_change(monkeypatch):
+    """При изменении APP_MODE синглтон пересоздаётся."""
+    import agents.shared.python.wallet.factory as fct
+    from agents.shared.python.wallet.factory import reset_wallet_provider
+    reset_wallet_provider()
+    
+    monkeypatch.setattr(config, "APP_MODE", "paper")
+    p1 = fct.get_wallet_provider()
+    assert not p1.is_live()
+    
+    # Сбрасываем и меняем режим — live должен упасть без ключей
+    reset_wallet_provider()
+    monkeypatch.setattr(config, "APP_MODE", "live")
+    monkeypatch.delenv("PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("DEPOSIT_WALLET_ADDRESS", raising=False)
+    with pytest.raises(ValueError, match="секретов"):
+        fct.get_wallet_provider()
+
+def test_execute_penny_trade_no_outcome_price(isolated_db):
+    """При target_outcome=NO цена должна быть 1.0 - m.price, а не m.price."""
+    cfg = get_penny_stocks_config()
+    update_penny_stocks_config({"wallet_address": "0x123", "auto_buy_enabled": "1"})
+    cfg_active = get_penny_stocks_config()
+    
+    # Сначала добавляем рынок в мониторинг
+    db_module.add_penny_stock_to_monitoring("test-market-no", "Test No Price", "http://testno", 0.95, predicted_outcome="NO", confidence=0.5)
+    
+    # Сигнал указывает на покупку NO, а YES-цена (m.price) = 0.95.
+    # Значит, эффективная цена NO = 0.05
+    sig_no = {"target_outcome": "NO", "probability": 0.95, "confidence": 0.5, "price": 0.05}
+    result = execute_penny_trade("test-market-no", sig_no, cfg_active)
+    assert result is True
+    
+    # Проверяем, что в БД цена покупки 0.05
+    with db_module.get_connection() as conn:
+        row = conn.execute(
+            "SELECT virtual_bought_price FROM penny_stocks_monitoring WHERE market_id = 'test-market-no'"
+        ).fetchone()
+        assert row is not None
+        assert row["virtual_bought_price"] == pytest.approx(0.05)
+
+def test_reset_to_defaults_via_api(isolated_db):
+    """Сброс через API должен возвращать значения из PENNY_DEFAULTS, а не из JS."""
+    from agents.shared.python.penny_settings_db import PENNY_DEFAULTS
+    # Меняем несколько параметров
+    update_penny_stocks_config({"bet_size_usdc": "3.5", "max_open_positions": "25"})
+    
+    # Отправляем сброс к дефолтам через save_penny_config
+    from agents.shared.python.penny_settings_service import save_penny_config
+    result = save_penny_config({k: v for k, v in PENNY_DEFAULTS.items()})
+    assert result["ok"] is True
+    assert result["config"]["bet_size_usdc"] == 1.0
+    assert result["config"]["max_open_positions"] == 10

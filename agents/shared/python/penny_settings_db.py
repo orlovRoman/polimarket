@@ -203,52 +203,44 @@ def get_penny_stocks_config() -> PennyStocksConfig:
 
 def update_penny_stocks_config(updates: dict, changed_by: str = 'ui', source: str = 'ui') -> dict:
     """
-    Обновляет настройки в транзакции с аудитом.
+    Обновляет настройки с аудитом.
     Проверяет ключи по whitelist.
     """
     ALLOWED_KEYS = set(PENNY_DEFAULTS.keys())
     updated_keys = []
     
     with get_connection() as conn:
-        conn.execute("BEGIN TRANSACTION")
-        try:
-            # Читаем старые значения для аудита
-            rows = conn.execute("SELECT key, value FROM penny_settings").fetchall()
-            old_raw = {r["key"]: r["value"] for r in rows}
-            
-            for k, v in updates.items():
-                if k not in ALLOWED_KEYS:
-                    continue
-                    
-                v_str = str(v).strip()
-                old_val = old_raw.get(k, PENNY_DEFAULTS.get(k))
+        # Читаем старые значения для аудита
+        rows = conn.execute("SELECT key, value FROM penny_settings").fetchall()
+        old_raw = {r["key"]: r["value"] for r in rows}
+        
+        for k, v in updates.items():
+            if k not in ALLOWED_KEYS:
+                continue
                 
-                if old_val != v_str:
-                    # Обновляем настройку
-                    conn.execute(
-                        "INSERT OR REPLACE INTO penny_settings (key, value) VALUES (?, ?)",
-                        (k, v_str)
-                    )
-                    # Пишем аудит
-                    conn.execute("""
-                        INSERT INTO penny_settings_audit (changed_by, key, old_value, new_value, source)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (changed_by, k, old_val, v_str, source))
-                    
-                    updated_keys.append(k)
+            v_str = str(v).strip()
+            old_val = old_raw.get(k, PENNY_DEFAULTS.get(k))
             
-            if updated_keys:
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if old_val != v_str:
+                # Обновляем настройку
                 conn.execute(
-                    "INSERT OR REPLACE INTO penny_runtime_state (key, value) VALUES ('updated_at', ?)",
-                    (now_str,)
+                    "INSERT OR REPLACE INTO penny_settings (key, value) VALUES (?, ?)",
+                    (k, v_str)
                 )
+                # Пишем аудит
+                conn.execute("""
+                    INSERT INTO penny_settings_audit (changed_by, key, old_value, new_value, source)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (changed_by, k, old_val, v_str, source))
                 
-            conn.execute("COMMIT")
-        except Exception as e:
-            conn.execute("ROLLBACK")
-            logger.error(f"Ошибка сохранения настроек penny_settings: {e}")
-            raise e
+                updated_keys.append(k)
+        
+        if updated_keys:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute(
+                "INSERT OR REPLACE INTO penny_runtime_state (key, value) VALUES ('updated_at', ?)",
+                (now_str,)
+            )
             
     # Получаем новый конфиг
     new_cfg = get_penny_stocks_config()

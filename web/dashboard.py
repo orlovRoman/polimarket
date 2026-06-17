@@ -1126,7 +1126,9 @@ async def handle_penny_stocks_settings(request):
     return web.Response(text=html, content_type="text/html")
 
 async def api_penny_stocks_config_get(request):
-    from agents.shared.python.penny_settings_service import load_penny_config
+    from agents.shared.python.penny_settings_service import load_penny_config, reset_penny_config_to_defaults
+    if request.query.get("reset") == "true":
+        await asyncio.to_thread(reset_penny_config_to_defaults)
     data = await asyncio.to_thread(load_penny_config)
     return web.json_response(data)
 

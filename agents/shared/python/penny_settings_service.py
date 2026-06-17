@@ -57,7 +57,7 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
 
     # Сливаем входящие изменения с текущим конфигом для проверки бизнес-валидации
     merged_updates = {}
-    for k in PENNY_FIELDS():
+    for k in PENNY_FIELD_NAMES:
         if k in updates:
             merged_updates[k] = updates[k]
         else:
@@ -238,12 +238,16 @@ def rederive_penny_credentials() -> dict:
             "error": str(e)
         }
 
-def PENNY_FIELDS():
-    return [
-        "wallet_address", "trading_mode", "live_trading_enabled", "bet_size_usdc",
-        "max_bet_size_usdc", "max_open_positions", "daily_budget_usdc",
-        "min_probability", "max_probability", "min_confidence_score",
-        "min_volume_24h", "min_hours_to_close", "max_hours_to_close",
-        "auto_buy_enabled", "kill_switch", "require_preflight_for_autobuy",
-        "preflight_min_usdc_buffer"
-    ]
+PENNY_FIELD_NAMES: list[str] = [
+    "wallet_address", "trading_mode", "live_trading_enabled", "bet_size_usdc",
+    "max_bet_size_usdc", "max_open_positions", "daily_budget_usdc",
+    "min_probability", "max_probability", "min_confidence_score",
+    "min_volume_24h", "min_hours_to_close", "max_hours_to_close",
+    "auto_buy_enabled", "kill_switch", "require_preflight_for_autobuy",
+    "preflight_min_usdc_buffer"
+]
+
+def reset_penny_config_to_defaults() -> dict:
+    """Сбрасывает конфигурацию Penny Stocks к дефолтным значениям."""
+    from agents.shared.python.penny_settings_db import PENNY_DEFAULTS
+    return save_penny_config(PENNY_DEFAULTS, changed_by='system', source='reset')

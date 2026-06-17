@@ -45,3 +45,8 @@ def _validate_live_env() -> None:
         raise ValueError(
             f"Инфраструктурный режим APP_MODE=live требует наличия секретов в окружении: {missing}."
         )
+
+def reset_wallet_provider() -> None:
+    """Сбрасывает синглтон-провайдер кошелька (используется главным образом в тестах)."""
+    global _provider
+    _provider = None

@@ -75,18 +75,23 @@ def get_active_positions_count() -> int:
 
 def get_today_spent_budget() -> float:
     """Возвращает сумму ставок, сделанных сегодня по стратегии Penny Stocks."""
-    # Для простоты суммируем базовую ставку за сегодня из истории
     today_date = datetime.now().strftime("%Y-%m-%d")
     with get_connection() as conn:
-        row = conn.execute("""
-            SELECT COUNT(*) FROM penny_virtual_trades_history 
+        # 1. Суммируем закрытые сделки за сегодня
+        row_hist = conn.execute("""
+            SELECT SUM(COALESCE(bet_size_usdc, 1.0)) FROM penny_virtual_trades_history 
             WHERE bought_at LIKE ?
         """, (f"{today_date}%",)).fetchone()
-        count = row[0] if row else 0
+        spent_hist = row_hist[0] if row_hist and row_hist[0] is not None else 0.0
         
-        # Получаем конфиг для средней ставки (или используем константу как fallback)
-        cfg = get_penny_stocks_config()
-        return count * cfg.bet_size_usdc
+        # 2. Суммируем открытые сегодня позиции
+        row_active = conn.execute("""
+            SELECT SUM(COALESCE(bet_size_usdc, 1.0)) FROM penny_stocks_monitoring
+            WHERE virtual_bought_at LIKE ?
+        """, (f"{today_date}%",)).fetchone()
+        spent_active = row_active[0] if row_active and row_active[0] is not None else 0.0
+        
+        return float(spent_hist + spent_active)
 
 def compute_penny_bet_size(signal: dict, cfg: PennyStocksConfig) -> float:
     """
@@ -154,13 +159,19 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig) ->
     if not can_execute_penny_trade(signal, cfg):
         return False
         
+    # Вычисляем размер ставки
+    bet_size = compute_penny_bet_size(signal, cfg)
+    if bet_size <= 0:
+        logger.warning(f"Размер ставки 0 USDC для {market_id}, отмена сделки.")
+        return False
+
     # Определяем цену исхода
     price = signal.get("price", 0.5)
     
     try:
         # Совершаем виртуальную покупку
-        buy_virtual_penny_stock(market_id, price)
-        logger.info(f"Успешно открыта виртуальная позиция для рынка {market_id} по цене {price}")
+        buy_virtual_penny_stock(market_id, price, bet_size)
+        logger.info(f"Успешно открыта виртуальная позиция для рынка {market_id} по цене {price} со ставкой {bet_size} USDC")
         return True
     except Exception as e:
         logger.error(f"Ошибка при исполнении сделки для рынка {market_id}: {e}")

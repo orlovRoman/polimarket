@@ -827,40 +827,18 @@
     async function resetToDefaults() {
         if (!confirm("Вы действительно хотите сбросить все параметры Penny Stocks к их значениям по умолчанию? Все кастомные лимиты будут стерты.")) return;
         
-        // Дефолтные настройки
-        const defaults = {
-            wallet_address: "",
-            trading_mode: "paper",
-            live_trading_enabled: "0",
-            bet_size_usdc: "1.0",
-            max_bet_size_usdc: "5.0",
-            max_open_positions: "10",
-            daily_budget_usdc: "20.0",
-            min_probability: "0.01",
-            max_probability: "0.09",
-            min_confidence_score: "0.5",
-            min_volume_24h: "50.0",
-            min_hours_to_close: "2.0",
-            max_hours_to_close: "168.0",
-            auto_buy_enabled: "0",
-            kill_switch: "0",
-            require_preflight_for_autobuy: "1",
-            preflight_min_usdc_buffer: "5.0"
-        };
-        
-        const res = await fetch('/api/penny-stocks/config', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(defaults)
-        });
-        
-        const data = await res.json();
-        if (data && data.ok) {
-            currentConfig = data.config;
-            showToast("Параметры сброшены к дефолтным значениям", "success");
-            loadConfig();
-        } else {
-            showToast(data.error || "Ошибка сброса параметров", "error");
+        try {
+            const res = await fetch('/api/penny-stocks/config?reset=true');
+            const data = await res.json();
+            if (data && data.ok) {
+                currentConfig = data.config;
+                showToast("Параметры сброшены к дефолтным значениям", "success");
+                loadConfig();
+            } else {
+                showToast(data.error || "Ошибка сброса параметров", "error");
+            }
+        } catch (err) {
+            showToast("Не удалось подключиться к серверу для сброса параметров", "error");
         }
     }
 
