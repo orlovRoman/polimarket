@@ -52,6 +52,10 @@ async def handle_favourite_compounding(request):
 async def handle_scout(request):
     html = await asyncio.to_thread(render_template, "scout.html")
     return web.Response(text=html, content_type="text/html")
+_scheduler = None
+def set_scheduler(scheduler):
+    global _scheduler
+    _scheduler = scheduler
 
 async def handle_whale(request):
     html = await asyncio.to_thread(render_template, "whale.html")
@@ -246,6 +250,31 @@ async def api_calibration_reject(request):
     from web.calibration_provider import CalibrationProvider
     success = await asyncio.to_thread(CalibrationProvider.reject_calibration_param, param_id)
     return web.json_response({"status": "ok" if success else "failed"})
+async def api_calibration_force_run(request):
+    try:
+        from agents.orchestrator.scripts.calibrate import run_calibration
+        report, has_updates = await run_calibration(window_days=7, trigger_type="manual")
+        return web.json_response({"status": "ok", "has_updates": has_updates, "report": report})
+    except Exception as e:
+        logger.error(f"Force run failed: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+async def api_calibration_toggle_schedule(request):
+    if not _scheduler:
+        return web.json_response({"error": "Scheduler not available"}, status=500)
+    try:
+        body = await request.json()
+        action = body.get("action") # "pause" or "resume"
+        if action == "pause":
+            _scheduler.pause_job("nexus_calibration_job")
+            return web.json_response({"status": "paused"})
+        elif action == "resume":
+            _scheduler.resume_job("nexus_calibration_job")
+            return web.json_response({"status": "resumed"})
+        else:
+            return web.json_response({"error": "Invalid action"}, status=400)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
 
 async def api_delete_market(request):
     try:
@@ -1109,6 +1138,8 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/calibration/overlays", api_calibration_overlays)
     app.router.add_post("/api/calibration/approve", api_calibration_approve)
     app.router.add_post("/api/calibration/reject", api_calibration_reject)
+    app.router.add_post("/api/calibration/force_run", api_calibration_force_run)
+    app.router.add_post("/api/calibration/toggle_schedule", api_calibration_toggle_schedule)
     
     app.router.add_get("/api/compound-settings", api_get_compound_settings)
     app.router.add_post("/api/compound-settings", api_save_compound_settings)

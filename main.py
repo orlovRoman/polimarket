@@ -1027,8 +1027,10 @@ async def start_system():
     scheduler.start()
 
     # Передаём scheduler в bot.py для управления авто-расписанием через /monitor
-    from telegram.bot import set_scheduler
-    set_scheduler(scheduler)
+    from telegram.bot import set_scheduler as bot_set_scheduler
+    from web.dashboard import set_scheduler as web_set_scheduler
+    bot_set_scheduler(scheduler)
+    web_set_scheduler(scheduler)
 
     logger.info("Запуск FastAPI...")
     api_task = asyncio.create_task(start_fastapi())

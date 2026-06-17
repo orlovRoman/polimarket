@@ -1,6 +1,3 @@
-{% extends "base.html" %}
-
-{% block content %}
 <style>
     /* Метрики */
     .metrics-grid {
@@ -255,9 +252,80 @@
         border-radius: 12px;
         margin-bottom: 40px;
     }
+
+    .action-bar {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 25px;
+        background: var(--bg-card);
+        padding: 15px 20px;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .btn-action {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
+        padding: 8px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    .btn-action:hover {
+        background: var(--border-color);
+    }
+    .btn-action.btn-primary {
+        background: rgba(139, 92, 246, 0.1);
+        border-color: rgba(139, 92, 246, 0.3);
+        color: #c4b5fd;
+    }
+    .btn-action.btn-primary:hover {
+        background: rgba(139, 92, 246, 0.2);
+    }
+    .btn-action.btn-warning {
+        background: rgba(245, 158, 11, 0.1);
+        border-color: rgba(245, 158, 11, 0.3);
+        color: #fcd34d;
+    }
+    .btn-action.btn-warning:hover {
+        background: rgba(245, 158, 11, 0.2);
+    }
+    
+    .spinner {
+        animation: spin 1s linear infinite;
+        display: none;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
 </style>
 
 <div>
+    <!-- Панель управления -->
+    <div class="action-bar">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <svg style="width:24px;height:24px;fill:none;stroke:#8b5cf6;stroke-width:2;" viewBox="0 0 24 24">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+            </svg>
+            <h2 style="margin:0;font-size:1.2rem;">Управление калибровкой</h2>
+        </div>
+        <div style="display:flex;gap:15px;">
+            <button class="btn-action btn-primary" onclick="forceRunCalibration()" id="btn-force-run">
+                <svg style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                Принудительный запуск
+                <svg class="spinner" id="spinner-force-run" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 1 10 10"></path></svg>
+            </button>
+            <button class="btn-action btn-warning" onclick="toggleSchedule()" id="btn-toggle-schedule">
+                <svg id="icon-toggle" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                <span id="text-toggle">Приостановить расписание</span>
+            </button>
+        </div>
+    </div>
     <!-- Ключевые метрики из последнего запуска -->
     <div class="section-title">
         <svg style="width:20px;height:20px;fill:none;stroke:#8b5cf6;stroke-width:2;" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
@@ -573,7 +641,69 @@
         );
     }
 
+    async function forceRunCalibration() {
+        const btn = document.getElementById('btn-force-run');
+        const spinner = document.getElementById('spinner-force-run');
+        btn.disabled = true;
+        spinner.style.display = 'inline-block';
+        try {
+            const res = await fetch('/api/calibration/force_run', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok && data.status === 'ok') {
+                showToast("Принудительная калибровка завершена", "success");
+                loadData();
+            } else {
+                showToast(data.error || "Ошибка запуска калибровки", "error");
+            }
+        } catch(e) {
+            showToast("Сетевая ошибка", "error");
+        } finally {
+            btn.disabled = false;
+            spinner.style.display = 'none';
+        }
+    }
+
+    let isSchedulePaused = false;
+    async function toggleSchedule() {
+        const btn = document.getElementById('btn-toggle-schedule');
+        const textSpan = document.getElementById('text-toggle');
+        const icon = document.getElementById('icon-toggle');
+        
+        btn.disabled = true;
+        const action = isSchedulePaused ? 'resume' : 'pause';
+        
+        try {
+            const res = await fetch('/api/calibration/toggle_schedule', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: action})
+            });
+            const data = await res.json();
+            if (res.ok) {
+                isSchedulePaused = !isSchedulePaused;
+                if (isSchedulePaused) {
+                    textSpan.textContent = "Возобновить расписание";
+                    icon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>'; // Play icon
+                    btn.classList.remove('btn-warning');
+                    btn.classList.add('btn-primary');
+                    showToast("Расписание приостановлено", "success");
+                } else {
+                    textSpan.textContent = "Приостановить расписание";
+                    icon.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>'; // Pause icon
+                    btn.classList.remove('btn-primary');
+                    btn.classList.add('btn-warning');
+                    showToast("Расписание возобновлено", "success");
+                }
+            } else {
+                showToast(data.error || "Ошибка", "error");
+            }
+        } catch(e) {
+            showToast("Сетевая ошибка", "error");
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
     registerRefresh(loadData);
     loadData();
 </script>
-{% endblock %}
