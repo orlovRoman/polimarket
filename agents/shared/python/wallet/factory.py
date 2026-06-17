@@ -26,14 +26,26 @@ def get_wallet_provider() -> WalletProvider:
         app_mode = os.getenv("APP_MODE", "paper").lower()
 
     if app_mode == "live":
-        _validate_live_env()
-        # Лениво импортируем, чтобы не грузить модули, если live не используется
-        from .live import LivePolymarketProvider
-        _provider = LivePolymarketProvider()
-        logger.warning("🔴 LIVE-режим: включена реальная интеграция с Polymarket!")
+        try:
+            from agents.shared.python.penny_settings_db import get_penny_settings_raw
+            raw = get_penny_settings_raw()
+            live_trading_enabled = raw.get("live_trading_enabled", "0") == "1"
+        except Exception:
+            live_trading_enabled = False
+
+        if not live_trading_enabled:
+            _provider = PaperWalletProvider()
+            logger.warning("⚠️ APP_MODE=live, но live_trading_enabled=0 в БД — используем PaperWalletProvider")
+        else:
+            _validate_live_env()
+            # Лениво импортируем, чтобы не грузить модули, если live не используется
+            from .live import LivePolymarketProvider
+            _provider = LivePolymarketProvider()
+            logger.warning("🔴 LIVE-режим: включена реальная интеграция с Polymarket!")
     else:
         _provider = PaperWalletProvider()
         logger.info("📄 Paper-режим: провайдер кошелька работает в режиме симуляции (mock)")
+
 
     return _provider
 

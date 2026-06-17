@@ -32,6 +32,8 @@ def load_penny_config() -> dict:
     is_mock = not provider.is_live()
     provider_mode = "live" if provider.is_live() else "paper"
 
+    from agents.shared.python.penny_settings_db import get_penny_runtime_state
+
     return {
         "ok": True,
         "config": asdict(cfg),
@@ -40,8 +42,40 @@ def load_penny_config() -> dict:
             "provider_mode": provider_mode,
             "is_mock": is_mock,
             "live_capable": (app_mode == "live")
-        }
+        },
+        "runtime": get_penny_runtime_state()
     }
+
+
+def validate_auto_buy_transition(old_cfg: PennyStocksConfig, updates: dict, app_mode: str) -> list[str]:
+    """Возвращает список ошибок. Пустой список = переход допустим."""
+    errors = []
+    
+    # Проверяем, включается ли автопокупка
+    new_auto_buy = updates.get("auto_buy_enabled")
+    is_enabling_auto_buy = new_auto_buy is not None and (str(new_auto_buy).strip() == "1" or new_auto_buy is True)
+
+    if is_enabling_auto_buy:
+        new_kill = updates.get("kill_switch")
+        if new_kill is None:
+            kill_active = old_cfg.kill_switch
+        else:
+            kill_active = str(new_kill).strip() == "1" or new_kill is True
+
+        if kill_active:
+            errors.append("kill_switch активен — нельзя включить auto_buy")
+            
+        wallet = updates.get("wallet_address", old_cfg.wallet_address)
+        if not wallet or not wallet.strip():
+            errors.append("Включение автопокупки требует заполненного wallet_address")
+            
+        trading_mode = updates.get("trading_mode", old_cfg.trading_mode)
+        if trading_mode == "live" and app_mode != "live":
+            errors.append("APP_MODE=paper не позволяет торговать в live")
+            
+    return errors
+
+
 
 def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui') -> dict:
     """
@@ -77,6 +111,11 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
         if merged_updates.get("live_trading_enabled") == "1":
             raise ValueError("Нельзя включить live_trading_enabled=1, пока бэкенд запущен в режиме paper (APP_MODE=paper)")
 
+    # Валидация перехода автопокупки
+    transition_errors = validate_auto_buy_transition(current_cfg, updates, app_mode)
+    if transition_errors:
+        raise ValueError("; ".join(transition_errors))
+
     # Запрет включения auto-buy, если адрес кошелька пуст
     wallet = merged_updates.get("wallet_address", "").strip()
     if merged_updates.get("auto_buy_enabled") == "1" and not wallet:
@@ -85,10 +124,15 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
     # 3. Сохраняем в БД
     result = update_penny_stocks_config(updates, changed_by=changed_by, source=source)
     
+    # Сбрасываем синглтон-провайдер кошелька, чтобы настройки live_trading_enabled применились немедленно
+    from agents.shared.python.wallet.factory import reset_wallet_provider
+    reset_wallet_provider()
+    
     return {
         "ok": True,
         "updated_keys": result["updated_keys"],
         "config": asdict(result["config"])
+
     }
 
 def run_penny_preflight() -> dict:
@@ -131,8 +175,46 @@ def run_penny_preflight() -> dict:
         "message": f"Совместимость режимов: APP_MODE={app_mode}, trading_mode={cfg.trading_mode}"
     })
 
+    # Проверка готовности live-провайдера
+    if provider.is_live():
+        try:
+            # Вызов приватного метода для проверки возможности создания клиента
+            if hasattr(provider, "_get_client"):
+                provider._get_client()
+        except NotImplementedError as nie:
+            checks.append({
+                "name": "live_provider_ready",
+                "status": "fail",
+                "message": f"LivePolymarketProvider не готов: {nie}"
+            })
+            errors.append(f"LivePolymarketProvider не готов к работе: {nie}")
+            
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with get_connection() as conn:
+                conn.execute("INSERT OR REPLACE INTO penny_runtime_state (key, value) VALUES ('last_preflight_at', ?)", (now_str,))
+                conn.execute("INSERT OR REPLACE INTO penny_runtime_state (key, value) VALUES ('last_preflight_ok', '0')", ())
+                conn.execute("INSERT OR REPLACE INTO penny_runtime_state (key, value) VALUES ('last_preflight_summary', 'Preflight failed')", ())
+            
+            return {
+                "ok": False,
+                "summary": "Preflight failed",
+                "provider_mode": "live",
+                "is_mock": False,
+                "checks": checks,
+                "warnings": warnings,
+                "errors": errors
+            }
+        except Exception as e:
+            checks.append({
+                "name": "live_provider_ready",
+                "status": "fail",
+                "message": f"Ошибка инициализации Live-клиента: {e}"
+            })
+            errors.append(f"Ошибка инициализации Live-клиента: {e}")
+
     # 3. Проверка баланса и allowance
     balance_info = None
+
     try:
         balance_info = provider.preflight_check()
         balance_ok = True

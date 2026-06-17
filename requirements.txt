@@ -38,4 +38,6 @@ yarl==1.24.2
 pytrends>=4.9.2
 sentence-transformers>=2.7.0  # Опционально: семантический фильтр одного события
 feedparser==6.0.11
+py-clob-client==0.34.6
+
 

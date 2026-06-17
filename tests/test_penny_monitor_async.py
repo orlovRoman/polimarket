@@ -17,7 +17,8 @@ async def test_penny_monitor_uses_asyncio_to_thread():
     patch("agents.shared.python.db.resolve_penny_stock"), \
     patch("telegram.bot.bot.send_message", new_callable=AsyncMock), \
     patch("services.outcome_tracker._fetch_resolution", return_value="YES") as mock_fetch, \
-    patch("main.asyncio.to_thread", wraps=asyncio.to_thread) as mock_thread:
+    patch("agents.shared.python.penny_execution_service.asyncio.to_thread", wraps=asyncio.to_thread) as mock_thread:
+
 
         market_mock = MagicMock()
         market_mock.price = 0.05
@@ -44,7 +45,8 @@ async def test_penny_monitor_fallback_when_market_obj_none():
     patch("agents.shared.python.db.resolve_penny_stock") as mock_resolve, \
     patch("telegram.bot.bot.send_message", new_callable=AsyncMock) as mock_send, \
     patch("services.outcome_tracker._fetch_resolution", return_value="YES") as mock_fetch, \
-    patch("main.asyncio.to_thread", wraps=asyncio.to_thread) as mock_thread:
+    patch("agents.shared.python.penny_execution_service.asyncio.to_thread", wraps=asyncio.to_thread) as mock_thread:
+
 
         mock_eng.return_value.adapter.get_market.return_value = None
 

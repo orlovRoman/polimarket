@@ -51,6 +51,9 @@ class PennyStocksConfig:
     require_preflight_for_autobuy: bool
     preflight_min_usdc_buffer: float
     updated_at: str
+    is_fallback: bool = False
+    validation_error: str | None = None
+
 
 def init_penny_settings_table(conn=None) -> None:
     """
@@ -175,7 +178,9 @@ def get_penny_stocks_config() -> PennyStocksConfig:
             kill_switch=kill_switch,
             require_preflight_for_autobuy=require_preflight_for_autobuy,
             preflight_min_usdc_buffer=preflight_min_usdc_buffer,
-            updated_at=updated_at
+            updated_at=updated_at,
+            is_fallback=False,
+            validation_error=None
         )
     except Exception as e:
         logger.warning(f"Ошибка валидации penny_settings, используем безопасный fallback: {e}")
@@ -198,8 +203,11 @@ def get_penny_stocks_config() -> PennyStocksConfig:
             kill_switch=True, # Включаем kill_switch по умолчанию для безопасности
             require_preflight_for_autobuy=True,
             preflight_min_usdc_buffer=5.0,
-            updated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            updated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            is_fallback=True,
+            validation_error=str(e)
         )
+
 
 def update_penny_stocks_config(updates: dict, changed_by: str = 'ui', source: str = 'ui') -> dict:
     """
@@ -248,3 +256,10 @@ def update_penny_stocks_config(updates: dict, changed_by: str = 'ui', source: st
         "updated_keys": updated_keys,
         "config": new_cfg
     }
+
+def get_penny_runtime_state() -> dict[str, str]:
+    """Читает оперативное состояние стратегии (последний preflight, деривация ключей, etc.)."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT key, value FROM penny_runtime_state").fetchall()
+        return {r["key"]: r["value"] for r in rows}
+

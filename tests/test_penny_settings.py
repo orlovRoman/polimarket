@@ -320,7 +320,7 @@ def test_today_budget_independent_of_current_bet_size(isolated_db):
     # Потраченный бюджет должен остаться 2.0, а не увеличиться до 10.0
     assert get_today_spent_budget() == pytest.approx(2.0)
 
-def test_wallet_provider_singleton_resets_on_mode_change(monkeypatch):
+def test_wallet_provider_singleton_resets_on_mode_change(isolated_db, monkeypatch):
     """При изменении APP_MODE синглтон пересоздаётся."""
     import agents.shared.python.wallet.factory as fct
     from agents.shared.python.wallet.factory import reset_wallet_provider
@@ -330,6 +330,9 @@ def test_wallet_provider_singleton_resets_on_mode_change(monkeypatch):
     p1 = fct.get_wallet_provider()
     assert not p1.is_live()
     
+    # Включаем live_trading_enabled в БД, чтобы сработал переход на live провайдер при APP_MODE=live
+    update_penny_stocks_config({"live_trading_enabled": "1"})
+    
     # Сбрасываем и меняем режим — live должен упасть без ключей
     reset_wallet_provider()
     monkeypatch.setattr(config, "APP_MODE", "live")
@@ -337,6 +340,7 @@ def test_wallet_provider_singleton_resets_on_mode_change(monkeypatch):
     monkeypatch.delenv("DEPOSIT_WALLET_ADDRESS", raising=False)
     with pytest.raises(ValueError, match="секретов"):
         fct.get_wallet_provider()
+
 
 def test_execute_penny_trade_no_outcome_price(isolated_db):
     """При target_outcome=NO цена должна быть 1.0 - m.price, а не m.price."""

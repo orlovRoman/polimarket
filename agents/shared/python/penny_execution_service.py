@@ -4,10 +4,12 @@
 Управляет фильтрацией рынков, расчетом размера ставки и проверкой лимитов перед входом.
 """
 import logging
+import asyncio
 from datetime import datetime, timezone
 from agents.shared.python.db import get_connection, buy_virtual_penny_stock
 from agents.shared.python.penny_settings_db import get_penny_stocks_config, PennyStocksConfig
 from agents.shared.python.penny_settings_service import run_penny_preflight
+
 
 logger = logging.getLogger("NexusPolyBot.PennyExecutionService")
 
@@ -119,7 +121,7 @@ def compute_penny_bet_size(signal: dict, cfg: PennyStocksConfig) -> float:
     
     return min(bet, remaining_budget)
 
-def can_execute_penny_trade(signal: dict, cfg: PennyStocksConfig) -> bool:
+def can_execute_penny_trade(signal: dict, cfg: PennyStocksConfig, preflight_cache: dict = None) -> bool:
     """
     Проверяет все лимиты и ограничения перед совершением автопокупки.
     """
@@ -144,19 +146,31 @@ def can_execute_penny_trade(signal: dict, cfg: PennyStocksConfig) -> bool:
 
     # 3. Проверка preflight check
     if cfg.require_preflight_for_autobuy:
-        preflight = run_penny_preflight()
+        if preflight_cache is not None and "preflight" in preflight_cache:
+            preflight = preflight_cache["preflight"]
+        else:
+            preflight = run_penny_preflight()
+            if preflight_cache is not None:
+                preflight_cache["preflight"] = preflight
+
         if not preflight["ok"]:
             logger.warning(f"Сделка отклонена: preflight check провален. Ошибки: {preflight['errors']}")
             return False
             
     return True
 
-def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig) -> bool:
+def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig, preflight_cache: dict = None) -> bool:
     """
     Исполняет сделку: открывает виртуальную позицию.
     В будущем здесь будет вызов LivePolymarketProvider.
     """
-    if not can_execute_penny_trade(signal, cfg):
+    # Guard: проверяем наличие цены в сигнале
+    price = signal.get("price")
+    if price is None:
+        logger.warning(f"Нет поля price в сигнале для {market_id}, пропускаем сделку.")
+        return False
+
+    if not can_execute_penny_trade(signal, cfg, preflight_cache=preflight_cache):
         return False
         
     # Вычисляем размер ставки
@@ -164,9 +178,6 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig) ->
     if bet_size <= 0:
         logger.warning(f"Размер ставки 0 USDC для {market_id}, отмена сделки.")
         return False
-
-    # Определяем цену исхода
-    price = signal.get("price", 0.5)
     
     try:
         # Совершаем виртуальную покупку
@@ -176,3 +187,116 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig) ->
     except Exception as e:
         logger.error(f"Ошибка при исполнении сделки для рынка {market_id}: {e}")
         return False
+
+async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
+    """
+    Мониторит активные виртуальные позиции Penny Stocks:
+    - Обновляет текущие цены и объемы.
+    - Рассчитывает рост цен и отправляет спайк-алерты (рост >= 100%).
+    - Проверяет закрытие рынков и фиксирует резолюцию (YES/NO).
+    - Отправляет уведомления о закрытии в Telegram.
+    """
+    import asyncio
+    from datetime import datetime, timezone
+    from agents.shared.python.db import (
+        get_active_penny_stocks,
+        update_penny_stock_price,
+        mark_penny_spike_sent,
+        resolve_penny_stock
+    )
+    from services.outcome_tracker import _fetch_resolution
+    
+    active_stocks = get_active_penny_stocks()
+    if not active_stocks:
+        logger.info("Нет активных Penny Stocks для мониторинга.")
+        return
+        
+    for stock in active_stocks:
+        m_id = stock["market_id"]
+        
+        try:
+            market_obj = engine.adapter.get_market(m_id)
+        except Exception as e:
+            logger.warning(f"Не удалось получить данные рынка {m_id} через адаптер: {e}")
+            market_obj = None
+            
+        if market_obj:
+            current_price = market_obj.price
+            volume_2h = getattr(market_obj, 'volume', 0.0)
+            update_penny_stock_price(m_id, current_price, volume_2h)
+            
+            init_price = stock["initial_price"]
+            price_growth = 0.0
+            pred = stock.get("predicted_outcome")
+            is_no_outcome = (pred == "NO") or (pred is None and init_price >= 0.50)
+            
+            if is_no_outcome:
+                init_effective = 1.0 - init_price
+                curr_effective = 1.0 - current_price
+            else:
+                init_effective = init_price
+                curr_effective = current_price
+
+            if init_effective > 0:
+                price_growth = (curr_effective - init_effective) / init_effective
+                
+            if not stock["spike_alert_sent"] and price_growth >= 1.0:
+                mark_penny_spike_sent(m_id)
+                price_suffix = " (NO)" if is_no_outcome else " (YES)"
+                msg = (
+                    f"⚡️ <b>РЕЗКИЙ ВСПЛЕСК на Penny Stocks!</b>\n\n"
+                    f"📍 <b>{stock['title']}</b>\n"
+                    f"📈 Цена{price_suffix}: {int(round(init_effective*100))}¢ -> <b>{int(round(curr_effective*100))}¢</b> (рост на {price_growth*100:.0f}%!)\n"
+                    f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
+                )
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔍 Проанализировать рынок", callback_data=f"analyze_mkt_{m_id}")]
+                ])
+                await bot.send_message(
+                    chat_id, 
+                    msg, 
+                    parse_mode="HTML", 
+                    disable_web_page_preview=True,
+                    reply_markup=keyboard
+                )
+                await asyncio.sleep(1)
+        
+        close_time_passed = False
+        resolution_result = None
+        if market_obj and market_obj.close_time:
+            close_time_passed = market_obj.close_time < datetime.now(timezone.utc)
+        else:
+            # Нет данных о close_time — пробуем resolution как fallback
+            try:
+                res = await asyncio.to_thread(_fetch_resolution, m_id)
+                if res in ("YES", "NO"):
+                    resolution_result = res
+                    close_time_passed = True
+            except Exception:
+                pass
+
+        if close_time_passed:
+            if not resolution_result:
+                resolution_result = await asyncio.to_thread(_fetch_resolution, m_id)
+            if resolution_result in ("YES", "NO"):
+                resolve_penny_stock(m_id, resolution_result)
+                pred = stock["predicted_outcome"]
+                if pred:
+                    result_str = "УСПЕШНО 🎉" if pred.upper() == resolution_result else "НЕ СОВПАЛО ❌"
+                    pred_str = pred
+                else:
+                    result_str = "БЕЗ ПРОГНОЗА 💬"
+                    pred_str = "Нет прогноза"
+                msg = (
+                    f"🔔 <b>Закрытие рынка Penny Stocks!</b>\n\n"
+                    f"📍 <b>{stock['title']}</b>\n"
+                    f"🎯 Прогноз бота: <b>{pred_str}</b>\n"
+                    f"✅ Исход Polymarket: <b>{resolution_result}</b>\n"
+                    f"🏆 Результат: <b>{result_str}</b>\n"
+                    f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
+                )
+                await bot.send_message(chat_id, msg, parse_mode="HTML", disable_web_page_preview=True)
+                await asyncio.sleep(1)
+
+

@@ -3,6 +3,8 @@ import os
 from datetime import datetime, timezone
 from .base import WalletProvider
 from .models import BalanceInfo, CredentialsStatus
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import BalanceAllowanceParams
 
 class LivePolymarketProvider(WalletProvider):
     """
@@ -22,49 +24,59 @@ class LivePolymarketProvider(WalletProvider):
     def _get_client(self):
         """Ленивая инициализация CLOB-клиента."""
         if self._client is None:
-            # При активации реальной live торговли раскомментировать:
-            # from py_clob_client_v2 import ClobClient, SignatureTypeV2
-            # self._client = ClobClient(
-            #     self._clob_host,
-            #     key=self._private_key,
-            #     chain_id=137,
-            #     signature_type=SignatureTypeV2.POLY_1271,
-            #     funder=self._deposit_wallet,
-            # )
-            raise NotImplementedError(
-                "LivePolymarketProvider не активирован. "
-                "Раскомментируй инициализацию CLOB-клиента в live.py."
+            if not self._private_key or not self._deposit_wallet:
+                raise ValueError("PRIVATE_KEY и DEPOSIT_WALLET_ADDRESS должны быть заданы в окружении для LIVE-режима.")
+
+            # Временный клиент для деривации ключей
+            temp_client = ClobClient(
+                self._clob_host,
+                key=self._private_key,
+                chain_id=137,
+            )
+            creds = temp_client.create_or_derive_api_key()
+            self._credentials = creds
+            
+            # Полноценный клиент с deposit wallet
+            self._client = ClobClient(
+                self._clob_host,
+                key=self._private_key,
+                chain_id=137,
+                creds=creds,
+                signature_type=1,  # 1 соответствует POLY_1271 (POLY_PROXY)
+                funder=self._deposit_wallet,
             )
         return self._client
 
     def preflight_check(self) -> BalanceInfo:
-        # TODO при переходе на боевой режим:
-        # client = self._get_client()
-        # balance_resp = client.get_balance_allowance(...)
-        # return BalanceInfo(
-        #     usdc_balance=float(balance_resp["balance"]),
-        #     allowance_ok=float(balance_resp["allowance"]) > 0,
-        #     wallet_address=self._deposit_wallet,
-        #     fetched_at=datetime.now(timezone.utc),
-        #     is_mock=False,
-        #     provider_mode="live"
-        # )
-        raise NotImplementedError("Реальный preflight check в LivePolymarketProvider не реализован.")
+        client = self._get_client()
+        params = BalanceAllowanceParams(asset_type="USDC")
+        resp = client.get_balance_allowance(params=params)
+        
+        balance = float(resp.get("balance", 0.0))
+        allowance = float(resp.get("allowance", 0.0))
+        
+        return BalanceInfo(
+            usdc_balance=balance,
+            allowance_ok=allowance > 0.0,
+            wallet_address=self._deposit_wallet,
+            fetched_at=datetime.now(timezone.utc),
+            is_mock=False,
+            provider_mode="live"
+        )
 
     def get_credentials(self) -> CredentialsStatus:
-        # TODO при переходе на боевой режим:
-        # from py_clob_client_v2 import ClobClient
-        # temp = ClobClient(self._clob_host, key=self._private_key, chain_id=137)
-        # creds = temp.create_or_derive_api_key()
-        # return CredentialsStatus(
-        #     api_key=creds["apiKey"],
-        #     passphrase=creds["passphrase"],
-        #     secret=creds["secret"],
-        #     derived_at=datetime.now(timezone.utc),
-        #     is_mock=False,
-        #     provider_mode="live"
-        # )
-        raise NotImplementedError("Реальный дериватор API-ключей в LivePolymarketProvider не реализован.")
+        if self._credentials is None:
+            self._get_client()  # Деривируем в процессе инициализации
+            
+        return CredentialsStatus(
+            api_key=self._credentials.get("apiKey", ""),
+            passphrase=self._credentials.get("passphrase", ""),
+            secret=self._credentials.get("secret", ""),
+            derived_at=datetime.now(timezone.utc),
+            is_mock=False,
+            provider_mode="live"
+        )
 
     def is_live(self) -> bool:
         return True
+

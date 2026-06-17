@@ -377,7 +377,9 @@ async def scheduled_penny_discovery():
 
         active_ids = {m["market_id"] for m in get_active_penny_stocks()}
         
+        preflight_cache = {}
         new_discovered = 0
+
         for m in markets:
             if m.id in active_ids:
                 continue
@@ -451,7 +453,8 @@ async def scheduled_penny_discovery():
                 }
                 if passes_signal_filters(sig_dict, cfg):
                     if cfg.auto_buy_enabled:
-                        execute_penny_trade(m.id, sig_dict, cfg)
+                        execute_penny_trade(m.id, sig_dict, cfg, preflight_cache=preflight_cache)
+
             
             new_discovered += 1
             price_cents = int(round(m.price * 100))
@@ -471,114 +474,14 @@ async def scheduled_penny_discovery():
 async def scheduled_penny_monitor():
     try:
         logger.info(">>> Запуск мониторинга Penny Stocks...")
-        from agents.shared.python.db import (
-            get_active_penny_stocks,
-            update_penny_stock_price,
-            mark_penny_spike_sent,
-            resolve_penny_stock
-        )
-        from services.outcome_tracker import _fetch_resolution
+        from agents.shared.python.penny_execution_service import monitor_active_penny_stocks
         from core.singleton import get_core_engine
-        import asyncio
-        
-        active_stocks = get_active_penny_stocks()
-        if not active_stocks:
-            logger.info("Нет активных Penny Stocks для мониторинга.")
-            return
-            
         engine = get_core_engine()
-        
-        for stock in active_stocks:
-            m_id = stock["market_id"]
-            
-            from datetime import datetime, timezone
-            try:
-                market_obj = engine.adapter.get_market(m_id)
-            except Exception:
-                market_obj = None
-                
-            if market_obj:
-                current_price = market_obj.price
-                volume_2h = getattr(market_obj, 'volume', 0.0)
-                update_penny_stock_price(m_id, current_price, volume_2h)
-                
-                init_price = stock["initial_price"]
-                price_growth = 0.0
-                pred = stock.get("predicted_outcome")
-                is_no_outcome = (pred == "NO") or (pred is None and init_price >= 0.50)
-                
-                if is_no_outcome:
-                    init_effective = 1.0 - init_price
-                    curr_effective = 1.0 - current_price
-                else:
-                    init_effective = init_price
-                    curr_effective = current_price
-
-                if init_effective > 0:
-                    price_growth = (curr_effective - init_effective) / init_effective
-                    
-                if not stock["spike_alert_sent"] and price_growth >= 1.0:
-                    mark_penny_spike_sent(m_id)
-                    price_suffix = " (NO)" if is_no_outcome else " (YES)"
-                    msg = (
-                        f"⚡️ <b>РЕЗКИЙ ВСПЛЕСК на Penny Stocks!</b>\n\n"
-                        f"📍 <b>{stock['title']}</b>\n"
-                        f"📈 Цена{price_suffix}: {int(round(init_effective*100))}¢ -> <b>{int(round(curr_effective*100))}¢</b> (рост на {price_growth*100:.0f}%!)\n"
-                        f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
-                    )
-                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🔍 Проанализировать рынок", callback_data=f"analyze_mkt_{m_id}")]
-                    ])
-                    await bot.send_message(
-                        AUTHORIZED_CHAT_ID, 
-                        msg, 
-                        parse_mode="HTML", 
-                        disable_web_page_preview=True,
-                        reply_markup=keyboard
-                    )
-                    await asyncio.sleep(1)
-            
-            close_time_passed = False
-            resolution_result = None
-            if market_obj and market_obj.close_time:
-                close_time_passed = market_obj.close_time < datetime.now(timezone.utc)
-            else:
-                # Нет данных о close_time — пробуем resolution как fallback
-                try:
-                    res = await asyncio.to_thread(_fetch_resolution, m_id)
-                    if res in ("YES", "NO"):
-                        resolution_result = res
-                        close_time_passed = True
-                except Exception:
-                    pass
-
-            if close_time_passed:
-                if not resolution_result:
-                    resolution_result = await asyncio.to_thread(_fetch_resolution, m_id)
-                if resolution_result in ("YES", "NO"):
-                    resolve_penny_stock(m_id, resolution_result)
-                    pred = stock["predicted_outcome"]
-                    if pred:
-                        result_str = "УСПЕШНО 🎉" if pred.upper() == resolution_result else "НЕ СОВПАЛО ❌"
-                        pred_str = pred
-                    else:
-                        result_str = "БЕЗ ПРОГНОЗА 💬"
-                        pred_str = "Нет прогноза"
-                    msg = (
-                        f"🔔 <b>Закрытие рынка Penny Stocks!</b>\n\n"
-                        f"📍 <b>{stock['title']}</b>\n"
-                        f"🎯 Прогноз бота: <b>{pred_str}</b>\n"
-                        f"✅ Исход Polymarket: <b>{resolution_result}</b>\n"
-                        f"🏆 Результат: <b>{result_str}</b>\n"
-                        f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
-                    )
-                    await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
-                    await asyncio.sleep(1)
-                    
+        await monitor_active_penny_stocks(bot, AUTHORIZED_CHAT_ID, engine)
         logger.info("<<< Мониторинг Penny Stocks завершен.")
     except Exception as e:
-        logger.error(f"Ошибка в мониторинге Penny Stocks: {e}", exc_info=True)
+        logger.error(f"Ошибка при автоматическом мониторинге Penny Stocks: {e}", exc_info=True)
+
 
 async def scheduled_whale_discovery():
     try:
