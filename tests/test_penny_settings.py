@@ -554,3 +554,22 @@ def test_migration_logs_on_config_error(isolated_db, caplog):
             db_module_local.init_db()
         assert "bet_size_usdc" in caplog.text or "legacy" in caplog.text
 
+
+def test_save_penny_config_validation_blocks_invalid_invariants(isolated_db):
+    """Проверка, что сохранение настроек блокируется при нарушении базовых инвариантов."""
+    # 1. Слишком много открытых позиций
+    with pytest.raises(ValueError) as excinfo:
+        save_penny_config({"max_open_positions": 100})
+    assert "Лимит открытых позиций должен быть между 1 и 50" in str(excinfo.value)
+
+    # 2. Неверный размер ставки
+    with pytest.raises(ValueError) as excinfo:
+        save_penny_config({"bet_size_usdc": -5.0})
+    assert "Размеры ставок нарушают инвариант" in str(excinfo.value)
+
+    # 3. max_bet_size больше дневного бюджета
+    with pytest.raises(ValueError) as excinfo:
+        save_penny_config({"max_bet_size_usdc": 30.0, "daily_budget_usdc": 20.0})
+    assert "Размеры ставок нарушают инвариант" in str(excinfo.value)
+
+

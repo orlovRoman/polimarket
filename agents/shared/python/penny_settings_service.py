@@ -105,6 +105,31 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
                 merged_updates[k] = str(val)
 
     # 2. Бизнес-валидация
+    # Проверка типов и базовых инвариантов
+    try:
+        val_bet_size = float(merged_updates.get("bet_size_usdc", 1.0))
+        val_max_bet = float(merged_updates.get("max_bet_size_usdc", 5.0))
+        val_max_positions = int(merged_updates.get("max_open_positions", 10))
+        val_daily_budget = float(merged_updates.get("daily_budget_usdc", 20.0))
+        val_min_prob = float(merged_updates.get("min_probability", 0.01))
+        val_max_prob = float(merged_updates.get("max_probability", 0.09))
+        val_min_conf = float(merged_updates.get("min_confidence_score", 0.5))
+        val_min_hours = float(merged_updates.get("min_hours_to_close", 2.0))
+        val_max_hours = float(merged_updates.get("max_hours_to_close", 168.0))
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Ошибка приведения типов параметров: {e}")
+
+    if not (0.0 < val_bet_size <= val_max_bet <= val_daily_budget):
+        raise ValueError("Размеры ставок нарушают инвариант: 0 < bet_size <= max_bet_size <= daily_budget")
+    if not (1 <= val_max_positions <= 50):
+        raise ValueError("Лимит открытых позиций должен быть между 1 и 50")
+    if not (0.0 <= val_min_prob < val_max_prob < 1.0):
+        raise ValueError("Диапазон вероятностей нарушает инвариант: 0 <= min_prob < max_prob < 1.0")
+    if not (0.0 <= val_min_conf <= 1.0):
+        raise ValueError("Минимальный confidence должен быть между 0.0 и 1.0")
+    if not (0.0 <= val_min_hours < val_max_hours):
+        raise ValueError("Лимит часов до закрытия нарушает инвариант: 0 <= min_hours < max_hours")
+
     # Запрет включения live режима торговли или live-исполнения, если бэкенд в paper режиме
     if app_mode != "live":
         if merged_updates.get("trading_mode") == "live":
