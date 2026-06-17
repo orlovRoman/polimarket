@@ -4,6 +4,8 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 from core.onchain_gate import GateResult
+import config
+import agents.shared.python.db as db_module
 
 class SQLiteCursorProxy:
     def __init__(self, cursor):
@@ -133,7 +135,6 @@ def restore_db_paths_each_test(request):
 def clean_database_garbage():
     """Очищает тестовый мусор из базы данных после каждого теста."""
     yield
-    import agents.shared.python.db as db_module
     try:
         with db_module.get_connection() as conn:
             db_module.cleanup_test_data(conn)
@@ -144,8 +145,6 @@ def clean_database_garbage():
 @pytest.fixture
 def isolated_db(tmp_path, monkeypatch):
     """Изолированная база данных для тестирования настроек."""
-    import config
-    import agents.shared.python.db as db_module
     db_path = tmp_path / "test_penny_settings.db"
     
     # Сбрасываем синглтон-провайдер кошелька, чтобы тесты не влияли друг на друга

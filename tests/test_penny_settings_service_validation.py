@@ -1,14 +1,19 @@
 # tests/test_penny_settings_service_validation.py
 import pytest
+from unittest.mock import patch
 from agents.shared.python.penny_settings_service import save_penny_config, get_penny_stocks_config
 
 def test_save_config_validates_against_current_db_not_defaults(isolated_db):
     """Валидация инвариантов должна использовать текущий конфиг БД, не хардкод-дефолты."""
     # Устанавливаем max_bet_size = 2.0 в БД
-    save_penny_config({"max_bet_size_usdc": "2.0", "bet_size_usdc": "1.0", "daily_budget_usdc": "20.0"})
+    result = save_penny_config({
+        "max_bet_size_usdc": "2.0",
+        "bet_size_usdc": "1.0",
+        "daily_budget_usdc": "20.0"
+    })
+    assert result["ok"] is True
     
     # Теперь пытаемся установить bet_size = 3.0
-    # При хардкод-дефолтах max_bet=5.0 → 3.0 <= 5.0 → ошибки не будет (баг!)
     # При правильном смерже с БД max_bet=2.0 → 3.0 > 2.0 → ValueError
     with pytest.raises(ValueError):
         save_penny_config({"bet_size_usdc": "3.0"})
@@ -16,11 +21,13 @@ def test_save_config_validates_against_current_db_not_defaults(isolated_db):
 
 def test_save_config_partial_update_does_not_break_invariant(isolated_db):
     """Частичное обновление одного поля должно корректно проверять инвариант."""
-    save_penny_config({
+    result = save_penny_config({
         "bet_size_usdc": "1.0",
         "max_bet_size_usdc": "3.0",
         "daily_budget_usdc": "20.0"
     })
+    assert result["ok"] is True
+    
     # Обновляем только daily_budget до значения меньше max_bet
     with pytest.raises(ValueError):
         save_penny_config({"daily_budget_usdc": "2.0"})
@@ -49,3 +56,50 @@ def test_save_config_validation_all_invariants_pass(isolated_db):
     })
     assert result["ok"] is True
     assert result["config"]["bet_size_usdc"] == pytest.approx(1.5)
+
+
+def test_partial_update_does_not_write_empty_strings_to_db(isolated_db):
+    """Частичное обновление не должно записывать пустые строки для незатронутых полей."""
+    # Устанавливаем известное состояние
+    result1 = save_penny_config({"bet_size_usdc": "1.5", "max_bet_size_usdc": "3.0"})
+    assert result1["ok"] is True
+    
+    # Обновляем только одно поле
+    result2 = save_penny_config({"bet_size_usdc": "1.0"})
+    assert result2["ok"] is True
+    
+    # Все остальные числовые поля должны быть не-None и парситься как float
+    cfg = get_penny_stocks_config()
+    assert cfg.is_fallback is False, "Конфиг не должен уйти в fallback после частичного обновления"
+    assert cfg.max_bet_size_usdc == pytest.approx(3.0)
+    assert cfg.daily_budget_usdc > 0
+
+
+def test_save_config_logs_warning_when_current_config_unreadable(isolated_db, caplog):
+    """Ошибка чтения текущего конфига должна логироваться, не молчать."""
+    import logging
+    with patch(
+        "agents.shared.python.penny_settings_service.get_penny_stocks_config",
+        side_effect=Exception("DB read error")
+    ):
+        with caplog.at_level(logging.WARNING):
+            try:
+                save_penny_config({"bet_size_usdc": "1.0"})
+            except Exception:
+                pass
+    assert any("конфиг" in r.message.lower() or "config" in r.message.lower()
+               for r in caplog.records if r.levelno >= logging.WARNING)
+
+
+def test_save_config_first_call_succeeds_before_invariant_test(isolated_db):
+    """Первый save_penny_config в тесте инварианта должен явно проходить."""
+    result = save_penny_config({
+        "max_bet_size_usdc": "2.0",
+        "bet_size_usdc": "1.0",
+        "daily_budget_usdc": "20.0"
+    })
+    assert result["ok"] is True, f"Первый save должен проходить: {result}"
+    
+    # Теперь проверяем инвариант
+    with pytest.raises(ValueError):
+        save_penny_config({"bet_size_usdc": "3.0"})

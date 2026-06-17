@@ -88,10 +88,9 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
     except ImportError:
         app_mode = os.getenv("APP_MODE", "paper")
 
-    # 1. Читаем текущий конфиг
-    current_cfg = get_penny_stocks_config()
-
+    # 1. Читаем текущий конфиг и готовим базовый словарь
     try:
+        current_cfg = get_penny_stocks_config()
         base = {
             "bet_size_usdc": current_cfg.bet_size_usdc,
             "max_bet_size_usdc": current_cfg.max_bet_size_usdc,
@@ -111,8 +110,19 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
             "require_preflight_for_autobuy": current_cfg.require_preflight_for_autobuy,
             "preflight_min_usdc_buffer": current_cfg.preflight_min_usdc_buffer
         }
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Не удалось прочитать текущий конфиг для валидации: {e}")
         base = {}
+        from agents.shared.python.penny_settings_db import PennyStocksConfig
+        current_cfg = PennyStocksConfig(
+            wallet_address="", trading_mode="paper", live_trading_enabled=False,
+            bet_size_usdc=1.0, max_bet_size_usdc=5.0, max_open_positions=10,
+            daily_budget_usdc=20.0, min_probability=0.01, max_probability=0.09,
+            min_confidence_score=0.5, min_volume_24h=50.0, min_hours_to_close=2.0,
+            max_hours_to_close=168.0, auto_buy_enabled=False, kill_switch=True,
+            require_preflight_for_autobuy=True, preflight_min_usdc_buffer=5.0,
+            updated_at="", is_fallback=True, validation_error=str(e)
+        )
 
     effective = {**base, **{k: updates[k] for k in updates if k in PENNY_FIELD_NAMES}}
 
@@ -149,7 +159,7 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
         if isinstance(val, bool):
             merged_updates[k] = "1" if val else "0"
         else:
-            merged_updates[k] = str(val) if val is not None else ""
+            merged_updates[k] = str(val) if val is not None else str(PENNY_DEFAULTS.get(k, ""))
 
     # Запрет включения live режима торговли или live-исполнения, если бэкенд в paper режиме
     if app_mode != "live":
