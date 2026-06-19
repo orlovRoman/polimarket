@@ -189,7 +189,7 @@ class OutcomeTracker:
         logger.info(f"[OT] Цикл завершён: {stats}")
         return stats
 
-    async def audit_existing_resolutions(self, limit: int = 100) -> dict:
+    def audit_existing_resolutions(self, limit: int = 100) -> dict:
         """
         Периодический кросс-чек: проверяем уже разрешённые рынки против API.
         Запускать раз в 24ч, не на каждом цикле.

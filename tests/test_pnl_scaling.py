@@ -46,7 +46,7 @@ def test_pnl_fallback_when_no_bought_price():
 
     result = scaled_pnl(raw_pnl, bought_outcome_price, virtual_stake)
 
-    assert result == 5.0, f"Expected 5.0, got {result}"
+    assert result == pytest.approx(5.0), f"Expected 5.0, got {result}"
     assert result != 0.0, "BUG: pnl must not be silently zeroed"
 
 
@@ -59,7 +59,7 @@ def test_pnl_scaling_with_bought_price():
 
     result = scaled_pnl(raw_pnl, bought_outcome_price, virtual_stake)
 
-    assert result == 15.0
+    assert result == pytest.approx(15.0)
 
 
 # ──────────────────────────────────────────────────────────────

@@ -351,7 +351,7 @@
     
     async function saveCompoundSettings() {
         const toFloat = (id) => {
-            const v = parseFloat(document.getElementById(id).value);
+            const v = Number.parseFloat(document.getElementById(id).value);
             return isNaN(v) ? null : v;
         };
         
@@ -570,10 +570,10 @@
                 losses = failedChains.length;
                 resolvedChains = wins + losses;
                 completedChains.forEach(c => {
-                    totalPnL += (parseFloat(c.current_stake) || 0) - (parseFloat(c.initial_stake) || 0);
+                    totalPnL += (Number.parseFloat(c.current_stake) || 0) - (Number.parseFloat(c.initial_stake) || 0);
                 });
                 failedChains.forEach(c => {
-                    totalPnL -= (parseFloat(c.current_stake) || 0);
+                    totalPnL -= (Number.parseFloat(c.current_stake) || 0);
                 });
             }
             kpiActive.textContent = activeChains;
@@ -587,7 +587,7 @@
             let totalPortfolio = 0;
             if (data.chains) {
                 data.chains.filter(c => ['NEW', 'WAITING_NEXT', 'WAITING_RESOLUTION'].includes(c.status)).forEach(c => {
-                    totalPortfolio += (parseFloat(c.current_stake) || 0);
+                    totalPortfolio += (Number.parseFloat(c.current_stake) || 0);
                 });
             }
             kpiAvgEntry.textContent = formatPnLUSD(totalPortfolio).replace('+', '');

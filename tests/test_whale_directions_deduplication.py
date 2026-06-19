@@ -37,7 +37,7 @@ def test_whale_directions_deduplication():
         directions = json.loads(row['whale_directions'])
         assert len(directions) == 1           # один уникальный кошелёк
         assert row['whale_count'] == 1
-        assert directions[0]['amount_usd'] == 3000.0  # сумма
+        assert directions[0]['amount_usd'] == pytest.approx(3000.0)  # сумма
 
 def test_whale_directions_volumes_and_confidence():
     from agents.shared.python.db import add_whale_stock_to_monitoring, get_connection
@@ -62,8 +62,8 @@ def test_whale_directions_volumes_and_confidence():
         no_vol = sum(d.get('amount_usd', 0) for d in directions if d['side'] == 'NO')
         
         assert row['whale_count'] == 3
-        assert yes_vol == 1500.0
-        assert no_vol == 1000.0
+        assert yes_vol == pytest.approx(1500.0)
+        assert no_vol == pytest.approx(1000.0)
         
         # dominant_vol = 1500, total_vol = 2500, balance = 1500 / 2500 = 0.6. new_conf = base_conf * 0.6.
         # base_conf is 0.5 (default). 0.5 * 0.6 = 0.3
