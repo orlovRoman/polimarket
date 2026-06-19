@@ -207,10 +207,17 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
         
+    from agents.shared.python.db import get_whale_settings
+    settings = get_whale_settings()
+    min_vol = float(settings.get('min_market_volume', 5000.0))
+    min_win_rate = float(settings.get('min_whale_win_rate', 0.60))
+    min_trades = int(settings.get('min_whale_trades', 20))
+
     # Phase 3.2: Market liquidity & extreme price filter
     m_price = row["market_price"] if row["market_price"] is not None else 0.5
     vol = row.get("market_volume") or 0.0
-    if vol < 5000.0 or m_price <= 0.05 or m_price >= 0.95:
+    if vol < min_vol or m_price <= 0.05 or m_price >= 0.95:
+        logger.info(f"Skipped whale signal (market filter): market_id={row['market_id']}, vol={vol}, price={m_price}, reason=LOW_VOL_OR_EXTREME_PRICE")
         return None
         
     # Phase 3.1: Wallet quality filter
@@ -221,7 +228,7 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
     if is_insider:
         confidence = 0.8
         bonus_mult = 1.5
-    elif win_rate >= 0.60 and n_trades >= 20:
+    elif win_rate >= min_win_rate and n_trades >= min_trades:
         confidence = 0.6
         bonus_mult = 1.0
     else:
@@ -230,6 +237,7 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
         
     # Skip creating trading signals for low-confidence whales
     if confidence < 0.6:
+        logger.info(f"Skipped whale signal (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, reason=LOW_CONF")
         return None
 
     mark_alert_sent(alert_key, "whale_single_bet")
@@ -322,9 +330,16 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
         
+    from agents.shared.python.db import get_whale_settings
+    settings = get_whale_settings()
+    min_vol = float(settings.get('min_market_volume', 5000.0))
+    min_win_rate = float(settings.get('min_whale_win_rate', 0.60))
+    min_trades = int(settings.get('min_whale_trades', 20))
+
     m_price = row["market_price"] if row["market_price"] is not None else 0.5
     vol = row.get("market_volume") or 0.0
-    if vol < 5000.0 or m_price <= 0.05 or m_price >= 0.95:
+    if vol < min_vol or m_price <= 0.05 or m_price >= 0.95:
+        logger.info(f"Skipped whale series (market filter): market_id={row['market_id']}, vol={vol}, price={m_price}, reason=LOW_VOL_OR_EXTREME_PRICE")
         return None
         
     win_rate = row.get("win_rate") or 0.0
@@ -334,7 +349,7 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
     if is_insider:
         confidence = 0.8
         bonus_mult = 1.5
-    elif win_rate >= 0.60 and n_trades >= 20:
+    elif win_rate >= min_win_rate and n_trades >= min_trades:
         confidence = 0.6
         bonus_mult = 1.0
     else:
@@ -342,6 +357,7 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
         bonus_mult = 0.5
         
     if confidence < 0.6:
+        logger.info(f"Skipped whale series (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, reason=LOW_CONF")
         return None
 
     mark_alert_sent(alert_key, "whale_series")

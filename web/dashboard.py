@@ -582,6 +582,25 @@ async def api_discover_penny_stocks(request):
         logger.exception("Error in api_discover_penny_stocks")
         return web.json_response({"error": str(e)}, status=500)
 
+async def api_get_whale_settings(request):
+    try:
+        from agents.shared.python.db import get_whale_settings
+        settings = await asyncio.to_thread(get_whale_settings)
+        return web.json_response(settings)
+    except Exception as e:
+        logger.exception("Error in api_get_whale_settings")
+        return web.json_response({"error": str(e)}, status=500)
+
+async def api_set_whale_settings(request):
+    try:
+        data = await request.json()
+        from agents.shared.python.db import update_whale_settings
+        await asyncio.to_thread(update_whale_settings, data)
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in api_set_whale_settings")
+        return web.json_response({"error": str(e)}, status=500)
+
 async def api_whale_stocks(request):
     active_page = get_int_query(request, "active_page", 1)
     active_limit = get_int_query(request, "active_limit", 50)
@@ -1186,6 +1205,8 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/penny-stocks", api_penny_stocks)
     app.router.add_get("/api/favourite-compounding", api_favourite_compounding)
     app.router.add_get("/api/whale-stocks", api_whale_stocks)
+    app.router.add_get("/api/whale-settings", api_get_whale_settings)
+    app.router.add_post("/api/whale-settings", api_set_whale_settings)
     app.router.add_get("/api/equity-curve", api_equity_curve)
     app.router.add_get("/api/signals", api_signals)
     app.router.add_get("/api/corridors", api_corridors)

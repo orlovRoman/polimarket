@@ -841,11 +841,11 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         price_no = 100 - price_yes
         
         # Заголовок — обсуждение рынка
-        status_label = "⚪️ <b>ПРОПУЩЕН (Недостаточный Edge/Хайп)</b>\n" if decision.status in ('no_signal', 'no_signal_swing_hold') else ""
+        status_label = "⚪️ <b>ПРОПУЩЕН (Недостаточный Edge/Хайп)</b>\n\n" if decision.status in ('no_signal', 'no_signal_swing_hold') else ""
         summary_text = (
             f"🗣️ <b>Обсуждение рынка:</b>\n"
             f"<a href='{m.url}'>{h(m.title)}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n"
-            f"{status_label}\n"
+            f"{status_label}"
         )
         
         # Источник (если event-driven)

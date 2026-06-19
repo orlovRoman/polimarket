@@ -2947,7 +2947,26 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
         if row:
             # Обновляем существующую запись
             directions = json.loads(row['whale_directions']) if row['whale_directions'] else []
-            directions.append({"wallet": wallet_address, "side": predicted_outcome, "amount_usd": amount_usd})
+            
+            # Агрегируем: если кошелёк уже есть — суммируем amount_usd
+            wallet_map = {}
+            for d in directions:
+                w = d['wallet']
+                if w not in wallet_map:
+                    wallet_map[w] = {'wallet': w, 'side': d['side'], 'amount_usd': d.get('amount_usd', 0)}
+                else:
+                    wallet_map[w]['amount_usd'] += d.get('amount_usd', 0)
+
+            # Добавляем/обновляем текущий кошелёк
+            if wallet_address in wallet_map:
+                wallet_map[wallet_address]['amount_usd'] += amount_usd
+                # Можно также обновлять 'side', если кит перевернулся, но пока оставим логику как в плане (или обновим side)
+                wallet_map[wallet_address]['side'] = predicted_outcome
+            else:
+                wallet_map[wallet_address] = {'wallet': wallet_address, 'side': predicted_outcome, 'amount_usd': amount_usd}
+
+            directions = list(wallet_map.values())
+            whale_count = len(directions)
             
             yes_vol = sum(d.get('amount_usd', 0) for d in directions if d['side'] == 'YES')
             no_vol = sum(d.get('amount_usd', 0) for d in directions if d['side'] == 'NO')
@@ -2966,11 +2985,11 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
                 UPDATE whale_stocks_monitoring
                 SET edge = CASE WHEN ? IS NOT NULL THEN ? ELSE edge END,
                     confidence = ?,
-                    whale_count = whale_count + 1,
+                    whale_count = ?,
                     whale_directions = ?,
                     wallet_address = CASE WHEN ? IS NOT NULL THEN ? ELSE wallet_address END
                 WHERE market_id = ?
-            """, (edge, edge, new_conf, json.dumps(directions), wallet_address, wallet_address, market_id))
+            """, (edge, edge, new_conf, whale_count, json.dumps(directions), wallet_address, wallet_address, market_id))
         else:
             # Создаем новую запись
             new_whale = {"wallet": wallet_address, "side": predicted_outcome, "amount_usd": amount_usd}

@@ -71,6 +71,27 @@
         <span id="btn-discover-text">Сканировать ончейн-активность</span>
     </button>
 </div>
+<div class="table-card" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px;">
+    <div>
+        <h3 style="margin: 0 0 4px 0; font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">Настройки стратегии</h3>
+        <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">Пороги фильтрации кошельков и рынков</p>
+    </div>
+    <div style="display: flex; gap: 16px; align-items: center;">
+        <div style="display: flex; flex-direction: column;">
+            <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Min Win Rate</label>
+            <input type="number" step="0.01" id="setting-min-win-rate" class="filter-input" style="width: 100px;">
+        </div>
+        <div style="display: flex; flex-direction: column;">
+            <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Min Trades</label>
+            <input type="number" id="setting-min-trades" class="filter-input" style="width: 100px;">
+        </div>
+        <div style="display: flex; flex-direction: column;">
+            <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Min Vol ($)</label>
+            <input type="number" id="setting-min-vol" class="filter-input" style="width: 100px;">
+        </div>
+        <button onclick="saveWhaleSettings()" class="badge badge-green" style="border: none; cursor: pointer; font-weight: 600; padding: 10px 16px; font-size: 0.9rem; border-radius: 6px; align-self: flex-end; margin-bottom: 1px;">Сохранить</button>
+    </div>
+</div>
 
 <div class="kpi-row">
     <div class="kpi-card">

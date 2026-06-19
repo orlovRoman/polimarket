@@ -353,26 +353,28 @@ class ScoutAgent:
             else:
                 summary = f"Недооценка {target_outcome} на {edge*100:.1f}%"
             
-            signal = Signal(
-                id=f"scout_{market.id}_{int(datetime.now().timestamp())}",
-                type="MISPRICING",
-                market_id=market.id,
-                platform=market.platform,
-                entry_price=market.price,
-                edge=round(edge, 4),
-                confidence=confidence,
-                priority=priority,
-                summary=summary,
-                details=f"Рекомендация: Покупать {target_outcome}\nОбоснование: {analysis.get('reasoning', '')}",
-                target_outcome=target_outcome,
-                estimated_probability=est_prob,
-                # Новые поля
-                signal_cause=cause_phrase,
-                signal_risk=risk_phrase,
-                signal_verdict=verdict_phrase,
-                oracle_risk=oracle_risk_phrase
-            )
-            return signal
+            if edge > min_edge:
+                signal = Signal(
+                    id=f"scout_{market.id}_{int(datetime.now().timestamp())}",
+                    type="MISPRICING",
+                    market_id=market.id,
+                    platform=market.platform,
+                    entry_price=market.price,
+                    edge=round(edge, 4),
+                    confidence=confidence,
+                    priority=priority,
+                    summary=summary,
+                    details=f"Рекомендация: Покупать {target_outcome}\nОбоснование: {analysis.get('reasoning', '')}",
+                    target_outcome=target_outcome,
+                    estimated_probability=est_prob,
+                    # Новые поля
+                    signal_cause=cause_phrase,
+                    signal_risk=risk_phrase,
+                    signal_verdict=verdict_phrase,
+                    oracle_risk=oracle_risk_phrase
+                )
+                return signal
+            return None
         except Exception as e:
             logger.error(f"Ошибка при оценке рынка {context.market.id}: {e}")
             
