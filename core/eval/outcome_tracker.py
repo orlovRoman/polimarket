@@ -188,3 +188,54 @@ class OutcomeTracker:
 
         logger.info(f"[OT] Цикл завершён: {stats}")
         return stats
+
+    async def audit_existing_resolutions(self, limit: int = 100) -> dict:
+        """
+        Периодический кросс-чек: проверяем уже разрешённые рынки против API.
+        Запускать раз в 24ч, не на каждом цикле.
+        """
+        from agents.shared.python.db import get_connection
+        client = PolymarketResolutionClient()
+        fixed = 0
+        errors = 0
+
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT id, title, outcome, condition_id
+                FROM markets
+                WHERE outcome IN ('YES', 'NO')
+                  AND datetime(close_time) > datetime('now', '-30 days')
+                ORDER BY RANDOM()
+                LIMIT ?
+            """, (limit,)).fetchall()
+
+        for row in rows:
+            cid = row["condition_id"] or row["id"]
+            resolution = client.fetch_resolution(cid)
+            if resolution is None:
+                errors += 1
+                continue
+
+            if not resolution.is_resolved:
+                # Рынок снова открыт (UMA dispute) — откатываем
+                logger.warning(
+                    f"[Audit] Рынок {row['id']} помечен как {row['outcome']} в БД, "
+                    f"но API говорит NOT RESOLVED. Откатываем."
+                )
+                with get_connection() as conn:
+                    conn.execute(
+                        "UPDATE markets SET outcome = 'unknown' WHERE id = ?",
+                        (row["id"],)
+                    )
+                fixed += 1
+
+            elif (resolution.winning_outcome
+                  and resolution.winning_outcome != row["outcome"]):
+                logger.error(
+                    f"[Audit] КРИТИЧЕСКОЕ РАСХОЖДЕНИЕ: рынок {row['id']} "
+                    f"DB={row['outcome']}, API={resolution.winning_outcome}"
+                )
+                # НЕ автоматически исправляем — логируем + отправляем алерт
+                errors += 1
+
+        return {"checked": len(rows), "fixed": fixed, "errors": errors}

@@ -216,6 +216,20 @@ async def scheduled_cluster_update():
     except Exception as e:
         logger.error(f"Ошибка при обновлении кластеров кошельков: {e}", exc_info=True)
 
+async def scheduled_audit_resolutions():
+    """Периодический аудит исходов рынков."""
+    logger.info(">>> Запуск аудита резолюций...")
+    try:
+        from core.eval.outcome_tracker import OutcomeTracker
+        tracker = OutcomeTracker()
+        res = await asyncio.to_thread(tracker.audit_existing_resolutions, 100)
+        logger.info(f"<<< Аудит завершен: {res}")
+    except asyncio.CancelledError:
+        logger.info("<<< Аудит резолюций отменен.")
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при аудите резолюций: {e}", exc_info=True)
+
 
 async def job_onchain_alerts():
     """Фоновый скан и отправка ончейн-всплесков объёма + тихий сбор Whale сигналов."""
@@ -847,6 +861,7 @@ async def start_system():
     scheduler.add_job(scheduled_wallet_recalculation, 'cron', hour=3) # пересчет win_rate кошельков раз в сутки в 3:00 ночи
     scheduler.add_job(scheduled_insiders_recalculation, 'interval', hours=1) # пересчет инсайдеров каждый час
     scheduler.add_job(scheduled_cluster_update, 'interval', hours=1) # пересчет кластеров каждый час
+    scheduler.add_job(scheduled_audit_resolutions, 'interval', hours=24) # кросс-чек исходов раз в сутки
     scheduler.add_job(job_onchain_alerts, 'interval', minutes=30) # ончейн-алерты всплесков объема каждые 30 минут
 
 

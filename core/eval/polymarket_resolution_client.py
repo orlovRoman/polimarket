@@ -13,7 +13,7 @@ class MarketResolution:
     resolution_price: float           # 1.0 = YES win, 0.0 = NO win
 
 class PolymarketResolutionClient:
-    BASE_URL = "https://clob.polymarket.com"
+    BASE_URL = "https://gamma-api.polymarket.com"
     TIMEOUT = 10
 
     def fetch_resolution(self, condition_id: str) -> Optional[MarketResolution]:
@@ -43,6 +43,10 @@ class PolymarketResolutionClient:
         tokens = data.get("tokens", [])
         active = data.get("active", True)
         is_resolved = data.get("closed", False) or data.get("resolved", False) or not active
+
+        uma_status = data.get("umaResolutionStatus", "")
+        if uma_status and uma_status.lower() != "resolved":
+            is_resolved = False
 
         if not is_resolved:
             return MarketResolution(
