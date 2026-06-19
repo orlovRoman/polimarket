@@ -5,6 +5,14 @@ from agents.shared.python.db import get_connection, is_alert_already_sent, mark_
 
 logger = logging.getLogger("NexusPolyBot.OnchainTrend")
 
+def _get_whale_edge_bonus() -> float:
+    try:
+        from agents.shared.python.db import get_whale_settings
+        settings = get_whale_settings()
+        return float(settings.get("whale_edge_bonus", 0.12))
+    except Exception:
+        return 0.12
+
 def _normalize_close_time(raw_close) -> Optional[str]:
     if not raw_close:
         return None
@@ -197,11 +205,35 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
         
+    # Phase 3.2: Market liquidity & extreme price filter
+    m_price = row["market_price"] if row["market_price"] is not None else 0.5
+    vol = row.get("market_volume") or 0.0
+    if vol < 5000.0 or m_price <= 0.05 or m_price >= 0.95:
+        return None
+        
+    # Phase 3.1: Wallet quality filter
+    win_rate = row.get("win_rate") or 0.0
+    n_trades = row.get("n_trades") or 0
+    is_insider = row.get("is_insider")
+    
+    if is_insider:
+        confidence = 0.8
+        bonus_mult = 1.5
+    elif win_rate >= 0.60 and n_trades >= 20:
+        confidence = 0.6
+        bonus_mult = 1.0
+    else:
+        confidence = 0.3
+        bonus_mult = 0.5
+        
+    # Skip creating trading signals for low-confidence whales
+    if confidence < 0.6:
+        return None
+
     mark_alert_sent(alert_key, "whale_single_bet")
     
     try:
         side = row["outcome"]
-        m_price = row["market_price"] if row["market_price"] is not None else 0.5
         
         if row["price"] is not None:
             entry_price = row["price"]
@@ -210,10 +242,12 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
             price_yes = m_price
             entry_price = price_yes if side == "YES" else (1.0 - price_yes)
             
-        prob = min(0.97, price_yes + 0.12) if side == "YES" else max(0.03, (1.0 - price_yes) + 0.12)
+        base_bonus = _get_whale_edge_bonus()
+        bonus = base_bonus * bonus_mult
+        prob = min(0.97, price_yes + bonus) if side == "YES" else max(0.03, (1.0 - price_yes) + bonus)
         
         summary_msg = f"Whale single bet: ${row['amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
-        logger.info(f"[OnchainTrend] {summary_msg}")
+        logger.info(f"[OnchainTrend] {summary_msg} (conf={confidence})")
         
         _log_whale_signal_to_eval(
             market_id=row['market_id'],
@@ -224,7 +258,11 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
             metadata_extra={
                 "wallet_address": row['wallet_address'],
                 "amount_usd": row['amount_usd'],
-                "reason": "large_single_bet"
+                "reason": "large_single_bet",
+                "win_rate": win_rate,
+                "n_trades": n_trades,
+                "is_insider": is_insider,
+                "confidence_score": confidence
             },
             title=row.get('title'),
             url=row.get('url'),
@@ -253,9 +291,14 @@ def scan_large_single_bets() -> list[dict]:
                     m.title,
                     m.url,
                     m.price as market_price,
-                    m.close_time
+                    m.volume as market_volume,
+                    m.close_time,
+                    w.win_rate,
+                    w.n_trades,
+                    w.is_insider
                 FROM trader_transactions t
                 JOIN markets m ON t.market_id = m.id
+                LEFT JOIN wallets w ON t.wallet_address = w.address
                 WHERE t.timestamp > datetime('now', '-2 hours')
                   AND t.amount_usd > 1000.0
             """).fetchall()
@@ -276,11 +319,32 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
         
+    m_price = row["market_price"] if row["market_price"] is not None else 0.5
+    vol = row.get("market_volume") or 0.0
+    if vol < 5000.0 or m_price <= 0.05 or m_price >= 0.95:
+        return None
+        
+    win_rate = row.get("win_rate") or 0.0
+    n_trades = row.get("n_trades") or 0
+    is_insider = row.get("is_insider")
+    
+    if is_insider:
+        confidence = 0.8
+        bonus_mult = 1.5
+    elif win_rate >= 0.60 and n_trades >= 20:
+        confidence = 0.6
+        bonus_mult = 1.0
+    else:
+        confidence = 0.3
+        bonus_mult = 0.5
+        
+    if confidence < 0.6:
+        return None
+
     mark_alert_sent(alert_key, "whale_series")
     
     try:
         side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
-        m_price = row["market_price"] if row["market_price"] is not None else 0.5
         
         if row["avg_price"] is not None:
             entry_price = row["avg_price"]
@@ -289,10 +353,12 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
             price_yes = m_price
             entry_price = price_yes if side == "YES" else (1.0 - price_yes)
             
-        prob = min(0.97, price_yes + 0.12) if side == "YES" else max(0.03, (1.0 - price_yes) + 0.12)
+        base_bonus = _get_whale_edge_bonus()
+        bonus = base_bonus * bonus_mult
+        prob = min(0.97, price_yes + bonus) if side == "YES" else max(0.03, (1.0 - price_yes) + bonus)
         
         summary_msg = f"Whale wallet series: {row['tx_count']} trades, total ${row['total_amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
-        logger.info(f"[OnchainTrend] {summary_msg}")
+        logger.info(f"[OnchainTrend] {summary_msg} (conf={confidence})")
         
         _log_whale_signal_to_eval(
             market_id=row['market_id'],
@@ -304,7 +370,11 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
                 "wallet_address": row['wallet_address'],
                 "total_amount_usd": row['total_amount_usd'],
                 "tx_count": row['tx_count'],
-                "reason": "wallet_series"
+                "reason": "wallet_series",
+                "win_rate": win_rate,
+                "n_trades": n_trades,
+                "is_insider": is_insider,
+                "confidence_score": confidence
             },
             title=row.get('title'),
             url=row.get('url'),
@@ -336,9 +406,14 @@ def scan_wallet_series() -> list[dict]:
                     m.title,
                     m.url,
                     m.price as market_price,
-                    m.close_time
+                    m.volume as market_volume,
+                    m.close_time,
+                    w.win_rate,
+                    w.n_trades,
+                    w.is_insider
                 FROM trader_transactions t
                 JOIN markets m ON t.market_id = m.id
+                LEFT JOIN wallets w ON t.wallet_address = w.address
                 WHERE t.timestamp > datetime('now', '-1 hour')
                 GROUP BY t.market_id, t.wallet_address
                 HAVING tx_count >= 2 AND total_amount_usd > 2000.0

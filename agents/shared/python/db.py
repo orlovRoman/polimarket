@@ -1031,6 +1031,16 @@ def _init_db_impl(conn: sqlite3.Connection):
     whale_cols = {row[1] for row in cursor.execute("PRAGMA table_info(whale_stocks_monitoring)").fetchall()}
     if 'wallet_address' not in whale_cols:
         cursor.execute("ALTER TABLE whale_stocks_monitoring ADD COLUMN wallet_address TEXT DEFAULT NULL")
+    if 'whale_count' not in whale_cols:
+        cursor.execute("ALTER TABLE whale_stocks_monitoring ADD COLUMN whale_count INTEGER DEFAULT 1")
+    if 'whale_directions' not in whale_cols:
+        cursor.execute("ALTER TABLE whale_stocks_monitoring ADD COLUMN whale_directions TEXT DEFAULT NULL")
+    if 'bet_size_usdc' not in whale_cols:
+        cursor.execute("ALTER TABLE whale_stocks_monitoring ADD COLUMN bet_size_usdc REAL DEFAULT NULL")
+
+    whale_hist_cols = {row[1] for row in cursor.execute("PRAGMA table_info(whale_virtual_trades_history)").fetchall()}
+    if 'bet_size_usdc' not in whale_hist_cols:
+        cursor.execute("ALTER TABLE whale_virtual_trades_history ADD COLUMN bet_size_usdc REAL DEFAULT NULL")
 
     # Миграция: удаление некорректных legacy записей из мониторинга
     cursor.execute("""
@@ -2912,8 +2922,10 @@ def update_whale_settings(settings: dict) -> None:
             )
 
 def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_price: float,
-                                  predicted_outcome: str = None, edge: float = None, confidence: float = None,
+                                  predicted_outcome: str = 'UNKNOWN', edge: float = None, confidence: float = None,
                                   wallet_address: str = None, close_time: str = None) -> None:
+    if predicted_outcome is None:
+        predicted_outcome = 'UNKNOWN'
     init_p = _round_price(initial_price)
     
     if not close_time:
@@ -2928,18 +2940,48 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
             VALUES (?, 'Polymarket', ?, ?, 'YES', ?, ?)
         """, (market_id, title, url, initial_price, close_time))
         
-        conn.execute("""
-            INSERT INTO whale_stocks_monitoring
-            (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
-             predicted_outcome, edge, confidence, status, wallet_address)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
-            ON CONFLICT(market_id) DO UPDATE SET
-                predicted_outcome = CASE WHEN excluded.predicted_outcome IS NOT NULL THEN excluded.predicted_outcome ELSE predicted_outcome END,
-                edge = CASE WHEN excluded.edge IS NOT NULL THEN excluded.edge ELSE edge END,
-                confidence = CASE WHEN excluded.confidence IS NOT NULL THEN excluded.confidence ELSE confidence END,
-                wallet_address = CASE WHEN excluded.wallet_address IS NOT NULL THEN excluded.wallet_address ELSE wallet_address END
-        """, (market_id, title, url, init_p, init_p, init_p, init_p,
-              predicted_outcome, edge, confidence, wallet_address))
+        import json
+        
+        row = conn.execute("SELECT whale_count, whale_directions, confidence FROM whale_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
+        
+        if row:
+            # Обновляем существующую запись
+            directions = json.loads(row['whale_directions']) if row['whale_directions'] else []
+            directions.append({"wallet": wallet_address, "side": predicted_outcome})
+            
+            yes_count = sum(1 for d in directions if d['side'] == 'YES')
+            no_count = sum(1 for d in directions if d['side'] == 'NO')
+            total = yes_count + no_count
+            
+            base_conf = float(confidence) if confidence is not None else float(row['confidence'] or 0.5)
+            new_conf = base_conf
+            
+            if total > 0:
+                balance = abs(yes_count - no_count) / total
+                new_conf = base_conf * balance
+                if balance < 0.2:
+                    new_conf = 0.1 # слишком сильный дисбаланс, блокируем сигнал
+                    
+            conn.execute("""
+                UPDATE whale_stocks_monitoring
+                SET edge = CASE WHEN ? IS NOT NULL THEN ? ELSE edge END,
+                    confidence = ?,
+                    whale_count = whale_count + 1,
+                    whale_directions = ?,
+                    wallet_address = CASE WHEN ? IS NOT NULL THEN ? ELSE wallet_address END
+                WHERE market_id = ?
+            """, (edge, edge, new_conf, json.dumps(directions), wallet_address, wallet_address, market_id))
+        else:
+            # Создаем новую запись
+            new_whale = {"wallet": wallet_address, "side": predicted_outcome}
+            new_whale_json = json.dumps([new_whale])
+            conn.execute("""
+                INSERT INTO whale_stocks_monitoring
+                (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
+                 predicted_outcome, edge, confidence, status, wallet_address, whale_count, whale_directions)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, 1, ?)
+            """, (market_id, title, url, init_p, init_p, init_p, init_p,
+                  predicted_outcome, edge, confidence, wallet_address, new_whale_json))
 
 def get_active_whale_stocks() -> list[dict]:
     with get_connection() as conn:
@@ -2966,18 +3008,21 @@ def update_whale_stock_price(market_id: str, price: float, volume_2h: float = 0.
         """, (curr_p, curr_p, curr_p, volume_2h, market_id))
 
 def buy_virtual_whale_stock(market_id: str, price: float) -> None:
+    settings = get_whale_settings()
+    virtual_stake = float(settings.get('virtual_stake', 100.0))
     with get_connection() as conn:
         conn.execute("""
             UPDATE whale_stocks_monitoring
             SET virtual_bought_price = ?,
-                virtual_bought_at = CURRENT_TIMESTAMP
+                virtual_bought_at = CURRENT_TIMESTAMP,
+                bet_size_usdc = ?
             WHERE market_id = ?
-        """, (_round_price(price), market_id))
+        """, (_round_price(price), virtual_stake, market_id))
 
 def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) -> None:
     with get_connection() as conn:
         row = conn.execute("""
-            SELECT title, url, initial_price, current_price, predicted_outcome, virtual_bought_price, virtual_bought_at, max_price_seen, min_price_seen
+            SELECT title, url, initial_price, current_price, predicted_outcome, virtual_bought_price, virtual_bought_at, max_price_seen, min_price_seen, bet_size_usdc
             FROM whale_stocks_monitoring
             WHERE market_id = ?
         """, (market_id,)).fetchone()
@@ -2991,30 +3036,34 @@ def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) ->
             if pred is not None:
                 outcome_to_track = pred
             else:
-                outcome_to_track = 'YES'
+                outcome_to_track = 'UNKNOWN'
                 
-            if outcome_to_track == 'NO':
-                bought_outcome = 1.0 - v_bought
-                curr_outcome = 1.0 - v_curr
+            if outcome_to_track != 'UNKNOWN':
+                if outcome_to_track == 'NO':
+                    bought_outcome = 1.0 - v_bought
+                    curr_outcome = 1.0 - v_curr
+                else:
+                    bought_outcome = v_bought
+                    curr_outcome = v_curr
+                    
+                pnl_cents = round(curr_outcome - bought_outcome, 2)
+                pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
+                
+                conn.execute("""
+                    INSERT INTO whale_virtual_trades_history (
+                        market_id, title, url, outcome, bought_price, bought_outcome_price, 
+                        sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at,
+                        max_price_seen, min_price_seen, bet_size_usdc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    market_id, row['title'], row['url'], outcome_to_track,
+                    v_bought, bought_outcome, v_curr, curr_outcome,
+                    pnl_cents, pnl_percent, v_bought_at,
+                    row['max_price_seen'], row['min_price_seen'],
+                    row['bet_size_usdc']
+                ))
             else:
-                bought_outcome = v_bought
-                curr_outcome = v_curr
-                
-            pnl_cents = round(curr_outcome - bought_outcome, 2)
-            pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
-            
-            conn.execute("""
-                INSERT INTO whale_virtual_trades_history (
-                    market_id, title, url, outcome, bought_price, bought_outcome_price, 
-                    sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at,
-                    max_price_seen, min_price_seen
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                market_id, row['title'], row['url'], outcome_to_track,
-                v_bought, bought_outcome, v_curr, curr_outcome,
-                pnl_cents, pnl_percent, v_bought_at,
-                row['max_price_seen'], row['min_price_seen']
-            ))
+                logger.warning(f"Пропуск записи сделки в историю для рынка {market_id}: направление UNKNOWN")
             
         conn.execute("""
             UPDATE whale_stocks_monitoring
@@ -3026,7 +3075,7 @@ def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) ->
 def resolve_whale_stock(market_id: str, actual_outcome: str) -> None:
     with get_connection() as conn:
         row = conn.execute("""
-            SELECT title, url, initial_price, predicted_outcome, virtual_bought_price, virtual_bought_at
+            SELECT title, url, initial_price, predicted_outcome, virtual_bought_price, virtual_bought_at, max_price_seen, min_price_seen, bet_size_usdc
             FROM whale_stocks_monitoring
             WHERE market_id = ?
         """, (market_id,)).fetchone()
@@ -3039,33 +3088,39 @@ def resolve_whale_stock(market_id: str, actual_outcome: str) -> None:
             if pred is not None:
                 outcome_to_track = pred
             else:
-                outcome_to_track = 'YES'
+                outcome_to_track = 'UNKNOWN'
                 
-            bought_outcome = (1.0 - v_bought) if outcome_to_track == 'NO' else v_bought
-            
-            if actual_outcome == outcome_to_track:
-                sold_outcome = 1.0
+            if outcome_to_track != 'UNKNOWN':
+                bought_outcome = (1.0 - v_bought) if outcome_to_track == 'NO' else v_bought
+                
+                if actual_outcome == outcome_to_track:
+                    sold_outcome = 1.0
+                else:
+                    sold_outcome = 0.0
+                    
+                if outcome_to_track == 'NO':
+                    v_sold = 1.0 - sold_outcome
+                else:
+                    v_sold = sold_outcome
+                    
+                pnl_cents = round(sold_outcome - bought_outcome, 2)
+                pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
+                
+                conn.execute("""
+                    INSERT INTO whale_virtual_trades_history (
+                        market_id, title, url, outcome, bought_price, bought_outcome_price, 
+                        sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at,
+                        max_price_seen, min_price_seen, bet_size_usdc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    market_id, row['title'], row['url'], outcome_to_track,
+                    v_bought, bought_outcome, v_sold, sold_outcome,
+                    pnl_cents, pnl_percent, v_bought_at,
+                    row['max_price_seen'], row['min_price_seen'],
+                    row['bet_size_usdc']
+                ))
             else:
-                sold_outcome = 0.0
-                
-            if outcome_to_track == 'NO':
-                v_sold = 1.0 - sold_outcome
-            else:
-                v_sold = sold_outcome
-                
-            pnl_cents = round(sold_outcome - bought_outcome, 2)
-            pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
-            
-            conn.execute("""
-                INSERT INTO whale_virtual_trades_history (
-                    market_id, title, url, outcome, bought_price, bought_outcome_price, 
-                    sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                market_id, row['title'], row['url'], outcome_to_track,
-                v_bought, bought_outcome, v_sold, sold_outcome,
-                pnl_cents, pnl_percent, v_bought_at
-            ))
+                logger.warning(f"Пропуск записи resolve сделки в историю для рынка {market_id}: направление UNKNOWN")
             
         conn.execute("""
             UPDATE whale_stocks_monitoring
@@ -3084,9 +3139,16 @@ def get_whale_stocks_stats() -> dict:
         row_resolved = conn.execute("SELECT COUNT(*) as cnt FROM whale_stocks_monitoring WHERE status = 'RESOLVED'").fetchone()
         row_correct = conn.execute("""
             SELECT COUNT(*) as cnt FROM whale_stocks_monitoring 
-            WHERE status = 'RESOLVED' AND UPPER(predicted_outcome) = UPPER(actual_outcome)
+            WHERE status = 'RESOLVED' AND UPPER(predicted_outcome) = UPPER(actual_outcome) AND UPPER(predicted_outcome) != 'UNKNOWN'
         """).fetchone()
         row_avg_edge = conn.execute("SELECT AVG(edge) as avg_edge FROM whale_stocks_monitoring WHERE edge IS NOT NULL").fetchone()
+        
+        # Phase 5.1: Calculate USD PnL
+        pnl_rows = conn.execute("""
+            SELECT pnl_cents, bet_size_usdc 
+            FROM whale_virtual_trades_history 
+            WHERE bet_size_usdc IS NOT NULL AND bet_size_usdc > 0
+        """).fetchall()
         
     total = row_total["cnt"] if row_total else 0
     active = row_active["cnt"] if row_active else 0
@@ -3094,6 +3156,32 @@ def get_whale_stocks_stats() -> dict:
     correct = row_correct["cnt"] if row_correct else 0
     avg_edge = row_avg_edge["avg_edge"] if row_avg_edge and row_avg_edge["avg_edge"] is not None else 0.0
     
+    total_pnl_usd = 0.0
+    for r in pnl_rows:
+        bet_size = r['bet_size_usdc']
+        # pnl_cents is the raw outcome difference (e.g., 0.50). 
+        # actual profit in USD = pnl_cents * bet_size / 100? No, pnl_cents is the difference in cents per 1 dollar.
+        # Wait, the history table logic is:
+        # pnl_cents = sold_outcome - bought_outcome
+        # pnl_percent = (pnl_cents / bought_outcome * 100)
+        # So profit USD = bet_size * (pnl_percent / 100)
+        pnl_percent = 0.0
+        # recalculate or use pnl_percent? We don't have pnl_percent in the SELECT, let's just query it.
+        pass
+
+    # Better to do it purely in SQL
+    with get_connection() as conn:
+        row_pnl = conn.execute("""
+            SELECT 
+                SUM(bet_size_usdc * pnl_percent / 100.0) as total_pnl,
+                AVG(bet_size_usdc * pnl_percent / 100.0) as avg_pnl
+            FROM whale_virtual_trades_history
+            WHERE bet_size_usdc IS NOT NULL
+        """).fetchone()
+
+    total_pnl_usd = row_pnl["total_pnl"] if row_pnl and row_pnl["total_pnl"] else 0.0
+    avg_pnl_usd = row_pnl["avg_pnl"] if row_pnl and row_pnl["avg_pnl"] else 0.0
+
     win_rate = (correct / resolved) if resolved > 0 else 0.0
     return {
         "total": total,
@@ -3101,7 +3189,9 @@ def get_whale_stocks_stats() -> dict:
         "resolved": resolved,
         "correct": correct,
         "win_rate": win_rate,
-        "avg_edge": avg_edge
+        "avg_edge": avg_edge,
+        "total_pnl_usd": round(total_pnl_usd, 2),
+        "avg_pnl_usd": round(avg_pnl_usd, 2)
     }
 
 def get_whale_stocks_history(limit: int = 50) -> list[dict]:
