@@ -831,7 +831,7 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         logger.info("  SCOUT и SWING: Идей не найдено.")
         update_state(scout_status="⚪️ Идея не найдена", swing_status="⚪️ Идея не найдена")
 
-    if summary_callback and decision.status in ('saved', 'no_consensus'):
+    if summary_callback and (decision.status in ('saved', 'no_consensus') or getattr(context, 'trigger_type', '') == 'manual'):
         import html
         def h(text):
             return html.escape(str(text)) if text else ""
@@ -841,9 +841,11 @@ def process_consensus(context: MarketContext, signal: Optional[Signal], swing_si
         price_no = 100 - price_yes
         
         # Заголовок — обсуждение рынка
+        status_label = "⚪️ <b>ПРОПУЩЕН (Недостаточный Edge/Хайп)</b>\n" if decision.status in ('no_signal', 'no_signal_swing_hold') else ""
         summary_text = (
-            "🗣️ <b>Обсуждение рынка:</b>\n"
-            f"<a href='{m.url}'>{h(m.title)}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n\n"
+            f"🗣️ <b>Обсуждение рынка:</b>\n"
+            f"<a href='{m.url}'>{h(m.title)}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n"
+            f"{status_label}\n"
         )
         
         # Источник (если event-driven)

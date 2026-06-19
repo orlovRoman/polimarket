@@ -340,40 +340,39 @@ class ScoutAgent:
             from core.config_provider import ConfigProvider
             min_edge = float(get_memory("min_edge") or ConfigProvider.get_min_edge_sync("scout"))
             
-            if edge > min_edge:
-                # === НОВЫЙ БЛОК: Читаем структурированные поля ===
-                signal_phrase = analysis.get("signal", "")
-                cause_phrase  = analysis.get("cause", "") or analysis.get("reasoning", "")
-                risk_phrase   = analysis.get("risk", "") or "Риск не детализирован"
-                oracle_risk_phrase = analysis.get("oracle_risk", "") or "Нет данных по оракулу"
-                verdict_phrase = analysis.get("verdict", "") or "Ожидание сигнала"
-                
-                # Формируем summary по шаблону: "SCOUT: {signal}. {cause}"
-                if signal_phrase and cause_phrase:
-                    summary = f"{signal_phrase}. {cause_phrase}"
-                else:
-                    summary = f"Недооценка {target_outcome} на {edge*100:.1f}%"
-                
-                signal = Signal(
-                    id=f"scout_{market.id}_{int(datetime.now().timestamp())}",
-                    type="MISPRICING",
-                    market_id=market.id,
-                    platform=market.platform,
-                    entry_price=market.price,
-                    edge=round(edge, 4),
-                    confidence=confidence,
-                    priority=priority,
-                    summary=summary,
-                    details=f"Рекомендация: Покупать {target_outcome}\nОбоснование: {analysis.get('reasoning', '')}",
-                    target_outcome=target_outcome,
-                    estimated_probability=est_prob,
-                    # Новые поля
-                    signal_cause=cause_phrase,
-                    signal_risk=risk_phrase,
-                    signal_verdict=verdict_phrase,
-                    oracle_risk=oracle_risk_phrase
-                )
-                return signal
+            # === Читаем структурированные поля ===
+            signal_phrase = analysis.get("signal", "")
+            cause_phrase  = analysis.get("cause", "") or analysis.get("reasoning", "")
+            risk_phrase   = analysis.get("risk", "") or "Риск не детализирован"
+            oracle_risk_phrase = analysis.get("oracle_risk", "") or "Нет данных по оракулу"
+            verdict_phrase = analysis.get("verdict", "") or "Ожидание сигнала"
+            
+            # Формируем summary по шаблону: "SCOUT: {signal}. {cause}"
+            if signal_phrase and cause_phrase:
+                summary = f"{signal_phrase}. {cause_phrase}"
+            else:
+                summary = f"Недооценка {target_outcome} на {edge*100:.1f}%"
+            
+            signal = Signal(
+                id=f"scout_{market.id}_{int(datetime.now().timestamp())}",
+                type="MISPRICING",
+                market_id=market.id,
+                platform=market.platform,
+                entry_price=market.price,
+                edge=round(edge, 4),
+                confidence=confidence,
+                priority=priority,
+                summary=summary,
+                details=f"Рекомендация: Покупать {target_outcome}\nОбоснование: {analysis.get('reasoning', '')}",
+                target_outcome=target_outcome,
+                estimated_probability=est_prob,
+                # Новые поля
+                signal_cause=cause_phrase,
+                signal_risk=risk_phrase,
+                signal_verdict=verdict_phrase,
+                oracle_risk=oracle_risk_phrase
+            )
+            return signal
         except Exception as e:
             logger.error(f"Ошибка при оценке рынка {context.market.id}: {e}")
             
