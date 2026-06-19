@@ -342,12 +342,12 @@ def _load_compounding_stats(conn, stats, virtual_stake):
             SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN status IN ('COMPLETED', 'FAILED') AND updated_at >= datetime('now', '-7 days') THEN
-                    CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -initial_stake END
+                    CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END
                     ELSE 0.0 END) as pnl_7d,
                 SUM(CASE WHEN status IN ('COMPLETED', 'FAILED') AND updated_at >= datetime('now', '-30 days') THEN
-                    CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -initial_stake END
+                    CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END
                     ELSE 0.0 END) as pnl_30d
-            FROM compound_chains
+                FROM compound_chains
             WHERE status IN ('COMPLETED', 'FAILED')
         """).fetchone()
 
@@ -502,7 +502,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         elif stype == 'compound_parlays':
             rows = conn.execute("""
                 SELECT date(updated_at) as date,
-                       SUM(CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -initial_stake END) as daily_pnl
+                       SUM(CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END) as daily_pnl
                 FROM compound_chains
                 WHERE status IN ('COMPLETED', 'FAILED') AND updated_at >= ?
                 GROUP BY date(updated_at)
@@ -2158,7 +2158,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             virtual_history.append(row_dict)
 
         # Цепочки реинвестирования (Parlays)
-        chains_rows = conn.execute("SELECT * FROM compound_chains ORDER BY id DESC LIMIT 50").fetchall()
+        chains_rows = conn.execute("SELECT * FROM compound_chains ORDER BY id DESC LIMIT 200").fetchall()
         chains = [dict(c) for c in chains_rows]
         
         if chains:

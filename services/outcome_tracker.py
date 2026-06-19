@@ -457,10 +457,10 @@ def _resolve_chain_bets_for_opportunity(opp: dict, res: str) -> None:
                 else:
                     conn.execute("UPDATE compound_chain_bets SET status = 'LOST', payout = 0, resolved_at = CURRENT_TIMESTAMP WHERE id = ?", (bet_id,))
                     conn.execute(
-                        "UPDATE compound_chains SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                        (chain_id,)
+                        "UPDATE compound_chains SET status = 'FAILED', current_step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (current_step + 1, chain_id)
                     )
-                    logger.info(f"[Chains] Цепочка #{chain_id} проиграла на шаге {current_step}. Статус: FAILED")
+                    logger.info(f"[Chains] Цепочка #{chain_id} проиграла на шаге {current_step + 1}. Статус: FAILED")
             conn.commit()
     except Exception as e:
         logger.error(f"[Chains] Ошибка авторезолюции цепочек: {e}", exc_info=True)

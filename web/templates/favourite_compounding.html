@@ -191,7 +191,7 @@
 </div>
 
 <div id="chains-card" class="table-card" style="display: none;">
-    <div class="table-title">🔗 Активные цепочки реинвестирования (Parlays)</div>
+    <div class="table-title">🔗 Активные цепочки (Parlays)</div>
     <div class="table-wrapper">
         <table>
             <thead>
@@ -204,6 +204,28 @@
                 </tr>
             </thead>
             <tbody id="chains-tbody">
+                <tr>
+                    <td colspan="5" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="chains-history-card" class="table-card" style="display: none;">
+    <div class="table-title">🔗 История цепочек (Завершенные и Прерванные)</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID Цепочки</th>
+                    <th>История шагов</th>
+                    <th>Прогресс</th>
+                    <th>Текущий стейк</th>
+                    <th>Статус</th>
+                </tr>
+            </thead>
+            <tbody id="chains-history-tbody">
                 <tr>
                     <td colspan="5" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
@@ -463,6 +485,7 @@
         document.getElementById('active-card').style.display = 'none';
         document.getElementById('resolved-card').style.display = 'none';
         document.getElementById('chains-card').style.display = 'none';
+        document.getElementById('chains-history-card').style.display = 'none';
         document.getElementById('history-card').style.display = 'none';
         document.getElementById('losses-card').style.display = 'none';
         
@@ -474,6 +497,7 @@
             document.getElementById('losses-card').style.display = 'block';
         } else if (tab === 'chains') {
             document.getElementById('chains-card').style.display = 'block';
+            document.getElementById('chains-history-card').style.display = 'block';
         } else {
             document.getElementById('top-grid').style.display = 'grid';
             document.getElementById('active-card').style.display = 'block';
@@ -547,7 +571,7 @@
                     totalPnL += (parseFloat(c.current_stake) || 0) - (parseFloat(c.initial_stake) || 0);
                 });
                 failedChains.forEach(c => {
-                    totalPnL -= (parseFloat(c.initial_stake) || 0);
+                    totalPnL -= (parseFloat(c.current_stake) || 0);
                 });
             }
             kpiActive.textContent = activeChains;
@@ -677,7 +701,7 @@
         renderActiveTable(activeData);
         
         if (lastFetchedData.chains) {
-            renderChainsTable(lastFetchedData.chains);
+            renderChainsTables(lastFetchedData.chains);
         }
         
         let winsData = [...lastFetchedData.resolved_wins];
@@ -758,12 +782,24 @@
             }).join('');
         }
     }
-    function renderChainsTable(chains) {
+    function renderChainsTables(chains) {
         const chainsTbody = document.getElementById('chains-tbody');
+        const historyTbody = document.getElementById('chains-history-tbody');
+        
         if (!chains || chains.length === 0) {
-            chainsTbody.innerHTML = `<tr><td colspan="5" style="text-align: center;" class="text-muted">Нет активных или недавних цепочек</td></tr>`;
-        } else {
-            chainsTbody.innerHTML = chains.map(chain => {
+            chainsTbody.innerHTML = `<tr><td colspan="5" style="text-align: center;" class="text-muted">Нет активных цепочек</td></tr>`;
+            historyTbody.innerHTML = `<tr><td colspan="5" style="text-align: center;" class="text-muted">Нет истории цепочек</td></tr>`;
+            return;
+        }
+
+        const activeChains = chains.filter(c => ['NEW', 'WAITING_NEXT', 'WAITING_RESOLUTION'].includes(c.status));
+        const historyChains = chains.filter(c => ['COMPLETED', 'FAILED'].includes(c.status));
+
+        function generateRows(chainList, emptyMsg) {
+            if (chainList.length === 0) {
+                return `<tr><td colspan="5" style="text-align: center;" class="text-muted">${emptyMsg}</td></tr>`;
+            }
+            return chainList.map(chain => {
                 let statusBadge = `<span class="badge badge-gray" style="margin-left: 6px;">${chain.status}</span>`;
                 if (chain.status === 'WAITING_NEXT' || chain.status === 'WAITING_RESOLUTION') {
                     statusBadge = `<span class="badge badge-yellow" style="margin-left: 6px;">В ПРОЦЕССЕ</span>`;
@@ -843,6 +879,8 @@
                 `;
             }).join('');
         }
+        chainsTbody.innerHTML = generateRows(activeChains, "Нет активных цепочек");
+        historyTbody.innerHTML = generateRows(historyChains, "Нет истории цепочек");
     }
 
     function renderWinsTable(winsList) {
