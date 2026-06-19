@@ -48,7 +48,9 @@ def _is_negrisk_resolved(data: dict, market_id: str) -> Optional[str]:
         end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
         # Даём минимум 1 час после endDate для корректного обновления API
-        if now < end_date.replace(tzinfo=timezone.utc if end_date.tzinfo is None else end_date.tzinfo):
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=timezone.utc)
+        if now < end_date:
             return None
         hours_since_end = (now - end_date).total_seconds() / 3600
         if hours_since_end < 1.0:
@@ -96,6 +98,10 @@ def get_market_resolution(market_id: str) -> Optional[str]:
             # даже после реального завершения — обрабатываем их отдельно.
             negrisk_result = _is_negrisk_resolved(data, market_id)
             if negrisk_result:
+                # UMA-проверка для negRisk
+                uma_status = data.get("umaResolutionStatus")
+                if uma_status and str(uma_status).lower() != "resolved":
+                    return None
                 return negrisk_result
             return None
             
