@@ -198,8 +198,6 @@ def _check_wallet_presence(cfg, checks, errors):
     if not wallet_present:
         errors.append("wallet_address не заполнен в настройках.")
 
-import os
-
 def _check_app_mode(cfg, checks, errors):
     try:
         import config
