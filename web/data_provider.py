@@ -1327,7 +1327,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # 2. Кумулятивный PnL по всем закрытым whale-рынкам
         all_resolved_rows = conn.execute("""
-            SELECT p.initial_price, p.predicted_outcome, p.actual_outcome, h.pnl_usd as pnl_realized
+            SELECT p.initial_price, p.predicted_outcome, p.actual_outcome, p.resolved_at, h.pnl_usd as pnl_realized
             FROM whale_stocks_monitoring p
             LEFT JOIN (
                 SELECT market_id, SUM(bet_size_usdc * pnl_percent / 100.0) as pnl_usd
@@ -1340,6 +1340,15 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         total_resolved_pnl = 0.0
         sum_won = 0.0
         sum_lost = 0.0
+        pnl_today = 0.0
+        pnl_7d = 0.0
+        pnl_30d = 0.0
+        
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
+        
         for r in all_resolved_rows:
             pnl_realized = r['pnl_realized']
             pnl_val = 0.0
@@ -1363,6 +1372,20 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 sum_won += pnl_val
             elif pnl_val < 0:
                 sum_lost += abs(pnl_val)
+                
+            try:
+                res_at_str = r['resolved_at']
+                if res_at_str:
+                    res_at = _parse_dt_utc(res_at_str)
+                    if res_at:
+                        if res_at >= today_start:
+                            pnl_today += pnl_val
+                        if res_at >= seven_days_ago:
+                            pnl_7d += pnl_val
+                        if res_at >= thirty_days_ago:
+                            pnl_30d += pnl_val
+            except Exception:
+                pass
 
         stats = {
             'active_count': total_active,
@@ -1375,7 +1398,11 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             'total_trades_pnl': round(total_trades_pnl, 4),
             'total_resolved_pnl': round(total_resolved_pnl, 4),
             'sum_won': round(sum_won, 2),
-            'sum_lost': round(sum_lost, 2)
+            'sum_lost': round(sum_lost, 2),
+            'pnl_today': round(pnl_today, 2),
+            'pnl_7d': round(pnl_7d, 2),
+            'pnl_30d': round(pnl_30d, 2),
+            'virtual_stake': virtual_stake
         }
 
         # Распределение цен входа
