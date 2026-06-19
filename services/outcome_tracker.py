@@ -7,6 +7,7 @@ Outcome Tracker — авторезолюция сигналов по закры�
 from __future__ import annotations
 import logging
 from datetime import datetime, timezone
+import os
 from typing import Optional
 
 from agents.shared.python.db import get_connection
@@ -455,12 +456,11 @@ def _resolve_chain_bets_for_opportunity(opp: dict, res: str) -> None:
                     logger.info(f"[Chains] Цепочка #{chain_id} выиграла шаг {new_step}. Новый стейк: ${new_stake:.2f}. Статус: {new_status}")
                 else:
                     conn.execute("UPDATE compound_chain_bets SET status = 'LOST', payout = 0, resolved_at = CURRENT_TIMESTAMP WHERE id = ?", (bet_id,))
-                    new_step = current_step + 1
                     conn.execute(
-                        "UPDATE compound_chains SET status = 'FAILED', current_step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                        (new_step, chain_id)
+                        "UPDATE compound_chains SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (chain_id,)
                     )
-                    logger.info(f"[Chains] Цепочка #{chain_id} проиграла на шаге {new_step}. Статус: FAILED")
+                    logger.info(f"[Chains] Цепочка #{chain_id} проиграла на шаге {current_step}. Статус: FAILED")
             conn.commit()
     except Exception as e:
         logger.error(f"[Chains] Ошибка авторезолюции цепочек: {e}", exc_info=True)
@@ -494,12 +494,13 @@ def _resolve_compound_outcomes() -> int:
         res = _fetch_resolution(opp["market_id"])
         if res not in ("YES", "NO"):
             try:
-                # Fallback: if market is older than 7 days, cancel it
+                # Fallback: if market is older than config days, cancel it
                 created = _parse_created_at(opp["created_at"])
                 age_days = (datetime.now(timezone.utc) - created).days
-                if age_days >= 7:
+                timeout_days = int(os.getenv("COMPOUND_TIMEOUT_DAYS", "7"))
+                if age_days >= timeout_days:
                     res = "N/A"
-                    logger.warning(f"[Compound] Сделка {opp['id']} отменена по таймауту (7 дней)")
+                    logger.warning(f"[Compound] Сделка {opp['id']} отменена по таймауту ({timeout_days} дней)")
                 else:
                     continue
             except Exception:

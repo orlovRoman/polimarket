@@ -3726,7 +3726,10 @@ def reallocate_pending_opportunities() -> None:
                 ORDER BY created_at ASC
             """).fetchall()
         for row in rows:
-            allocate_opportunity_to_chain(row["id"], row["market_id"], float(row["price"]))
+            try:
+                allocate_opportunity_to_chain(row["id"], row["market_id"], float(row["price"]))
+            except Exception as inner_e:
+                logger.warning(f"[DB] Пропуск reallocate для {row['id']}: {inner_e}")
     except Exception as e:
         logger.error(f"[DB] Ошибка reallocate_pending_opportunities: {e}")
 

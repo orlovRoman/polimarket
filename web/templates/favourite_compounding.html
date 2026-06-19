@@ -543,9 +543,15 @@
                 wins = completedChains.length;
                 losses = failedChains.length;
                 resolvedChains = wins + losses;
-                
-                completedChains.forEach(c => totalPnL += (c.current_stake - c.initial_stake));
-                failedChains.forEach(c => totalPnL -= c.initial_stake);
+                completedChains.forEach(c => {
+                    const current = parseFloat(c.current_stake) || 0;
+                    const initial = parseFloat(c.initial_stake) || 0;
+                    totalPnL += (current - initial);
+                });
+                failedChains.forEach(c => {
+                    const initial = parseFloat(c.initial_stake) || 0;
+                    totalPnL -= initial;
+                });
             }
             kpiActive.textContent = activeChains;
             kpiResolvedTitle.textContent = "Цепочек завершено";
@@ -678,8 +684,9 @@
         }
         
         let winsData = [...lastFetchedData.resolved_wins];
+        winsData = winsData.filter(r => r.actual_outcome === r.outcome);
         winsData.forEach(row => {
-            row.was_correct = row.outcome === row.actual_outcome;
+            row.was_correct = true;
         });
         sortDataArray(winsData, sortState.wins.col, sortState.wins.dir);
         renderWinsTable(winsData);
