@@ -65,6 +65,6 @@ def test_whale_directions_volumes_and_confidence():
         assert yes_vol == 1500.0
         assert no_vol == 1000.0
         
-        # total_vol = 2500, balance = 500 / 2500 = 0.2. new_conf = base_conf * 0.2.
-        # base_conf is 0.5 (default). 0.5 * 0.2 = 0.1
-        assert abs(row['confidence'] - 0.1) < 0.01
+        # dominant_vol = 1500, total_vol = 2500, balance = 1500 / 2500 = 0.6. new_conf = base_conf * 0.6.
+        # base_conf is 0.5 (default). 0.5 * 0.6 = 0.3
+        assert abs(row['confidence'] - 0.3) < 0.01

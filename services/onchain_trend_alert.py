@@ -201,17 +201,11 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
             spikes.append(processed)
     return spikes
 
-def _process_single_bet_row(row: dict) -> Optional[dict]:
+def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_trades: int) -> Optional[dict]:
     row = dict(row)
     alert_key = f"whale_single_bet_{row['market_id']}_{row['wallet_address']}_{row['amount_usd']:.0f}"
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
-        
-    from agents.shared.python.db import get_whale_settings
-    settings = get_whale_settings()
-    min_vol = float(settings.get('min_market_volume', 5000.0))
-    min_win_rate = float(settings.get('min_whale_win_rate', 0.60))
-    min_trades = int(settings.get('min_whale_trades', 20))
 
     # Phase 3.2: Market liquidity & extreme price filter
     m_price = row["market_price"] if row["market_price"] is not None else 0.5
@@ -317,24 +311,24 @@ def scan_large_single_bets() -> list[dict]:
         logger.error(f"[OnchainTrend] Ошибка при SQL-запросе крупных сделок: {e}")
         return []
 
-    signals = []
-    for row in rows:
-        processed = _process_single_bet_row(row)
-        if processed:
-            signals.append(processed)
-    return signals
-
-def _process_wallet_series_row(row: dict) -> Optional[dict]:
-    row = dict(row)
-    alert_key = f"whale_series_{row['market_id']}_{row['wallet_address']}"
-    if is_alert_already_sent(alert_key, ttl_hours=2):
-        return None
-        
     from agents.shared.python.db import get_whale_settings
     settings = get_whale_settings()
     min_vol = float(settings.get('min_market_volume', 5000.0))
     min_win_rate = float(settings.get('min_whale_win_rate', 0.60))
     min_trades = int(settings.get('min_whale_trades', 20))
+
+    signals = []
+    for row in rows:
+        processed = _process_single_bet_row(row, min_vol, min_win_rate, min_trades)
+        if processed:
+            signals.append(processed)
+    return signals
+
+def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, min_trades: int) -> Optional[dict]:
+    row = dict(row)
+    alert_key = f"whale_series_{row['market_id']}_{row['wallet_address']}"
+    if is_alert_already_sent(alert_key, ttl_hours=2):
+        return None
 
     m_price = row["market_price"] if row["market_price"] is not None else 0.5
     vol = row.get("market_volume") or 0.0
@@ -442,9 +436,15 @@ def scan_wallet_series() -> list[dict]:
         logger.error(f"[OnchainTrend] Ошибка при SQL-запросе серий сделок: {e}")
         return []
 
+    from agents.shared.python.db import get_whale_settings
+    settings = get_whale_settings()
+    min_vol = float(settings.get('min_market_volume', 5000.0))
+    min_win_rate = float(settings.get('min_whale_win_rate', 0.60))
+    min_trades = int(settings.get('min_whale_trades', 20))
+
     signals = []
     for row in rows:
-        processed = _process_wallet_series_row(row)
+        processed = _process_wallet_series_row(row, min_vol, min_win_rate, min_trades)
         if processed:
             signals.append(processed)
     return signals

@@ -65,6 +65,16 @@ def migrate():
             WHERE status = 'ACTIVE' AND predicted_outcome = 'UNKNOWN'
         """)
         print(f"Переведено в IGNORED {c3.rowcount} рынков с predicted_outcome='UNKNOWN'.")
+        
+        # 4. Добавление колонки resolved_at если её нет
+        try:
+            conn.execute("ALTER TABLE whale_stocks_monitoring ADD COLUMN resolved_at TIMESTAMP")
+            print("Колонка resolved_at успешно добавлена в whale_stocks_monitoring.")
+        except Exception as e:
+            if "duplicate column name" in str(e).lower():
+                print("Колонка resolved_at уже существует.")
+            else:
+                print(f"Ошибка при добавлении колонки resolved_at: {e}")
 
 if __name__ == '__main__':
     migrate()

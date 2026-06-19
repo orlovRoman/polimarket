@@ -30,7 +30,15 @@ async def test_manual_trigger_no_signal_publishes_summary_only():
          patch('services.notifications.send_telegram') as mock_send_telegram:
          
         from core.workflow import process_consensus
-        process_consensus(context, None, None, None, {}, lambda **kwargs: None, lambda text, **kwargs: mock_send_telegram(text))
+        process_consensus(
+            context=context,
+            signal=None,
+            swing_signal=None,
+            opinion_shadow=None,
+            state={},
+            update_state=lambda **kwargs: None,
+            summary_callback=lambda text, **kwargs: mock_send_telegram(text)
+        )
         
         # 1. No signal was saved
         mock_save_signal.assert_not_called()

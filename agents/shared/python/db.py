@@ -2911,7 +2911,14 @@ def get_penny_stocks_history(limit: int = 50) -> list[dict]:
 def get_whale_settings() -> dict:
     with get_connection() as conn:
         rows = conn.execute("SELECT key, value FROM whale_settings").fetchall()
-    return {r["key"]: r["value"] for r in rows}
+    settings = {r["key"]: r["value"] for r in rows}
+    
+    settings.setdefault('min_market_volume', '5000.0')
+    settings.setdefault('min_whale_win_rate', '0.60')
+    settings.setdefault('min_whale_trades', '20')
+    settings.setdefault('virtual_stake', '100.0')
+    
+    return settings
 
 def update_whale_settings(settings: dict) -> None:
     with get_connection() as conn:
@@ -2973,13 +2980,10 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
             total_vol = yes_vol + no_vol
             
             base_conf = float(confidence) if confidence is not None else float(row['confidence'] or 0.5)
-            new_conf = base_conf
             
-            if total_vol > 0:
-                balance = abs(yes_vol - no_vol) / total_vol
-                new_conf = base_conf * balance
-                if balance < 0.2:
-                    new_conf = 0.1 # киты почти поровну (YES ≈ NO), сигнал ненадёжен
+            dominant_vol = max(yes_vol, no_vol)
+            balance = (dominant_vol / total_vol) if total_vol > 0 else 0.5
+            new_conf = round(base_conf * balance, 3)
                     
             conn.execute("""
                 UPDATE whale_stocks_monitoring
