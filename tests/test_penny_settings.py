@@ -480,7 +480,7 @@ async def test_monitor_with_resolved_market(isolated_db):
     """monitor_active_penny_stocks: рынок с resolution_result должен вызвать resolve_penny_stock."""
     from unittest.mock import AsyncMock
     with patch("services.outcome_tracker._fetch_resolution", return_value="YES") as mock_fetch, \
-         patch("agents.shared.python.db.resolve_penny_stock") as mock_resolve:
+         patch("agents.shared.python.penny_execution_service.resolve_penny_stock") as mock_resolve:
         
         # Добавляем активный сток
         db_module.add_penny_stock_to_monitoring("mkt_resolve_test", "Test", "http://x", 0.05)

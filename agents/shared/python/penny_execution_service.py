@@ -10,6 +10,12 @@ from datetime import datetime, timezone
 from agents.shared.python.db import get_connection, buy_virtual_penny_stock
 from agents.shared.python.penny_settings_db import get_penny_stocks_config, PennyStocksConfig
 from agents.shared.python.penny_settings_service import run_penny_preflight
+from agents.shared.python.db import (
+    get_active_penny_stocks,
+    update_penny_stock_price,
+    mark_penny_spike_sent,
+    resolve_penny_stock
+)
 
 
 logger = logging.getLogger("NexusPolyBot.PennyExecutionService")
@@ -203,12 +209,6 @@ async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
     - Проверяет закрытие рынков и фиксирует резолюцию (YES/NO).
     - Отправляет уведомления о закрытии в Telegram.
     """
-    from agents.shared.python.db import (
-        get_active_penny_stocks,
-        update_penny_stock_price,
-        mark_penny_spike_sent,
-        resolve_penny_stock
-    )
     from services.outcome_tracker import _fetch_resolution
 
     

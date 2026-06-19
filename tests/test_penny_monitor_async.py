@@ -14,7 +14,7 @@ async def test_penny_monitor_uses_asyncio_to_thread():
     }]), \
     patch("core.singleton.get_core_engine") as mock_eng, \
     patch("agents.shared.python.db.update_penny_stock_price"), \
-    patch("agents.shared.python.db.resolve_penny_stock"), \
+    patch("agents.shared.python.penny_execution_service.resolve_penny_stock"), \
     patch("telegram.bot.bot.send_message", new_callable=AsyncMock), \
     patch("services.outcome_tracker._fetch_resolution", return_value="YES") as mock_fetch, \
     patch("agents.shared.python.penny_execution_service.asyncio.to_thread", wraps=asyncio.to_thread) as mock_thread:
@@ -42,7 +42,7 @@ async def test_penny_monitor_fallback_when_market_obj_none():
     }]), \
     patch("core.singleton.get_core_engine") as mock_eng, \
     patch("agents.shared.python.db.update_penny_stock_price"), \
-    patch("agents.shared.python.db.resolve_penny_stock") as mock_resolve, \
+    patch("agents.shared.python.penny_execution_service.resolve_penny_stock") as mock_resolve, \
     patch("telegram.bot.bot.send_message", new_callable=AsyncMock) as mock_send, \
     patch("services.outcome_tracker._fetch_resolution", return_value="YES") as mock_fetch, \
     patch("agents.shared.python.penny_execution_service.asyncio.to_thread", wraps=asyncio.to_thread) as mock_thread:
@@ -67,7 +67,7 @@ async def test_penny_monitor_no_double_fetch():
     }]), \
     patch("core.singleton.get_core_engine") as mock_eng, \
     patch("agents.shared.python.db.update_penny_stock_price"), \
-    patch("agents.shared.python.db.resolve_penny_stock"), \
+    patch("agents.shared.python.penny_execution_service.resolve_penny_stock"), \
     patch("telegram.bot.bot.send_message", new_callable=AsyncMock), \
     patch("services.outcome_tracker._fetch_resolution", return_value="YES") as mock_fetch:
 
@@ -88,7 +88,7 @@ async def test_penny_monitor_open_market_no_fetch():
     }]), \
     patch("core.singleton.get_core_engine") as mock_eng, \
     patch("agents.shared.python.db.update_penny_stock_price"), \
-    patch("agents.shared.python.db.resolve_penny_stock") as mock_resolve, \
+    patch("agents.shared.python.penny_execution_service.resolve_penny_stock") as mock_resolve, \
     patch("telegram.bot.bot.send_message", new_callable=AsyncMock), \
     patch("services.outcome_tracker._fetch_resolution", return_value=None) as mock_fetch:
 

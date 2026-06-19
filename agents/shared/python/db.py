@@ -3725,11 +3725,9 @@ def reallocate_pending_opportunities() -> None:
                 WHERE status = 'NEW' AND datetime(close_time) > datetime('now')
                 ORDER BY created_at ASC
             """).fetchall()
-        import time
         for row in rows:
             try:
                 allocate_opportunity_to_chain(row["id"], row["market_id"], float(row["price"]))
-                time.sleep(0.05)
             except Exception as inner_e:
                 logger.warning(f"[DB] Пропуск reallocate для {row['id']}: {inner_e}")
     except Exception as e:

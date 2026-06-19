@@ -222,7 +222,7 @@ async def scheduled_audit_resolutions():
     try:
         from core.eval.outcome_tracker import OutcomeTracker
         tracker = OutcomeTracker()
-        res = await asyncio.to_thread(tracker.audit_existing_resolutions, 100)
+        res = await tracker.audit_existing_resolutions(100)
         logger.info(f"<<< Аудит завершен: {res}")
     except asyncio.CancelledError:
         logger.info("<<< Аудит резолюций отменен.")
