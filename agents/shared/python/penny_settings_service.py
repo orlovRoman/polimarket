@@ -136,7 +136,6 @@ def save_penny_config(updates: dict, changed_by: str = 'ui', source: str = 'ui')
         import config
         app_mode = getattr(config, "APP_MODE", "paper")
     except ImportError:
-        import os
         app_mode = os.getenv("APP_MODE", "paper")
 
     try:
@@ -199,12 +198,13 @@ def _check_wallet_presence(cfg, checks, errors):
     if not wallet_present:
         errors.append("wallet_address не заполнен в настройках.")
 
+import os
+
 def _check_app_mode(cfg, checks, errors):
     try:
         import config
         app_mode = getattr(config, "APP_MODE", "paper")
     except ImportError:
-        import os
         app_mode = os.getenv("APP_MODE", "paper")
 
     mode_match = True
@@ -297,7 +297,7 @@ def run_penny_preflight() -> dict:
     warnings = []
     
     _check_wallet_presence(cfg, checks, errors)
-    _check_app_mode(cfg, checks, errors)
+    app_mode = _check_app_mode(cfg, checks, errors)
     
     if not _check_live_provider(provider, checks, errors):
         from datetime import datetime

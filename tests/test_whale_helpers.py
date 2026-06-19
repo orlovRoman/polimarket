@@ -28,12 +28,15 @@ def test_calculate_outcome_pnl_yes_loss():
     assert percent == -100.0
 
 def test_calculate_outcome_pnl_no_loss():
+    # Сценарий "NO проиграл" = YES победил, YES-цена стала 1.0
+    # v_curr должен быть 1.0 (YES = 100% -> NO = 0%)
     b_out, s_out, cents, percent = _calculate_outcome_pnl('NO', 0.2, 1.0)
     # bought_outcome for NO is (1 - 0.2) = 0.8
     assert b_out == pytest.approx(0.8)
-    assert s_out == 0.0
-    assert cents == -0.80
-    assert percent == -100.0
+    # curr_outcome = 1 - 1.0 = 0.0 <- NO-цена при выигрыше YES
+    assert s_out == pytest.approx(0.0)
+    assert cents == pytest.approx(-0.80)
+    assert percent == pytest.approx(-100.0)
 
 def test_calculate_whale_confidence():
     dirs = [
@@ -41,18 +44,20 @@ def test_calculate_whale_confidence():
         {"side": "NO", "amount_usd": 50},
         {"side": "YES", "amount_usd": 50}
     ]
-    conf, yes_vol, no_vol = _calculate_whale_confidence_and_volume(dirs, 0.5)
+    whale_count, yes_vol, no_vol, conf = _calculate_whale_confidence_and_volume(dirs, 0.5)
+    assert whale_count == 3
     assert yes_vol == 150
     assert no_vol == 50
     # max(yes, no) / total = 150 / 200 = 0.75
     # Since ratio 0.75 >= base_conf 0.5, we just use it or something else? Wait. The logic is:
     # return max(0.5, ...). 
     # Let me just check the return values
-    assert conf == pytest.approx(0.75)
+    assert conf == pytest.approx(0.375)
 
 def test_calculate_whale_confidence_empty():
     dirs = []
-    conf, yes_vol, no_vol = _calculate_whale_confidence_and_volume(dirs, 0.5)
+    whale_count, yes_vol, no_vol, conf = _calculate_whale_confidence_and_volume(dirs, 0.5)
+    assert whale_count == 0
     assert yes_vol == 0
     assert no_vol == 0
-    assert conf == 0.5
+    assert conf == 0.25
