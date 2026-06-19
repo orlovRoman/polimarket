@@ -432,7 +432,15 @@ def _resolve_chain_bets_for_opportunity(opp: dict, res: str) -> None:
                 current_step = int(chain["current_step"])
                 target_steps = int(chain["target_steps"])
                 
-                if was_correct:
+                if res == "N/A":
+                    # Рынок был отменен или истек по таймауту. Ставка возвращается.
+                    conn.execute("UPDATE compound_chain_bets SET status = 'REFUNDED', payout = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?", (current_stake, bet_id))
+                    conn.execute(
+                        "UPDATE compound_chains SET status = 'WAITING_NEXT', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (chain_id,)
+                    )
+                    logger.info(f"[Chains] Цепочка #{chain_id}: рынок отменен (REFUNDED). Возврат к ожиданию следующего рынка.")
+                elif was_correct:
                     contracts = current_stake / price
                     gross_payout = contracts * 1.0
                     profit = gross_payout - current_stake

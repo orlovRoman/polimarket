@@ -101,7 +101,7 @@
         <div class="kpi-value" id="kpi-winrate">—</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-title">Ср. цена входа</div>
+        <div class="kpi-title" id="kpi-avg-entry-title">Ср. цена входа</div>
         <div class="kpi-value" id="kpi-avgentry">—</div>
     </div>
     <div class="kpi-card">
@@ -532,7 +532,9 @@
             
             const wr = data.stats.win_rate;
             kpiWinrate.textContent = wr === null ? "—" : `${(wr * 100).toFixed(1)}%`;
+            document.getElementById('kpi-avg-entry-title').textContent = "Ср. цена входа";
             kpiAvgEntry.textContent = data.stats.avg_entry_price === null ? "—" : formatPriceCents(data.stats.avg_entry_price);
+            kpiAvgEntry.style.color = "var(--text-primary)";
             
             const best = data.stats.best_trade_pnl;
             kpiBestTrade.innerHTML = formatPnLUSD(best);
@@ -580,7 +582,16 @@
             
             const wr = resolvedChains > 0 ? (wins / resolvedChains) : null;
             kpiWinrate.textContent = wr === null ? "—" : `${(wr * 100).toFixed(1)}%`;
-            kpiAvgEntry.textContent = "—";
+            document.getElementById('kpi-avg-entry-title').textContent = "Общий портфель";
+            
+            let totalPortfolio = 0;
+            if (data.chains) {
+                data.chains.filter(c => ['NEW', 'WAITING_NEXT', 'WAITING_RESOLUTION'].includes(c.status)).forEach(c => {
+                    totalPortfolio += (parseFloat(c.current_stake) || 0);
+                });
+            }
+            kpiAvgEntry.textContent = formatPnLUSD(totalPortfolio).replace('+', '');
+            kpiAvgEntry.style.color = "var(--text-primary)";
             
             kpiBestTrade.innerHTML = "—";
             kpiAvgPnLTitle.textContent = "Ср. PnL";
@@ -598,6 +609,7 @@
             kpiResolvedCount.textContent = data.manual_stats.count;
             
             const wr = data.manual_stats.win_rate;
+            document.getElementById('kpi-avg-entry-title').textContent = "Ср. цена входа";
             kpiWinrate.textContent = wr === null ? "—" : `${(wr * 100).toFixed(1)}%`;
             kpiAvgEntry.textContent = data.manual_stats.avg_entry_price === null ? "—" : formatPriceCents(data.manual_stats.avg_entry_price);
             
@@ -832,6 +844,9 @@
                             } else if (bet.status === 'LOST') {
                                 betPnlHtml = `<span style="color: var(--accent-red);">-$${currentStakeForStep.toFixed(2)}</span>`;
                                 currentStakeForStep = 0;
+                            } else if (bet.status === 'REFUNDED') {
+                                betPnlHtml = `<span style="color: var(--text-secondary);">Возврат ($${currentStakeForStep.toFixed(2)})</span>`;
+                                // currentStakeForStep remains the same
                             }
                             
                             let oppLink = bet.url ? `<a href="${bet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${bet.title || 'Рынок #' + bet.opp_id}</a>` : `Рынок #${bet.opp_id}`;

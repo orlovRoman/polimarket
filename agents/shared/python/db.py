@@ -3770,23 +3770,31 @@ def allocate_opportunity_to_chain(opp_id: str, market_id: str, price: float) -> 
                 chain_id = waiting_chain["id"]
                 step_index = waiting_chain["current_step"] + 1
                 try:
-                    conn.execute("BEGIN")
+                    conn.execute("BEGIN IMMEDIATE")
                 except Exception:
                     pass
-                conn.execute(
-                    "INSERT INTO compound_chain_bets (chain_id, step_index, opp_id, bet_price, status) VALUES (?, ?, ?, ?, ?)",
-                    (chain_id, step_index, opp_id, price, 'PENDING')
-                )
-                conn.execute(
+                
+                # Optimistic locking
+                update_cursor = conn.execute(
                     """UPDATE compound_chains 
                        SET status = 'WAITING_RESOLUTION', 
                            updated_at = CURRENT_TIMESTAMP 
-                       WHERE id = ?""",
+                       WHERE id = ? AND status = 'WAITING_NEXT'""",
                     (chain_id,)
                 )
-                conn.commit()
-                logger.info(f"[Chains] Возможность {opp_id} аллоцирована в существующую цепочку #{chain_id} (шаг {step_index})")
-                return
+                if update_cursor.rowcount > 0:
+                    conn.execute(
+                        "INSERT INTO compound_chain_bets (chain_id, step_index, opp_id, bet_price, status) VALUES (?, ?, ?, ?, ?)",
+                        (chain_id, step_index, opp_id, price, 'PENDING')
+                    )
+                    conn.commit()
+                    logger.info(f"[Chains] Возможность {opp_id} аллоцирована в существующую цепочку #{chain_id} (шаг {step_index})")
+                    return
+                else:
+                    # Кто-то другой уже забрал цепочку, откатываем и продолжаем
+                    conn.rollback()
+                    logger.warning(f"[Chains] Гонка потоков: цепочка #{chain_id} уже занята.")
+                    return
             
             # Если нет ожидающих, проверяем лимит
             active_count_row = conn.execute("SELECT COUNT(id) as cnt FROM compound_chains WHERE status IN ('WAITING_NEXT', 'WAITING_RESOLUTION')").fetchone()
