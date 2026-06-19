@@ -36,7 +36,8 @@
 </div>
 
 <div class="opinion-tabs" style="margin-bottom: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 12px; display: flex; gap: 8px;">
-    <button id="compound-tab-auto" class="opinion-tab-btn active" onclick="switchCompoundTab('auto')">🤖 Авто-сигналы агентов</button>
+    <button id="compound-tab-auto" class="opinion-tab-btn active" onclick="switchCompoundTab('auto')">🤖 Активные (Авто)</button>
+    <button id="compound-tab-wins" class="opinion-tab-btn" onclick="switchCompoundTab('wins')">🟢 Выигранные рынки</button>
     <button id="compound-tab-chains" class="opinion-tab-btn" onclick="switchCompoundTab('chains')">🔗 Авто-цепочки (Parlays)</button>
     <button id="compound-tab-manual" class="opinion-tab-btn" onclick="switchCompoundTab('manual')">💼 Ручной портфель</button>
     <button id="compound-tab-losses" class="opinion-tab-btn" onclick="switchCompoundTab('losses')">🔴 Проигранные рынки</button>
@@ -245,12 +246,12 @@
             <thead>
                 <tr>
                     <th>#</th>
-                    <th>Рынок</th>
-                    <th>Цена входа</th>
+                    <th onclick="toggleSort('losses', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-losses-title"></span></th>
+                    <th onclick="toggleSort('losses', 'price')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'price')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-losses-price"></span></th>
                     <th>Направление</th>
                     <th>Исход Polymarket</th>
-                    <th>Полученный убыток</th>
-                    <th>Разрешен</th>
+                    <th onclick="toggleSort('losses', 'pnl_auto')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'pnl_auto')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Полученный убыток<span id="sort-losses-pnl_auto"></span></th>
+                    <th onclick="toggleSort('losses', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-losses-resolved_at"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
@@ -453,38 +454,30 @@
     function switchCompoundTab(tab) {
         currentTab = tab;
         document.getElementById('compound-tab-auto').classList.toggle('active', tab === 'auto');
+        document.getElementById('compound-tab-wins').classList.toggle('active', tab === 'wins');
         document.getElementById('compound-tab-manual').classList.toggle('active', tab === 'manual');
         document.getElementById('compound-tab-losses').classList.toggle('active', tab === 'losses');
         document.getElementById('compound-tab-chains').classList.toggle('active', tab === 'chains');
         
+        document.getElementById('top-grid').style.display = 'none';
+        document.getElementById('active-card').style.display = 'none';
+        document.getElementById('resolved-card').style.display = 'none';
+        document.getElementById('chains-card').style.display = 'none';
+        document.getElementById('history-card').style.display = 'none';
+        document.getElementById('losses-card').style.display = 'none';
+        
         if (tab === 'auto') {
-            document.getElementById('top-grid').style.display = 'none';
             document.getElementById('active-card').style.display = 'block';
+        } else if (tab === 'wins') {
             document.getElementById('resolved-card').style.display = 'block';
-            document.getElementById('chains-card').style.display = 'none';
-            document.getElementById('history-card').style.display = 'none';
-            document.getElementById('losses-card').style.display = 'none';
         } else if (tab === 'losses') {
-            document.getElementById('top-grid').style.display = 'none';
-            document.getElementById('active-card').style.display = 'none';
-            document.getElementById('resolved-card').style.display = 'none';
-            document.getElementById('chains-card').style.display = 'none';
-            document.getElementById('history-card').style.display = 'none';
             document.getElementById('losses-card').style.display = 'block';
         } else if (tab === 'chains') {
-            document.getElementById('top-grid').style.display = 'none';
-            document.getElementById('active-card').style.display = 'none';
-            document.getElementById('resolved-card').style.display = 'none';
             document.getElementById('chains-card').style.display = 'block';
-            document.getElementById('history-card').style.display = 'none';
-            document.getElementById('losses-card').style.display = 'none';
         } else {
             document.getElementById('top-grid').style.display = 'grid';
             document.getElementById('active-card').style.display = 'block';
-            document.getElementById('resolved-card').style.display = 'none';
-            document.getElementById('chains-card').style.display = 'none';
             document.getElementById('history-card').style.display = 'block';
-            document.getElementById('losses-card').style.display = 'none';
         }
         
         if (lastFetchedData) {
@@ -507,7 +500,7 @@
         const kpiTotalPnLTitle = document.getElementById('kpi-total-pnl-title');
         const kpiTotalPnL = document.getElementById('kpi-total-pnl');
 
-        if (currentTab === 'auto' || currentTab === 'losses') {
+        if (currentTab === 'auto' || currentTab === 'losses' || currentTab === 'wins') {
             kpiActiveTitle.textContent = "Всего в мониторинге";
             kpiActive.textContent = data.stats.active_count;
             kpiResolvedTitle.textContent = "Сигналов завершено";
@@ -540,22 +533,34 @@
             kpiActiveTitle.textContent = "Активных цепочек";
             let activeChains = 0;
             let resolvedChains = 0;
+            let wins = 0;
+            let losses = 0;
+            let totalPnL = 0;
             if (data.chains) {
                 activeChains = data.chains.filter(c => ['NEW', 'WAITING_NEXT', 'WAITING_RESOLUTION'].includes(c.status)).length;
-                resolvedChains = data.chains.filter(c => ['COMPLETED', 'FAILED'].includes(c.status)).length;
+                const completedChains = data.chains.filter(c => c.status === 'COMPLETED');
+                const failedChains = data.chains.filter(c => c.status === 'FAILED');
+                wins = completedChains.length;
+                losses = failedChains.length;
+                resolvedChains = wins + losses;
+                
+                completedChains.forEach(c => totalPnL += (c.current_stake - c.initial_stake));
+                failedChains.forEach(c => totalPnL -= c.initial_stake);
             }
             kpiActive.textContent = activeChains;
             kpiResolvedTitle.textContent = "Цепочек завершено";
             kpiResolvedCount.textContent = resolvedChains;
             
-            kpiWinrate.textContent = "—";
+            const wr = resolvedChains > 0 ? (wins / resolvedChains) : null;
+            kpiWinrate.textContent = wr === null ? "—" : `${(wr * 100).toFixed(1)}%`;
             kpiAvgEntry.textContent = "—";
             
             kpiBestTrade.innerHTML = "—";
             kpiAvgPnLTitle.textContent = "Ср. PnL";
-            kpiAvgPnL.innerHTML = "—";
+            const avgPnL = resolvedChains > 0 ? (totalPnL / resolvedChains) : 0;
+            kpiAvgPnL.innerHTML = formatPnLUSD(avgPnL);
             kpiTotalPnLTitle.textContent = "Общий PnL";
-            kpiTotalPnL.innerHTML = "—";
+            kpiTotalPnL.innerHTML = formatPnLUSD(totalPnL);
 
             document.getElementById('kpi-wins-count-card').style.display = 'none';
             document.getElementById('kpi-losses-count-card').style.display = 'none';

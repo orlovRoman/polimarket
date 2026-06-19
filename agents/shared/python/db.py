@@ -3196,7 +3196,7 @@ def get_active_compound_opportunities() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT * FROM compound_opportunities
-            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT')
+            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT', 'ALERTED_EXIT')
               AND datetime(close_time) > datetime('now')
             ORDER BY roi_net_pct DESC
         """).fetchall()
@@ -3715,6 +3715,20 @@ def allocate_opportunity_to_chain(opp_id: str, market_id: str, price: float) -> 
                 
     except Exception as e:
         logger.error(f"[DB] Ошибка allocate_opportunity_to_chain: {e}")
+
+def reallocate_pending_opportunities() -> None:
+    """Пытается аллоцировать неиспользованные NEW возможности в цепочки. Полезно для авто-запуска после завершения цепочек."""
+    try:
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT id, market_id, price FROM compound_opportunities 
+                WHERE status = 'NEW' AND datetime(close_time) > datetime('now')
+                ORDER BY created_at ASC
+            """).fetchall()
+        for row in rows:
+            allocate_opportunity_to_chain(row["id"], row["market_id"], float(row["price"]))
+    except Exception as e:
+        logger.error(f"[DB] Ошибка reallocate_pending_opportunities: {e}")
 
 if __name__ == "__main__":
     init_db()

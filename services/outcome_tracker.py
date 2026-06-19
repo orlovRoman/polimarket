@@ -24,10 +24,7 @@ def run_resolution_cycle() -> dict:
     try:
         from agents.shared.python.db import cleanup_stale_signals, cleanup_old_episodes
         
-        # Разрешаем compound-сделки
-        compounds_resolved = track_compound_opportunities()
-        if compounds_resolved > 0:
-            logger.info(f"[OutcomeTracker] Разрешено compound_opportunities: {compounds_resolved}")
+        # (Resolution for compound opportunities is handled below via _resolve_compound_outcomes)
             
         cleanup_stale_signals()
         deleted_episodes = cleanup_old_episodes(days=90)
@@ -150,15 +147,20 @@ def _resolve_signal(row: dict, resolution: str) -> None:
         if strategy in ('synthetic_corridor', 'temporal_corridor', 'cross_platform'):
             pnl_realized = virtual_stake * 0.15 if was_correct else -virtual_stake
         elif strategy == 'favourite_compound':
-            # Для Favourite Compounding с учетом комиссии 2%
+            # Для Favourite Compounding с учетом комиссии 2% и своей ставки
+            try:
+                from agents.shared.python.db import get_compound_settings
+                compound_stake = float(get_compound_settings().get("virtual_stake", virtual_stake))
+            except Exception:
+                compound_stake = virtual_stake
             price_safe = row.get("market_price_at_signal") or 0.95
             if price_safe <= 0 or price_safe >= 1.0:
                 price_safe = 0.95
-            contracts = virtual_stake / price_safe
+            contracts = compound_stake / price_safe
             if was_correct:
                 pnl_realized = contracts * (1.0 - price_safe) * 0.98
             else:
-                pnl_realized = -virtual_stake
+                pnl_realized = -compound_stake
         else:
             # Для scout и whale
             price_safe = row.get("market_price_at_signal")
@@ -453,11 +455,12 @@ def _resolve_chain_bets_for_opportunity(opp: dict, res: str) -> None:
                     logger.info(f"[Chains] Цепочка #{chain_id} выиграла шаг {new_step}. Новый стейк: ${new_stake:.2f}. Статус: {new_status}")
                 else:
                     conn.execute("UPDATE compound_chain_bets SET status = 'LOST', payout = 0, resolved_at = CURRENT_TIMESTAMP WHERE id = ?", (bet_id,))
+                    new_step = current_step + 1
                     conn.execute(
-                        "UPDATE compound_chains SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                        (chain_id,)
+                        "UPDATE compound_chains SET status = 'FAILED', current_step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (new_step, chain_id)
                     )
-                    logger.info(f"[Chains] Цепочка #{chain_id} проиграла на шаге {current_step + 1}. Статус: FAILED")
+                    logger.info(f"[Chains] Цепочка #{chain_id} проиграла на шаге {new_step}. Статус: FAILED")
             conn.commit()
     except Exception as e:
         logger.error(f"[Chains] Ошибка авторезолюции цепочек: {e}", exc_info=True)
@@ -490,7 +493,17 @@ def _resolve_compound_outcomes() -> int:
     for opp in to_resolve:
         res = _fetch_resolution(opp["market_id"])
         if res not in ("YES", "NO"):
-            continue
+            try:
+                # Fallback: if market is older than 7 days, cancel it
+                created = _parse_created_at(opp["created_at"])
+                age_days = (datetime.now(timezone.utc) - created).days
+                if age_days >= 7:
+                    res = "N/A"
+                    logger.warning(f"[Compound] Сделка {opp['id']} отменена по таймауту (7 дней)")
+                else:
+                    continue
+            except Exception:
+                continue
             
         # 1. Если это ручная сделка в виртуальном портфеле, разрешаем её
         resolved_manual = False
@@ -529,12 +542,16 @@ def _resolve_compound_outcomes() -> int:
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} Auto PnL=${pnl:.2f}")
         elif opp_status == "NEW" or resolved_manual:
             # Если статус NEW или куплена только вручную, всё равно закрываем саму возможность
-            resolve_compound_opportunity(opp["id"], res, None)
+            resolve_compound_opportunity(opp["id"], res, 0.0)
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} (без PnL / только ручная сделка)")
             
         # 3. Автоматические цепочки
         _resolve_chain_bets_for_opportunity(opp, res)
             
         resolved_count += 1
+
+    if resolved_count > 0:
+        from agents.shared.python.db import reallocate_pending_opportunities
+        reallocate_pending_opportunities()
 
     return resolved_count

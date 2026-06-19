@@ -263,17 +263,20 @@ def calibrate_confidence_threshold() -> float:
         current_threshold = 0.35
         return current_threshold
     
-    # Получаем win_rate за 30 дней из strategy_metrics
+    # Получаем win_rate за 30 дней из compound_opportunities
     try:
         with get_connection() as conn:
             row = conn.execute("""
-                SELECT win_rate, total_signals
-                FROM strategy_metrics
-                WHERE strategy_type = 'FAVOURITE_COMPOUND'
-                ORDER BY created_at DESC LIMIT 1
+                SELECT 
+                    COUNT(*) as total_signals,
+                    SUM(CASE WHEN actual_outcome = outcome THEN 1 ELSE 0 END) * 1.0 / NULLIF(COUNT(*), 0) as win_rate
+                FROM compound_opportunities
+                WHERE status = 'RESOLVED'
+                  AND actual_outcome IS NOT NULL
+                  AND created_at >= datetime('now', '-30 days')
             """).fetchone()
     except Exception as exc:
-        logger.error(f"[Compounder] Ошибка при чтении strategy_metrics для калибровки: {exc}")
+        logger.error(f"[Compounder] Ошибка при чтении compound_opportunities для калибровки: {exc}")
         return current_threshold
         
     if not row or (row["total_signals"] or 0) < 5:
