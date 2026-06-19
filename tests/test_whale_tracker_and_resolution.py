@@ -307,7 +307,8 @@ def test_new_whale_scanners_and_early_resolution():
         outcome="",
         price=0.5,
         close_time=datetime.now(timezone.utc) + timedelta(days=10),
-        condition_id=f"cond_{market_id_1}"
+        condition_id=f"cond_{market_id_1}",
+        volume=10000.0
     )
     save_market(market_1)
 
@@ -320,7 +321,8 @@ def test_new_whale_scanners_and_early_resolution():
         outcome="",
         price=0.5,
         close_time=datetime.now(timezone.utc) + timedelta(days=10),
-        condition_id=f"cond_{market_id_2}"
+        condition_id=f"cond_{market_id_2}",
+        volume=10000.0
     )
     save_market(market_2)
 
@@ -329,6 +331,10 @@ def test_new_whale_scanners_and_early_resolution():
     t_recent = (now - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
     
     with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO wallets (address, win_rate, n_trades, is_insider)
+            VALUES ('0xWhaleSingle', 0.8, 50, 1)
+        """)
         conn.execute("""
             INSERT INTO trader_transactions (wallet_address, market_id, outcome, amount_usd, price, timestamp)
             VALUES ('0xWhaleSingle', ?, 'YES', 1500.0, 0.5, ?)
@@ -348,13 +354,19 @@ def test_new_whale_scanners_and_early_resolution():
         assert sig["status"] == "PENDING"
         assert sig["target_outcome"] == "YES"
 
-    # 3. Добавляем серию транзакций от другого кошелька (5 штук по $500, смумарно $2500 > $2000) для рынка 2
-    for i in range(5):
-        with get_connection() as conn:
+    # 3. Добавляем серию транзакций от другого кошелька
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO wallets (address, win_rate, n_trades, is_insider)
+            VALUES ('0xWhaleSeries', 0.8, 50, 1)
+        """)
+        # 5 транзакций по $500 на NO
+        for i in range(5):
+            t_tx = (now - timedelta(minutes=5-i)).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("""
                 INSERT INTO trader_transactions (wallet_address, market_id, outcome, amount_usd, price, timestamp)
                 VALUES ('0xWhaleSeries', ?, 'NO', 500.0, 0.5, ?)
-            """, (market_id_2, t_recent))
+            """, (market_id_2, t_tx))
 
     # Запускаем скан серий сделок
     series_bets = scan_wallet_series()

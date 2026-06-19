@@ -2923,7 +2923,7 @@ def update_whale_settings(settings: dict) -> None:
 
 def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_price: float,
                                   predicted_outcome: str = 'UNKNOWN', edge: float = None, confidence: float = None,
-                                  wallet_address: str = None, close_time: str = None) -> None:
+                                  wallet_address: str = None, close_time: str = None, amount_usd: float = 0.0) -> None:
     if predicted_outcome is None:
         predicted_outcome = 'UNKNOWN'
     init_p = _round_price(initial_price)
@@ -2947,20 +2947,20 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
         if row:
             # Обновляем существующую запись
             directions = json.loads(row['whale_directions']) if row['whale_directions'] else []
-            directions.append({"wallet": wallet_address, "side": predicted_outcome})
+            directions.append({"wallet": wallet_address, "side": predicted_outcome, "amount_usd": amount_usd})
             
-            yes_count = sum(1 for d in directions if d['side'] == 'YES')
-            no_count = sum(1 for d in directions if d['side'] == 'NO')
-            total = yes_count + no_count
+            yes_vol = sum(d.get('amount_usd', 0) for d in directions if d['side'] == 'YES')
+            no_vol = sum(d.get('amount_usd', 0) for d in directions if d['side'] == 'NO')
+            total_vol = yes_vol + no_vol
             
             base_conf = float(confidence) if confidence is not None else float(row['confidence'] or 0.5)
             new_conf = base_conf
             
-            if total > 0:
-                balance = abs(yes_count - no_count) / total
+            if total_vol > 0:
+                balance = abs(yes_vol - no_vol) / total_vol
                 new_conf = base_conf * balance
                 if balance < 0.2:
-                    new_conf = 0.1 # слишком сильный дисбаланс, блокируем сигнал
+                    new_conf = 0.1 # киты почти поровну (YES ≈ NO), сигнал ненадёжен
                     
             conn.execute("""
                 UPDATE whale_stocks_monitoring
@@ -2973,7 +2973,7 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
             """, (edge, edge, new_conf, json.dumps(directions), wallet_address, wallet_address, market_id))
         else:
             # Создаем новую запись
-            new_whale = {"wallet": wallet_address, "side": predicted_outcome}
+            new_whale = {"wallet": wallet_address, "side": predicted_outcome, "amount_usd": amount_usd}
             new_whale_json = json.dumps([new_whale])
             conn.execute("""
                 INSERT INTO whale_stocks_monitoring
@@ -3144,11 +3144,15 @@ def get_whale_stocks_stats() -> dict:
         row_avg_edge = conn.execute("SELECT AVG(edge) as avg_edge FROM whale_stocks_monitoring WHERE edge IS NOT NULL").fetchone()
         
         # Phase 5.1: Calculate USD PnL
-        pnl_rows = conn.execute("""
-            SELECT pnl_cents, bet_size_usdc 
-            FROM whale_virtual_trades_history 
-            WHERE bet_size_usdc IS NOT NULL AND bet_size_usdc > 0
-        """).fetchall()
+        row_pnl = conn.execute("""
+            SELECT 
+                SUM(bet_size_usdc * pnl_percent / 100.0) as total_pnl,
+                AVG(bet_size_usdc * pnl_percent / 100.0) as avg_pnl,
+                MAX(bet_size_usdc * pnl_percent / 100.0) as best_pnl,
+                MIN(bet_size_usdc * pnl_percent / 100.0) as worst_pnl
+            FROM whale_virtual_trades_history
+            WHERE bet_size_usdc IS NOT NULL
+        """).fetchone()
         
     total = row_total["cnt"] if row_total else 0
     active = row_active["cnt"] if row_active else 0
@@ -3156,31 +3160,10 @@ def get_whale_stocks_stats() -> dict:
     correct = row_correct["cnt"] if row_correct else 0
     avg_edge = row_avg_edge["avg_edge"] if row_avg_edge and row_avg_edge["avg_edge"] is not None else 0.0
     
-    total_pnl_usd = 0.0
-    for r in pnl_rows:
-        bet_size = r['bet_size_usdc']
-        # pnl_cents is the raw outcome difference (e.g., 0.50). 
-        # actual profit in USD = pnl_cents * bet_size / 100? No, pnl_cents is the difference in cents per 1 dollar.
-        # Wait, the history table logic is:
-        # pnl_cents = sold_outcome - bought_outcome
-        # pnl_percent = (pnl_cents / bought_outcome * 100)
-        # So profit USD = bet_size * (pnl_percent / 100)
-        pnl_percent = 0.0
-        # recalculate or use pnl_percent? We don't have pnl_percent in the SELECT, let's just query it.
-        pass
-
-    # Better to do it purely in SQL
-    with get_connection() as conn:
-        row_pnl = conn.execute("""
-            SELECT 
-                SUM(bet_size_usdc * pnl_percent / 100.0) as total_pnl,
-                AVG(bet_size_usdc * pnl_percent / 100.0) as avg_pnl
-            FROM whale_virtual_trades_history
-            WHERE bet_size_usdc IS NOT NULL
-        """).fetchone()
-
     total_pnl_usd = row_pnl["total_pnl"] if row_pnl and row_pnl["total_pnl"] else 0.0
     avg_pnl_usd = row_pnl["avg_pnl"] if row_pnl and row_pnl["avg_pnl"] else 0.0
+    best_pnl_usd = row_pnl["best_pnl"] if row_pnl and row_pnl["best_pnl"] else 0.0
+    worst_pnl_usd = row_pnl["worst_pnl"] if row_pnl and row_pnl["worst_pnl"] else 0.0
 
     win_rate = (correct / resolved) if resolved > 0 else 0.0
     return {
@@ -3191,7 +3174,9 @@ def get_whale_stocks_stats() -> dict:
         "win_rate": win_rate,
         "avg_edge": avg_edge,
         "total_pnl_usd": round(total_pnl_usd, 2),
-        "avg_pnl_usd": round(avg_pnl_usd, 2)
+        "avg_pnl_usd": round(avg_pnl_usd, 2),
+        "best_trade_pnl_usd": round(best_pnl_usd, 2),
+        "worst_trade_pnl_usd": round(worst_pnl_usd, 2)
     }
 
 def get_whale_stocks_history(limit: int = 50) -> list[dict]:

@@ -35,7 +35,8 @@ def _log_whale_signal_to_eval(
     url: str = None,
     is_single: bool = False,
     is_series: bool = False,
-    close_time: str = None
+    close_time: str = None,
+    confidence: float = 0.5
 ):
     try:
         from core.eval.signal_logger import SignalLogger, StrategyType
@@ -101,9 +102,10 @@ def _log_whale_signal_to_eval(
                 initial_price=yes_price,
                 predicted_outcome=side,
                 edge=edge,
-                confidence=0.5,
+                confidence=confidence,
                 wallet_address=metadata_extra.get("wallet_address"),
-                close_time=close_time
+                close_time=close_time,
+                amount_usd=metadata_extra.get("amount_usd", metadata_extra.get("total_amount_usd", 0.0))
             )
         except Exception as db_e:
             logger.error(f"[OnchainTrend] Ошибка сохранения Whale-сигнала в мониторинг: {db_e}", exc_info=True)
@@ -267,7 +269,8 @@ def _process_single_bet_row(row: dict) -> Optional[dict]:
             title=row.get('title'),
             url=row.get('url'),
             is_single=True,
-            close_time=_normalize_close_time(row.get('close_time'))
+            close_time=_normalize_close_time(row.get('close_time')),
+            confidence=confidence
         )
 
     except Exception as e:
@@ -379,7 +382,8 @@ def _process_wallet_series_row(row: dict) -> Optional[dict]:
             title=row.get('title'),
             url=row.get('url'),
             is_series=True,
-            close_time=_normalize_close_time(row.get('close_time'))
+            close_time=_normalize_close_time(row.get('close_time')),
+            confidence=confidence
         )
 
     except Exception as e:

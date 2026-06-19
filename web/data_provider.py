@@ -176,7 +176,7 @@ def _load_whale_stats(conn, stats, virtual_stake):
                 h.bought_outcome_price
             FROM whale_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_realized, AVG(bought_outcome_price) as bought_outcome_price
+                SELECT market_id, SUM(bet_size_usdc * pnl_percent / 100.0) as pnl_realized, AVG(bought_outcome_price) as bought_outcome_price
                 FROM whale_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -212,7 +212,7 @@ def _load_whale_stats(conn, stats, virtual_stake):
             is_win = (pred_up == act_up)
 
             if pnl_realized is not None and bought_price and 0.0 < bought_price < 1.0:
-                pnl_val = (virtual_stake / bought_price) * pnl_realized
+                pnl_val = pnl_realized
             elif init is not None:
                 bought_outcome = (1.0 - init) if pred_up == 'NO' else init
                 sold_outcome = 1.0 if is_win else 0.0
@@ -466,12 +466,12 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         elif stype == 'whale':
             rows = conn.execute("""
                 SELECT date(sold_at) as date, 
-                       SUM((COALESCE(pnl_cents, 0.0) / bought_outcome_price) * ?) as daily_pnl
+                       SUM(bet_size_usdc * pnl_percent / 100.0) as daily_pnl
                 FROM whale_virtual_trades_history
                 WHERE sold_at >= ? AND sold_at IS NOT NULL AND bought_outcome_price > 0
                 GROUP BY date(sold_at)
                 ORDER BY date(sold_at) ASC
-            """, (virtual_stake, period_start)).fetchall()
+            """, (period_start,)).fetchall()
         elif stype == 'favourite_compounding':
             rows = conn.execute("""
                 SELECT date(ts) as date, SUM(pnl) as daily_pnl
