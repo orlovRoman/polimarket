@@ -794,6 +794,23 @@
             }).join('');
         }
     }
+    function getBetResult(bet, currentStake) {
+        let html = '';
+        let newStake = currentStake;
+        if (bet.status === 'WON') {
+            const payout = (bet.payout != null && !isNaN(bet.payout)) ? bet.payout : currentStake;
+            const pnl = payout - currentStake;
+            html = pnl !== 0 ? `<span style="color: var(--accent-green);">+$${pnl.toFixed(2)}</span>` : '';
+            newStake = payout;
+        } else if (bet.status === 'LOST') {
+            html = `<span style="color: var(--accent-red);">-$${currentStake.toFixed(2)}</span>`;
+            newStake = 0;
+        } else if (bet.status === 'REFUNDED') {
+            html = `<span style="color: var(--text-secondary);">Возврат ($${currentStake.toFixed(2)})</span>`;
+        }
+        return { html, newStake };
+    }
+
     function renderChainsTables(chains) {
         const chainsTbody = document.getElementById('chains-tbody');
         const historyTbody = document.getElementById('chains-history-tbody');
@@ -833,21 +850,9 @@
                         if (bet.status === 'PENDING') {
                             currentBet = bet;
                         } else {
-                            let betPnlHtml = '';
-                            if (bet.status === 'WON') {
-                                const payout = (bet.payout != null && !isNaN(bet.payout)) ? bet.payout : currentStakeForStep;
-                                const pnl = payout - currentStakeForStep;
-                                betPnlHtml = pnl !== 0
-                                    ? `<span style="color: var(--accent-green);">+$${pnl.toFixed(2)}</span>`
-                                    : '';
-                                currentStakeForStep = payout;
-                            } else if (bet.status === 'LOST') {
-                                betPnlHtml = `<span style="color: var(--accent-red);">-$${currentStakeForStep.toFixed(2)}</span>`;
-                                currentStakeForStep = 0;
-                            } else if (bet.status === 'REFUNDED') {
-                                betPnlHtml = `<span style="color: var(--text-secondary);">Возврат ($${currentStakeForStep.toFixed(2)})</span>`;
-                                // currentStakeForStep remains the same
-                            }
+                            const result = getBetResult(bet, currentStakeForStep);
+                            let betPnlHtml = result.html;
+                            currentStakeForStep = result.newStake;
                             
                             let oppLink = bet.url ? `<a href="${bet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${bet.title || 'Рынок #' + bet.opp_id}</a>` : `Рынок #${bet.opp_id}`;
                             pastBetsList.push(`

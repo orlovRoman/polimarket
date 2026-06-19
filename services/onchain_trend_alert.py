@@ -201,6 +201,13 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
             spikes.append(processed)
     return spikes
 
+def _evaluate_wallet_confidence(win_rate: float, n_trades: int, is_insider: bool, min_win_rate: float, min_trades: int) -> tuple[float, float]:
+    if is_insider:
+        return 0.8, 1.5
+    elif win_rate >= min_win_rate and n_trades >= min_trades:
+        return 0.6, 1.0
+    return 0.3, 0.5
+
 def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_trades: int) -> Optional[dict]:
     row = dict(row)
     alert_key = f"whale_single_bet_{row['market_id']}_{row['wallet_address']}_{row['amount_usd']:.0f}"
@@ -218,16 +225,7 @@ def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_
     win_rate = row.get("win_rate") or 0.0
     n_trades = row.get("n_trades") or 0
     is_insider = row.get("is_insider")
-    
-    if is_insider:
-        confidence = 0.8
-        bonus_mult = 1.5
-    elif win_rate >= min_win_rate and n_trades >= min_trades:
-        confidence = 0.6
-        bonus_mult = 1.0
-    else:
-        confidence = 0.3
-        bonus_mult = 0.5
+    confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades)
         
     # Skip creating trading signals for low-confidence whales
     if confidence < 0.6:
@@ -339,16 +337,7 @@ def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, m
     win_rate = row.get("win_rate") or 0.0
     n_trades = row.get("n_trades") or 0
     is_insider = row.get("is_insider")
-    
-    if is_insider:
-        confidence = 0.8
-        bonus_mult = 1.5
-    elif win_rate >= min_win_rate and n_trades >= min_trades:
-        confidence = 0.6
-        bonus_mult = 1.0
-    else:
-        confidence = 0.3
-        bonus_mult = 0.5
+    confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades)
         
     if confidence < 0.6:
         logger.info(f"Skipped whale series (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, reason=LOW_CONF")

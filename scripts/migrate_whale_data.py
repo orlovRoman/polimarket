@@ -7,6 +7,34 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.shared.python.db import get_connection
 
+def _deduplicate_market(conn, r) -> bool:
+    market_id = r['market_id']
+    try:
+        directions = json.loads(r['whale_directions'])
+        wallet_map = {}
+        for d in directions:
+            w = d.get('wallet')
+            if not w:
+                continue
+            if w not in wallet_map:
+                wallet_map[w] = {'wallet': w, 'side': d.get('side', 'UNKNOWN'), 'amount_usd': d.get('amount_usd', 0)}
+            else:
+                wallet_map[w]['amount_usd'] += d.get('amount_usd', 0)
+                wallet_map[w]['side'] = d.get('side', wallet_map[w]['side'])
+        
+        new_directions = list(wallet_map.values())
+        new_count = len(new_directions)
+        
+        conn.execute("""
+            UPDATE whale_stocks_monitoring
+            SET whale_directions = ?, whale_count = ?
+            WHERE market_id = ?
+        """, (json.dumps(new_directions), new_count, market_id))
+        return True
+    except Exception as e:
+        print(f"Ошибка при дедупликации {market_id}: {e}")
+        return False
+
 def migrate():
     print("Начинаем миграцию данных по китам...")
     
@@ -15,31 +43,8 @@ def migrate():
         rows = conn.execute("SELECT market_id, whale_directions FROM whale_stocks_monitoring WHERE whale_directions IS NOT NULL").fetchall()
         updated_count = 0
         for r in rows:
-            market_id = r['market_id']
-            try:
-                directions = json.loads(r['whale_directions'])
-                wallet_map = {}
-                for d in directions:
-                    w = d.get('wallet')
-                    if not w:
-                        continue
-                    if w not in wallet_map:
-                        wallet_map[w] = {'wallet': w, 'side': d.get('side', 'UNKNOWN'), 'amount_usd': d.get('amount_usd', 0)}
-                    else:
-                        wallet_map[w]['amount_usd'] += d.get('amount_usd', 0)
-                        wallet_map[w]['side'] = d.get('side', wallet_map[w]['side'])
-                
-                new_directions = list(wallet_map.values())
-                new_count = len(new_directions)
-                
-                conn.execute("""
-                    UPDATE whale_stocks_monitoring
-                    SET whale_directions = ?, whale_count = ?
-                    WHERE market_id = ?
-                """, (json.dumps(new_directions), new_count, market_id))
+            if _deduplicate_market(conn, r):
                 updated_count += 1
-            except Exception as e:
-                print(f"Ошибка при дедупликации {market_id}: {e}")
         
         print(f"Дедуплицировано whale_directions для {updated_count} рынков.")
         

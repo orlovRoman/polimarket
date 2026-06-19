@@ -201,6 +201,103 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig, pr
         logger.error(f"Ошибка при исполнении сделки для рынка {market_id}: {e}")
         return False
 
+
+async def _update_prices_and_check_spikes(stock, market_obj, m_id, bot, chat_id):
+    if not market_obj:
+        return
+        
+    current_price = market_obj.price
+    volume_2h = getattr(market_obj, 'volume', 0.0)
+    update_penny_stock_price(m_id, current_price, volume_2h)
+    
+    init_price = stock["initial_price"]
+    price_growth = 0.0
+    pred = stock.get("predicted_outcome")
+    is_no_outcome = (pred == "NO") or (pred is None and init_price >= 0.50)
+    
+    if is_no_outcome:
+        init_effective = 1.0 - init_price
+        curr_effective = 1.0 - current_price
+    else:
+        init_effective = init_price
+        curr_effective = current_price
+
+    if init_effective > 0:
+        price_growth = (curr_effective - init_effective) / init_effective
+        
+    if not stock["spike_alert_sent"] and price_growth >= 1.0:
+        mark_penny_spike_sent(m_id)
+        price_suffix = " (NO)" if is_no_outcome else " (YES)"
+        msg = (
+            f"⚡️ <b>РЕЗКИЙ ВСПЛЕСК на Penny Stocks!</b>\n\n"
+            f"📍 <b>{stock['title']}</b>\n"
+            f"📈 Цена{price_suffix}: {int(round(init_effective*100))}¢ -> <b>{int(round(curr_effective*100))}¢</b> (рост на {price_growth*100:.0f}%!)\n"
+            f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
+        )
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        import asyncio
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проанализировать рынок", callback_data=f"analyze_mkt_{m_id}")]
+        ])
+        await bot.send_message(
+            chat_id, 
+            msg, 
+            parse_mode="HTML", 
+            disable_web_page_preview=True,
+            reply_markup=keyboard
+        )
+        await asyncio.sleep(1)
+
+async def _check_market_resolution(m_id, market_obj):
+    from services.outcome_tracker import _fetch_resolution
+    import asyncio
+    from datetime import datetime, timezone
+    
+    close_time_passed = False
+    resolution_result = None
+    close_time = getattr(market_obj, 'close_time', None) if market_obj else None
+    
+    if close_time:
+        close_time_passed = close_time < datetime.now(timezone.utc)
+    else:
+        try:
+            res = await asyncio.to_thread(_fetch_resolution, m_id)
+            if res in ("YES", "NO"):
+                resolution_result = res
+                close_time_passed = True
+        except Exception:
+            pass
+
+    if close_time_passed:
+        if not resolution_result:
+            if market_obj and getattr(market_obj, 'closed', None) is False:
+                logger.info(f"[PennyMonitor] {m_id}: close_time прошел, но рынок еще открыт по данным адаптера. Пропускаем.")
+                return None
+            resolution_result = await asyncio.to_thread(_fetch_resolution, m_id)
+            
+    return resolution_result if resolution_result in ("YES", "NO") else None
+
+async def _handle_resolved_penny_stock(stock, resolution_result, m_id, bot, chat_id):
+    import asyncio
+    resolve_penny_stock(m_id, resolution_result)
+    pred = stock["predicted_outcome"]
+    if pred:
+        result_str = "УСПЕШНО 🎉" if pred.upper() == resolution_result else "НЕ СОВПАЛО ❌"
+        pred_str = pred
+    else:
+        result_str = "БЕЗ ПРОГНОЗА 💬"
+        pred_str = "Нет прогноза"
+    msg = (
+        f"🔔 <b>Закрытие рынка Penny Stocks!</b>\n\n"
+        f"📍 <b>{stock['title']}</b>\n"
+        f"🎯 Прогноз бота: <b>{pred_str}</b>\n"
+        f"✅ Исход Polymarket: <b>{resolution_result}</b>\n"
+        f"🏆 Результат: <b>{result_str}</b>\n"
+        f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
+    )
+    await bot.send_message(chat_id, msg, parse_mode="HTML", disable_web_page_preview=True)
+    await asyncio.sleep(1)
+
 async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
     """
     Мониторит активные виртуальные позиции Penny Stocks:
@@ -209,9 +306,6 @@ async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
     - Проверяет закрытие рынков и фиксирует резолюцию (YES/NO).
     - Отправляет уведомления о закрытии в Telegram.
     """
-    from services.outcome_tracker import _fetch_resolution
-
-    
     active_stocks = get_active_penny_stocks()
     if not active_stocks:
         logger.info("Нет активных Penny Stocks для мониторинга.")
@@ -226,88 +320,8 @@ async def monitor_active_penny_stocks(bot, chat_id, engine) -> None:
             logger.warning(f"Не удалось получить данные рынка {m_id} через адаптер: {e}")
             market_obj = None
             
-        if market_obj:
-            current_price = market_obj.price
-            volume_2h = getattr(market_obj, 'volume', 0.0)
-            update_penny_stock_price(m_id, current_price, volume_2h)
-            
-            init_price = stock["initial_price"]
-            price_growth = 0.0
-            pred = stock.get("predicted_outcome")
-            is_no_outcome = (pred == "NO") or (pred is None and init_price >= 0.50)
-            
-            if is_no_outcome:
-                init_effective = 1.0 - init_price
-                curr_effective = 1.0 - current_price
-            else:
-                init_effective = init_price
-                curr_effective = current_price
-
-            if init_effective > 0:
-                price_growth = (curr_effective - init_effective) / init_effective
-                
-            if not stock["spike_alert_sent"] and price_growth >= 1.0:
-                mark_penny_spike_sent(m_id)
-                price_suffix = " (NO)" if is_no_outcome else " (YES)"
-                msg = (
-                    f"⚡️ <b>РЕЗКИЙ ВСПЛЕСК на Penny Stocks!</b>\n\n"
-                    f"📍 <b>{stock['title']}</b>\n"
-                    f"📈 Цена{price_suffix}: {int(round(init_effective*100))}¢ -> <b>{int(round(curr_effective*100))}¢</b> (рост на {price_growth*100:.0f}%!)\n"
-                    f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
-                )
-                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔍 Проанализировать рынок", callback_data=f"analyze_mkt_{m_id}")]
-                ])
-                await bot.send_message(
-                    chat_id, 
-                    msg, 
-                    parse_mode="HTML", 
-                    disable_web_page_preview=True,
-                    reply_markup=keyboard
-                )
-                await asyncio.sleep(1)
+        await _update_prices_and_check_spikes(stock, market_obj, m_id, bot, chat_id)
+        resolution_result = await _check_market_resolution(m_id, market_obj)
         
-        close_time_passed = False
-        resolution_result = None
-        close_time = getattr(market_obj, 'close_time', None)
-        if close_time:
-            close_time_passed = close_time < datetime.now(timezone.utc)
-        else:
-            # Нет данных о close_time — пробуем resolution как fallback
-            try:
-                res = await asyncio.to_thread(_fetch_resolution, m_id)
-                if res in ("YES", "NO"):
-                    resolution_result = res
-                    close_time_passed = True
-            except Exception:
-                pass
-
-
-        if close_time_passed:
-            if not resolution_result:
-                if market_obj and getattr(market_obj, 'closed', None) is False:
-                    logger.info(f"[PennyMonitor] {m_id}: close_time прошел, но рынок еще открыт по данным адаптера. Пропускаем.")
-                    continue
-                resolution_result = await asyncio.to_thread(_fetch_resolution, m_id)
-            if resolution_result in ("YES", "NO"):
-                resolve_penny_stock(m_id, resolution_result)
-                pred = stock["predicted_outcome"]
-                if pred:
-                    result_str = "УСПЕШНО 🎉" if pred.upper() == resolution_result else "НЕ СОВПАЛО ❌"
-                    pred_str = pred
-                else:
-                    result_str = "БЕЗ ПРОГНОЗА 💬"
-                    pred_str = "Нет прогноза"
-                msg = (
-                    f"🔔 <b>Закрытие рынка Penny Stocks!</b>\n\n"
-                    f"📍 <b>{stock['title']}</b>\n"
-                    f"🎯 Прогноз бота: <b>{pred_str}</b>\n"
-                    f"✅ Исход Polymarket: <b>{resolution_result}</b>\n"
-                    f"🏆 Результат: <b>{result_str}</b>\n"
-                    f"🔗 <a href='{stock['url']}'>Открыть рынок</a>"
-                )
-                await bot.send_message(chat_id, msg, parse_mode="HTML", disable_web_page_preview=True)
-                await asyncio.sleep(1)
-
-
+        if resolution_result:
+            await _handle_resolved_penny_stock(stock, resolution_result, m_id, bot, chat_id)
