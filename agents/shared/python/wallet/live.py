@@ -6,9 +6,9 @@ from .models import BalanceInfo, CredentialsStatus
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import BalanceAllowanceParams
 
-_cached_credentials = None
-
 class LivePolymarketProvider(WalletProvider):
+    _credentials = None
+
     """
     Реальная интеграция с Polymarket CLOB API.
     Требует PRIVATE_KEY и DEPOSIT_WALLET_ADDRESS в окружении.
@@ -21,8 +21,6 @@ class LivePolymarketProvider(WalletProvider):
         self._deposit_wallet = os.environ.get("DEPOSIT_WALLET_ADDRESS", "")
         self._clob_host = os.getenv("CLOB_HOST", "https://clob.polymarket.com")
         self._client = None  # Инициализируется лениво при первом вызове
-        global _cached_credentials
-        self._credentials = _cached_credentials
 
     def _get_client(self):
         """Ленивая инициализация CLOB-клиента."""
@@ -31,22 +29,20 @@ class LivePolymarketProvider(WalletProvider):
                 raise ValueError("PRIVATE_KEY и DEPOSIT_WALLET_ADDRESS должны быть заданы в окружении для LIVE-режима.")
 
             # Деривируем ключи только если не кэшированы
-            if self._credentials is None:
+            if LivePolymarketProvider._credentials is None:
                 temp_client = ClobClient(
                     self._clob_host,
                     key=self._private_key,
                     chain_id=137,
                 )
-                self._credentials = temp_client.create_or_derive_api_key()
-                global _cached_credentials
-                _cached_credentials = self._credentials
+                LivePolymarketProvider._credentials = temp_client.create_or_derive_api_key()
             
             # Полноценный клиент с deposit wallet
             self._client = ClobClient(
                 self._clob_host,
                 key=self._private_key,
                 chain_id=137,
-                creds=self._credentials,
+                creds=LivePolymarketProvider._credentials,
                 signature_type=1,  # 1 соответствует POLY_1271 (POLY_PROXY)
                 funder=self._deposit_wallet,
             )

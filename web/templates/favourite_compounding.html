@@ -544,13 +544,10 @@
                 losses = failedChains.length;
                 resolvedChains = wins + losses;
                 completedChains.forEach(c => {
-                    const current = parseFloat(c.current_stake) || 0;
-                    const initial = parseFloat(c.initial_stake) || 0;
-                    totalPnL += (current - initial);
+                    totalPnL += (parseFloat(c.current_stake) || 0) - (parseFloat(c.initial_stake) || 0);
                 });
                 failedChains.forEach(c => {
-                    const initial = parseFloat(c.initial_stake) || 0;
-                    totalPnL -= initial;
+                    totalPnL -= (parseFloat(c.initial_stake) || 0);
                 });
             }
             kpiActive.textContent = activeChains;
