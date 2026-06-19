@@ -1,5 +1,6 @@
 # agents/shared/python/wallet/live.py
 import os
+import threading
 from datetime import datetime, timezone
 from .base import WalletProvider
 from .models import BalanceInfo, CredentialsStatus
@@ -8,6 +9,7 @@ from py_clob_client.clob_types import BalanceAllowanceParams
 
 class LivePolymarketProvider(WalletProvider):
     _credentials = None
+    _credentials_lock = threading.Lock()
 
     """
     Реальная интеграция с Polymarket CLOB API.
@@ -29,13 +31,14 @@ class LivePolymarketProvider(WalletProvider):
                 raise ValueError("PRIVATE_KEY и DEPOSIT_WALLET_ADDRESS должны быть заданы в окружении для LIVE-режима.")
 
             # Деривируем ключи только если не кэшированы
-            if LivePolymarketProvider._credentials is None:
-                temp_client = ClobClient(
-                    self._clob_host,
-                    key=self._private_key,
-                    chain_id=137,
-                )
-                LivePolymarketProvider._credentials = temp_client.create_or_derive_api_key()
+            with LivePolymarketProvider._credentials_lock:
+                if LivePolymarketProvider._credentials is None:
+                    temp_client = ClobClient(
+                        self._clob_host,
+                        key=self._private_key,
+                        chain_id=137,
+                    )
+                    LivePolymarketProvider._credentials = temp_client.create_or_derive_api_key()
             
             # Полноценный клиент с deposit wallet
             self._client = ClobClient(

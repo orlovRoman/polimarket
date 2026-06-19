@@ -98,7 +98,8 @@ def get_market_resolution(market_id: str) -> Optional[str]:
             # даже после реального завершения — обрабатываем их отдельно.
             negrisk_result = _is_negrisk_resolved(data, market_id)
             if negrisk_result:
-                if str(data.get("umaResolutionStatus", "resolved")).lower() != "resolved":
+                uma_status = data.get("umaResolutionStatus", "")
+                if uma_status and uma_status.lower() != "resolved":
                     return None
                 return negrisk_result
             return None
