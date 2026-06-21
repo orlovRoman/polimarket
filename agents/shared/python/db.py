@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 import sqlite3
 import json
 import re
-import math
-import uuid
 
 import threading
 from contextlib import contextmanager
@@ -1003,6 +1000,12 @@ def _init_db_impl(conn: sqlite3.Connection):
         )
     """)
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('virtual_stake', '100.0')")
+    cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('min_whale_win_rate', '0.60')")
+    cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('min_whale_trades', '20')")
+    cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('min_market_volume', '5000.0')")
+    cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('min_market_price', '0.05')")
+    cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('max_market_price', '0.95')")
+    cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('whale_edge_bonus', '0.0')")
 
     # Миграция: добавляем поля виртуального портфеля в penny_stocks_monitoring
     penny_cols = {row[1] for row in cursor.execute("PRAGMA table_info(penny_stocks_monitoring)").fetchall()}
@@ -2919,6 +2922,9 @@ def get_whale_settings() -> dict:
     settings.setdefault('min_whale_win_rate', '0.60')
     settings.setdefault('min_whale_trades', '20')
     settings.setdefault('virtual_stake', '100.0')
+    settings.setdefault('min_market_price', '0.05')
+    settings.setdefault('max_market_price', '0.95')
+    settings.setdefault('whale_edge_bonus', '0.0')
     
     return settings
 

@@ -232,9 +232,14 @@ def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_
         return None
 
     # Phase 3.2: Market liquidity & extreme price filter
+    from agents.shared.python.db import get_whale_settings
+    settings = get_whale_settings()
+    min_market_price = float(settings.get('min_market_price', 0.05))
+    max_market_price = float(settings.get('max_market_price', 0.95))
+    
     m_price = row["market_price"] if row["market_price"] is not None else 0.5
     vol = row.get("market_volume") or 0.0
-    if vol < min_vol or m_price <= 0.05 or m_price >= 0.95:
+    if vol < min_vol or m_price <= min_market_price or m_price >= max_market_price:
         logger.info(f"Skipped whale signal (market filter): market_id={row['market_id']}, vol={vol}, price={m_price}, reason=LOW_VOL_OR_EXTREME_PRICE")
         return None
         
@@ -346,9 +351,15 @@ def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, m
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
 
+    # Phase 3.2: Market liquidity & extreme price filter
+    from agents.shared.python.db import get_whale_settings
+    settings = get_whale_settings()
+    min_market_price = float(settings.get('min_market_price', 0.05))
+    max_market_price = float(settings.get('max_market_price', 0.95))
+    
     m_price = row["market_price"] if row["market_price"] is not None else 0.5
     vol = row.get("market_volume") or 0.0
-    if vol < min_vol or m_price <= 0.05 or m_price >= 0.95:
+    if vol < min_vol or m_price <= min_market_price or m_price >= max_market_price:
         logger.info(f"Skipped whale series (market filter): market_id={row['market_id']}, vol={vol}, price={m_price}, reason=LOW_VOL_OR_EXTREME_PRICE")
         return None
         

@@ -93,6 +93,18 @@
             <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Ставка ($)</label>
             <input type="number" id="setting-virtual-stake" class="filter-input" style="width: 100px;">
         </div>
+        <div style="display: flex; flex-direction: column;">
+            <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Min Price</label>
+            <input type="number" id="setting-min-market-price" step="0.01" min="0" max="1" class="filter-input" style="width: 80px;">
+        </div>
+        <div style="display: flex; flex-direction: column;">
+            <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Max Price</label>
+            <input type="number" id="setting-max-market-price" step="0.01" min="0" max="1" class="filter-input" style="width: 80px;">
+        </div>
+        <div style="display: flex; flex-direction: column;">
+            <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Edge Bonus</label>
+            <input type="number" id="setting-whale-edge-bonus" step="0.01" min="0" max="0.5" class="filter-input" style="width: 80px;">
+        </div>
         <button id="btn-save-whale-settings" onclick="saveWhaleSettings()" class="badge badge-green" style="border: none; cursor: pointer; font-weight: 600; padding: 10px 16px; font-size: 0.9rem; border-radius: 6px; align-self: flex-end; margin-bottom: 1px;">Сохранить</button>
     </div>
 </div>
@@ -1119,6 +1131,9 @@
             set('setting-min-trades',   settings.min_whale_trades,   v => parseInt(v, 10));
             set('setting-min-vol',      settings.min_market_volume,  parseFloat);
             set('setting-virtual-stake', settings.virtual_stake, parseFloat);
+            document.getElementById('setting-min-market-price').value = settings.min_market_price || '0.05';
+            document.getElementById('setting-max-market-price').value = settings.max_market_price || '0.95';
+            document.getElementById('setting-whale-edge-bonus').value = settings.whale_edge_bonus || '0';
         } catch (e) {
             console.error("Failed to load whale settings", e);
         }
@@ -1131,8 +1146,9 @@
         const tradesVal = document.getElementById('setting-min-trades').value;
         const volVal = document.getElementById('setting-min-vol').value;
         const stakeVal = document.getElementById('setting-virtual-stake').value;
+        const edgeBonusVal = document.getElementById('setting-whale-edge-bonus').value;
 
-        if (winRateVal === '' || tradesVal === '' || volVal === '' || stakeVal === '') {
+        if (winRateVal === '' || tradesVal === '' || volVal === '' || stakeVal === '' || edgeBonusVal === '') {
             alert('Пожалуйста, заполните все поля настроек');
             return;
         }
@@ -1158,6 +1174,22 @@
             alert('Ставка должна быть неотрицательным числом');
             return;
         }
+        if (isNaN(minPrice) || minPrice < 0 || minPrice > 1) {
+            alert('Min Price должен быть числом от 0 до 1');
+            return;
+        }
+        if (isNaN(maxPrice) || maxPrice < 0 || maxPrice > 1) {
+            alert('Max Price должен быть числом от 0 до 1');
+            return;
+        }
+        if (minPrice >= maxPrice) {
+            alert('Min Price должен быть меньше Max Price');
+            return;
+        }
+        if (isNaN(edgeBonus) || edgeBonus < 0 || edgeBonus > 0.5) {
+            alert('Edge Bonus должен быть числом от 0 до 0.5');
+            return;
+        }
 
         if (btn) btn.disabled = true;
         const prevText = btn ? btn.textContent : '';
@@ -1168,7 +1200,10 @@
                 min_whale_win_rate: winRate,
                 min_whale_trades: trades,
                 min_market_volume: vol,
-                virtual_stake: stake
+                virtual_stake: stake,
+                min_market_price: minPrice,
+                max_market_price: maxPrice,
+                whale_edge_bonus: edgeBonus
             };
             const res = await fetch('/api/whale-settings', {
                 method: 'POST',
