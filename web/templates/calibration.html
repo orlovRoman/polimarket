@@ -725,7 +725,8 @@
     }
 
     function escapeHTML(str) {
-        if (!str) return '';
+        if (str === null || str === undefined) return '';
+        str = String(str);
         return str.replace(/[&<>'"]/g, 
             tag => ({
                 '&': '&amp;',
