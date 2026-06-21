@@ -1544,7 +1544,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         system_alerts = []
         try:
             alerts_rows = conn.execute("""
-                SELECT market_id, created_at, metadata
+                SELECT market_id, created_at, summary, details
                 FROM signals
                 WHERE strategy_type = 'whale'
                 ORDER BY created_at DESC
@@ -1554,14 +1554,14 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 import json
                 meta = {}
                 try:
-                    if r['metadata']:
-                        meta = json.loads(r['metadata'])
+                    if r['details']:
+                        meta = json.loads(r['details'])
                 except Exception:
                     pass
                 system_alerts.append({
                     'market_id': r['market_id'],
                     'analyzed_at': r['created_at'],
-                    'title': meta.get('summary') or f"Whale transaction on {r['market_id']}"
+                    'title': r['summary'] or meta.get('summary') or f"Whale transaction on {r['market_id']}"
                 })
         except Exception as e:
             logger.warning(f"[DataProvider] signals whale alerts недоступны: {e}")
