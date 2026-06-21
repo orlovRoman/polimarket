@@ -784,8 +784,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             LIMIT ? OFFSET ?
         """, (losses_limit, losses_offset)).fetchall()
 
-        resolved_wins = [_process_resolved_row(r) for r in wins_rows]
-        resolved_losses = [_process_resolved_row(r) for r in losses_rows]
+        resolved_wins = [_process_penny_resolved_row(r, virtual_stake) for r in wins_rows]
+        resolved_losses = [_process_penny_resolved_row(r, virtual_stake) for r in losses_rows]
 
         # Виртуальный портфель
         portfolio_rows = conn.execute("""
@@ -1338,7 +1338,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             portfolio.append(row_dict)
 
         total_active = active_total
-        total_resolved = resolved_total
+        total_resolved = wins_total + losses_total
 
         # Статистика по истории виртуальных сделок
         stats_row = conn.execute("""
@@ -1501,81 +1501,6 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             else:
                 bins['80+¢'] += 1
 
-        history_total = conn.execute("SELECT COUNT(*) as cnt FROM whale_virtual_trades_history").fetchone()['cnt']
-        history_offset = (history_page - 1) * history_limit
-
-        history_rows = conn.execute("""
-            SELECT 
-                h.id, 
-                h.market_id, 
-                h.title, 
-                h.url, 
-                h.outcome, 
-                h.bought_price, 
-                h.bought_outcome_price, 
-                h.sold_price, 
-                h.sold_outcome_price, 
-                h.pnl_cents, 
-                h.pnl_percent, 
-                h.bought_at, 
-                h.sold_at, 
-                h.max_price_seen, 
-                h.min_price_seen,
-                m.current_price,
-                m.status as market_status,
-                m.actual_outcome
-            FROM whale_virtual_trades_history h
-            LEFT JOIN (
-                SELECT market_id, current_price, status, actual_outcome
-                FROM whale_stocks_monitoring
-                GROUP BY market_id
-            ) m ON h.market_id = m.market_id
-            ORDER BY h.sold_at DESC
-            LIMIT ? OFFSET ?
-        """, (history_limit, history_offset)).fetchall()
-        
-        virtual_history = []
-        for r in history_rows:
-            row_dict = dict(r)
-            if 'url' in row_dict:
-                row_dict['url'] = clean_db_url(row_dict['url'])
-            outcome = row_dict['outcome']
-            mx = row_dict['max_price_seen']
-            mn = row_dict['min_price_seen']
-            if mx is not None and mn is not None:
-                if outcome == 'NO':
-                    row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4)
-                    row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4)
-                else:
-                    row_dict['max_price_seen_outcome'] = mx
-                    row_dict['min_price_seen_outcome'] = mn
-            else:
-                row_dict['max_price_seen_outcome'] = None
-                row_dict['min_price_seen_outcome'] = None
-
-            curr = row_dict['current_price']
-            status = row_dict['market_status']
-            actual_outcome = row_dict['actual_outcome']
-            current_outcome_price = None
-
-            if status == 'ACTIVE' and curr is not None:
-                if outcome == 'NO':
-                    current_outcome_price = round(1.0 - curr, 4)
-                else:
-                    current_outcome_price = curr
-            elif status == 'RESOLVED' and actual_outcome is not None:
-                current_outcome_price = 1.0 if actual_outcome == outcome else 0.0
-
-            row_dict['current_outcome_price'] = current_outcome_price
-            bought_outcome_price = row_dict.get('bought_outcome_price')
-            raw_pnl = row_dict['pnl_cents'] or 0.0
-            if bought_outcome_price and 0.0 < bought_outcome_price < 1.0:
-                shares = virtual_stake / bought_outcome_price
-                row_dict['pnl_cents'] = round(raw_pnl * shares, 2)
-            else:
-                row_dict['pnl_cents'] = round(raw_pnl * virtual_stake, 2)
-            virtual_history.append(row_dict)
-
         # Последние алерты по транзакциям китов для оповещений
         system_alerts = []
         try:
@@ -1636,14 +1561,14 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
 
     return {
         'active': active,
-        'resolved': resolved,
+        'resolved_wins': resolved_wins,
+        'resolved_losses': resolved_losses,
         'portfolio': portfolio,
-        'virtual_history': virtual_history,
         'stats': stats,
         'price_distribution': bins,
         'active_total': active_total,
-        'resolved_total': resolved_total,
-        'history_total': history_total,
+        'wins_total': wins_total,
+        'losses_total': losses_total,
         'system_alerts': system_alerts,
         'whales': whales,
         'whales_total': whales_total
