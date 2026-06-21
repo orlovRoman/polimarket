@@ -5,13 +5,7 @@ from agents.shared.python.db import get_connection, is_alert_already_sent, mark_
 
 logger = logging.getLogger("NexusPolyBot.OnchainTrend")
 
-def _get_whale_edge_bonus() -> float:
-    try:
-        from agents.shared.python.db import get_whale_settings
-        settings = get_whale_settings()
-        return float(settings.get("whale_edge_bonus", 0.0))
-    except Exception:
-        return 0.0
+
 
 def _normalize_close_time(raw_close) -> Optional[str]:
     if not raw_close:
@@ -114,8 +108,14 @@ def _log_whale_signal_to_eval(
         logger.error(f"[OnchainTrend] Ошибка логирования Whale-сигнала в Evaluation Engine: {e}", exc_info=True)
 
 
-def _process_spike_row(row: dict) -> Optional[dict]:
+def _process_spike_row(row: dict, min_market_price: float, max_market_price: float, base_bonus: float) -> Optional[dict]:
     row = dict(row)
+    m_price = row["price"] if row["price"] is not None else 0.5
+    
+    if m_price <= min_market_price or m_price >= max_market_price:
+        logger.info(f"Skipped whale spike (market filter): market_id={row['market_id']}, price={m_price}, reason=EXTREME_PRICE")
+        return None
+
     if not row.get("top_wallet"):
         logger.info(f"Skipped whale spike (no qualified wallet): market_id={row['market_id']}")
         return None
@@ -130,7 +130,6 @@ def _process_spike_row(row: dict) -> Optional[dict]:
         side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
         prob = ratio_yes if side == "YES" else (1.0 - ratio_yes)
         
-        base_bonus = _get_whale_edge_bonus()
         prob = min(1.0, prob + base_bonus)
         
         prob = max(0.0, min(1.0, prob))
@@ -174,6 +173,9 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
         settings = get_whale_settings()
         min_whale_win_rate = float(settings.get('min_whale_win_rate', 0.50))
         min_whale_trades = int(settings.get('min_whale_trades', 3))
+        min_market_price = float(settings.get('min_market_price', 0.05))
+        max_market_price = float(settings.get('max_market_price', 0.95))
+        base_bonus = float(settings.get('whale_edge_bonus', 0.0))
         
         with get_connection() as conn:
             rows = conn.execute("""
@@ -213,7 +215,7 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
 
     spikes = []
     for row in rows:
-        processed = _process_spike_row(row)
+        processed = _process_spike_row(row, min_market_price, max_market_price, base_bonus)
         if processed:
             spikes.append(processed)
     return spikes
@@ -225,18 +227,13 @@ def _evaluate_wallet_confidence(win_rate: float, n_trades: int, is_insider: bool
         return 0.6, 1.0
     return 0.3, 0.5
 
-def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_trades: int) -> Optional[dict]:
+def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_trades: int, min_market_price: float, max_market_price: float, base_bonus: float) -> Optional[dict]:
     row = dict(row)
     alert_key = f"whale_single_bet_{row['market_id']}_{row['wallet_address']}_{row['amount_usd']:.0f}"
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
 
     # Phase 3.2: Market liquidity & extreme price filter
-    from agents.shared.python.db import get_whale_settings
-    settings = get_whale_settings()
-    min_market_price = float(settings.get('min_market_price', 0.05))
-    max_market_price = float(settings.get('max_market_price', 0.95))
-    
     m_price = row["market_price"] if row["market_price"] is not None else 0.5
     vol = row.get("market_volume") or 0.0
     if vol < min_vol or m_price <= min_market_price or m_price >= max_market_price:
@@ -264,7 +261,6 @@ def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_
             price_yes = m_price
             entry_price = price_yes if side == "YES" else (1.0 - price_yes)
             
-        base_bonus = _get_whale_edge_bonus()
         bonus = base_bonus * bonus_mult
         prob = min(0.97, price_yes + bonus) if side == "YES" else max(0.03, (1.0 - price_yes) + bonus)
         
@@ -337,26 +333,24 @@ def scan_large_single_bets() -> list[dict]:
     min_vol = float(settings.get('min_market_volume', 5000.0))
     min_win_rate = float(settings.get('min_whale_win_rate', 0.60))
     min_trades = int(settings.get('min_whale_trades', 20))
+    min_market_price = float(settings.get('min_market_price', 0.05))
+    max_market_price = float(settings.get('max_market_price', 0.95))
+    base_bonus = float(settings.get('whale_edge_bonus', 0.0))
 
     signals = []
     for row in rows:
-        processed = _process_single_bet_row(row, min_vol, min_win_rate, min_trades)
+        processed = _process_single_bet_row(row, min_vol, min_win_rate, min_trades, min_market_price, max_market_price, base_bonus)
         if processed:
             signals.append(processed)
     return signals
 
-def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, min_trades: int) -> Optional[dict]:
+def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, min_trades: int, min_market_price: float, max_market_price: float, base_bonus: float) -> Optional[dict]:
     row = dict(row)
     alert_key = f"whale_series_{row['market_id']}_{row['wallet_address']}"
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
 
     # Phase 3.2: Market liquidity & extreme price filter
-    from agents.shared.python.db import get_whale_settings
-    settings = get_whale_settings()
-    min_market_price = float(settings.get('min_market_price', 0.05))
-    max_market_price = float(settings.get('max_market_price', 0.95))
-    
     m_price = row["market_price"] if row["market_price"] is not None else 0.5
     vol = row.get("market_volume") or 0.0
     if vol < min_vol or m_price <= min_market_price or m_price >= max_market_price:
@@ -382,11 +376,10 @@ def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, m
             price_yes = m_price
             entry_price = price_yes if side == "YES" else (1.0 - price_yes)
             
-        base_bonus = _get_whale_edge_bonus()
         bonus = base_bonus * bonus_mult
         prob = min(0.97, price_yes + bonus) if side == "YES" else max(0.03, (1.0 - price_yes) + bonus)
         
-        summary_msg = f"Whale wallet series: {row['tx_count']} trades, total ${row['total_amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
+        summary_msg = f"Whale series: ${row['total_amount_usd']:,.0f} ({row['tx_count']} txs) on {side} by {row['wallet_address'][:8]}... on {row['title']}"
         logger.info(f"[OnchainTrend] {summary_msg} (conf={confidence})")
         
         _log_whale_signal_to_eval(
@@ -460,10 +453,13 @@ def scan_wallet_series() -> list[dict]:
     min_vol = float(settings.get('min_market_volume', 5000.0))
     min_win_rate = float(settings.get('min_whale_win_rate', 0.60))
     min_trades = int(settings.get('min_whale_trades', 20))
+    min_market_price = float(settings.get('min_market_price', 0.05))
+    max_market_price = float(settings.get('max_market_price', 0.95))
+    base_bonus = float(settings.get('whale_edge_bonus', 0.0))
 
     signals = []
     for row in rows:
-        processed = _process_wallet_series_row(row, min_vol, min_win_rate, min_trades)
+        processed = _process_wallet_series_row(row, min_vol, min_win_rate, min_trades, min_market_price, max_market_price, base_bonus)
         if processed:
             signals.append(processed)
     return signals

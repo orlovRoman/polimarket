@@ -1146,9 +1146,11 @@
         const tradesVal = document.getElementById('setting-min-trades').value;
         const volVal = document.getElementById('setting-min-vol').value;
         const stakeVal = document.getElementById('setting-virtual-stake').value;
+        const minPriceVal = document.getElementById('setting-min-market-price').value;
+        const maxPriceVal = document.getElementById('setting-max-market-price').value;
         const edgeBonusVal = document.getElementById('setting-whale-edge-bonus').value;
 
-        if (winRateVal === '' || tradesVal === '' || volVal === '' || stakeVal === '' || edgeBonusVal === '') {
+        if (winRateVal === '' || tradesVal === '' || volVal === '' || stakeVal === '' || minPriceVal === '' || maxPriceVal === '' || edgeBonusVal === '') {
             alert('Пожалуйста, заполните все поля настроек');
             return;
         }
@@ -1157,6 +1159,9 @@
         const trades = parseInt(tradesVal, 10);
         const vol = parseFloat(volVal);
         const stake = parseFloat(stakeVal);
+        const minPrice = parseFloat(minPriceVal);
+        const maxPrice = parseFloat(maxPriceVal);
+        const edgeBonus = parseFloat(edgeBonusVal);
 
         if (isNaN(winRate) || winRate < 0 || winRate > 1) {
             alert('Min Win Rate должен быть числом от 0 до 1');
