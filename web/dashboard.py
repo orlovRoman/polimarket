@@ -612,7 +612,9 @@ async def api_edit_whale_stake(request):
             return web.json_response({"error": "Missing required fields"}, status=400)
             
         from agents.shared.python.db import update_whale_stake
-        await asyncio.to_thread(update_whale_stake, market_id, virtual_bought_price, bet_size_usdc)
+        rows_updated = await asyncio.to_thread(update_whale_stake, market_id, virtual_bought_price, bet_size_usdc)
+        if rows_updated == 0:
+            return web.json_response({"error": "Market not found or already closed"}, status=404)
         return web.json_response({"status": "ok"})
     except Exception as e:
         logger.exception("Error in api_edit_whale_stake")

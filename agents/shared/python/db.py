@@ -2,6 +2,8 @@
 import sqlite3
 import json
 import re
+import math
+import uuid
 
 import threading
 from contextlib import contextmanager
@@ -2963,16 +2965,14 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
             datetime.now(timezone.utc) + timedelta(days=30)
         ).strftime("%Y-%m-%d %H:%M:%S+00:00")
 
+    settings = get_whale_settings()
+    virtual_stake = float(settings.get('virtual_stake', 100.0))
+
     with get_connection() as conn:
-        settings = get_whale_settings()
-        virtual_stake = float(settings.get('virtual_stake', 100.0))
-        
         conn.execute("""
             INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time)
             VALUES (?, 'Polymarket', ?, ?, 'YES', ?, ?)
         """, (market_id, title, url, initial_price, close_time))
-        
-        import json
         
         row = conn.execute("SELECT whale_count, whale_directions, confidence, virtual_bought_price FROM whale_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
         
@@ -3072,14 +3072,15 @@ def buy_virtual_whale_stock(market_id: str, price: float) -> None:
             WHERE market_id = ?
         """, (_round_price(price), virtual_stake, market_id))
 
-def update_whale_stake(market_id: str, virtual_bought_price: float, bet_size_usdc: float) -> None:
+def update_whale_stake(market_id: str, virtual_bought_price: float, bet_size_usdc: float) -> int:
     with get_connection() as conn:
-        conn.execute("""
+        cur = conn.execute("""
             UPDATE whale_stocks_monitoring
             SET virtual_bought_price = ?,
                 bet_size_usdc = ?
             WHERE market_id = ? AND status = 'ACTIVE'
         """, (_round_price(virtual_bought_price), bet_size_usdc, market_id))
+        return cur.rowcount
 
 def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) -> None:
     with get_connection() as conn:

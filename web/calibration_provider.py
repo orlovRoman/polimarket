@@ -34,23 +34,27 @@ class CalibrationProvider:
     @staticmethod
     def approve_calibration_param(param_id: int, approved_by: str = "dashboard") -> bool:
         param = None
-        with get_connection() as conn:
-            conn.row_factory = dict_factory
-            cursor = conn.cursor()
-            
-            # Получаем сам параметр
-            cursor.execute("SELECT strategy_type, param_name, param_value FROM calibration_params WHERE id = ? AND status = 'pending'", (param_id,))
-            param = cursor.fetchone()
-            
-            if not param:
-                return False
+        try:
+            with get_connection() as conn:
+                conn.row_factory = dict_factory
+                cursor = conn.cursor()
                 
-            # Обновляем статус в БД
-            cursor.execute("""
-                UPDATE calibration_params 
-                SET status = 'approved', approved_at = CURRENT_TIMESTAMP, approved_by = ? 
-                WHERE id = ?
-            """, (approved_by, param_id))
+                # Получаем сам параметр
+                cursor.execute("SELECT strategy_type, param_name, param_value FROM calibration_params WHERE id = ? AND status = 'pending'", (param_id,))
+                param = cursor.fetchone()
+                
+                if not param:
+                    return False
+                    
+                # Обновляем статус в БД
+                cursor.execute("""
+                    UPDATE calibration_params 
+                    SET status = 'approved', approved_at = CURRENT_TIMESTAMP, approved_by = ? 
+                    WHERE id = ?
+                """, (approved_by, param_id))
+        except Exception as e:
+            logger.error(f"Error approving calibration param {param_id}: {e}")
+            return False
             
         # Теперь когда первая транзакция закрыта, сохраняем в память
         if param:
@@ -65,7 +69,7 @@ class CalibrationProvider:
                 except Exception as e:
                     logger.error(f"Error saving parameter to memory: {e}")
                     
-        return True
+        return param is not None
 
     @staticmethod
     def reject_calibration_param(param_id: int, rejected_by: str = "dashboard") -> bool:

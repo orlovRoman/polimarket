@@ -9,9 +9,9 @@ def _get_whale_edge_bonus() -> float:
     try:
         from agents.shared.python.db import get_whale_settings
         settings = get_whale_settings()
-        return float(settings.get("whale_edge_bonus", 0.12))
+        return float(settings.get("whale_edge_bonus", 0.0))
     except Exception:
-        return 0.12
+        return 0.0
 
 def _normalize_close_time(raw_close) -> Optional[str]:
     if not raw_close:

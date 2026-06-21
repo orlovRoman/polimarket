@@ -1145,9 +1145,10 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
     """
     Собирает данные для дашборда Whale Following (активные, завершенные позиции, статистика, распределение).
     """
-    from agents.shared.python.db import get_connection
+    from agents.shared.python.db import get_connection, get_whale_settings
     with get_connection() as conn:
-        virtual_stake = get_global_virtual_stake(conn)
+        whale_settings = get_whale_settings()
+        virtual_stake = float(whale_settings.get('virtual_stake', 100.0))
         # Подсчет общего количества активных
         active_total = conn.execute("""
             SELECT COUNT(*) as cnt
