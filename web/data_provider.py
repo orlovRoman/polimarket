@@ -481,10 +481,10 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
                                WHEN UPPER(predicted_outcome) = 'NO' THEN 
                                    (CASE WHEN UPPER(actual_outcome) = 'NO' THEN 1.0 ELSE 0.0 END) - (1.0 - initial_price)
                                ELSE 0.0
-                           END) * (? / NULLIF(CASE 
+                           END) / NULLIF(CASE 
                                WHEN UPPER(predicted_outcome) = 'NO' THEN 1.0 - initial_price 
                                ELSE initial_price 
-                           END, 0)) as pnl
+                           END, 0) * ? as pnl
                     FROM whale_stocks_monitoring
                     WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL AND resolved_at >= ?
                       AND (CASE WHEN UPPER(predicted_outcome) = 'NO' THEN 1.0 - initial_price ELSE initial_price END) > 0

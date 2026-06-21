@@ -89,7 +89,7 @@
             <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Min Vol ($)</label>
             <input type="number" id="setting-min-vol" class="filter-input" style="width: 100px;">
         </div>
-        <button onclick="saveWhaleSettings()" class="badge badge-green" style="border: none; cursor: pointer; font-weight: 600; padding: 10px 16px; font-size: 0.9rem; border-radius: 6px; align-self: flex-end; margin-bottom: 1px;">Сохранить</button>
+        <button id="btn-save-whale-settings" onclick="saveWhaleSettings()" class="badge badge-green" style="border: none; cursor: pointer; font-weight: 600; padding: 10px 16px; font-size: 0.9rem; border-radius: 6px; align-self: flex-end; margin-bottom: 1px;">Сохранить</button>
     </div>
 </div>
 
@@ -1102,34 +1102,60 @@
     async function loadWhaleSettings() {
         try {
             const res = await fetch('/api/whale-settings');
-            if (res.ok) {
-                const settings = await res.json();
-                if (settings.min_whale_win_rate) {
-                    document.getElementById('setting-min-win-rate').value = parseFloat(settings.min_whale_win_rate);
+            if (!res.ok) return;
+            const settings = await res.json();
+            
+            const set = (id, val, parser) => {
+                if (val !== undefined && val !== null && val !== "") {
+                    document.getElementById(id).value = parser(val);
                 }
-                if (settings.min_whale_trades) {
-                    document.getElementById('setting-min-trades').value = parseInt(settings.min_whale_trades, 10);
-                }
-                if (settings.min_market_volume) {
-                    document.getElementById('setting-min-vol').value = parseFloat(settings.min_market_volume);
-                }
-            }
+            };
+            set('setting-min-win-rate', settings.min_whale_win_rate, parseFloat);
+            set('setting-min-trades',   settings.min_whale_trades,   v => parseInt(v, 10));
+            set('setting-min-vol',      settings.min_market_volume,  parseFloat);
         } catch (e) {
             console.error("Failed to load whale settings", e);
         }
     }
 
     async function saveWhaleSettings() {
-        const btn = document.querySelector('button[onclick="saveWhaleSettings()"]');
+        const btn = document.getElementById('btn-save-whale-settings');
+        
+        const winRateVal = document.getElementById('setting-min-win-rate').value;
+        const tradesVal = document.getElementById('setting-min-trades').value;
+        const volVal = document.getElementById('setting-min-vol').value;
+
+        if (winRateVal === '' || tradesVal === '' || volVal === '') {
+            alert('Пожалуйста, заполните все поля настроек');
+            return;
+        }
+
+        const winRate = parseFloat(winRateVal);
+        const trades = parseInt(tradesVal, 10);
+        const vol = parseFloat(volVal);
+
+        if (isNaN(winRate) || winRate < 0 || winRate > 1) {
+            alert('Min Win Rate должен быть числом от 0 до 1');
+            return;
+        }
+        if (isNaN(trades) || trades < 0) {
+            alert('Min Trades должен быть неотрицательным целым числом');
+            return;
+        }
+        if (isNaN(vol) || vol < 0) {
+            alert('Min Volume должен быть неотрицательным числом');
+            return;
+        }
+
         if (btn) btn.disabled = true;
         const prevText = btn ? btn.textContent : '';
         if (btn) btn.textContent = 'Сохранение...';
         
         try {
             const payload = {
-                min_whale_win_rate: document.getElementById('setting-min-win-rate').value,
-                min_whale_trades: document.getElementById('setting-min-trades').value,
-                min_market_volume: document.getElementById('setting-min-vol').value
+                min_whale_win_rate: winRate,
+                min_whale_trades: trades,
+                min_market_volume: vol
             };
             const res = await fetch('/api/whale-settings', {
                 method: 'POST',
