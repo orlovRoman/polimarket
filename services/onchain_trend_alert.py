@@ -5,8 +5,6 @@ from agents.shared.python.db import get_connection, is_alert_already_sent, mark_
 
 logger = logging.getLogger("NexusPolyBot.OnchainTrend")
 
-
-
 def _normalize_close_time(raw_close) -> Optional[str]:
     if not raw_close:
         return None
@@ -108,12 +106,13 @@ def _log_whale_signal_to_eval(
         logger.error(f"[OnchainTrend] Ошибка логирования Whale-сигнала в Evaluation Engine: {e}", exc_info=True)
 
 
-def _process_spike_row(row: dict, min_market_price: float, max_market_price: float, base_bonus: float) -> Optional[dict]:
+def _process_spike_row(row: dict, min_market_price: float, max_market_price: float, base_bonus: float, min_vol: float) -> Optional[dict]:
     row = dict(row)
-    m_price = row["price"] if row["price"] is not None else 0.5
+    m_price = row["market_price"] if row["market_price"] is not None else 0.5
+    vol = row.get("market_volume") or 0.0
     
-    if m_price <= min_market_price or m_price >= max_market_price:
-        logger.info(f"Skipped whale spike (market filter): market_id={row['market_id']}, price={m_price}, reason=EXTREME_PRICE")
+    if vol < min_vol or m_price <= min_market_price or m_price >= max_market_price:
+        logger.info(f"Skipped whale spike (market filter): market_id={row['market_id']}, vol={vol}, price={m_price}, reason=EXTREME_PRICE_OR_VOL")
         return None
 
     if not row.get("top_wallet"):
@@ -134,7 +133,7 @@ def _process_spike_row(row: dict, min_market_price: float, max_market_price: flo
         
         prob = max(0.0, min(1.0, prob))
 
-        m_price = row["price"] if row["price"] is not None else 0.5
+        m_price = row["market_price"] if row["market_price"] is not None else 0.5
         entry_price = m_price if side == "YES" else (1.0 - m_price)
 
         _log_whale_signal_to_eval(
@@ -176,6 +175,7 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
         min_market_price = float(settings.get('min_market_price', 0.05))
         max_market_price = float(settings.get('max_market_price', 0.95))
         base_bonus = float(settings.get('whale_edge_bonus', 0.0))
+        min_vol = float(settings.get('min_market_volume', 5000.0))
         
         with get_connection() as conn:
             rows = conn.execute("""
@@ -183,7 +183,8 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
                     t.market_id,
                     m.title,
                     m.url,
-                    m.price,
+                    m.price as market_price,
+                    m.volume as market_volume,
                     m.close_time,
                     SUM(CASE WHEN t.timestamp > datetime('now', '-2 hours')
                              THEN t.amount_usd ELSE 0.0 END) AS vol_recent,
@@ -215,7 +216,7 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
 
     spikes = []
     for row in rows:
-        processed = _process_spike_row(row, min_market_price, max_market_price, base_bonus)
+        processed = _process_spike_row(row, min_market_price, max_market_price, base_bonus, min_vol)
         if processed:
             spikes.append(processed)
     return spikes
