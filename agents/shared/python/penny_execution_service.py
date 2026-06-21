@@ -179,6 +179,7 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig, pr
     """
     # Guard: проверяем наличие цены в сигнале
     price = signal.get("price")
+    yes_price = signal.get("probability", price) # fallback to price if probability is not set
     if price is None:
         logger.warning(f"Нет поля price в сигнале для {market_id}, пропускаем сделку.")
         return False
@@ -193,9 +194,9 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig, pr
         return False
     
     try:
-        # Совершаем виртуальную покупку
-        buy_virtual_penny_stock(market_id, price, bet_size)
-        logger.info(f"Успешно открыта виртуальная позиция для рынка {market_id} по цене {price} со ставкой {bet_size} USDC")
+        # Совершаем виртуальную покупку (база данных ожидает YES-цену)
+        buy_virtual_penny_stock(market_id, yes_price, bet_size)
+        logger.info(f"Успешно открыта виртуальная позиция для рынка {market_id} по цене {price} (YES цена: {yes_price}) со ставкой {bet_size} USDC")
         return True
     except Exception as e:
         logger.error(f"Ошибка при исполнении сделки для рынка {market_id}: {e}")

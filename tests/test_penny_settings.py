@@ -337,13 +337,13 @@ def test_execute_penny_trade_no_outcome_price(isolated_db):
     result = execute_penny_trade("test-market-no", sig_no, cfg_active)
     assert result is True
     
-    # Проверяем, что в БД цена покупки 0.05
+    # Проверяем, что в БД цена покупки 0.95 (YES-цена)
     with db_module.get_connection() as conn:
         row = conn.execute(
             "SELECT virtual_bought_price FROM penny_stocks_monitoring WHERE market_id = 'test-market-no'"
         ).fetchone()
         assert row is not None
-        assert row["virtual_bought_price"] == pytest.approx(0.05)
+        assert row["virtual_bought_price"] == pytest.approx(0.95)
 
 def test_no_double_count_on_sell(isolated_db):
     """При продаже позиции бюджет не должен считаться дважды."""
