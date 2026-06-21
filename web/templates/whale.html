@@ -1099,5 +1099,60 @@
         }
     }
 
+    async function loadWhaleSettings() {
+        try {
+            const res = await fetch('/api/whale-settings');
+            if (res.ok) {
+                const settings = await res.json();
+                if (settings.min_whale_win_rate) {
+                    document.getElementById('setting-min-win-rate').value = parseFloat(settings.min_whale_win_rate);
+                }
+                if (settings.min_whale_trades) {
+                    document.getElementById('setting-min-trades').value = parseInt(settings.min_whale_trades, 10);
+                }
+                if (settings.min_market_volume) {
+                    document.getElementById('setting-min-vol').value = parseFloat(settings.min_market_volume);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load whale settings", e);
+        }
+    }
+
+    async function saveWhaleSettings() {
+        const btn = document.querySelector('button[onclick="saveWhaleSettings()"]');
+        if (btn) btn.disabled = true;
+        const prevText = btn ? btn.textContent : '';
+        if (btn) btn.textContent = 'Сохранение...';
+        
+        try {
+            const payload = {
+                min_whale_win_rate: document.getElementById('setting-min-win-rate').value,
+                min_whale_trades: document.getElementById('setting-min-trades').value,
+                min_market_volume: document.getElementById('setting-min-vol').value
+            };
+            const res = await fetch('/api/whale-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                showToast('Настройки успешно сохранены!');
+            } else {
+                const err = await res.json();
+                alert('Ошибка при сохранении настроек: ' + (err.error || 'Unknown error'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Сетевая ошибка при сохранении');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = prevText;
+            }
+        }
+    }
+
+    loadWhaleSettings();
     registerRefresh(loadWhaleStocksData);
 </script>
