@@ -1183,9 +1183,8 @@ def _process_whale_resolved_row(r, virtual_stake: float) -> dict:
 
     # Для китов берем их прогноз, который всегда должен быть (отфильтровано в SQL)
     if pred is None:
-        raise ValueError(
-            f"_process_whale_resolved_row: predicted_outcome is None for market_id={row_dict.get('market_id')}"
-        )
+        logger.error(f"_process_whale_resolved_row: predicted_outcome is None for market_id={row_dict.get('market_id')}")
+        return None
     outcome_to_track = pred
     row_dict['cheap_outcome'] = outcome_to_track
 
@@ -1310,7 +1309,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             ORDER BY p.resolved_at DESC
             LIMIT ? OFFSET ?
         """, (wins_limit, wins_offset)).fetchall()
-        resolved_wins = [_process_whale_resolved_row(r, virtual_stake) for r in wins_rows]
+        resolved_wins = [w for r in wins_rows if (w := _process_whale_resolved_row(r, virtual_stake)) is not None]
 
         # Проигранные сделки
         losses_offset = (losses_page - 1) * losses_limit
@@ -1329,7 +1328,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             ORDER BY p.resolved_at DESC
             LIMIT ? OFFSET ?
         """, (losses_limit, losses_offset)).fetchall()
-        resolved_losses = [_process_whale_resolved_row(r, virtual_stake) for r in losses_rows]
+        resolved_losses = [w for r in losses_rows if (w := _process_whale_resolved_row(r, virtual_stake)) is not None]
 
         # Виртуальный портфель
         portfolio_rows = conn.execute("""

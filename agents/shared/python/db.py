@@ -2980,7 +2980,7 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
             VALUES (?, 'Polymarket', ?, ?, 'YES', ?, ?)
         """, (market_id, title, url, initial_price, close_time))
         
-        row = conn.execute("SELECT whale_count, whale_directions, confidence, virtual_bought_price FROM whale_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
+        row = conn.execute("SELECT whale_count, whale_directions, confidence, virtual_bought_price, current_price FROM whale_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
         
         if row:
             # Обновляем существующую запись
@@ -3016,7 +3016,8 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
             params_virtual = []
             if v_bought is None:
                 set_virtual = ", virtual_bought_price = ?, virtual_bought_at = CURRENT_TIMESTAMP, bet_size_usdc = ?"
-                params_virtual = [init_p, virtual_stake]
+                curr_p = row['current_price'] if row['current_price'] is not None else init_p
+                params_virtual = [curr_p, virtual_stake]
                     
             conn.execute(f"""
                 UPDATE whale_stocks_monitoring

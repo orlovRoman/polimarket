@@ -164,12 +164,17 @@ def _process_spike_row(row: dict, min_market_price: float, max_market_price: flo
             close_time=_normalize_close_time(row.get('close_time'))
         )
         
+        row['side'] = side
+        row['prob'] = prob
+        row['entry_price'] = entry_price
+        row['confidence'] = prob  # Add confidence since it's asked for context
+
         mark_alert_sent(alert_key, "onchain_spike")
 
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка обработки строки spike: {e}", exc_info=True)
         return None
-    return dict(row)
+    return row
 
 def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
     """

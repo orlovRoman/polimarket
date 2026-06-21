@@ -44,7 +44,7 @@ class CalibrationProvider:
                 param = cursor.fetchone()
                 
                 if not param:
-                    return False
+                    pass # Handled below
                     
                 # Обновляем статус в БД
                 cursor.execute("""
@@ -56,20 +56,22 @@ class CalibrationProvider:
             logger.error(f"Error approving calibration param {param_id}: {e}")
             return False
             
+        if not param:
+            return False
+            
         # Теперь когда первая транзакция закрыта, сохраняем в память
-        if param:
-            strategy = param['strategy_type'].lower()
-            val = param['param_value']
-            from agents.shared.python.db import save_memory
-            if param['param_name'] == 'overlay_prompt':
-                save_memory(f"{strategy}_overlay_prompt", str(val))
-            else:
-                try:
-                    save_memory(f"{strategy}_{param['param_name']}", str(val))
-                except Exception as e:
-                    logger.error(f"Error saving parameter to memory: {e}")
-                    
-        return param is not None
+        strategy = param['strategy_type'].lower()
+        val = param['param_value']
+        from agents.shared.python.db import save_memory
+        if param['param_name'] == 'overlay_prompt':
+            save_memory(f"{strategy}_overlay_prompt", str(val))
+        else:
+            try:
+                save_memory(f"{strategy}_{param['param_name']}", str(val))
+            except Exception as e:
+                logger.error(f"Error saving parameter to memory: {e}")
+                
+        return True
 
     @staticmethod
     def reject_calibration_param(param_id: int, rejected_by: str = "dashboard") -> bool:
