@@ -27,10 +27,16 @@ def backup_database():
     return backup_path
 
 def main():
+    dry_run = "--dry-run" in sys.argv or os.environ.get("DRY_RUN") == "1"
+    
+    if dry_run:
+        print("ВНИМАНИЕ: Запуск в режиме DRY-RUN. Данные не будут удалены или изменены.")
+        
     print("Запуск сборки мусора и архивации памяти (Memory GC)...")
     
     # Бэкап БД перед GC
-    try:
+    if not dry_run:
+        try:
         bp = backup_database()
         print(f"Бэкап БД: {bp}")
     except Exception as e:
@@ -59,7 +65,8 @@ def main():
             """, (now,))
             if cursor.rowcount > 0:
                 print(f"Помечено как EXECUTED из-за истечения времени: {cursor.rowcount} сигналов.")
-            conn.commit()
+            if not dry_run:
+                conn.commit()
     except Exception as e:
         print(f"Ошибка при обновлении статуса просроченных сигналов: {e}")
 
@@ -95,8 +102,15 @@ def main():
                 discussions = [dict(row) for row in cursor.fetchall()]
                 
                 # Fetch ground truth evaluations
-                cursor.execute("SELECT summary FROM agent_episodes WHERE market_id = ? AND event_type = 'signal_evaluated'", (market_id,))
-                evaluations = [row[0] for row in cursor.fetchall()]
+                cursor.execute("SELECT summary, agent_name, outcome FROM agent_episodes WHERE market_id = ? AND event_type = 'signal_evaluated'", (market_id,))
+                episodes = cursor.fetchall()
+                evaluations = [row['summary'] for row in episodes]
+                
+                agent_outcomes = []
+                for row in episodes:
+                    if row['agent_name'] and row['outcome']:
+                        agent_outcomes.append(f"{row['agent_name']}: {row['outcome']}")
+                        
         except Exception as e:
             print(f"Ошибка при получении данных для {market_id}: {e}")
             continue
@@ -126,17 +140,29 @@ def main():
         
         try:
             print(f"Отправка запроса агенту для маркета {market_id}...")
-            response = agent.process_prompt(prompt)
-            print(f"Ответ агента: {response}")
-            
-            # После успешного анализа удаляем сырые данные из базы
-            with db_manager._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM agent_opinions WHERE market_id = ?", (market_id,))
-                # Меняем статус сигнала на ARCHIVED, чтобы не обрабатывать повторно
-                cursor.execute("UPDATE signals SET status = 'ARCHIVED' WHERE id = ?", (signal_id,))
-                conn.commit()
-            print(f"Очистка завершена: сырые обсуждения по маркету {market_id} удалены, сигнал архивирован.")
+            if not dry_run:
+                response = agent.process_prompt(prompt)
+                print(f"Ответ агента: {response}")
+                # Пытаемся найти путь файла в ответе агента
+                import re
+                path_match = re.search(r'vault/memory/.*\w+\.md', response)
+                if path_match:
+                    print(f"Post-mortem сохранен по пути: {path_match.group(0)}")
+                
+                if agent_outcomes:
+                    print(f"Исходы работы агентов по рынку {market_id}: {', '.join(agent_outcomes)}")
+                
+                # После успешного анализа удаляем сырые данные из базы
+                with db_manager._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM agent_opinions WHERE market_id = ?", (market_id,))
+                    # Меняем статус сигнала на ARCHIVED, чтобы не обрабатывать повторно
+                    cursor.execute("UPDATE signals SET status = 'ARCHIVED' WHERE id = ?", (signal_id,))
+                    conn.commit()
+                print(f"Очистка завершена: сырые обсуждения по маркету {market_id} удалены, сигнал архивирован.")
+            else:
+                print(f"[DRY-RUN] Запрос к LLM пропущен. Исходы агентов: {', '.join(agent_outcomes)}")
+                print(f"[DRY-RUN] Очистка таблиц пропущена.")
             
         except Exception as e:
             print(f"Ошибка при обработке {market_id}: {e}")

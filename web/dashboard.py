@@ -72,6 +72,10 @@ async def handle_calibration(request):
     html = await asyncio.to_thread(render_template, "calibration.html")
     return web.Response(text=html, content_type="text/html")
 
+async def handle_learning(request):
+    html = await asyncio.to_thread(render_template, "learning.html")
+    return web.Response(text=html, content_type="text/html")
+
 # === JSON API хэндлеры ===
 
 async def api_overview(request):
@@ -84,6 +88,14 @@ async def api_memory_stats(request):
 
 async def api_eval_status(request):
     data = await asyncio.to_thread(data_provider.get_eval_status)
+    return web.json_response(data)
+
+async def api_learning_impact(request):
+    data = await asyncio.to_thread(data_provider.get_learning_impact_data)
+    return web.json_response(data)
+
+async def api_agent_performance(request):
+    data = await asyncio.to_thread(data_provider.get_agent_performance_data)
     return web.json_response(data)
 
 def get_int_query(request, name, default):
@@ -1216,11 +1228,14 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/whale", handle_whale)
     app.router.add_get("/corridors", handle_corridors)
     app.router.add_get("/calibration", handle_calibration)
+    app.router.add_get("/learning", handle_learning)
     
     # JSON API маршруты
     app.router.add_get("/api/overview", api_overview)
     app.router.add_get("/api/memory-stats", api_memory_stats)
     app.router.add_get("/api/eval-status", api_eval_status)
+    app.router.add_get("/api/learning-impact", api_learning_impact)
+    app.router.add_get("/api/agent-performance", api_agent_performance)
     app.router.add_get("/api/penny-stocks", api_penny_stocks)
     app.router.add_get("/api/favourite-compounding", api_favourite_compounding)
     app.router.add_get("/api/whale-stocks", api_whale_stocks)

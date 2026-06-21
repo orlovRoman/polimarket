@@ -423,7 +423,34 @@ def get_memory_stats() -> dict:
             stats['vault_files'] = cursor.fetchone()[0]
         except Exception:
             stats['vault_files'] = 0
+            
+        from agents.shared.python.db import get_memory
+        stats['last_cleanup_expired'] = get_memory("last_cleanup_expired") or 0
+        stats['last_cleanup_prices'] = get_memory("last_cleanup_prices") or 0
+        stats['last_cleanup_episodes'] = get_memory("last_cleanup_episodes") or 0
     return stats
+
+def get_learning_impact_data() -> dict:
+    from agents.shared.python.db import get_learning_impact
+    try:
+        return get_learning_impact()
+    except Exception as e:
+        logger.error(f"[DataProvider] Error fetching learning impact: {e}")
+        return {"with_ctx": {}, "without_ctx": {}}
+
+def get_agent_performance_data() -> dict:
+    from agents.shared.python.db import get_agent_accuracy, get_performance_summary
+    try:
+        agents = ["SCOUT", "SWING", "SHADOW"]
+        res = {"agents": {}}
+        for agent in agents:
+            res["agents"][agent] = get_agent_accuracy(agent)
+        
+        res["summary"] = get_performance_summary()
+        return res
+    except Exception as e:
+        logger.error(f"[DataProvider] Error fetching agent performance: {e}")
+        return {"agents": {}, "summary": ""}
 
 def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, list[dict]]:
     """

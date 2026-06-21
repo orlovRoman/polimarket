@@ -43,14 +43,17 @@ async def scheduled_job():
         expired = cleanup_expired_memory()
         if expired > 0:
             logger.info(f"Очищено истёкших записей памяти: {expired}")
+        save_memory("last_cleanup_expired", expired, category="operational")
         
         old_prices = cleanup_old_price_history(days=7)
         if old_prices > 0:
             logger.info(f"Очищено старых записей истории цен: {old_prices}")
+        save_memory("last_cleanup_prices", old_prices, category="operational")
 
         old_episodes = cleanup_old_episodes(days=90)
         if old_episodes > 0:
             logger.info(f"Очищено старых эпизодов агентов: {old_episodes}")
+        save_memory("last_cleanup_episodes", old_episodes, category="operational")
 
         logger.info("<<< Сканирование завершено успешно.")
     except asyncio.CancelledError:

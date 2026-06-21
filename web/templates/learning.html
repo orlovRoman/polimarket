@@ -1,0 +1,100 @@
+<div class="header" style="margin-bottom: 24px;">
+    <h1>Метрики обучения и производительности агентов</h1>
+    <p class="text-muted" style="margin-top: 8px;">Статистика влияния исторического контекста и точность прогнозов SCOUT и других агентов</p>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px;">
+    <!-- Влияние контекста (Learning Impact) -->
+    <div class="table-card" style="padding: 24px; display: flex; flex-direction: column;">
+        <div class="table-title" style="margin-bottom: 16px;">Learning Impact (Влияние контекста)</div>
+        <p class="text-muted" style="margin-bottom: 16px; font-size: 0.9em;">Сравнение точности работы моделей с переданным контекстом исторических результатов и без него.</p>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div class="kpi-card" style="margin: 0;">
+                <div class="kpi-title">С контекстом (Performance Ctx)</div>
+                <div class="kpi-value" id="li-with-acc" style="color: #10b981;">0%</div>
+                <div class="text-muted" style="margin-top: 8px; font-size: 0.8em;" id="li-with-details">0 верных из 0</div>
+            </div>
+            <div class="kpi-card" style="margin: 0;">
+                <div class="kpi-title">Без контекста</div>
+                <div class="kpi-value" id="li-without-acc" style="color: #ef4444;">0%</div>
+                <div class="text-muted" style="margin-top: 8px; font-size: 0.8em;" id="li-without-details">0 верных из 0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Точность агентов -->
+    <div class="table-card" style="padding: 24px; display: flex; flex-direction: column;">
+        <div class="table-title" style="margin-bottom: 16px;">Точность агентов (Agent Performance)</div>
+        <div style="display: flex; flex-direction: column; gap: 12px;" id="agent-performance-container">
+            <div class="text-muted" style="text-align: center; padding: 20px;">Загрузка данных...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Последние прогнозы (Summary) -->
+<div class="table-card" style="padding: 24px;">
+    <div class="table-title" style="margin-bottom: 16px;">Недавние эпизоды (Performance Summary)</div>
+    <div style="background-color: #1f2937; padding: 16px; border-radius: 8px; overflow-x: auto;">
+        <pre id="performance-summary-text" style="margin: 0; color: #d1d5db; font-family: monospace; font-size: 0.9em; white-space: pre-wrap;">Загрузка...</pre>
+    </div>
+</div>
+
+<script>
+    async function loadLearningImpact() {
+        try {
+            const resp = await fetch('/api/learning-impact');
+            const data = await resp.json();
+            
+            if (data.with_ctx && data.with_ctx.total !== undefined) {
+                document.getElementById('li-with-acc').textContent = (data.with_ctx.accuracy * 100).toFixed(1) + '%';
+                document.getElementById('li-with-details').textContent = `${data.with_ctx.correct} верных из ${data.with_ctx.total}`;
+            }
+            if (data.without_ctx && data.without_ctx.total !== undefined) {
+                document.getElementById('li-without-acc').textContent = (data.without_ctx.accuracy * 100).toFixed(1) + '%';
+                document.getElementById('li-without-details').textContent = `${data.without_ctx.correct} верных из ${data.without_ctx.total}`;
+            }
+        } catch (e) {
+            console.error("Error loading learning impact:", e);
+        }
+    }
+
+    async function loadAgentPerformance() {
+        try {
+            const resp = await fetch('/api/agent-performance');
+            const data = await resp.json();
+            
+            const container = document.getElementById('agent-performance-container');
+            container.innerHTML = '';
+            
+            for (const [agent, stats] of Object.entries(data.agents)) {
+                if (stats && stats.total > 0) {
+                    const pct = (stats.accuracy * 100).toFixed(1);
+                    const color = pct >= 50 ? '#10b981' : '#ef4444';
+                    container.innerHTML += `
+                        <div style="display: flex; justify-content: space-between; align-items: center; background: #374151; padding: 12px 16px; border-radius: 8px;">
+                            <div style="font-weight: 500;">${agent}</div>
+                            <div style="text-align: right;">
+                                <div style="color: ${color}; font-weight: bold; font-size: 1.1em;">${pct}%</div>
+                                <div style="font-size: 0.8em; color: #9ca3af;">${stats.correct} / ${stats.total}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            if (container.innerHTML === '') {
+                container.innerHTML = '<div class="text-muted" style="text-align: center; padding: 20px;">Нет данных об агентах</div>';
+            }
+            
+            document.getElementById('performance-summary-text').textContent = data.summary || 'Нет недавних эпизодов.';
+        } catch (e) {
+            console.error("Error loading agent performance:", e);
+        }
+    }
+
+    // Загрузка при старте
+    document.addEventListener('DOMContentLoaded', () => {
+        loadLearningImpact();
+        loadAgentPerformance();
+    });
+</script>
