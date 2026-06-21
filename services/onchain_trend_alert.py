@@ -106,7 +106,7 @@ def _log_whale_signal_to_eval(
         logger.error(f"[OnchainTrend] Ошибка логирования Whale-сигнала в Evaluation Engine: {e}", exc_info=True)
 
 
-def _process_spike_row(row: dict, min_market_price: float, max_market_price: float, base_bonus: float, min_vol: float) -> Optional[dict]:
+def _process_spike_row(row: dict, min_market_price: float, max_market_price: float, base_bonus: float, min_vol: float, min_win_rate: float = 0.50, min_trades: int = 3) -> Optional[dict]:
     row = dict(row)
     m_price = row["market_price"] if row["market_price"] is not None else 0.5
     vol = row.get("market_volume") or 0.0
@@ -117,6 +117,16 @@ def _process_spike_row(row: dict, min_market_price: float, max_market_price: flo
 
     if not row.get("top_wallet"):
         logger.info(f"Skipped whale spike (no qualified wallet): market_id={row['market_id']}")
+        return None
+        
+    wallet_win_rate = row.get("win_rate") or 0.0
+    wallet_n_trades = row.get("n_trades") or 0
+    if wallet_n_trades < min_trades or wallet_win_rate < min_win_rate:
+        logger.info(
+            f"Skipped whale spike (wallet filter): market_id={row['market_id']}, "
+            f"wallet={row.get('top_wallet','?')[:8]}, "
+            f"win_rate={wallet_win_rate}, n_trades={wallet_n_trades}"
+        )
         return None
         
     alert_key = f"onchain_spike_{row['market_id']}"
@@ -216,7 +226,7 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
 
     spikes = []
     for row in rows:
-        processed = _process_spike_row(row, min_market_price, max_market_price, base_bonus, min_vol)
+        processed = _process_spike_row(row, min_market_price, max_market_price, base_bonus, min_vol, min_whale_win_rate, min_whale_trades)
         if processed:
             spikes.append(processed)
     return spikes

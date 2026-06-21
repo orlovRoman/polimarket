@@ -179,7 +179,8 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig, pr
     """
     # Guard: проверяем наличие цены в сигнале
     price = signal.get("price")
-    yes_price = signal.get("probability", price) # fallback to price if probability is not set
+    outcome = signal.get("target_outcome", signal.get("outcome", "YES")).upper()
+    yes_price = (1.0 - price) if outcome == "NO" else price
     if price is None:
         logger.warning(f"Нет поля price в сигнале для {market_id}, пропускаем сделку.")
         return False
