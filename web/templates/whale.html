@@ -484,17 +484,19 @@
         }
     }
 
-    async function buyVirtual(marketId, price) {
-        if (price === undefined || price === null) {
+    async function buyVirtual(marketId, priceYes, displayPrice) {
+        if (priceYes === undefined || priceYes === null) {
             console.error("Ошибка покупки: не указана цена покупки (price равен null или undefined)");
             alert("Не удалось определить цену покупки. Пожалуйста, обновите страницу.");
             return;
         }
+        const showPrice = displayPrice !== undefined ? displayPrice : priceYes;
+        if (!confirm(`Купить виртуально актив по цене ${showPrice}?`)) return;
         try {
             const res = await fetch('/api/whale-stocks/buy', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ market_id: marketId, price: price })
+                body: JSON.stringify({ market_id: marketId, price: priceYes })
             });
             if (res.ok) {
                 triggerRefresh();
@@ -656,9 +658,12 @@
                 }
                 const changeSign = changePct > 0 ? '+' : '';
                 
-                const buyPrice = Math.round((row.current_price ?? row.initial_price) * 100) / 100;
+                const buyPriceYes = Math.round((row.current_price ?? row.initial_price) * 100) / 100;
+                const displayPrice = row.current_price_outcome !== undefined 
+                    ? Math.round(row.current_price_outcome * 100) / 100 
+                    : buyPriceYes;
                 const actionBtn = row.virtual_bought_price === null
-                    ? `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPrice})">Купить</button>`
+                    ? `<button class="badge badge-green" style="border:none; cursor:pointer; font-weight:600;" onclick="buyVirtual('${row.market_id}', ${buyPriceYes}, ${displayPrice})">Купить</button>`
                     : `<span class="badge badge-blue">В портфеле</span>`;
 
                 let analyzeBtnClass = 'badge-gray';
