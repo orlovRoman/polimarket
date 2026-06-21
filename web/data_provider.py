@@ -1154,8 +1154,12 @@ def _process_whale_resolved_row(r, virtual_stake: float) -> dict:
     mx = row_dict['max_price_seen']
     mn = row_dict['min_price_seen']
 
-    # Для китов берем их прогноз, либо YES если вдруг нет (fallback)
-    outcome_to_track = pred if pred is not None else 'YES'
+    # Для китов берем их прогноз, который всегда должен быть (отфильтровано в SQL)
+    if pred is None:
+        raise ValueError(
+            f"_process_whale_resolved_row: predicted_outcome is None for market_id={row_dict.get('market_id')}"
+        )
+    outcome_to_track = pred
     row_dict['cheap_outcome'] = outcome_to_track
 
     if outcome_to_track == 'NO':
@@ -1254,6 +1258,13 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             AND p.predicted_outcome IS NOT NULL
             AND UPPER(p.predicted_outcome) != UPPER(p.actual_outcome)
         """).fetchone()['cnt']
+        
+        # Подсчет всех разрешенных (для статистики)
+        resolved_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM whale_stocks_monitoring p
+            WHERE p.status = 'RESOLVED'
+        """).fetchone()['cnt']
 
         # Выигрышные сделки
         wins_offset = (wins_page - 1) * wins_limit
@@ -1338,7 +1349,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             portfolio.append(row_dict)
 
         total_active = active_total
-        total_resolved = wins_total + losses_total
+        total_resolved = resolved_total
 
         # Статистика по истории виртуальных сделок
         stats_row = conn.execute("""
@@ -1407,6 +1418,10 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         pnl_today = 0.0
         pnl_7d = 0.0
         pnl_30d = 0.0
+        won_today = 0.0
+        lost_today = 0.0
+        won_today_count = 0
+        lost_today_count = 0
         
         now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1444,6 +1459,12 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
                     if res_at:
                         if res_at >= today_start:
                             pnl_today += pnl_val
+                            if pnl_val > 0:
+                                won_today += pnl_val
+                                won_today_count += 1
+                            elif pnl_val < 0:
+                                lost_today += abs(pnl_val)
+                                lost_today_count += 1
                         if res_at >= seven_days_ago:
                             pnl_7d += pnl_val
                         if res_at >= thirty_days_ago:
@@ -1464,6 +1485,10 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             'sum_won': round(sum_won, 2),
             'sum_lost': round(sum_lost, 2),
             'pnl_today': round(pnl_today, 2),
+            'won_today': round(won_today, 2),
+            'won_today_count': won_today_count,
+            'lost_today': round(lost_today, 2),
+            'lost_today_count': lost_today_count,
             'pnl_7d': round(pnl_7d, 2),
             'pnl_30d': round(pnl_30d, 2),
             'virtual_stake': virtual_stake
@@ -1569,6 +1594,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         'active_total': active_total,
         'wins_total': wins_total,
         'losses_total': losses_total,
+        'resolved_total': resolved_total,
         'system_alerts': system_alerts,
         'whales': whales,
         'whales_total': whales_total

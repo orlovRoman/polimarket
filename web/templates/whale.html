@@ -143,12 +143,12 @@
         <div class="kpi-value" id="kpi-avgentry">—</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-title">Лучший трейд</div>
-        <div class="kpi-value" id="kpi-besttrade">$0.00</div>
+        <div class="kpi-title">Выиграно за сегодня</div>
+        <div class="kpi-value" id="kpi-won-today" style="color: #10b981;">$0.00 <span style="font-size: 0.6em; color: #9ca3af;">(0)</span></div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-title">Общий PnL (Сделки)</div>
-        <div class="kpi-value" id="kpi-trades-pnl">$0.00</div>
+        <div class="kpi-title">Проиграно за сегодня</div>
+        <div class="kpi-value" id="kpi-lost-today" style="color: #ef4444;">$0.00 <span style="font-size: 0.6em; color: #9ca3af;">(0)</span></div>
     </div>
     <div class="kpi-card">
         <div class="kpi-title">Сумма ставки</div>
@@ -1036,8 +1036,8 @@
         document.getElementById('kpi-active-predicted').textContent = data.stats.active_predicted_count || 0;
         document.getElementById('kpi-winrate').textContent = data.stats.win_rate === null ? '—' : formatPercent(data.stats.win_rate);
         document.getElementById('kpi-avgentry').textContent = data.stats.avg_entry_price === null ? '—' : formatPriceCents(data.stats.avg_entry_price);
-        document.getElementById('kpi-besttrade').innerHTML = formatPnLCents(data.stats.best_trade_pnl);
-        document.getElementById('kpi-trades-pnl').innerHTML = formatPnL(data.stats.total_trades_pnl);
+        document.getElementById('kpi-won-today').innerHTML = `${formatPnL(data.stats.won_today || 0.0)} <span style="font-size: 0.6em; color: #9ca3af;">(${data.stats.won_today_count || 0})</span>`;
+        document.getElementById('kpi-lost-today').innerHTML = `${formatPnL(-(data.stats.lost_today || 0.0))} <span style="font-size: 0.6em; color: #9ca3af;">(${data.stats.lost_today_count || 0})</span>`;
         document.getElementById('kpi-virtual-stake').textContent = `$${(data.stats.virtual_stake || 0.0).toFixed(2)}`;
         document.getElementById('kpi-pnl-today').innerHTML = formatPnL(data.stats.pnl_today || 0.0);
         document.getElementById('kpi-pnl-7d').innerHTML = formatPnL(data.stats.pnl_7d || 0.0);
