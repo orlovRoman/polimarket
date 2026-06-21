@@ -2390,26 +2390,21 @@ def update_episodes_for_market(market_id: str, resolved_outcome: str):
                 save_memory(f"{agent_name.lower()}_accuracy_pct", round(accuracy["accuracy"] * 100.0, 1))
 
 def get_agent_accuracy(agent_name: str) -> dict:
-    """Возвращает статистику точности агента по завершённым эпизодам."""
+    """Считает точность агента по записям agent_episodes."""
     with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
+        row = conn.execute("""
             SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN outcome='correct' THEN 1 ELSE 0 END) as correct,
-                SUM(CASE WHEN outcome='incorrect' THEN 1 ELSE 0 END) as incorrect
+                COUNT(*) AS total,
+                SUM(CASE WHEN outcome = 'correct' THEN 1 ELSE 0 END) AS correct,
+                SUM(CASE WHEN outcome = 'incorrect' THEN 1 ELSE 0 END) AS incorrect
             FROM agent_episodes
-            WHERE agent_name = ? AND outcome IN ('correct', 'incorrect')
-        """, (agent_name,))
-        row = cursor.fetchone()
-        total = row['total'] or 0
-        correct = row['correct'] or 0
-        return {
-            "total": total,
-            "correct": correct,
-            "incorrect": row['incorrect'] or 0,
-            "accuracy": round(correct / total, 3) if total > 0 else None
-        }
+            WHERE agent_name = ? AND event_type = 'signal_evaluated'
+        """, (agent_name,)).fetchone()
+    total = row['total'] or 0
+    correct = row['correct'] or 0
+    incorrect = row['incorrect'] or 0
+    accuracy = round(correct / total, 3) if total > 0 else 0.0
+    return {"total": total, "correct": correct, "incorrect": incorrect, "accuracy": accuracy}
 
 def save_trader_transaction(wallet_address: str, market_id: str, outcome: str, amount_usd: float, price: float = None, alias: str = None):
     """
@@ -2501,87 +2496,41 @@ def get_known_whales() -> dict:
 
 
 def get_performance_summary(agent_name: str, limit: int = 20) -> str:
+    """Возвращает текстовый дайджест последних эпизодов агента."""
     with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT summary, outcome, context, created_at
+        rows = conn.execute("""
+            SELECT agent_name, market_title, outcome, created_at
             FROM agent_episodes
-            WHERE agent_name = ? AND event_type IN ('signal_resolved', 'signal_evaluated')
-              AND outcome IN ('correct', 'incorrect')
+            WHERE agent_name = ? AND event_type = 'signal_evaluated'
             ORDER BY created_at DESC
             LIMIT ?
-        """, (agent_name, limit))
-        episodes = cursor.fetchall()
-        
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN outcome='correct' THEN 1 ELSE 0 END) as correct
-            FROM agent_episodes
-            WHERE agent_name = ? AND event_type IN ('signal_resolved', 'signal_evaluated')
-              AND outcome IN ('correct', 'incorrect')
-        """, (agent_name,))
-        stats = cursor.fetchone()
-
-    if not episodes:
-        logger.warning(f"[Memory] get_performance_summary: нет resolved-эпизодов для агента {agent_name}")
-        return ""
-    
-    total = stats['total'] or 0
-    correct = stats['correct'] or 0
-    accuracy = correct / total if total > 0 else 0
-    
-    lines = [
-        f"## Твоя история прогнозов (последние {len(episodes)} из {total} разрешённых):",
-        f"Точность: {correct}/{total} = {accuracy:.0%}\n",
-        "Последние результаты:"
-    ]
-    for ep in episodes[:10]:
-        icon = "✅" if ep['outcome'] == 'correct' else "❌"
-        raw_ctx = ep['context'] or '{}'
-        ctx = raw_ctx
-        for _ in range(3):
-            if not isinstance(ctx, str):
-                break
-            try:
-                ctx = json.loads(ctx)
-            except (json.JSONDecodeError, TypeError):
-                ctx = {}
-                break
-        if not isinstance(ctx, dict):
-            ctx = {}
-        prob = ctx.get('predicted_prob', '?')
-        prob_str = f"{prob:.0%}" if isinstance(prob, float) else str(prob)
-        lines.append(f"{icon} {ep['summary'][:120]} [прогноз был: {prob_str}]")
-    
+        """, (agent_name, limit)).fetchall()
+    if not rows:
+        return "Нет недавних эпизодов."
+    lines = [f"[{r['created_at'][:16]}] {r['agent_name']} | {r['market_title'] or '?'} → {r['outcome']}"
+             for r in rows]
     return "\n".join(lines)
 
 
 def get_learning_impact() -> dict:
+    """Сравнивает точность вызовов LLM с контекстом и без."""
     with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT 
-                lc.had_performance_ctx,
-                COUNT(*) as total,
-                SUM(CASE WHEN ae.outcome='correct' THEN 1 ELSE 0 END) as correct
+        rows = conn.execute("""
+            SELECT lc.had_performance_ctx, ae.outcome
             FROM llm_calls lc
             JOIN agent_episodes ae ON lc.market_id = ae.market_id
-            WHERE ae.outcome IN ('correct', 'incorrect')
-              AND lc.agent_name = ae.agent_name
-            GROUP BY lc.had_performance_ctx
-        """)
-        rows = cursor.fetchall()
-    result = {}
-    for row in rows:
-        key = "with_ctx" if row['had_performance_ctx'] else "without_ctx"
-        total = row['total'] or 0
-        correct = row['correct'] or 0
-        result[key] = {
-            "total": total, "correct": correct,
-            "accuracy": round(correct / total, 3) if total > 0 else None
-        }
-    return result
+            WHERE ae.event_type = 'signal_evaluated'
+        """).fetchall()
+    
+    def stats(items):
+        total = len(items)
+        correct = sum(1 for o in items if o == 'correct')
+        return {"total": total, "correct": correct,
+                "accuracy": round(correct / total, 3) if total > 0 else 0.0}
+    
+    with_ctx  = [r['outcome'] for r in rows if r['had_performance_ctx'] == 1]
+    without_ctx = [r['outcome'] for r in rows if r['had_performance_ctx'] == 0]
+    return {"with_ctx": stats(with_ctx), "without_ctx": stats(without_ctx)}
 
 def save_gate_metrics(run_id: str, total: int, passed: int,
                       blocked_no_volume: int, blocked_no_whales: int) -> None:
