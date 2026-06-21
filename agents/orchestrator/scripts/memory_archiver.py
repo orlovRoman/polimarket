@@ -37,10 +37,10 @@ def main():
     # Бэкап БД перед GC
     if not dry_run:
         try:
-        bp = backup_database()
-        print(f"Бэкап БД: {bp}")
-    except Exception as e:
-        print(f"Предупреждение: бэкап не удался ({e}), продолжаем...")
+            bp = backup_database()
+            print(f"Бэкап БД: {bp}")
+        except Exception as e:
+            print(f"Предупреждение: бэкап не удался ({e}), продолжаем...")
     
     db_manager = DatabaseManager()
     agent = NexusAgent()

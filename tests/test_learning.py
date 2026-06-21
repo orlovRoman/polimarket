@@ -51,7 +51,8 @@ def memory_db():
     conn.commit()
     
     with patch("agents.shared.python.db.get_connection") as mock_conn:
-        mock_conn.return_value = conn
+        mock_conn.return_value.__enter__.return_value = conn
+        mock_conn.return_value.__exit__.return_value = False
         yield conn
         
     conn.close()
