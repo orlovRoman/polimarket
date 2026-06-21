@@ -562,6 +562,71 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         else:
             return get_curve_for_strategy(conn, strategy)
 
+def _process_penny_resolved_row(r, virtual_stake: float) -> dict:
+    row_dict = dict(r)
+    if 'url' in row_dict:
+        row_dict['url'] = clean_db_url(row_dict['url'])
+    pred = row_dict['predicted_outcome']
+    init = row_dict['initial_price']
+    curr = row_dict['current_price']
+    mx = row_dict['max_price_seen']
+    mn = row_dict['min_price_seen']
+
+    # Определяем направление
+    if pred is not None:
+        outcome_to_track = pred
+    else:
+        outcome_to_track = 'NO' if (init is not None and init >= 0.90) else 'YES'
+
+    row_dict['cheap_outcome'] = outcome_to_track
+
+    if outcome_to_track == 'NO':
+        row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
+        row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
+        row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
+        row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4) if mx is not None else None
+    else:
+        row_dict['initial_price_outcome'] = init
+        row_dict['current_price_outcome'] = curr
+        row_dict['max_price_seen_outcome'] = mx
+        row_dict['min_price_seen_outcome'] = mn
+
+    # Авто-PnL (сигналы агентов)
+    pnl_auto = None
+    actual = row_dict['actual_outcome']
+    if pred is not None and actual is not None and init is not None:
+        pred_up = pred.upper()
+        act_up = actual.upper()
+        bought_outcome = (1.0 - init) if pred_up == 'NO' else init
+        sold_outcome = 1.0 if act_up == pred_up else 0.0
+        if bought_outcome > 0:
+            pnl_auto = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
+        else:
+            pnl_auto = 0.0
+    row_dict['pnl_auto'] = pnl_auto
+
+    # Гипотетический PNL, если реальной сделки не было, но рынок разрешен
+    pnl_realized = row_dict['pnl_realized']
+    if pnl_realized is None and actual is not None and init is not None and outcome_to_track is not None:
+        track_up = outcome_to_track.upper()
+        act_up = actual.upper()
+        bought_outcome = (1.0 - init) if track_up == 'NO' else init
+        sold_outcome = 1.0 if act_up == track_up else 0.0
+        if bought_outcome > 0:
+            row_dict['pnl_realized'] = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
+        else:
+            row_dict['pnl_realized'] = 0.0
+    else:
+        bought_price = row_dict.get('bought_outcome_price')
+        bet_size = row_dict.get('bet_size_usdc') or virtual_stake
+        if bought_price and 0.0 < bought_price < 1.0:
+            # pnl_realized is already raw profit/loss (e.g. 0.95 or -1.0)
+            row_dict['pnl_realized'] = round((bet_size / bought_price) * (row_dict['pnl_realized'] or 0.0), 2)
+        else:
+            row_dict['pnl_realized'] = 0.0
+
+    return row_dict
+
 def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100, wins_page=1, wins_limit=50, losses_page=1, losses_limit=50) -> dict:
     """
     Собирает данные для дашборда Penny Stocks (активные, завершенные позиции, статистика, распределение).
@@ -627,70 +692,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 row_dict['min_price_seen_outcome'] = mn
             active.append(row_dict)
 
-        def _process_resolved_row(r):
-            row_dict = dict(r)
-            if 'url' in row_dict:
-                row_dict['url'] = clean_db_url(row_dict['url'])
-            pred = row_dict['predicted_outcome']
-            init = row_dict['initial_price']
-            curr = row_dict['current_price']
-            mx = row_dict['max_price_seen']
-            mn = row_dict['min_price_seen']
 
-            # Определяем направление
-            if pred is not None:
-                outcome_to_track = pred
-            else:
-                outcome_to_track = 'NO' if (init is not None and init >= 0.90) else 'YES'
-
-            row_dict['cheap_outcome'] = outcome_to_track
-
-            if outcome_to_track == 'NO':
-                row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
-                row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
-                row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
-                row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4) if mx is not None else None
-            else:
-                row_dict['initial_price_outcome'] = init
-                row_dict['current_price_outcome'] = curr
-                row_dict['max_price_seen_outcome'] = mx
-                row_dict['min_price_seen_outcome'] = mn
-
-            # Авто-PnL (сигналы агентов)
-            pnl_auto = None
-            actual = row_dict['actual_outcome']
-            if pred is not None and actual is not None and init is not None:
-                pred_up = pred.upper()
-                act_up = actual.upper()
-                bought_outcome = (1.0 - init) if pred_up == 'NO' else init
-                sold_outcome = 1.0 if act_up == pred_up else 0.0
-                if bought_outcome > 0:
-                    pnl_auto = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
-                else:
-                    pnl_auto = 0.0
-            row_dict['pnl_auto'] = pnl_auto
-
-            # Гипотетический PNL, если реальной сделки не было, но рынок разрешен
-            pnl_realized = row_dict['pnl_realized']
-            if pnl_realized is None and actual is not None and init is not None and outcome_to_track is not None:
-                track_up = outcome_to_track.upper()
-                act_up = actual.upper()
-                bought_outcome = (1.0 - init) if track_up == 'NO' else init
-                sold_outcome = 1.0 if act_up == track_up else 0.0
-                if bought_outcome > 0:
-                    row_dict['pnl_realized'] = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
-                else:
-                    row_dict['pnl_realized'] = 0.0
-            else:
-                bought_price = row_dict.get('bought_outcome_price')
-                bet_size = row_dict.get('bet_size_usdc') or virtual_stake
-                if bought_price and 0.0 < bought_price < 1.0:
-                    # pnl_realized is already raw profit/loss (e.g. 0.95 or -1.0)
-                    row_dict['pnl_realized'] = round((bet_size / bought_price) * (row_dict['pnl_realized'] or 0.0), 2)
-                else:
-                    row_dict['pnl_realized'] = 0.0
-
-            return row_dict
 
         # Подсчет общего количества завершенных
         resolved_total = conn.execute("""
@@ -723,7 +725,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             LIMIT ? OFFSET ?
         """, (resolved_limit, resolved_offset)).fetchall()
 
-        resolved = [_process_resolved_row(r) for r in resolved_rows]
+        resolved = [_process_penny_resolved_row(r, virtual_stake) for r in resolved_rows]
 
         # Подсчет общего количества завершенных выигранных и проигранных (с прогнозом)
         wins_total = conn.execute("""
@@ -1142,6 +1144,46 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'system_alerts': system_alerts
     }
 
+def _process_whale_resolved_row(r, virtual_stake: float) -> dict:
+    row_dict = dict(r)
+    if 'url' in row_dict:
+        row_dict['url'] = clean_db_url(row_dict['url'])
+    pred = row_dict['predicted_outcome']
+    init = row_dict['initial_price']
+    curr = row_dict['current_price']
+    mx = row_dict['max_price_seen']
+    mn = row_dict['min_price_seen']
+
+    # Для китов берем их прогноз, либо YES если вдруг нет (fallback)
+    outcome_to_track = pred if pred is not None else 'YES'
+    row_dict['cheap_outcome'] = outcome_to_track
+
+    if outcome_to_track == 'NO':
+        row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
+        row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
+        row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
+        row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4) if mx is not None else None
+    else:
+        row_dict['initial_price_outcome'] = init
+        row_dict['current_price_outcome'] = curr
+        row_dict['max_price_seen_outcome'] = mx
+        row_dict['min_price_seen_outcome'] = mn
+
+    actual = row_dict['actual_outcome']
+    pnl_realized = row_dict['pnl_realized']
+    if pnl_realized is None and actual is not None and init is not None:
+        track_up = outcome_to_track.upper()
+        act_up = actual.upper()
+        bought_outcome = (1.0 - init) if track_up == 'NO' else init
+        sold_outcome = 1.0 if act_up == track_up else 0.0
+        if bought_outcome > 0:
+            row_dict['pnl_realized'] = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
+        else:
+            row_dict['pnl_realized'] = 0.0
+    else:
+        row_dict['pnl_realized'] = round((row_dict['pnl_realized'] or 0.0) * virtual_stake, 2)
+    return row_dict
+
 def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, wins_limit=50, losses_page=1, losses_limit=50, whales_page=1, whales_limit=10) -> dict:
     """
     Собирает данные для дашборда Whale Following (активные, завершенные позиции, статистика, распределение).
@@ -1193,60 +1235,24 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
                 row_dict['min_price_seen_outcome'] = mn
             active.append(row_dict)
 
-        def _process_resolved_row(r):
-            row_dict = dict(r)
-            if 'url' in row_dict:
-                row_dict['url'] = clean_db_url(row_dict['url'])
-            pred = row_dict['predicted_outcome']
-            init = row_dict['initial_price']
-            curr = row_dict['current_price']
-            mx = row_dict['max_price_seen']
-            mn = row_dict['min_price_seen']
 
-            outcome_to_track = pred if pred is not None else 'YES'
-            row_dict['cheap_outcome'] = outcome_to_track
-
-            if outcome_to_track == 'NO':
-                row_dict['initial_price_outcome'] = round(1.0 - init, 4) if init is not None else None
-                row_dict['current_price_outcome'] = round(1.0 - curr, 4) if curr is not None else None
-                row_dict['max_price_seen_outcome'] = round(1.0 - mn, 4) if mn is not None else None
-                row_dict['min_price_seen_outcome'] = round(1.0 - mx, 4) if mx is not None else None
-            else:
-                row_dict['initial_price_outcome'] = init
-                row_dict['current_price_outcome'] = curr
-                row_dict['max_price_seen_outcome'] = mx
-                row_dict['min_price_seen_outcome'] = mn
-
-            # Гипотетический PNL
-            actual = row_dict['actual_outcome']
-            pnl_realized = row_dict['pnl_realized']
-            if pnl_realized is None and actual is not None and init is not None:
-                track_up = outcome_to_track.upper()
-                act_up = actual.upper()
-                bought_outcome = (1.0 - init) if track_up == 'NO' else init
-                sold_outcome = 1.0 if act_up == track_up else 0.0
-                if bought_outcome > 0:
-                    row_dict['pnl_realized'] = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
-                else:
-                    row_dict['pnl_realized'] = 0.0
-            else:
-                row_dict['pnl_realized'] = round((row_dict['pnl_realized'] or 0.0) * virtual_stake, 2)
-            return row_dict
 
         # Подсчет выигрышных
         wins_total = conn.execute("""
             SELECT COUNT(*) as cnt
             FROM whale_stocks_monitoring p
-            WHERE p.status = 'RESOLVED' 
-            AND UPPER(COALESCE(p.predicted_outcome, 'YES')) = UPPER(p.actual_outcome)
+            WHERE p.status = 'RESOLVED'
+            AND p.predicted_outcome IS NOT NULL
+            AND UPPER(p.predicted_outcome) = UPPER(p.actual_outcome)
         """).fetchone()['cnt']
 
         # Подсчет проигранных
         losses_total = conn.execute("""
             SELECT COUNT(*) as cnt
             FROM whale_stocks_monitoring p
-            WHERE p.status = 'RESOLVED' 
-            AND UPPER(COALESCE(p.predicted_outcome, 'YES')) != UPPER(p.actual_outcome)
+            WHERE p.status = 'RESOLVED'
+            AND p.predicted_outcome IS NOT NULL
+            AND UPPER(p.predicted_outcome) != UPPER(p.actual_outcome)
         """).fetchone()['cnt']
 
         # Выигрышные сделки
@@ -1261,11 +1267,12 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
             WHERE p.status = 'RESOLVED'
-            AND UPPER(COALESCE(p.predicted_outcome, 'YES')) = UPPER(p.actual_outcome)
+            AND p.predicted_outcome IS NOT NULL
+            AND UPPER(p.predicted_outcome) = UPPER(p.actual_outcome)
             ORDER BY p.resolved_at DESC
             LIMIT ? OFFSET ?
         """, (wins_limit, wins_offset)).fetchall()
-        resolved_wins = [_process_resolved_row(r) for r in wins_rows]
+        resolved_wins = [_process_whale_resolved_row(r, virtual_stake) for r in wins_rows]
 
         # Проигранные сделки
         losses_offset = (losses_page - 1) * losses_limit
@@ -1279,11 +1286,12 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
             WHERE p.status = 'RESOLVED'
-            AND UPPER(COALESCE(p.predicted_outcome, 'YES')) != UPPER(p.actual_outcome)
+            AND p.predicted_outcome IS NOT NULL
+            AND UPPER(p.predicted_outcome) != UPPER(p.actual_outcome)
             ORDER BY p.resolved_at DESC
             LIMIT ? OFFSET ?
         """, (losses_limit, losses_offset)).fetchall()
-        resolved_losses = [_process_resolved_row(r) for r in losses_rows]
+        resolved_losses = [_process_whale_resolved_row(r, virtual_stake) for r in losses_rows]
 
         # Виртуальный портфель
         portfolio_rows = conn.execute("""
