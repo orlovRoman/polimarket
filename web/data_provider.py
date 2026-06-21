@@ -1258,7 +1258,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # Виртуальный портфель
         portfolio_rows = conn.execute("""
-            SELECT market_id, title, url, initial_price, current_price, predicted_outcome, edge, confidence, virtual_bought_price, virtual_bought_at, wallet_address
+            SELECT market_id, title, url, initial_price, current_price, predicted_outcome, edge, confidence, virtual_bought_price, virtual_bought_at, wallet_address, bet_size_usdc
             FROM whale_stocks_monitoring
             WHERE status = 'ACTIVE' AND virtual_bought_price IS NOT NULL
             ORDER BY virtual_bought_at DESC
@@ -1273,6 +1273,9 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             init = row_dict['initial_price']
             v_bought = row_dict['virtual_bought_price']
             v_curr = row_dict['current_price']
+            v_bet = row_dict.get('bet_size_usdc')
+            if v_bet is None:
+                v_bet = virtual_stake
 
             outcome_to_track = pred if pred is not None else 'YES'
             row_dict['cheap_outcome'] = outcome_to_track
@@ -1287,12 +1290,13 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             pnl_cents = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
             pnl_percent = (pnl_cents / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
             
-            pnl_dollars = (virtual_stake / bought_outcome) * pnl_cents if (bought_outcome is not None and bought_outcome > 0) else 0.0
+            pnl_dollars = (v_bet / bought_outcome) * pnl_cents if (bought_outcome is not None and bought_outcome > 0) else 0.0
 
             row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
             row_dict['pnl_cents'] = round(pnl_dollars, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
+            row_dict['bet_size_usdc'] = v_bet
 
             portfolio.append(row_dict)
 

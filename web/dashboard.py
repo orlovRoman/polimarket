@@ -601,6 +601,23 @@ async def api_set_whale_settings(request):
         logger.exception("Error in api_set_whale_settings")
         return web.json_response({"error": str(e)}, status=500)
 
+async def api_edit_whale_stake(request):
+    try:
+        data = await request.json()
+        market_id = data.get('market_id')
+        virtual_bought_price = data.get('virtual_bought_price')
+        bet_size_usdc = data.get('bet_size_usdc')
+        
+        if not all(x is not None for x in (market_id, virtual_bought_price, bet_size_usdc)):
+            return web.json_response({"error": "Missing required fields"}, status=400)
+            
+        from agents.shared.python.db import update_whale_stake
+        await asyncio.to_thread(update_whale_stake, market_id, virtual_bought_price, bet_size_usdc)
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in api_edit_whale_stake")
+        return web.json_response({"error": str(e)}, status=500)
+
 async def api_whale_stocks(request):
     active_page = get_int_query(request, "active_page", 1)
     active_limit = get_int_query(request, "active_limit", 50)
@@ -1207,6 +1224,7 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/whale-stocks", api_whale_stocks)
     app.router.add_get("/api/whale-settings", api_get_whale_settings)
     app.router.add_post("/api/whale-settings", api_set_whale_settings)
+    app.router.add_post("/api/whale-settings/edit-stake", api_edit_whale_stake)
     app.router.add_get("/api/equity-curve", api_equity_curve)
     app.router.add_get("/api/signals", api_signals)
     app.router.add_get("/api/corridors", api_corridors)

@@ -116,17 +116,23 @@ def _log_whale_signal_to_eval(
 
 def _process_spike_row(row: dict) -> Optional[dict]:
     row = dict(row)
+    if not row.get("top_wallet"):
+        logger.info(f"Skipped whale spike (no qualified wallet): market_id={row['market_id']}")
+        return None
+        
     alert_key = f"onchain_spike_{row['market_id']}"
     if is_alert_already_sent(alert_key, ttl_hours=2):
         return None
         
-    mark_alert_sent(alert_key, "onchain_spike")
-    
     try:
         total_vol = row['yes_vol'] + row['no_vol']
         ratio_yes = row['yes_vol'] / total_vol if total_vol > 0 else 0.5
         side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
         prob = ratio_yes if side == "YES" else (1.0 - ratio_yes)
+        
+        base_bonus = _get_whale_edge_bonus()
+        prob = min(1.0, prob + base_bonus)
+        
         prob = max(0.0, min(1.0, prob))
 
         m_price = row["price"] if row["price"] is not None else 0.5
@@ -149,9 +155,12 @@ def _process_spike_row(row: dict) -> Optional[dict]:
             url=row.get('url'),
             close_time=_normalize_close_time(row.get('close_time'))
         )
+        
+        mark_alert_sent(alert_key, "onchain_spike")
 
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка обработки строки spike: {e}", exc_info=True)
+        return None
     return dict(row)
 
 def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
@@ -161,6 +170,11 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
     Без LLM.
     """
     try:
+        from agents.shared.python.db import get_whale_settings
+        settings = get_whale_settings()
+        min_whale_win_rate = float(settings.get('min_whale_win_rate', 0.50))
+        min_whale_trades = int(settings.get('min_whale_trades', 3))
+        
         with get_connection() as conn:
             rows = conn.execute("""
                 SELECT
@@ -180,16 +194,19 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
                     SUM(CASE WHEN t.outcome = 'NO'
                              AND t.timestamp > datetime('now', '-2 hours')
                              THEN t.amount_usd ELSE 0.0 END) AS no_vol,
-                    (SELECT wallet_address FROM trader_transactions
-                     WHERE market_id = t.market_id
-                       AND timestamp > datetime('now', '-2 hours')
-                     ORDER BY amount_usd DESC LIMIT 1) as top_wallet
+                    (SELECT w.address 
+                     FROM trader_transactions tt
+                     JOIN wallets w ON tt.wallet_address = w.address
+                     WHERE tt.market_id = t.market_id
+                       AND tt.timestamp > datetime('now', '-2 hours')
+                       AND w.win_rate >= ? AND w.n_trades >= ?
+                     ORDER BY tt.amount_usd DESC LIMIT 1) as top_wallet
                 FROM trader_transactions t
                 JOIN markets m ON t.market_id = m.id
                 WHERE t.timestamp > datetime('now', '-4 hours')
                 GROUP BY t.market_id
                 HAVING vol_prev > 100.0 AND (vol_recent / vol_prev) >= ?
-            """, (min_spike_ratio,)).fetchall()
+            """, (min_whale_win_rate, min_whale_trades, min_spike_ratio)).fetchall()
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка при SQL-запросе spikes: {e}")
         return []
@@ -232,8 +249,6 @@ def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_
         logger.info(f"Skipped whale signal (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, reason=LOW_CONF")
         return None
 
-    mark_alert_sent(alert_key, "whale_single_bet")
-    
     try:
         side = row["outcome"]
         
@@ -273,8 +288,11 @@ def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_
             confidence=confidence
         )
 
+        mark_alert_sent(alert_key, "whale_single_bet")
+
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка обработки строки крупной сделки: {e}", exc_info=True)
+        return None
     return dict(row)
 
 def scan_large_single_bets() -> list[dict]:
@@ -343,8 +361,6 @@ def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, m
         logger.info(f"Skipped whale series (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, reason=LOW_CONF")
         return None
 
-    mark_alert_sent(alert_key, "whale_series")
-    
     try:
         side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
         
@@ -385,8 +401,11 @@ def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, m
             confidence=confidence
         )
 
+        mark_alert_sent(alert_key, "whale_series")
+
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка обработки строки серии сделок: {e}", exc_info=True)
+        return None
     return dict(row)
 
 def scan_wallet_series() -> list[dict]:
@@ -419,7 +438,7 @@ def scan_wallet_series() -> list[dict]:
                 LEFT JOIN wallets w ON t.wallet_address = w.address
                 WHERE t.timestamp > datetime('now', '-1 hour')
                 GROUP BY t.market_id, t.wallet_address
-                HAVING tx_count >= 2 AND total_amount_usd > 2000.0
+                HAVING tx_count >= 3 AND total_amount_usd > 2000.0
             """).fetchall()
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка при SQL-запросе серий сделок: {e}")

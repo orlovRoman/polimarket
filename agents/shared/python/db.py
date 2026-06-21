@@ -2935,7 +2935,7 @@ def _calculate_whale_confidence_and_volume(directions: list, base_conf: float) -
     total_vol = yes_vol + no_vol
     dominant_vol = max(yes_vol, no_vol)
     balance = (dominant_vol / total_vol) if total_vol > 0 else 0.5
-    new_conf = round(base_conf * balance, 3)
+    new_conf = round(base_conf * (0.5 + 0.5 * balance), 3)
     return whale_count, yes_vol, no_vol, new_conf
 
 def _calculate_outcome_pnl(outcome_to_track: str, v_bought: float, v_curr: float) -> tuple[float, float, float, float]:
@@ -2946,9 +2946,9 @@ def _calculate_outcome_pnl(outcome_to_track: str, v_bought: float, v_curr: float
         bought_outcome = v_bought
         curr_outcome = v_curr
         
-    pnl_cents = round(curr_outcome - bought_outcome, 2)
-    pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
-    return bought_outcome, curr_outcome, pnl_cents, pnl_percent
+    pnl_points = round(curr_outcome - bought_outcome, 2)
+    pnl_percent = round((pnl_points / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
+    return bought_outcome, curr_outcome, pnl_points, pnl_percent
 
 def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_price: float,
                                   predicted_outcome: str = 'UNKNOWN', edge: float = None, confidence: float = None,
@@ -2964,6 +2964,9 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
         ).strftime("%Y-%m-%d %H:%M:%S+00:00")
 
     with get_connection() as conn:
+        settings = get_whale_settings()
+        virtual_stake = float(settings.get('virtual_stake', 100.0))
+        
         conn.execute("""
             INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time)
             VALUES (?, 'Polymarket', ?, ?, 'YES', ?, ?)
@@ -2971,7 +2974,7 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
         
         import json
         
-        row = conn.execute("SELECT whale_count, whale_directions, confidence FROM whale_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
+        row = conn.execute("SELECT whale_count, whale_directions, confidence, virtual_bought_price FROM whale_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
         
         if row:
             # Обновляем существующую запись
@@ -2994,20 +2997,31 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
             else:
                 wallet_map[wallet_address] = {'wallet': wallet_address, 'side': predicted_outcome, 'amount_usd': amount_usd}
 
+            dominant_wallet = max(wallet_map.values(), key=lambda d: d.get('amount_usd', 0))
+            best_wallet_address = dominant_wallet['wallet']
+
             directions = list(wallet_map.values())
             
             base_conf = float(confidence) if confidence is not None else float(row['confidence'] or 0.5)
             whale_count, _, _, new_conf = _calculate_whale_confidence_and_volume(directions, base_conf)
+            
+            v_bought = row['virtual_bought_price']
+            set_virtual = ""
+            params_virtual = []
+            if v_bought is None:
+                set_virtual = ", virtual_bought_price = ?, virtual_bought_at = CURRENT_TIMESTAMP, bet_size_usdc = ?"
+                params_virtual = [init_p, virtual_stake]
                     
-            conn.execute("""
+            conn.execute(f"""
                 UPDATE whale_stocks_monitoring
                 SET edge = CASE WHEN ? IS NOT NULL THEN ? ELSE edge END,
                     confidence = ?,
                     whale_count = ?,
                     whale_directions = ?,
                     wallet_address = CASE WHEN ? IS NOT NULL THEN ? ELSE wallet_address END
+                    {set_virtual}
                 WHERE market_id = ?
-            """, (edge, edge, new_conf, whale_count, json.dumps(directions), wallet_address, wallet_address, market_id))
+            """, [edge, edge, new_conf, whale_count, json.dumps(directions), best_wallet_address, best_wallet_address] + params_virtual + [market_id])
         else:
             # Создаем новую запись
             new_whale = {"wallet": wallet_address, "side": predicted_outcome, "amount_usd": amount_usd}
@@ -3015,10 +3029,12 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
             conn.execute("""
                 INSERT INTO whale_stocks_monitoring
                 (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen,
-                 predicted_outcome, edge, confidence, status, wallet_address, whale_count, whale_directions)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, 1, ?)
+                 predicted_outcome, edge, confidence, status, wallet_address, whale_count, whale_directions,
+                 virtual_bought_price, virtual_bought_at, bet_size_usdc)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, 1, ?, ?, CURRENT_TIMESTAMP, ?)
             """, (market_id, title, url, init_p, init_p, init_p, init_p,
-                  predicted_outcome, edge, confidence, wallet_address, new_whale_json))
+                  predicted_outcome, edge, confidence, wallet_address, new_whale_json,
+                  init_p, virtual_stake))
 
 def get_active_whale_stocks() -> list[dict]:
     with get_connection() as conn:
@@ -3056,6 +3072,15 @@ def buy_virtual_whale_stock(market_id: str, price: float) -> None:
             WHERE market_id = ?
         """, (_round_price(price), virtual_stake, market_id))
 
+def update_whale_stake(market_id: str, virtual_bought_price: float, bet_size_usdc: float) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE whale_stocks_monitoring
+            SET virtual_bought_price = ?,
+                bet_size_usdc = ?
+            WHERE market_id = ? AND status = 'ACTIVE'
+        """, (_round_price(virtual_bought_price), bet_size_usdc, market_id))
+
 def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) -> None:
     with get_connection() as conn:
         row = conn.execute("""
@@ -3077,7 +3102,7 @@ def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) ->
         if outcome_to_track == 'UNKNOWN':
             logger.warning(f"Пропуск записи сделки в историю для рынка {market_id}: направление UNKNOWN")
         else:
-            bought_outcome, curr_outcome, pnl_cents, pnl_percent = _calculate_outcome_pnl(outcome_to_track, v_bought, v_curr)
+            bought_outcome, curr_outcome, pnl_points, pnl_percent = _calculate_outcome_pnl(outcome_to_track, v_bought, v_curr)
             
             conn.execute("""
                 INSERT INTO whale_virtual_trades_history (
@@ -3088,7 +3113,7 @@ def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) ->
             """, (
                 market_id, row['title'], row['url'], outcome_to_track,
                 v_bought, bought_outcome, v_curr, curr_outcome,
-                pnl_cents, pnl_percent, v_bought_at,
+                pnl_points, pnl_percent, v_bought_at,
                 row['max_price_seen'], row['min_price_seen'],
                 row['bet_size_usdc']
             ))
@@ -3131,8 +3156,8 @@ def resolve_whale_stock(market_id: str, actual_outcome: str) -> None:
                 else:
                     v_sold = sold_outcome
                     
-                pnl_cents = round(sold_outcome - bought_outcome, 2)
-                pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
+                pnl_points = round(sold_outcome - bought_outcome, 2)
+                pnl_percent = round((pnl_points / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
                 
                 conn.execute("""
                     INSERT INTO whale_virtual_trades_history (
@@ -3143,7 +3168,7 @@ def resolve_whale_stock(market_id: str, actual_outcome: str) -> None:
                 """, (
                     market_id, row['title'], row['url'], outcome_to_track,
                     v_bought, bought_outcome, v_sold, sold_outcome,
-                    pnl_cents, pnl_percent, v_bought_at,
+                    pnl_points, pnl_percent, v_bought_at,
                     row['max_price_seen'], row['min_price_seen'],
                     row['bet_size_usdc']
                 ))

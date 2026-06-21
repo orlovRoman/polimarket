@@ -18,7 +18,8 @@
 
 <div class="opinion-tabs" style="margin-bottom: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 12px; display: flex; gap: 8px;">
     <button id="penny-tab-auto" class="opinion-tab-btn active" onclick="switchPennyTab('auto')">🤖 Авто-сигналы агентов</button>
-    <button id="penny-tab-manual" class="opinion-tab-btn" onclick="switchPennyTab('manual')">💼 Ручной портфель</button>
+    <button id="penny-tab-manual" class="opinion-tab-btn" onclick="switchPennyTab('manual')">💼 Открытые позиции (Портфель)</button>
+    <div id="auto-buy-status" class="badge badge-yellow" style="margin-left: auto; display: flex; align-items: center; border: none;">⏳ Статус автопокупки...</div>
 </div>
 
 <div class="kpi-row">
@@ -846,13 +847,13 @@
             kpiActivePred.previousElementSibling.textContent = "Всего сделок";
             kpiActivePred.textContent = data.manual_stats.count;
 
-            kpiWinrate.previousElementSibling.textContent = "Win Rate (Ручной)";
+            kpiWinrate.previousElementSibling.textContent = "Win Rate (Портфель)";
             kpiWinrate.textContent = data.manual_stats.win_rate === null ? '—' : formatPercent(data.manual_stats.win_rate);
 
-            kpiAvgentry.previousElementSibling.textContent = "Ср. цена входа (Ручной)";
+            kpiAvgentry.previousElementSibling.textContent = "Ср. цена входа (Портфель)";
             kpiAvgentry.textContent = data.manual_stats.avg_entry_price === null ? '—' : formatPriceCents(data.manual_stats.avg_entry_price);
 
-            kpiBesttrade.previousElementSibling.textContent = "Лучший ручной трейд";
+            kpiBesttrade.previousElementSibling.textContent = "Лучший трейд (Портфель)";
             kpiBesttrade.innerHTML = formatPnLCents(data.manual_stats.best_trade_pnl);
 
             cardTradesPnl.style.display = 'block';
@@ -1248,6 +1249,26 @@
         renderSystemAlerts(data.system_alerts);
     }
 
+    async function fetchAutoBuyStatus() {
+        try {
+            const res = await fetch('/api/penny-stocks/config');
+            const data = await res.json();
+            const badge = document.getElementById('auto-buy-status');
+            if (data && badge) {
+                if (data.auto_buy_enabled) {
+                    badge.className = 'badge badge-green';
+                    badge.innerHTML = '🤖 Автопокупка Включена';
+                } else {
+                    badge.className = 'badge badge-red';
+                    badge.innerHTML = '⏸ Автопокупка Выключена';
+                }
+            }
+        } catch (e) {
+            console.error("Failed to fetch auto buy status", e);
+        }
+    }
+
     // Регистрируем хэндлер обновления в глобальном цикле
     registerRefresh(loadPennyStocksData);
+    registerRefresh(fetchAutoBuyStatus);
 </script>

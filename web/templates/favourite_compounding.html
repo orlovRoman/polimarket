@@ -36,10 +36,10 @@
 </div>
 
 <div class="opinion-tabs" style="margin-bottom: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 12px; display: flex; gap: 8px;">
-    <button id="compound-tab-auto" class="opinion-tab-btn active" onclick="switchCompoundTab('auto')">🤖 Активные (Авто)</button>
+    <button id="compound-tab-auto" class="opinion-tab-btn active" onclick="switchCompoundTab('auto')">🤖 Авто-сигналы агентов</button>
     <button id="compound-tab-wins" class="opinion-tab-btn" onclick="switchCompoundTab('wins')">🟢 Выигранные рынки</button>
     <button id="compound-tab-chains" class="opinion-tab-btn" onclick="switchCompoundTab('chains')">🔗 Авто-цепочки (Parlays)</button>
-    <button id="compound-tab-manual" class="opinion-tab-btn" onclick="switchCompoundTab('manual')">💼 Ручной портфель</button>
+    <button id="compound-tab-manual" class="opinion-tab-btn" onclick="switchCompoundTab('manual')">💼 Открытые позиции (Портфель)</button>
     <button id="compound-tab-losses" class="opinion-tab-btn" onclick="switchCompoundTab('losses')">🔴 Проигранные рынки</button>
     <button class="opinion-tab-btn" style="margin-left: auto; background: var(--surface-light);" onclick="toggleCompoundSettings()">⚙️ Настройки стратегии</button>
 </div>
@@ -288,7 +288,7 @@
 </div>
 
 <div id="history-card" class="table-card" style="display: none;">
-    <div class="table-title">История виртуальных сделок (Ручной портфель)</div>
+    <div class="table-title">История виртуальных сделок (Открытые позиции / Портфель)</div>
     <div class="table-wrapper">
         <table>
             <thead>

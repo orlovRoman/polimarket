@@ -89,6 +89,10 @@
             <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Min Vol ($)</label>
             <input type="number" id="setting-min-vol" class="filter-input" style="width: 100px;">
         </div>
+        <div style="display: flex; flex-direction: column;">
+            <label style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Ставка ($)</label>
+            <input type="number" id="setting-virtual-stake" class="filter-input" style="width: 100px;">
+        </div>
         <button id="btn-save-whale-settings" onclick="saveWhaleSettings()" class="badge badge-green" style="border: none; cursor: pointer; font-weight: 600; padding: 10px 16px; font-size: 0.9rem; border-radius: 6px; align-self: flex-end; margin-bottom: 1px;">Сохранить</button>
     </div>
 </div>
@@ -1043,6 +1047,7 @@
                         <td>${formatPriceCents(row.current_outcome_price)}</td>
                         <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_cents)} (${pnlSign}${row.pnl_percent}%)</span></td>
                         <td>
+                            <button class="badge badge-blue" style="border:none; cursor:pointer; font-weight:600; margin-right:4px;" onclick="editVirtualStake('${row.market_id}', ${row.virtual_bought_price}, ${row.bet_size_usdc})">Изменить</button>
                             <button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600;" onclick="sellVirtual('${row.market_id}', ${row.current_price})">Продать</button>
                         </td>
                     </tr>
@@ -1113,6 +1118,7 @@
             set('setting-min-win-rate', settings.min_whale_win_rate, parseFloat);
             set('setting-min-trades',   settings.min_whale_trades,   v => parseInt(v, 10));
             set('setting-min-vol',      settings.min_market_volume,  parseFloat);
+            set('setting-virtual-stake', settings.virtual_stake, parseFloat);
         } catch (e) {
             console.error("Failed to load whale settings", e);
         }
@@ -1124,8 +1130,9 @@
         const winRateVal = document.getElementById('setting-min-win-rate').value;
         const tradesVal = document.getElementById('setting-min-trades').value;
         const volVal = document.getElementById('setting-min-vol').value;
+        const stakeVal = document.getElementById('setting-virtual-stake').value;
 
-        if (winRateVal === '' || tradesVal === '' || volVal === '') {
+        if (winRateVal === '' || tradesVal === '' || volVal === '' || stakeVal === '') {
             alert('Пожалуйста, заполните все поля настроек');
             return;
         }
@@ -1133,6 +1140,7 @@
         const winRate = parseFloat(winRateVal);
         const trades = parseInt(tradesVal, 10);
         const vol = parseFloat(volVal);
+        const stake = parseFloat(stakeVal);
 
         if (isNaN(winRate) || winRate < 0 || winRate > 1) {
             alert('Min Win Rate должен быть числом от 0 до 1');
@@ -1146,6 +1154,10 @@
             alert('Min Volume должен быть неотрицательным числом');
             return;
         }
+        if (isNaN(stake) || stake < 0) {
+            alert('Ставка должна быть неотрицательным числом');
+            return;
+        }
 
         if (btn) btn.disabled = true;
         const prevText = btn ? btn.textContent : '';
@@ -1155,7 +1167,8 @@
             const payload = {
                 min_whale_win_rate: winRate,
                 min_whale_trades: trades,
-                min_market_volume: vol
+                min_market_volume: vol,
+                virtual_stake: stake
             };
             const res = await fetch('/api/whale-settings', {
                 method: 'POST',
@@ -1181,4 +1194,38 @@
 
     loadWhaleSettings();
     registerRefresh(loadWhaleStocksData);
+</script>
+
+<script>
+    async function editVirtualStake(marketId, currentPrice, currentStake) {
+        const newPriceStr = prompt("Введите виртуальную цену покупки (YES token, 0..1):", currentPrice);
+        if (newPriceStr === null) return;
+        const newStakeStr = prompt("Введите размер ставки (USDC):", currentStake);
+        if (newStakeStr === null) return;
+        
+        const newPrice = parseFloat(newPriceStr);
+        const newStake = parseFloat(newStakeStr);
+        
+        if (isNaN(newPrice) || newPrice < 0 || newPrice > 1 || isNaN(newStake) || newStake < 0) {
+            alert("Некорректные значения");
+            return;
+        }
+        
+        try {
+            const res = await fetch('/api/whale-settings/edit-stake', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ market_id: marketId, virtual_bought_price: newPrice, bet_size_usdc: newStake })
+            });
+            if (res.ok) {
+                loadWhaleStocksData();
+                showToast("Ставка обновлена");
+            } else {
+                const err = await res.json();
+                alert("Ошибка: " + (err.error || "Unknown"));
+            }
+        } catch (e) {
+            alert("Ошибка сети");
+        }
+    }
 </script>
