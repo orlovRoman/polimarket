@@ -189,36 +189,41 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
         
         with get_connection() as conn:
             rows = conn.execute("""
-                SELECT
-                    t.market_id,
-                    m.title,
-                    m.url,
-                    m.price as market_price,
-                    m.volume as market_volume,
-                    m.close_time,
-                    SUM(CASE WHEN t.timestamp > datetime('now', '-2 hours')
-                             THEN t.amount_usd ELSE 0.0 END) AS vol_recent,
-                    SUM(CASE WHEN t.timestamp BETWEEN datetime('now', '-4 hours')
-                             AND datetime('now', '-2 hours')
-                             THEN t.amount_usd ELSE 0.0 END) AS vol_prev,
-                    SUM(CASE WHEN t.outcome = 'YES'
-                             AND t.timestamp > datetime('now', '-2 hours')
-                             THEN t.amount_usd ELSE 0.0 END) AS yes_vol,
-                    SUM(CASE WHEN t.outcome = 'NO'
-                             AND t.timestamp > datetime('now', '-2 hours')
-                             THEN t.amount_usd ELSE 0.0 END) AS no_vol,
-                    (SELECT w.address 
-                     FROM trader_transactions tt
-                     JOIN wallets w ON tt.wallet_address = w.address
-                     WHERE tt.market_id = t.market_id
-                       AND tt.timestamp > datetime('now', '-2 hours')
-                       AND w.win_rate >= ? AND w.n_trades >= ?
-                     ORDER BY tt.amount_usd DESC LIMIT 1) as top_wallet
-                FROM trader_transactions t
-                JOIN markets m ON t.market_id = m.id
-                WHERE t.timestamp > datetime('now', '-4 hours')
-                GROUP BY t.market_id
-                HAVING vol_prev > 100.0 AND (vol_recent / vol_prev) >= ?
+                WITH spike_markets AS (
+                    SELECT
+                        t.market_id,
+                        m.title,
+                        m.url,
+                        m.price as market_price,
+                        m.volume as market_volume,
+                        m.close_time,
+                        SUM(CASE WHEN t.timestamp > datetime('now', '-2 hours')
+                                 THEN t.amount_usd ELSE 0.0 END) AS vol_recent,
+                        SUM(CASE WHEN t.timestamp BETWEEN datetime('now', '-4 hours')
+                                 AND datetime('now', '-2 hours')
+                                 THEN t.amount_usd ELSE 0.0 END) AS vol_prev,
+                        SUM(CASE WHEN t.outcome = 'YES'
+                                 AND t.timestamp > datetime('now', '-2 hours')
+                                 THEN t.amount_usd ELSE 0.0 END) AS yes_vol,
+                        SUM(CASE WHEN t.outcome = 'NO'
+                                 AND t.timestamp > datetime('now', '-2 hours')
+                                 THEN t.amount_usd ELSE 0.0 END) AS no_vol,
+                        (SELECT w.address 
+                         FROM trader_transactions tt
+                         JOIN wallets w ON tt.wallet_address = w.address
+                         WHERE tt.market_id = t.market_id
+                           AND tt.timestamp > datetime('now', '-2 hours')
+                           AND w.win_rate >= ? AND w.n_trades >= ?
+                         ORDER BY tt.amount_usd DESC LIMIT 1) as top_wallet
+                    FROM trader_transactions t
+                    JOIN markets m ON t.market_id = m.id
+                    WHERE t.timestamp > datetime('now', '-4 hours')
+                    GROUP BY t.market_id
+                    HAVING vol_prev > 100.0 AND (vol_recent / vol_prev) >= ?
+                )
+                SELECT sm.*, wal.win_rate, wal.n_trades
+                FROM spike_markets sm
+                LEFT JOIN wallets wal ON wal.address = sm.top_wallet
             """, (min_whale_win_rate, min_whale_trades, min_spike_ratio)).fetchall()
     except Exception as e:
         logger.error(f"[OnchainTrend] Ошибка при SQL-запросе spikes: {e}")

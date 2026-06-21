@@ -217,62 +217,61 @@
 </div>
 
 <div class="table-card">
-    <div class="table-title">Завершенные рынки китов</div>
+    <div class="table-title">Завершенные рынки китов: Плюсовые сделки</div>
     <div class="table-wrapper">
         <table>
             <thead>
                 <tr>
                     <th>#</th>
-                    <th onclick="toggleSort('resolved', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-resolved-title"></span></th>
+                    <th onclick="toggleSort('wins', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-wins-title"></span></th>
                     <th>Кит</th>
-                    <th onclick="toggleSort('resolved', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-resolved-initial_price_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-resolved-max_price_seen_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-resolved-min_price_seen_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-resolved-predicted_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-resolved-actual_outcome"></span></th>
-                    <th onclick="toggleSort('resolved', 'pnl_realized')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'pnl_realized')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL<span id="sort-resolved-pnl_realized"></span></th>
-                    <th onclick="toggleSort('resolved', 'was_correct')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'was_correct')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Результат<span id="sort-resolved-was_correct"></span></th>
-                    <th onclick="toggleSort('resolved', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('resolved', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-resolved-resolved_at"></span></th>
+                    <th onclick="toggleSort('wins', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-wins-initial_price_outcome"></span></th>
+                    <th onclick="toggleSort('wins', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-wins-max_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('wins', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-wins-min_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('wins', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-wins-predicted_outcome"></span></th>
+                    <th onclick="toggleSort('wins', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-wins-actual_outcome"></span></th>
+                    <th onclick="toggleSort('wins', 'pnl_realized')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'pnl_realized')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL<span id="sort-wins-pnl_realized"></span></th>
+                    <th onclick="toggleSort('wins', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('wins', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-wins-resolved_at"></span></th>
                     <th>Действие</th>
                 </tr>
             </thead>
-            <tbody id="resolved-positions-tbody">
+            <tbody id="wins-positions-tbody">
                 <tr>
-                    <td colspan="12" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                    <td colspan="11" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
     </div>
-    <div id="resolved-pagination"></div>
+    <div id="wins-pagination"></div>
 </div>
 
 <div class="table-card">
-    <div class="table-title">История виртуальных сделок китов</div>
+    <div class="table-title">Завершенные рынки китов: Минусовые сделки</div>
     <div class="table-wrapper">
         <table>
             <thead>
                 <tr>
                     <th>#</th>
-                    <th>Рынок</th>
-                    <th>Направление</th>
-                    <th>Вход</th>
-                    <th>Выход</th>
-                    <th>Текущая</th>
-                    <th>Максимум</th>
-                    <th>Минимум</th>
-                    <th>PnL</th>
-                    <th>Дата покупки</th>
-                    <th>Дата продажи</th>
+                    <th onclick="toggleSort('losses', 'title')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'title')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Рынок<span id="sort-losses-title"></span></th>
+                    <th>Кит</th>
+                    <th onclick="toggleSort('losses', 'initial_price_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'initial_price_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Цена входа<span id="sort-losses-initial_price_outcome"></span></th>
+                    <th onclick="toggleSort('losses', 'max_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'max_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Максимум<span id="sort-losses-max_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('losses', 'min_price_seen_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'min_price_seen_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Минимум<span id="sort-losses-min_price_seen_outcome"></span></th>
+                    <th onclick="toggleSort('losses', 'predicted_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'predicted_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Прогноз<span id="sort-losses-predicted_outcome"></span></th>
+                    <th onclick="toggleSort('losses', 'actual_outcome')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'actual_outcome')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Исход<span id="sort-losses-actual_outcome"></span></th>
+                    <th onclick="toggleSort('losses', 'pnl_realized')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'pnl_realized')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">PnL<span id="sort-losses-pnl_realized"></span></th>
+                    <th onclick="toggleSort('losses', 'resolved_at')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('losses', 'resolved_at')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Разрешен<span id="sort-losses-resolved_at"></span></th>
+                    <th>Действие</th>
                 </tr>
             </thead>
-            <tbody id="virtual-history-tbody">
+            <tbody id="losses-positions-tbody">
                 <tr>
-                    <td colspan="11" style="text-align: center;" class="text-muted">История пуста</td>
+                    <td colspan="11" style="text-align: center;" class="text-muted">Загрузка данных...</td>
                 </tr>
             </tbody>
         </table>
     </div>
-    <div id="history-pagination"></div>
+    <div id="losses-pagination"></div>
 </div>
 
 <div class="table-card">
@@ -526,7 +525,8 @@
 
     let sortState = {
         active: { col: 'added_at', dir: 'desc' },
-        resolved: { col: 'resolved_at', dir: 'desc' }
+        wins: { col: 'resolved_at', dir: 'desc' },
+        losses: { col: 'resolved_at', dir: 'desc' }
     };
     let lastFetchedData = null;
 
@@ -582,8 +582,8 @@
 
     let pagination = {
         active: { page: 1, limit: 50, total: 0 },
-        resolved: { page: 1, limit: 50, total: 0 },
-        history: { page: 1, limit: 50, total: 0 },
+        wins: { page: 1, limit: 50, total: 0 },
+        losses: { page: 1, limit: 50, total: 0 },
         whales: { page: 1, limit: 10, total: 0 }
     };
 
@@ -635,12 +635,13 @@
         sortDataArray(activeData, sortState.active.col, sortState.active.dir);
         renderActiveTable(activeData);
         
-        let resolvedData = [...lastFetchedData.resolved];
-        resolvedData.forEach(row => {
-            row.was_correct = row.predicted_outcome === row.actual_outcome;
-        });
-        sortDataArray(resolvedData, sortState.resolved.col, sortState.resolved.dir);
-        renderResolvedTable(resolvedData);
+        let winsData = [...(lastFetchedData.resolved_wins || [])];
+        sortDataArray(winsData, sortState.wins.col, sortState.wins.dir);
+        renderResolvedTable(winsData, 'wins-positions-tbody', 'wins');
+
+        let lossesData = [...(lastFetchedData.resolved_losses || [])];
+        sortDataArray(lossesData, sortState.losses.col, sortState.losses.dir);
+        renderResolvedTable(lossesData, 'losses-positions-tbody', 'losses');
     }
 
     function renderActiveTable(activeList) {
@@ -709,18 +710,12 @@
         }
     }
 
-    function renderResolvedTable(resolvedList) {
-        const resolvedTbody = document.getElementById('resolved-positions-tbody');
+    function renderResolvedTable(resolvedList, elementId, sectionKey) {
+        const resolvedTbody = document.getElementById(elementId);
         if (resolvedList.length === 0) {
-            resolvedTbody.innerHTML = `<tr><td colspan="12" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
+            resolvedTbody.innerHTML = `<tr><td colspan="11" style="text-align: center;" class="text-muted">Нет завершенных позиций</td></tr>`;
         } else {
             resolvedTbody.innerHTML = resolvedList.map((row, index) => {
-                const targetOutcome = row.predicted_outcome === null ? row.cheap_outcome : row.predicted_outcome;
-                const wasCorrect = targetOutcome === row.actual_outcome;
-                const resultBadge = wasCorrect 
-                    ? '<span class="badge badge-green">✅ WIN</span>' 
-                    : '<span class="badge badge-red">❌ LOSS</span>';
-                
                 let outcomeBadge = '';
                 if (row.predicted_outcome !== null) {
                     outcomeBadge = `<span class="badge ${row.predicted_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.predicted_outcome}</span>`;
@@ -729,7 +724,7 @@
                 }
 
                 const deleteBtn = `<button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; background-color:#ef4444; color:#fff;" onclick="deleteMarket('whale_stocks_monitoring', '${row.market_id}')">🗑️</button>`;
-                const globalIndex = (pagination.resolved.page - 1) * pagination.resolved.limit + index + 1;
+                const globalIndex = (pagination[sectionKey].page - 1) * pagination[sectionKey].limit + index + 1;
                 return `
                     <tr>
                         <td>${globalIndex}</td>
@@ -741,7 +736,6 @@
                         <td>${outcomeBadge}</td>
                         <td><span class="badge ${row.actual_outcome === 'YES' ? 'badge-green' : 'badge-red'}">${row.actual_outcome || '—'}</span></td>
                         <td>${row.pnl_realized === null ? '—' : formatPnL(row.pnl_realized)}</td>
-                        <td>${resultBadge}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.resolved_at)}</td>
                         <td>${deleteBtn}</td>
                     </tr>
@@ -1008,15 +1002,15 @@
     }
 
     async function loadWhaleStocksData() {
-        const url = `/api/whale-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&resolved_page=${pagination.resolved.page}&resolved_limit=${pagination.resolved.limit}&history_page=${pagination.history.page}&history_limit=${pagination.history.limit}&whales_page=${pagination.whales.page}&whales_limit=${pagination.whales.limit}`;
+        const url = `/api/whale-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&wins_page=${pagination.wins.page}&wins_limit=${pagination.wins.limit}&losses_page=${pagination.losses.page}&losses_limit=${pagination.losses.limit}&whales_page=${pagination.whales.page}&whales_limit=${pagination.whales.limit}`;
         const data = await fetchJSON(url);
 
         if (!data) return;
 
         lastFetchedData = data;
         pagination.active.total = data.active_total || 0;
-        pagination.resolved.total = data.resolved_total || 0;
-        pagination.history.total = data.history_total || 0;
+        pagination.wins.total = data.wins_total || 0;
+        pagination.losses.total = data.losses_total || 0;
         pagination.whales.total = data.whales_total || 0;
 
         runningAnalyses = data.running_analyses || [];
@@ -1074,14 +1068,14 @@
 
         // 3. Таблицы с сортировкой
         renderTablesOnly();
-        renderVirtualHistoryTable(data.virtual_history);
         renderPaginationControls('active-pagination', 'active');
-        renderPaginationControls('resolved-pagination', 'resolved');
-        renderPaginationControls('history-pagination', 'history');
+        renderPaginationControls('wins-pagination', 'wins');
+        renderPaginationControls('losses-pagination', 'losses');
         renderWhalesTable(data.whales);
         renderPaginationControls('whales-pagination', 'whales');
         updateSortIndicators('active');
-        updateSortIndicators('resolved');
+        updateSortIndicators('wins');
+        updateSortIndicators('losses');
 
         // 4. Оповещения
         renderSystemAlerts(data.system_alerts);

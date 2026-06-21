@@ -4,6 +4,7 @@ import math
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
+import json
 
 logger = logging.getLogger("NexusPolyBot.DataProvider")
 
@@ -1141,7 +1142,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'system_alerts': system_alerts
     }
 
-def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1, resolved_limit=100, history_page=1, history_limit=100, whales_page=1, whales_limit=10) -> dict:
+def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, wins_limit=50, losses_page=1, losses_limit=50, whales_page=1, whales_limit=10) -> dict:
     """
     Собирает данные для дашборда Whale Following (активные, завершенные позиции, статистика, распределение).
     """
@@ -1192,31 +1193,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 row_dict['min_price_seen_outcome'] = mn
             active.append(row_dict)
 
-        # Подсчет общего количества завершенных
-        resolved_total = conn.execute("""
-            SELECT COUNT(*) as cnt
-            FROM whale_stocks_monitoring p
-            WHERE p.status = 'RESOLVED'
-        """).fetchone()['cnt']
-
-        # Завершенные позиции с пагинацией
-        resolved_offset = (resolved_page - 1) * resolved_limit
-        resolved_rows = conn.execute("""
-            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
-                   h.pnl_cents as pnl_realized
-            FROM whale_stocks_monitoring p
-            LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents
-                FROM whale_virtual_trades_history
-                GROUP BY market_id
-            ) h ON p.market_id = h.market_id
-            WHERE p.status = 'RESOLVED'
-            ORDER BY p.resolved_at DESC
-            LIMIT ? OFFSET ?
-        """, (resolved_limit, resolved_offset)).fetchall()
-
-        resolved = []
-        for r in resolved_rows:
+        def _process_resolved_row(r):
             row_dict = dict(r)
             if 'url' in row_dict:
                 row_dict['url'] = clean_db_url(row_dict['url'])
@@ -1254,8 +1231,59 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                     row_dict['pnl_realized'] = 0.0
             else:
                 row_dict['pnl_realized'] = round((row_dict['pnl_realized'] or 0.0) * virtual_stake, 2)
+            return row_dict
 
-            resolved.append(row_dict)
+        # Подсчет выигрышных
+        wins_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM whale_stocks_monitoring p
+            WHERE p.status = 'RESOLVED' 
+            AND UPPER(COALESCE(p.predicted_outcome, 'YES')) = UPPER(p.actual_outcome)
+        """).fetchone()['cnt']
+
+        # Подсчет проигранных
+        losses_total = conn.execute("""
+            SELECT COUNT(*) as cnt
+            FROM whale_stocks_monitoring p
+            WHERE p.status = 'RESOLVED' 
+            AND UPPER(COALESCE(p.predicted_outcome, 'YES')) != UPPER(p.actual_outcome)
+        """).fetchone()['cnt']
+
+        # Выигрышные сделки
+        wins_offset = (wins_page - 1) * wins_limit
+        wins_rows = conn.execute("""
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
+                   h.pnl_cents as pnl_realized
+            FROM whale_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                FROM whale_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED'
+            AND UPPER(COALESCE(p.predicted_outcome, 'YES')) = UPPER(p.actual_outcome)
+            ORDER BY p.resolved_at DESC
+            LIMIT ? OFFSET ?
+        """, (wins_limit, wins_offset)).fetchall()
+        resolved_wins = [_process_resolved_row(r) for r in wins_rows]
+
+        # Проигранные сделки
+        losses_offset = (losses_page - 1) * losses_limit
+        losses_rows = conn.execute("""
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
+                   h.pnl_cents as pnl_realized
+            FROM whale_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                FROM whale_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED'
+            AND UPPER(COALESCE(p.predicted_outcome, 'YES')) != UPPER(p.actual_outcome)
+            ORDER BY p.resolved_at DESC
+            LIMIT ? OFFSET ?
+        """, (losses_limit, losses_offset)).fetchall()
+        resolved_losses = [_process_resolved_row(r) for r in losses_rows]
 
         # Виртуальный портфель
         portfolio_rows = conn.execute("""
@@ -1551,7 +1579,6 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 LIMIT 30
             """).fetchall()
             for r in alerts_rows:
-                import json
                 meta = {}
                 try:
                     if r['details']:

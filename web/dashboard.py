@@ -623,10 +623,10 @@ async def api_edit_whale_stake(request):
 async def api_whale_stocks(request):
     active_page = get_int_query(request, "active_page", 1)
     active_limit = get_int_query(request, "active_limit", 50)
-    resolved_page = get_int_query(request, "resolved_page", 1)
-    resolved_limit = get_int_query(request, "resolved_limit", 50)
-    history_page = get_int_query(request, "history_page", 1)
-    history_limit = get_int_query(request, "history_limit", 50)
+    wins_page = get_int_query(request, "wins_page", 1)
+    wins_limit = get_int_query(request, "wins_limit", 50)
+    losses_page = get_int_query(request, "losses_page", 1)
+    losses_limit = get_int_query(request, "losses_limit", 50)
     whales_page = get_int_query(request, "whales_page", 1)
     whales_limit = get_int_query(request, "whales_limit", 10)
     
@@ -634,10 +634,10 @@ async def api_whale_stocks(request):
         data_provider.get_whale_stocks_dashboard,
         active_page=active_page,
         active_limit=active_limit,
-        resolved_page=resolved_page,
-        resolved_limit=resolved_limit,
-        history_page=history_page,
-        history_limit=history_limit,
+        wins_page=wins_page,
+        wins_limit=wins_limit,
+        losses_page=losses_page,
+        losses_limit=losses_limit,
         whales_page=whales_page,
         whales_limit=whales_limit
     )
