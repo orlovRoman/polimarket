@@ -3128,7 +3128,8 @@ def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) ->
         conn.execute("""
             UPDATE whale_stocks_monitoring
             SET virtual_bought_price = NULL,
-                virtual_bought_at = NULL
+                virtual_bought_at = NULL,
+                bet_size_usdc = NULL
             WHERE market_id = ?
         """, (market_id,))
 
