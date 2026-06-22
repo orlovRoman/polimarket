@@ -856,8 +856,13 @@
                             
                             let oppLink = bet.url ? `<a href="${bet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${bet.title || 'Рынок #' + bet.opp_id}</a>` : `Рынок #${bet.opp_id}`;
                             pastBetsList.push(`
-                                <div style="margin-bottom: 4px; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px;" title="${bet.title ? bet.title.replace(/"/g, '&quot;') : 'Рынок #' + bet.opp_id}">
-                                    <span class="text-muted">Шаг ${bet.step_index}:</span> ${oppLink} &nbsp;${betPnlHtml}
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.85rem;">
+                                    <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px;" title="${bet.title ? bet.title.replace(/"/g, '&quot;') : 'Рынок #' + bet.opp_id}">
+                                        <span class="text-muted">Шаг ${bet.step_index}:</span> ${oppLink}
+                                    </div>
+                                    <div style="white-space: nowrap; margin-left: 8px;">
+                                        ${betPnlHtml}
+                                    </div>
                                 </div>
                             `);
                         }
@@ -878,7 +883,20 @@
                                 </div>
                             </div>
                         `;
-                    } else if (chain.status === 'COMPLETED' || chain.status === 'FAILED') {
+                    } else if (chain.status === 'FAILED') {
+                        const lostBet = chain.bets.find(b => b.status === 'LOST');
+                        if (lostBet) {
+                            let oppLink = lostBet.url ? `<a href="${lostBet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${lostBet.title}</a>` : `Рынок #${lostBet.opp_id}`;
+                            currentBetHtml = `
+                                <div style="font-size: 0.9rem;">
+                                    <div class="text-muted" style="margin-bottom: 2px;">Сгорела на шаге ${lostBet.step_index}:</div>
+                                    <div>${oppLink}</div>
+                                </div>
+                            `;
+                        } else {
+                            currentBetHtml = `<span class="text-muted">Цепочка прервана</span>`;
+                        }
+                    } else if (chain.status === 'COMPLETED') {
                          currentBetHtml = `<span class="text-muted">Цепочка завершена</span>`;
                     }
                 }
@@ -888,12 +906,19 @@
                     displayStep += 1;
                 }
                 
+                let stakeHtml = `$${chain.current_stake.toFixed(2)}`;
+                if (chain.status === 'FAILED') {
+                    stakeHtml = `<span style="color: var(--accent-red);">-$${chain.current_stake.toFixed(2)}</span>`;
+                } else if (chain.status === 'COMPLETED') {
+                    stakeHtml = `<span style="color: var(--accent-green);">+$${chain.current_stake.toFixed(2)}</span>`;
+                }
+
                 return `
                     <tr>
                         <td style="white-space: nowrap;"><b>#${chain.id}</b>${statusBadge}</td>
                         <td>${historyHtml}</td>
                         <td style="white-space: nowrap;">Шаг ${displayStep} / ${chain.target_steps}</td>
-                        <td style="white-space: nowrap;">$${chain.current_stake.toFixed(2)}</td>
+                        <td style="white-space: nowrap;">${stakeHtml}</td>
                         <td>${currentBetHtml}</td>
                     </tr>
                 `;
