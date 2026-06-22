@@ -2096,10 +2096,14 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
             summary_safe = summary_safe[:500] + "..."
             
         emoji = _get_emoji_number(global_idx)
+        
+        conf_val = s.get('confidence')
+        conf_str = f"{conf_val:.2f}" if isinstance(conf_val, (int, float)) else str(conf_val)
+        
         response += (
             f"{emoji} <b>{title_safe}</b>\n"
             f"🎯 <b>Рекомендация: Покупать {target}</b> (по цене ~{price:.3f})\n"
-            f"📈 Edge (преимущество): <b>+{edge_pct:.1f}%</b> | Уверенность: {s['confidence']}\n"
+            f"📈 Edge (преимущество): <b>+{edge_pct:.1f}%</b> | Уверенность: {conf_str}\n"
             f"📝 {summary_safe}\n"
             f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
         )
@@ -2174,10 +2178,13 @@ async def send_penny_page(message_or_callback, page: int = 0) -> None:
         if len(summary_safe) > 500:
             summary_safe = summary_safe[:500] + "..."
             
+        conf_val = s.get('confidence')
+        conf_str = f"{conf_val:.2f}" if isinstance(conf_val, (int, float)) else str(conf_val)
+        
         response += (
             f"📍 <b>{title_safe}</b>\n"
             f"🎯 <b>Рекомендация: Покупать {target}</b> (по цене ~{price:.3f})\n"
-            f"📈 Edge (преимущество): <b>+{edge_pct:.1f}%</b> | Уверенность: {s['confidence']}\n"
+            f"📈 Edge (преимущество): <b>+{edge_pct:.1f}%</b> | Уверенность: {conf_str}\n"
             f"📝 {summary_safe}\n"
             f"🔗 <a href='{s['url']}'>Открыть рынок</a>\n\n"
         )
@@ -2498,11 +2505,13 @@ async def callback_show_analysis(callback: CallbackQuery) -> None:
             except Exception:
                 pass
                 
+            conf_val = sig_data.get('confidence', 0.5)
+            conf_str = f"{conf_val:.2f}" if isinstance(conf_val, (int, float)) else str(conf_val)
             report = (
                 "🧠 <b>Анализ сигнала (Фоллбек):</b>\n"
                 f"<a href='{sig_data['url']}'>{sig_data['title']}</a> (по цене ~{price:.3f})\n\n"
                 f"🎯 <b>Рекомендация: Покупать {target}</b>\n"
-                f"📈 Edge: <b>+{edge_pct:.1f}%</b> | Уверенность: {sig_data.get('confidence', 0.5)}\n\n"
+                f"📈 Edge: <b>+{edge_pct:.1f}%</b> | Уверенность: {conf_str}\n\n"
                 f"📝 <b>Описание:</b>\n{details_text}"
             )
         else:
