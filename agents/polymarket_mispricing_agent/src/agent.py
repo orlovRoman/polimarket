@@ -292,6 +292,17 @@ class ScoutAgent:
             confidence = float(analysis.get("confidence", 0.5))
             priority = analysis.get("priority", "medium")
             
+            # Применяем Platt Scaling (сжатие вероятностей к 50%)
+            from agents.shared.python.db import get_scout_settings
+            scale = float(get_scout_settings().get("confidence_scaling", 1.0))
+            if scale != 1.0 and scale > 0:
+                est_prob = 0.5 + (est_prob - 0.5) * scale
+                confidence = 0.5 + (confidence - 0.5) * scale
+                
+            # Защита от выхода за пределы [0.01, 0.99]
+            est_prob = max(0.01, min(0.99, est_prob))
+            confidence = max(0.01, min(0.99, confidence))
+            
             # Рассчитываем Edge для YES и NO
             edge_yes = est_prob - market.price
             edge_no = (1.0 - est_prob) - (1.0 - market.price)

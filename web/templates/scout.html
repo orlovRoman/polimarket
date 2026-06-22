@@ -11,23 +11,23 @@
     <div class="table-title" style="margin-bottom: 16px;">Настройки агента SCOUT</div>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
         <div>
-            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Market Cooldown (часы)</label>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);" title="Время, в течение которого рынок не будет повторно анализироваться после последнего сканирования, чтобы избежать спама.">Заморозка рынка после анализа (часов)</label>
             <input type="number" id="setting-cooldown-hours" step="1" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
         </div>
         <div>
-            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Cooldown Bypass (до закрытия, ч)</label>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);" title="За сколько часов до закрытия рынка игнорировать 'заморозку', чтобы успеть сделать финальный анализ перед резолюцией.">Игнорировать заморозку перед закрытием (часов)</label>
             <input type="number" id="setting-bypass-hours" step="1" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
         </div>
         <div>
-            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Scan Limit (рынков)</label>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);" title="Максимальное количество рынков, которые будут проанализированы за один запуск агента (для экономии токенов API).">Лимит сканирования (рынков за запуск)</label>
             <input type="number" id="setting-scan-limit" step="1" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
         </div>
         <div>
-            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Platt Scaling Factor (1.0 = выкл)</label>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);" title="Множитель для корректировки 'самоуверенности' модели. Значения меньше 1.0 сжимают вероятности ближе к 50% (исправляет overconfidence). 1.0 = выключено.">Коэффициент калибровки (Platt Scaling Factor)</label>
             <input type="number" id="setting-confidence-scaling" step="0.1" min="0.1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
         </div>
         <div>
-            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">SHADOW Soft-block Penalty (0.1 = 10%)</label>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);" title="Насколько сильно снижать уверенность (confidence) сигнала, если агент-критик SHADOW выразил сомнения. Например, 0.1 = снижение на 10%.">Штраф за сомнения критика (SHADOW Penalty)</label>
             <input type="number" id="setting-shadow-penalty" step="0.05" min="0.0" max="1.0" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
         </div>
     </div>
