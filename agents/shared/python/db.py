@@ -2653,6 +2653,33 @@ def buy_virtual_penny_stock(market_id: str, price: float, bet_size: float = None
             bet_size = 1.0
 
     with get_connection() as conn:
+        row = conn.execute("SELECT title, url, predicted_outcome FROM penny_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
+        if row:
+            pred = row["predicted_outcome"] or ("NO" if price >= 0.90 else "YES")
+            try:
+                from core.eval.signal_logger import SignalLogger, StrategyType
+                import uuid
+                sig_id = str(uuid.uuid4())
+                logger_eval = SignalLogger()
+                logger_eval.log_signal(
+                    signal_id=sig_id,
+                    strategy_type=StrategyType.PENNY_STOCKS,
+                    market_id=market_id,
+                    predicted_probability=price if pred == "YES" else (1.0 - price),
+                    market_price_at_signal=price,
+                    edge_at_signal=0.5,
+                    metadata={
+                        "target_outcome": pred,
+                        "priority": "low",
+                        "summary": f"Penny Stock Auto-Buy: {row['title']}",
+                        "platform": "polymarket",
+                        "url": row["url"]
+                    }
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger("NexusPolyBot.DB").error(f"Failed to log penny signal to SignalLogger: {e}")
+
         conn.execute("""
             UPDATE penny_stocks_monitoring
             SET virtual_bought_price = ?,
@@ -2733,6 +2760,20 @@ def resolve_penny_stock(market_id: str, actual_outcome: str) -> None:
         if not row or row['status'] == 'RESOLVED':
             return
             
+        try:
+            from core.eval.signal_logger import SignalLogger
+            logger_eval = SignalLogger()
+            sig_row = conn.execute("SELECT id FROM signals WHERE market_id = ? AND strategy_type = 'PENNY_STOCKS' AND status = 'PENDING'", (market_id,)).fetchone()
+            if sig_row:
+                logger_eval.log_resolution(
+                    signal_id=sig_row["id"],
+                    resolution_outcome=actual_outcome,
+                    resolution_price=1.0 if actual_outcome == "YES" else 0.0
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger("NexusPolyBot.DB").error(f"Failed to resolve penny signal in SignalLogger: {e}")
+
         if row['virtual_bought_price'] is not None:
             v_bought = row['virtual_bought_price']
             v_bought_at = row['virtual_bought_at']

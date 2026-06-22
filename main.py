@@ -787,6 +787,16 @@ async def scheduled_signal_resolution():
     except Exception as e:
         logger.error(f"Ошибка в авторезолюции по расписанию: {e}", exc_info=True)
 
+async def scheduled_resolution_fetcher():
+    try:
+        from services.resolution_fetcher import ResolutionFetcher
+        fetcher = ResolutionFetcher()
+        n_resolved = await fetcher.fetch_pending_resolutions()
+        if n_resolved > 0:
+            logger.info(f"[ResolutionFetcher] Обновлено {n_resolved} сигналов.")
+    except Exception as e:
+        logger.error(f"Ошибка в scheduled_resolution_fetcher: {e}", exc_info=True)
+
 async def start_system():
     load_dotenv()
     from config import startup_check
@@ -923,6 +933,15 @@ async def start_system():
         trigger="interval",
         hours=outcome_tracker_interval,
         id="outcome_tracker",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    scheduler.add_job(
+        scheduled_resolution_fetcher,
+        trigger="interval",
+        hours=6,
+        id="resolution_fetcher",
         replace_existing=True,
         misfire_grace_time=600,
     )
