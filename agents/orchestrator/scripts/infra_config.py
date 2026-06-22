@@ -7,3 +7,9 @@ class InfraConfig:
     cleanup_batch_size: int = 1000
 
 INFRA_CONFIG = InfraConfig()
+
+@dataclass(frozen=True)
+class ReportConfig:
+    daily_summary_window_days: int = 1
+
+REPORT_CONFIG = ReportConfig()

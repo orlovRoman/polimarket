@@ -182,8 +182,8 @@ def get_shadow_rejection_reasons(conn, window_days: int) -> list:
           AND created_at >= datetime('now', ?)
         GROUP BY shadow_reason
         ORDER BY cnt DESC
-        LIMIT {}
-    """.format(CALIB_CONFIG.top_reasons_limit), (f'-{window_days} days',)).fetchall()
+        LIMIT ?
+    """, (f'-{window_days} days', CALIB_CONFIG.top_reasons_limit)).fetchall()
     
     return [{"reason": r['shadow_reason'], "count": r['cnt']} for r in rows]
 
