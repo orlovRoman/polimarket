@@ -125,7 +125,7 @@ class CalibrationStore:
                     
                 cursor.execute("""
                     UPDATE calibration_params 
-                    SET auto_applied = 1, updated_at = CURRENT_TIMESTAMP
+                    SET auto_applied = 1
                     WHERE id = ?
                 """, (suggestion_id,))
                 
@@ -153,11 +153,11 @@ class CalibrationStore:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, strategy_type, param_name, param_value, previous_value, reason, auto_applied, updated_at
+                    SELECT id, strategy_type, param_name, param_value, previous_value, reason, auto_applied, created_at as updated_at
                     FROM calibration_params
                     WHERE param_name = ?
                       AND auto_applied = 1
-                    ORDER BY updated_at DESC, id DESC
+                    ORDER BY id DESC
                     LIMIT ?
                 """, (param_name, last_n))
                 rows = cursor.fetchall()
@@ -187,10 +187,10 @@ class CalibrationStore:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, strategy_type, param_name, param_value, previous_value, reason, auto_applied, updated_at
+                    SELECT id, strategy_type, param_name, param_value, previous_value, reason, auto_applied, created_at as updated_at
                     FROM calibration_params
                     WHERE strategy_type = ?
-                    ORDER BY updated_at DESC, id DESC
+                    ORDER BY id DESC
                     LIMIT ?
                 """, (strategy_type, last_n))
                 rows = cursor.fetchall()
@@ -233,7 +233,7 @@ class CalibrationStore:
                         SELECT param_value FROM calibration_params
                         WHERE param_name = ? AND strategy_type = ?
                           AND auto_applied = 1
-                        ORDER BY updated_at DESC, id DESC
+                        ORDER BY id DESC
                         LIMIT 1
                     """, (param_name, strategy_type))
                 else:
@@ -241,7 +241,7 @@ class CalibrationStore:
                         SELECT param_value FROM calibration_params
                         WHERE param_name = ?
                           AND auto_applied = 1
-                        ORDER BY updated_at DESC, id DESC
+                        ORDER BY id DESC
                         LIMIT 1
                     """, (param_name,))
                 row = cursor.fetchone()
