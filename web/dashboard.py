@@ -641,6 +641,8 @@ async def api_whale_stocks(request):
     losses_limit = get_int_query(request, "losses_limit", 50)
     whales_page = get_int_query(request, "whales_page", 1)
     whales_limit = get_int_query(request, "whales_limit", 10)
+    whales_sort_by = request.query.get("whales_sort_by", "total_vol")
+    whales_sort_dir = request.query.get("whales_sort_dir", "desc")
     
     data = await asyncio.to_thread(
         data_provider.get_whale_stocks_dashboard,
@@ -651,7 +653,9 @@ async def api_whale_stocks(request):
         losses_page=losses_page,
         losses_limit=losses_limit,
         whales_page=whales_page,
-        whales_limit=whales_limit
+        whales_limit=whales_limit,
+        whales_sort_by=whales_sort_by,
+        whales_sort_dir=whales_sort_dir
     )
     with _jobs_lock:
         running_ids = [mid for mid, job in analysis_jobs.items() if job.get("status") == "running"]

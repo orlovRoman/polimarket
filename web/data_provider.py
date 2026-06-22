@@ -1214,7 +1214,7 @@ def _process_whale_resolved_row(r, virtual_stake: float) -> dict:
         row_dict['pnl_realized'] = round(row_dict['pnl_realized'] or 0.0, 2)
     return row_dict
 
-def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, wins_limit=50, losses_page=1, losses_limit=50, whales_page=1, whales_limit=10) -> dict:
+def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, wins_limit=50, losses_page=1, losses_limit=50, whales_page=1, whales_limit=10, whales_sort_by='total_vol', whales_sort_dir='desc') -> dict:
     """
     Собирает данные для дашборда Whale Following (активные, завершенные позиции, статистика, распределение).
     """
@@ -1457,6 +1457,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         seven_days_ago = now - timedelta(days=7)
         thirty_days_ago = now - timedelta(days=30)
         
+        daily_pnl = {}
+        
         for r in all_resolved_rows:
             pnl_realized = r['pnl_realized']
             pnl_val = 0.0
@@ -1498,6 +1500,16 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
                             pnl_7d += pnl_val
                         if res_at >= thirty_days_ago:
                             pnl_30d += pnl_val
+                            
+                        # Group for daily chart (last 30 days)
+                        if res_at >= thirty_days_ago:
+                            date_str = res_at.strftime('%Y-%m-%d')
+                            if date_str not in daily_pnl:
+                                daily_pnl[date_str] = {'wins': 0.0, 'losses': 0.0}
+                            if pnl_val > 0:
+                                daily_pnl[date_str]['wins'] += pnl_val
+                            elif pnl_val < 0:
+                                daily_pnl[date_str]['losses'] += abs(pnl_val)
             except Exception:
                 pass
 
@@ -1521,6 +1533,21 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             'pnl_7d': round(pnl_7d, 2),
             'pnl_30d': round(pnl_30d, 2),
             'virtual_stake': virtual_stake
+        }
+
+        # Prepare chart data (sorted by date)
+        chart_labels = []
+        chart_wins = []
+        chart_losses = []
+        for d in sorted(daily_pnl.keys()):
+            chart_labels.append(d)
+            chart_wins.append(round(daily_pnl[d]['wins'], 2))
+            chart_losses.append(round(daily_pnl[d]['losses'], 2))
+            
+        daily_chart_data = {
+            'labels': chart_labels,
+            'wins': chart_wins,
+            'losses': chart_losses
         }
 
         # Распределение цен входа
@@ -1580,12 +1607,25 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         except Exception as e:
             logger.warning(f"[DataProvider] signals whale alerts недоступны: {e}")
 
-        # Статистика китов с пагинацией
+        # Статистика китов с пагинацией и сортировкой
         try:
             row = conn.execute("SELECT COUNT(*) as cnt FROM wallets").fetchone()
             whales_total = row['cnt'] if row else 0
             whales_offset = (whales_page - 1) * whales_limit
-            whales_rows = conn.execute("""
+
+            # Безопасный маппинг колонок для сортировки
+            allowed_sort_cols = {
+                'address': 'w.address',
+                'alias': 'w.alias',
+                'win_rate': 'w.win_rate',
+                'total_profit': 'w.total_profit',
+                'tx_count': 'tx_count',
+                'total_vol': 'total_vol'
+            }
+            sort_col = allowed_sort_cols.get(whales_sort_by, 'total_vol')
+            sort_dir_safe = 'ASC' if whales_sort_dir.lower() == 'asc' else 'DESC'
+
+            query = f"""
                 SELECT 
                     w.address,
                     w.alias,
@@ -1597,9 +1637,10 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
                 FROM wallets w
                 LEFT JOIN trader_transactions t ON w.address = t.wallet_address
                 GROUP BY w.address
-                ORDER BY total_vol DESC, tx_count DESC
+                ORDER BY {sort_col} {sort_dir_safe}
                 LIMIT ? OFFSET ?
-            """, (whales_limit, whales_offset)).fetchall()
+            """
+            whales_rows = conn.execute(query, (whales_limit, whales_offset)).fetchall()
             
             whales = []
             for r in whales_rows:
@@ -1626,7 +1667,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         'resolved_total': resolved_total,
         'system_alerts': system_alerts,
         'whales': whales,
-        'whales_total': whales_total
+        'whales_total': whales_total,
+        'daily_chart_data': daily_chart_data
     }
 
 def get_strategy_signals(strategy: str, days: Optional[int] = 30, limit: int = 50, page: Optional[int] = None, sort_by: Optional[str] = None, sort_dir: Optional[str] = None) -> Any:

@@ -203,6 +203,13 @@
     </div>
 </div>
 
+<div class="table-card" style="margin-bottom: 24px;">
+    <div class="table-title">График PnL (30 дней)</div>
+    <div style="height: 300px; padding: 16px;">
+        <canvas id="dailyPnlChart"></canvas>
+    </div>
+</div>
+
 <div class="table-card">
     <div class="table-title">Активные позиции мониторинга китов</div>
     <div class="table-wrapper">
@@ -297,12 +304,12 @@
             <thead>
                 <tr>
                     <th>#</th>
-                    <th>Адрес кошелька</th>
-                    <th>Alias</th>
-                    <th>Win Rate (30д)</th>
-                    <th>Общий профит</th>
-                    <th>Сделок в БД</th>
-                    <th>Общий объем сделок</th>
+                    <th onclick="toggleSort('whales', 'address')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('whales', 'address')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Адрес кошелька<span id="sort-whales-address"></span></th>
+                    <th onclick="toggleSort('whales', 'alias')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('whales', 'alias')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Alias<span id="sort-whales-alias"></span></th>
+                    <th onclick="toggleSort('whales', 'win_rate')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('whales', 'win_rate')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Win Rate (30д)<span id="sort-whales-win_rate"></span></th>
+                    <th onclick="toggleSort('whales', 'total_profit')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('whales', 'total_profit')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Общий профит<span id="sort-whales-total_profit"></span></th>
+                    <th onclick="toggleSort('whales', 'tx_count')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('whales', 'tx_count')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Сделок в БД<span id="sort-whales-tx_count"></span></th>
+                    <th onclick="toggleSort('whales', 'total_vol')" onkeydown="if(event.key==='Enter'||event.key===' ') toggleSort('whales', 'total_vol')" role="button" tabindex="0" style="cursor:pointer; user-select:none;">Общий объем сделок<span id="sort-whales-total_vol"></span></th>
                 </tr>
             </thead>
             <tbody id="whales-tbody">
@@ -576,9 +583,14 @@
     }
 
     function updateSortIndicators(tableType) {
-        const columns = tableType === 'active' 
-            ? ['title', 'initial_price_outcome', 'current_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'volume_2h', 'predicted_outcome', 'added_at']
-            : ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_realized', 'resolved_at'];
+        let columns = [];
+        if (tableType === 'active') {
+            columns = ['title', 'initial_price_outcome', 'current_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'volume_2h', 'predicted_outcome', 'added_at'];
+        } else if (tableType === 'whales') {
+            columns = ['address', 'alias', 'win_rate', 'total_profit', 'tx_count', 'total_vol'];
+        } else {
+            columns = ['title', 'initial_price_outcome', 'max_price_seen_outcome', 'min_price_seen_outcome', 'predicted_outcome', 'actual_outcome', 'pnl_realized', 'resolved_at'];
+        }
             
         columns.forEach(col => {
             const el = document.getElementById(`sort-${tableType}-${col}`);
@@ -1017,8 +1029,10 @@
         setTimeout(() => modal.style.display = 'none', 250);
     }
 
+    let dailyChart = null;
+
     async function loadWhaleStocksData() {
-        const url = `/api/whale-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&wins_page=${pagination.wins.page}&wins_limit=${pagination.wins.limit}&losses_page=${pagination.losses.page}&losses_limit=${pagination.losses.limit}&whales_page=${pagination.whales.page}&whales_limit=${pagination.whales.limit}`;
+        const url = `/api/whale-stocks?active_page=${pagination.active.page}&active_limit=${pagination.active.limit}&wins_page=${pagination.wins.page}&wins_limit=${pagination.wins.limit}&losses_page=${pagination.losses.page}&losses_limit=${pagination.losses.limit}&whales_page=${pagination.whales.page}&whales_limit=${pagination.whales.limit}&whales_sort_by=${sortState.whales.col}&whales_sort_dir=${sortState.whales.dir}`;
         const data = await fetchJSON(url);
 
         if (!data) return;
@@ -1092,9 +1106,74 @@
         updateSortIndicators('active');
         updateSortIndicators('wins');
         updateSortIndicators('losses');
+        updateSortIndicators('whales');
 
-        // 4. Оповещения
+        // 4. График
+        if (data.daily_chart_data) {
+            renderDailyChart(data.daily_chart_data);
+        }
+
+        // 5. Оповещения
         renderSystemAlerts(data.system_alerts);
+    }
+    
+    function renderDailyChart(chartData) {
+        if (dailyChart) {
+            dailyChart.data.labels = chartData.labels;
+            dailyChart.data.datasets[0].data = chartData.wins;
+            dailyChart.data.datasets[1].data = chartData.losses;
+            dailyChart.update();
+        } else {
+            const ctx = document.getElementById('dailyPnlChart');
+            if (!ctx) return;
+            dailyChart = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [
+                        {
+                            label: 'Профит ($)',
+                            data: chartData.wins,
+                            backgroundColor: 'rgba(16, 185, 129, 0.8)', // Green
+                            borderColor: 'rgba(16, 185, 129, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Убытки ($)',
+                            data: chartData.losses,
+                            backgroundColor: 'rgba(239, 68, 68, 0.8)', // Red
+                            borderColor: 'rgba(239, 68, 68, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: 'rgba(255, 255, 255, 0.7)' }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: false,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.5)' }
+                        },
+                        y: {
+                            stacked: false,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.5)' }
+                        }
+                    }
+                }
+            });
+        }
     }
 
     function renderWhalesTable(whalesList) {
