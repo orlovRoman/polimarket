@@ -590,7 +590,7 @@
                     totalPortfolio += (Number.parseFloat(c.current_stake) || 0);
                 });
             }
-            kpiAvgEntry.textContent = formatPnLUSD(totalPortfolio).replace('+', '');
+            kpiAvgEntry.innerHTML = formatPnLUSD(totalPortfolio).replace('+', '');
             kpiAvgEntry.style.color = "var(--text-primary)";
             
             kpiBestTrade.innerHTML = "—";
