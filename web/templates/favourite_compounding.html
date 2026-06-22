@@ -590,6 +590,7 @@
                     totalPortfolio += (Number.parseFloat(c.current_stake) || 0);
                 });
             }
+            // безопасно: totalPortfolio вычислен из parseFloat(c.current_stake), XSS невозможен
             kpiAvgEntry.innerHTML = formatPnLUSD(totalPortfolio).replace('+', '');
             kpiAvgEntry.style.color = "var(--text-primary)";
             
