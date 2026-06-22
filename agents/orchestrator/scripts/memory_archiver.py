@@ -11,6 +11,7 @@ from agents.orchestrator.src.agent import NexusAgent
 from agents.shared.utils.database import DatabaseManager
 from agents.shared.python.db import cleanup_stale_signals
 from config import DB_PATH
+from agents.orchestrator.scripts.infra_config import INFRA_CONFIG
 
 def backup_database():
     """Создаёт бэкап БД перед опасными операциями (GC, миграции)."""
@@ -20,9 +21,9 @@ def backup_database():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = backup_dir / f"database_{timestamp}.sqlite"
     shutil.copy2(str(DB_PATH), str(backup_path))
-    # Удаляем бэкапы старше 7 дней (оставляем до 10 штук)
+    # Удаляем бэкапы старше (оставляем до backups_keep_max штук)
     backups = sorted(backup_dir.glob("database_*.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in backups[10:]:
+    for old in backups[INFRA_CONFIG.backups_keep_max:]:
         old.unlink(missing_ok=True)
     return backup_path
 

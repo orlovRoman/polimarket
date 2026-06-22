@@ -7,8 +7,10 @@ import threading
 from pathlib import Path
 from aiohttp import web
 from web import data_provider
+import re
+from web.whale_config import WHALE_DASHBOARD_CONFIG
 
-logger = logging.getLogger("NexusPolyBot.Dashboard")
+logger = logging.getLogger("NexusPolyBot.WebDashboard")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 _scheduler = None
@@ -33,7 +35,10 @@ def render_template(page_name: str) -> str:
     with open(page_path, "r", encoding="utf-8") as f:
         page_html = f.read()
         
-    return base_html.replace("<!-- PAGE_CONTENT -->", page_html)
+    html = base_html.replace("<!-- PAGE_CONTENT -->", page_html)
+    from web.ui_config import UI_CONFIG
+    html = html.replace("{{WHALE_CHART_HEIGHT}}", str(UI_CONFIG.whale_chart_height_px))
+    return html
 
 
 # === HTML хэндлеры ===
@@ -100,12 +105,18 @@ async def api_agent_performance(request):
 
 def get_int_query(request, name, default):
     val_str = request.query.get(name)
-    if not val_str:
-        return default
-    try:
-        return int(val_str)
-    except ValueError:
-        return default
+    val = default
+    if val_str:
+        try:
+            val = int(val_str)
+        except ValueError:
+            pass
+            
+    if name.endswith("limit"):
+        from web.ui_config import UI_CONFIG
+        val = min(val, UI_CONFIG.max_limit)
+        
+    return val
 
 async def api_penny_stocks(request):
     active_page = get_int_query(request, "active_page", 1)
@@ -634,13 +645,13 @@ async def api_edit_whale_stake(request):
 
 async def api_whale_stocks(request):
     active_page = get_int_query(request, "active_page", 1)
-    active_limit = get_int_query(request, "active_limit", 50)
+    active_limit = get_int_query(request, "active_limit", WHALE_DASHBOARD_CONFIG.default_active_limit)
     wins_page = get_int_query(request, "wins_page", 1)
-    wins_limit = get_int_query(request, "wins_limit", 50)
+    wins_limit = get_int_query(request, "wins_limit", WHALE_DASHBOARD_CONFIG.default_wins_limit)
     losses_page = get_int_query(request, "losses_page", 1)
-    losses_limit = get_int_query(request, "losses_limit", 50)
+    losses_limit = get_int_query(request, "losses_limit", WHALE_DASHBOARD_CONFIG.default_losses_limit)
     whales_page = get_int_query(request, "whales_page", 1)
-    whales_limit = get_int_query(request, "whales_limit", 10)
+    whales_limit = get_int_query(request, "whales_limit", WHALE_DASHBOARD_CONFIG.default_whales_limit)
     whales_sort_by = request.query.get("whales_sort_by", "total_vol")
     whales_sort_dir = request.query.get("whales_sort_dir", "desc")
     

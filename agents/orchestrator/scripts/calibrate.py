@@ -9,6 +9,7 @@ from agents.shared.python.db import get_connection, save_memory
 from agents.shared.utils.gemini_client import generate_content_with_fallback, extract_response_text
 from .calibration_metrics import get_all_metrics
 from .calibration_report import generate_calibration_report
+from .calibration_config import CALIB_CONFIG
 
 logger = logging.getLogger("NexusPolyBot.Calibrate")
 
@@ -32,7 +33,9 @@ CALIBRATION_SYSTEM_PROMPT = """ТЫ — СТРАТЕГИЧЕСКИЙ КАЛИБ�
 Не возвращай ничего, кроме валидного JSON (без markdown-блоков, только сырой JSON).
 """
 
-async def run_calibration(window_days: int = 7, trigger_type: str = "scheduled") -> tuple[str, bool]:
+async def run_calibration(window_days: int = None, trigger_type: str = "scheduled") -> tuple[str, bool]:
+    if window_days is None:
+        window_days = CALIB_CONFIG.default_window_days
     logger.info(f"Начало цикла калибровки за последние {window_days} дней...")
     
     # 1. Собираем метрики (Блок транзакции 1: Чтение)
@@ -46,8 +49,8 @@ async def run_calibration(window_days: int = 7, trigger_type: str = "scheduled")
         logger.info("\n" + report_text)
         
         # Если сделок/событий совсем мало, пропускаем калибровку
-        if total_analyzed < 5:
-            logger.info("Недостаточно данных для калибровки (менее 5 рынков). Пропуск.")
+        if total_analyzed < CALIB_CONFIG.min_markets_for_calibration:
+            logger.info(f"Недостаточно данных для калибровки (менее {CALIB_CONFIG.min_markets_for_calibration} рынков). Пропуск.")
             # Пишем пропуск в БД внутри этого же блока
             conn.execute("""
                 INSERT INTO calibration_runs (trigger_type, window_days, signals_analyzed, metrics_json, status)

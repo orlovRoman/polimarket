@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timezone
+from agents.orchestrator.scripts.calibration_config import CALIB_CONFIG
 
 def generate_calibration_report(metrics: dict) -> str:
     """Формирует текстовый отчёт на основе JSON с метриками."""
@@ -17,9 +18,9 @@ def generate_calibration_report(metrics: dict) -> str:
     report.append("## 1. Точность вероятностей (Brier Score)")
     if score is not None:
         report.append(f"- **Brier Score (SCOUT):** {score} (по {samples} завершенным событиям)")
-        if score > 0.20:
+        if score > CALIB_CONFIG.brier_bad_threshold:
             report.append("- ⚠️ Оценка: Плохая калибровка (агент слишком самоуверен или ошибается).")
-        elif score > 0.15:
+        elif score > CALIB_CONFIG.brier_warn_threshold:
             report.append("- 🟡 Оценка: Удовлетворительно, но можно улучшить.")
         else:
             report.append("- 🟢 Оценка: Отличная калибровка.")

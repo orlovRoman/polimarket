@@ -17,6 +17,7 @@ from agents.shared.python.db import (
     resolve_penny_stock
 )
 from core.eval.signal_logger import SignalLogger, StrategyType
+from agents.shared.python.penny_config import PENNY_CONFIG
 
 logger = logging.getLogger("NexusPolyBot.PennyExecutionService")
 
@@ -212,12 +213,12 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig, pr
         
         # Динамический расчет edge
         if outcome == "NO":
-            penny_edge = round(0.9 - price, 4)   # NO торгуется дешевле fair value 0.9
+            penny_edge = round(PENNY_CONFIG.no_fair_value - price, 4)
         else:
-            penny_edge = round(0.1 - price, 4)   # YES торгуется дешевле fair value 0.1
+            penny_edge = round(PENNY_CONFIG.yes_fair_value - price, 4)
             
         # Guard: не логируем сигналы с отрицательным или нулевым edge
-        if penny_edge <= 0:
+        if penny_edge <= PENNY_CONFIG.min_edge_to_log_signal:
             logger.warning(
                 f"[PennyExecution] Отрицательный edge {penny_edge} для {outcome} рынка {market_id} "
                 f"(price={price}), сигнал не логируется в SignalLogger"

@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 import json
+from web.whale_config import WHALE_DASHBOARD_CONFIG
 
 logger = logging.getLogger("NexusPolyBot.DataProvider")
 
@@ -1454,8 +1455,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         
         now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        seven_days_ago = now - timedelta(days=7)
-        thirty_days_ago = now - timedelta(days=30)
+        seven_days_ago = now - timedelta(days=WHALE_DASHBOARD_CONFIG.pnl_window_days_short)
+        thirty_days_ago = now - timedelta(days=WHALE_DASHBOARD_CONFIG.pnl_window_days_long)
         
         daily_pnl = {}
         

@@ -75,7 +75,10 @@ def get_win_rate_by_strategy(conn, window_days: int) -> dict:
 
     return metrics
 
-def get_brier_score(conn, window_days: int) -> dict:
+from typing import Dict, Any, List
+from agents.orchestrator.scripts.calibration_config import CALIB_CONFIG
+
+def get_brier_score(conn, window_days: int) -> Dict[str, Any]:
     """Считает Brier Score для SCOUT (только где scout_probability IS NOT NULL)."""
     rows = conn.execute("""
         SELECT a.scout_probability, m.outcome 
@@ -179,8 +182,8 @@ def get_shadow_rejection_reasons(conn, window_days: int) -> list:
           AND created_at >= datetime('now', ?)
         GROUP BY shadow_reason
         ORDER BY cnt DESC
-        LIMIT 10
-    """, (f'-{window_days} days',)).fetchall()
+        LIMIT {}
+    """.format(CALIB_CONFIG.top_reasons_limit), (f'-{window_days} days',)).fetchall()
     
     return [{"reason": r['shadow_reason'], "count": r['cnt']} for r in rows]
 

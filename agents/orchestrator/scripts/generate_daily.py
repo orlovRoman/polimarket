@@ -9,13 +9,14 @@ sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
 from agents.orchestrator.src.agent import NexusAgent
 from agents.shared.utils.database import DatabaseManager
+from agents.orchestrator.scripts.calibration_config import CALIB_CONFIG
 
 def main():
     print("Начинаем генерацию Daily Summary...")
     db_manager = DatabaseManager()
     
-    # Получаем данные за последние 24 часа
-    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+    # Получаем данные за последние дни
+    yesterday = datetime.now(timezone.utc) - timedelta(days=CALIB_CONFIG.report_recent_days)
     date_str = yesterday.strftime("%Y-%m-%d %H:%M:%S")
     
     discussions = []
@@ -48,7 +49,7 @@ def main():
     
     prompt = f"""
 Ты — Nexus, главный Оркестратор системы.
-Твоя задача — сгенерировать Daily Summary (ежедневный отчет) на основе следующих событий из базы данных за последние 24 часа:
+Твоя задача — сгенерировать Daily Summary (ежедневный отчет) на основе следующих событий из базы данных за последние {CALIB_CONFIG.report_recent_days} дней:
 
 Сырые данные (в формате JSON):
 {json.dumps(activity_data, ensure_ascii=False, indent=2)}
