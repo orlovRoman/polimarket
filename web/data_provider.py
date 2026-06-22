@@ -1295,39 +1295,41 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         # Выигрышные сделки
         wins_offset = (wins_page - 1) * wins_limit
         wins_rows = conn.execute("""
-            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
-                   h.pnl_realized as pnl_realized
-            FROM whale_stocks_monitoring p
-            LEFT JOIN (
-                SELECT market_id, SUM(COALESCE(bet_size_usdc, ?) * pnl_percent / 100.0) as pnl_realized
+            WITH trade_pnl AS (
+                SELECT market_id, SUM(COALESCE(bet_size_usdc, :stake) * pnl_percent / 100.0) as pnl_realized
                 FROM whale_virtual_trades_history
                 GROUP BY market_id
-            ) h ON p.market_id = h.market_id
+            )
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
+                   t.pnl_realized
+            FROM whale_stocks_monitoring p
+            LEFT JOIN trade_pnl t ON p.market_id = t.market_id
             WHERE p.status = 'RESOLVED'
             AND p.predicted_outcome IS NOT NULL
             AND UPPER(p.predicted_outcome) = UPPER(p.actual_outcome)
             ORDER BY p.resolved_at DESC
-            LIMIT ? OFFSET ?
-        """, (virtual_stake, wins_limit, wins_offset)).fetchall()
+            LIMIT :lim OFFSET :off
+        """, {"stake": virtual_stake, "lim": wins_limit, "off": wins_offset}).fetchall()
         resolved_wins = [w for r in wins_rows if (w := _process_whale_resolved_row(r, virtual_stake)) is not None]
 
         # Проигранные сделки
         losses_offset = (losses_page - 1) * losses_limit
         losses_rows = conn.execute("""
-            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
-                   h.pnl_realized as pnl_realized
-            FROM whale_stocks_monitoring p
-            LEFT JOIN (
-                SELECT market_id, SUM(COALESCE(bet_size_usdc, ?) * pnl_percent / 100.0) as pnl_realized
+            WITH trade_pnl AS (
+                SELECT market_id, SUM(COALESCE(bet_size_usdc, :stake) * pnl_percent / 100.0) as pnl_realized
                 FROM whale_virtual_trades_history
                 GROUP BY market_id
-            ) h ON p.market_id = h.market_id
+            )
+            SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
+                   t.pnl_realized
+            FROM whale_stocks_monitoring p
+            LEFT JOIN trade_pnl t ON p.market_id = t.market_id
             WHERE p.status = 'RESOLVED'
             AND p.predicted_outcome IS NOT NULL
             AND UPPER(p.predicted_outcome) != UPPER(p.actual_outcome)
             ORDER BY p.resolved_at DESC
-            LIMIT ? OFFSET ?
-        """, (virtual_stake, losses_limit, losses_offset)).fetchall()
+            LIMIT :lim OFFSET :off
+        """, {"stake": virtual_stake, "lim": losses_limit, "off": losses_offset}).fetchall()
         resolved_losses = [w for r in losses_rows if (w := _process_whale_resolved_row(r, virtual_stake)) is not None]
 
         # Виртуальный портфель
@@ -1428,15 +1430,16 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
 
         # 2. Кумулятивный PnL по всем закрытым whale-рынкам
         all_resolved_rows = conn.execute("""
-            SELECT p.initial_price, p.predicted_outcome, p.actual_outcome, p.resolved_at, h.pnl_usd as pnl_realized
-            FROM whale_stocks_monitoring p
-            LEFT JOIN (
-                SELECT market_id, SUM(COALESCE(bet_size_usdc, ?) * pnl_percent / 100.0) as pnl_usd
+            WITH trade_pnl AS (
+                SELECT market_id, SUM(COALESCE(bet_size_usdc, :stake) * pnl_percent / 100.0) as pnl_usd
                 FROM whale_virtual_trades_history
                 GROUP BY market_id
-            ) h ON p.market_id = h.market_id
-        WHERE p.status = 'RESOLVED'
-        """, (virtual_stake,)).fetchall()
+            )
+            SELECT p.initial_price, p.predicted_outcome, p.actual_outcome, p.resolved_at, t.pnl_usd as pnl_realized
+            FROM whale_stocks_monitoring p
+            LEFT JOIN trade_pnl t ON p.market_id = t.market_id
+            WHERE p.status = 'RESOLVED'
+        """, {"stake": virtual_stake}).fetchall()
 
         total_resolved_pnl = 0.0
         sum_won = 0.0

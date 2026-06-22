@@ -196,9 +196,35 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig, pr
         return False
     
     try:
+        import uuid
+        from core.eval.signal_logger import SignalLogger, StrategyType
+        sig_id = str(uuid.uuid4())
+        
         # Совершаем виртуальную покупку (база данных ожидает YES-цену)
-        buy_virtual_penny_stock(market_id, yes_price, bet_size)
-        logger.info(f"Успешно открыта виртуальная позиция для рынка {market_id} по цене {price} (YES цена: {yes_price}) со ставкой {bet_size} USDC")
+        buy_virtual_penny_stock(market_id, yes_price, bet_size, signal_id=sig_id)
+        
+        # Динамический расчет edge
+        penny_edge = round(0.9 - price, 4) if outcome == "NO" else round(price + 0.1, 4) # fallback/simple logic
+        
+        # Логируем сигнал
+        logger_eval = SignalLogger()
+        logger_eval.log_signal(
+            signal_id=sig_id,
+            strategy_type=StrategyType.PENNY_STOCKS,
+            market_id=market_id,
+            predicted_probability=price if outcome == "YES" else (1.0 - price),
+            market_price_at_signal=price,
+            edge_at_signal=penny_edge,
+            metadata={
+                "target_outcome": outcome,
+                "priority": "low",
+                "summary": f"Penny Stock Auto-Buy",
+                "platform": "polymarket",
+                "url": signal.get("url", "")
+            }
+        )
+        
+        logger.info(f"Успешно открыта виртуальная позиция для рынка {market_id} по цене {price} (YES цена: {yes_price}) со ставкой {bet_size} USDC. Сигнал: {sig_id}")
         return True
     except Exception as e:
         logger.error(f"Ошибка при исполнении сделки для рынка {market_id}: {e}")
@@ -282,7 +308,21 @@ async def _check_market_resolution(m_id, market_obj):
 
 async def _handle_resolved_penny_stock(stock, resolution_result, m_id, bot, chat_id):
     import asyncio
-    resolve_penny_stock(m_id, resolution_result)
+    sig_id = resolve_penny_stock(m_id, resolution_result)
+    
+    if sig_id:
+        try:
+            from core.eval.signal_logger import SignalLogger
+            logger_eval = SignalLogger()
+            await asyncio.to_thread(
+                logger_eval.log_resolution,
+                signal_id=sig_id,
+                resolution_outcome=resolution_result,
+                resolution_price=1.0 if resolution_result == "YES" else 0.0
+            )
+        except Exception as e:
+            logger.error(f"Ошибка логирования резолюции Penny Stocks: {e}")
+            
     pred = stock["predicted_outcome"]
     if pred:
         result_str = "УСПЕШНО 🎉" if pred.upper() == resolution_result else "НЕ СОВПАЛО ❌"
