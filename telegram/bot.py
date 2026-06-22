@@ -2482,15 +2482,31 @@ async def callback_show_analysis(callback: CallbackQuery) -> None:
             price = sig_data.get('market_price') or 0.5
             if target.upper() == 'NO':
                 price = 1.0 - price
+            details_text = sig_data['details']
+            try:
+                import json
+                parsed_details = json.loads(details_text)
+                if isinstance(parsed_details, dict):
+                    # Если внутри есть summary, вынесем его наверх, а остальное списком
+                    lines = []
+                    if "summary" in parsed_details:
+                        lines.append(f"<b>{parsed_details['summary']}</b>\n")
+                    for k, v in parsed_details.items():
+                        if k == "summary": continue
+                        lines.append(f"• <b>{k}</b>: {v}")
+                    details_text = "\n".join(lines)
+            except Exception:
+                pass
+                
             report = (
                 "🧠 <b>Анализ сигнала (Фоллбек):</b>\n"
                 f"<a href='{sig_data['url']}'>{sig_data['title']}</a> (по цене ~{price:.3f})\n\n"
                 f"🎯 <b>Рекомендация: Покупать {target}</b>\n"
                 f"📈 Edge: <b>+{edge_pct:.1f}%</b> | Уверенность: {sig_data.get('confidence', 0.5)}\n\n"
-                f"📝 <b>Описание:</b>\n{sig_data['details']}"
+                f"📝 <b>Описание:</b>\n{details_text}"
             )
         else:
-            report = "⚠️ Сигнал или отчет анализа не найдены в БД."
+            report = "⚠️ Сигнал не найден в БД."
             
     # Отправляем новым сообщением-ответом (reply) на исходное сообщение со списком идей
     try:
