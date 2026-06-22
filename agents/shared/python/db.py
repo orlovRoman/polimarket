@@ -2941,6 +2941,15 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
             VALUES (?, 'Polymarket', ?, ?, NULL, ?, ?)
         """, (market_id, title, url, initial_price, close_time))
         
+        # Сбрасываем некорректный outcome если рынок активен (защита от багов и ручных правок)
+        conn.execute("""
+            UPDATE markets 
+            SET outcome = NULL
+            WHERE id = ? 
+              AND outcome IN ('YES', 'NO')
+              AND datetime(close_time) > datetime('now')
+        """, (market_id,))
+        
         row = conn.execute("SELECT whale_count, whale_directions, confidence, virtual_bought_price, current_price FROM whale_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
         
         if row:
@@ -3098,10 +3107,24 @@ def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) ->
 def resolve_whale_stock(market_id: str, actual_outcome: str) -> None:
     with get_connection() as conn:
         row = conn.execute("""
-            SELECT title, url, initial_price, predicted_outcome, virtual_bought_price, virtual_bought_at, max_price_seen, min_price_seen, bet_size_usdc
+            SELECT title, url, initial_price, predicted_outcome, virtual_bought_price, virtual_bought_at, max_price_seen, min_price_seen, bet_size_usdc, status
             FROM whale_stocks_monitoring
             WHERE market_id = ?
         """, (market_id,)).fetchone()
+        
+        if not row or row['status'] == 'RESOLVED':
+            return
+
+        if row['virtual_bought_at']:
+            try:
+                from datetime import datetime, timezone
+                added = _parse_dt_utc(row['virtual_bought_at'])
+                if added and (datetime.now(timezone.utc) - added).total_seconds() < 300:
+                    logger.warning(f"[WhaleResolve] Пропуск {market_id} — рынок добавлен < 5 мин назад")
+                    return
+            except Exception:
+                pass
+
         
         if row and row['virtual_bought_price'] is not None:
             v_bought = row['virtual_bought_price']
