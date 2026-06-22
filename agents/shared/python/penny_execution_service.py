@@ -16,9 +16,17 @@ from agents.shared.python.db import (
     mark_penny_spike_sent,
     resolve_penny_stock
 )
-
+from core.eval.signal_logger import SignalLogger, StrategyType
 
 logger = logging.getLogger("NexusPolyBot.PennyExecutionService")
+
+_signal_logger: SignalLogger | None = None
+
+def _get_signal_logger() -> SignalLogger:
+    global _signal_logger
+    if _signal_logger is None:
+        _signal_logger = SignalLogger()
+    return _signal_logger
 
 def should_skip_penny_scan(cfg: PennyStocksConfig) -> bool:
     """Возвращает True, если сканирование заблокировано (kill_switch)."""
@@ -197,18 +205,19 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig, pr
     
     try:
         import uuid
-        from core.eval.signal_logger import SignalLogger, StrategyType
         sig_id = str(uuid.uuid4())
         
         # Совершаем виртуальную покупку (база данных ожидает YES-цену)
         buy_virtual_penny_stock(market_id, yes_price, bet_size, signal_id=sig_id)
         
         # Динамический расчет edge
-        penny_edge = round(0.9 - price, 4) if outcome == "NO" else round(price + 0.1, 4) # fallback/simple logic
+        if outcome == "NO":
+            penny_edge = round(0.9 - price, 4)   # NO торгуется дешевле fair value 0.9
+        else:
+            penny_edge = round(0.1 - price, 4)   # YES торгуется дешевле fair value 0.1
         
         # Логируем сигнал
-        logger_eval = SignalLogger()
-        logger_eval.log_signal(
+        _get_signal_logger().log_signal(
             signal_id=sig_id,
             strategy_type=StrategyType.PENNY_STOCKS,
             market_id=market_id,
@@ -312,10 +321,7 @@ async def _handle_resolved_penny_stock(stock, resolution_result, m_id, bot, chat
     
     if sig_id:
         try:
-            from core.eval.signal_logger import SignalLogger
-            logger_eval = SignalLogger()
-            await asyncio.to_thread(
-                logger_eval.log_resolution,
+            _get_signal_logger().log_resolution(
                 signal_id=sig_id,
                 resolution_outcome=resolution_result,
                 resolution_price=1.0 if resolution_result == "YES" else 0.0
