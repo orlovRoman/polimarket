@@ -521,7 +521,8 @@ def test_get_whale_stocks_dashboard(isolated_db):
     # Пустой
     data = data_provider.get_whale_stocks_dashboard()
     assert data['active'] == []
-    assert data['resolved'] == []
+    assert data['resolved_wins'] == []
+    assert data['resolved_losses'] == []
     assert data['stats']['active_count'] == 0
     assert data['stats']['sum_won'] == 0.0
     assert data['stats']['sum_lost'] == 0.0
@@ -529,11 +530,11 @@ def test_get_whale_stocks_dashboard(isolated_db):
     # Вставляем Whale Stocks
     with db_module.get_connection() as conn:
         conn.execute("""
-            INSERT INTO whale_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome)
+            INSERT INTO whale_stocks_monitoring (market_id, title, url, initial_price, current_price, max_price_seen, min_price_seen, status, predicted_outcome, actual_outcome)
             VALUES 
-            ('whale_a', 'Whale A', 'http://a', 0.15, 0.25, 0.30, 0.15, 'ACTIVE', 'YES'),
-            ('whale_b', 'Whale B', 'http://b', 0.40, 0.60, 0.70, 0.40, 'RESOLVED', 'YES'),
-            ('whale_c', 'Whale C', 'http://c', 0.50, 0.50, 0.50, 0.50, 'ACTIVE', NULL)
+            ('whale_a', 'Whale A', 'http://a', 0.15, 0.25, 0.30, 0.15, 'ACTIVE', 'YES', NULL),
+            ('whale_b', 'Whale B', 'http://b', 0.40, 0.60, 0.70, 0.40, 'RESOLVED', 'YES', 'YES'),
+            ('whale_c', 'Whale C', 'http://c', 0.50, 0.50, 0.50, 0.50, 'ACTIVE', NULL, NULL)
         """)
         conn.execute("""
             INSERT INTO whale_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at)
@@ -554,12 +555,13 @@ def test_get_whale_stocks_dashboard(isolated_db):
     whale_a = next(x for x in data['active'] if x['title'] == 'Whale A')
     assert whale_a['initial_price_outcome'] == pytest.approx(0.15, abs=1e-4)
 
-    assert len(data['resolved']) == 1
-    assert data['resolved'][0]['title'] == 'Whale B'
-    assert data['resolved'][0]['pnl_realized'] == 200.0
+    assert len(data['resolved_wins']) == 1
+    assert len(data['resolved_losses']) == 0
+    assert data['resolved_wins'][0]['title'] == 'Whale B'
+    assert data['resolved_wins'][0]['pnl_realized'] == 50.0
     assert data['stats']['resolved_count'] == 1
-    assert data['stats']['total_trades_pnl'] == 200.0
-    assert data['stats']['sum_won'] == 200.0
+    assert data['stats']['total_trades_pnl'] == 50.0
+    assert data['stats']['sum_won'] == 50.0
     assert data['stats']['sum_lost'] == 0.0
     assert data['price_distribution']['1-20¢'] == 1  # whale_a(0.15)
     assert data['price_distribution']['40-60¢'] == 1 # whale_c(0.50)

@@ -1211,7 +1211,7 @@ def _process_whale_resolved_row(r, virtual_stake: float) -> dict:
         else:
             row_dict['pnl_realized'] = 0.0
     else:
-        row_dict['pnl_realized'] = round((row_dict['pnl_realized'] or 0.0) * virtual_stake, 2)
+        row_dict['pnl_realized'] = round(row_dict['pnl_realized'] or 0.0, 2)
     return row_dict
 
 def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, wins_limit=50, losses_page=1, losses_limit=50, whales_page=1, whales_limit=10) -> dict:
@@ -1296,10 +1296,10 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         wins_offset = (wins_page - 1) * wins_limit
         wins_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
-                   h.pnl_cents as pnl_realized
+                   h.pnl_realized as pnl_realized
             FROM whale_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                SELECT market_id, SUM(COALESCE(bet_size_usdc, ?) * pnl_percent / 100.0) as pnl_realized
                 FROM whale_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -1308,17 +1308,17 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             AND UPPER(p.predicted_outcome) = UPPER(p.actual_outcome)
             ORDER BY p.resolved_at DESC
             LIMIT ? OFFSET ?
-        """, (wins_limit, wins_offset)).fetchall()
+        """, (virtual_stake, wins_limit, wins_offset)).fetchall()
         resolved_wins = [w for r in wins_rows if (w := _process_whale_resolved_row(r, virtual_stake)) is not None]
 
         # Проигранные сделки
         losses_offset = (losses_page - 1) * losses_limit
         losses_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at, p.wallet_address,
-                   h.pnl_cents as pnl_realized
+                   h.pnl_realized as pnl_realized
             FROM whale_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents
+                SELECT market_id, SUM(COALESCE(bet_size_usdc, ?) * pnl_percent / 100.0) as pnl_realized
                 FROM whale_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -1327,7 +1327,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             AND UPPER(p.predicted_outcome) != UPPER(p.actual_outcome)
             ORDER BY p.resolved_at DESC
             LIMIT ? OFFSET ?
-        """, (losses_limit, losses_offset)).fetchall()
+        """, (virtual_stake, losses_limit, losses_offset)).fetchall()
         resolved_losses = [w for r in losses_rows if (w := _process_whale_resolved_row(r, virtual_stake)) is not None]
 
         # Виртуальный портфель
@@ -1380,11 +1380,11 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         # Статистика по истории виртуальных сделок
         stats_row = conn.execute("""
             SELECT
-                MAX(bet_size_usdc * pnl_percent / 100.0) as best_pnl,
-                AVG(bet_size_usdc * pnl_percent / 100.0) as avg_pnl
+                MAX(COALESCE(bet_size_usdc, ?) * pnl_percent / 100.0) as best_pnl,
+                AVG(COALESCE(bet_size_usdc, ?) * pnl_percent / 100.0) as avg_pnl
             FROM whale_virtual_trades_history
             WHERE sold_at >= datetime('now', '-30 days')
-        """).fetchone()
+        """, (virtual_stake, virtual_stake)).fetchone()
 
         win_stats = conn.execute("""
             SELECT 
@@ -1423,7 +1423,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
         """).fetchone()['cnt']
 
         # 1. Кумулятивный PnL (из истории)
-        trades_pnl_row = conn.execute("SELECT SUM(bet_size_usdc * pnl_percent / 100.0) as total_pnl FROM whale_virtual_trades_history").fetchone()
+        trades_pnl_row = conn.execute("SELECT SUM(COALESCE(bet_size_usdc, ?) * pnl_percent / 100.0) as total_pnl FROM whale_virtual_trades_history", (virtual_stake,)).fetchone()
         total_trades_pnl = trades_pnl_row['total_pnl'] if trades_pnl_row and trades_pnl_row['total_pnl'] else 0.0
 
         # 2. Кумулятивный PnL по всем закрытым whale-рынкам
@@ -1431,12 +1431,12 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             SELECT p.initial_price, p.predicted_outcome, p.actual_outcome, p.resolved_at, h.pnl_usd as pnl_realized
             FROM whale_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(bet_size_usdc * pnl_percent / 100.0) as pnl_usd
+                SELECT market_id, SUM(COALESCE(bet_size_usdc, ?) * pnl_percent / 100.0) as pnl_usd
                 FROM whale_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
-            WHERE p.status = 'RESOLVED'
-        """).fetchall()
+        WHERE p.status = 'RESOLVED'
+        """, (virtual_stake,)).fetchall()
 
         total_resolved_pnl = 0.0
         sum_won = 0.0
