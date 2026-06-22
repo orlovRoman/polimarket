@@ -110,7 +110,7 @@ class ScoutAgent:
                         )
                     else:
                         math_analysis = (
-                            "\n  ⚠️ MATH-FILTER: AMBIGUOUS | спред={mf.spread_pct:.1f}% — "
+                            f"\n  ⚠️ MATH-FILTER: AMBIGUOUS | спред={mf.spread_pct:.1f}% — "
                             "требует интерпретации"
                         )
 

@@ -693,10 +693,20 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
 
 def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signal: Optional[SwingSignal], opinion_shadow: Optional[AgentOpinion]) -> IdeaDecision:
     m = context.market
-    # Решение принимает SHADOW через поле agree. Проверка liquidity_risk убрана,
-    # т.к. пользователь оперирует микро-банком ($10-100) и high liquidity_risk — норма.
-    shadow_ok = opinion_shadow and opinion_shadow.agree
     
+    shadow_ok = True
+    if opinion_shadow and not opinion_shadow.agree:
+        from agents.shared.python.db import get_scout_settings
+        settings = get_scout_settings()
+        penalty = float(settings.get("shadow_penalty_pct", 0.1))
+        
+        if signal:
+            signal.confidence *= (1.0 - penalty)
+            signal.edge *= (1.0 - penalty)
+        if swing_signal:
+            swing_signal.confidence *= (1.0 - penalty)
+            swing_signal.edge *= (1.0 - penalty)
+            
     from core.config_provider import ConfigProvider
     MIN_SCOUT_EDGE = ConfigProvider.get_min_edge_sync("scout")
     valid_scout = signal is not None and getattr(signal, 'edge', 0) >= MIN_SCOUT_EDGE

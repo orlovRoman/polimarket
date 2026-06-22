@@ -3862,5 +3862,34 @@ def reallocate_pending_opportunities() -> None:
     except Exception as e:
         logger.error(f"[DB] Ошибка reallocate_pending_opportunities: {e}")
 
+def get_scout_settings() -> dict:
+    """Возвращает настройки SCOUT агента из памяти."""
+    defaults = {
+        "cooldown_hours": 12, # Было MARKET_COOLDOWN_HOURS
+        "scan_limit": 15,
+        "confidence_scaling": 1.0,
+        "shadow_penalty_pct": 0.1,
+        "cooldown_bypass_hours": 12
+    }
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        for k in defaults.keys():
+            row = cursor.execute("SELECT value FROM memory WHERE key = ?", (f"scout_{k}",)).fetchone()
+            if row:
+                try:
+                    defaults[k] = float(row["value"]) if "." in row["value"] else int(row["value"])
+                except ValueError:
+                    pass
+    return defaults
+
+def save_scout_setting(key: str, value: str):
+    """Сохраняет настройку SCOUT агента в память."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO memory (key, value) VALUES (?, ?)",
+            (f"scout_{key}", value)
+        )
+        conn.commit()
+
 if __name__ == "__main__":
     init_db()

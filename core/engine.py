@@ -39,6 +39,7 @@ async def _run_math_gate(
     api_key: str,
     notify_fn,          # функция отправки сигнала в Telegram
     min_spread_pct: float = 5.0,
+    cancellation_token: threading.Event = None,
 ) -> list[str]:
     """
     Детерминированный gate. Запускается ДО всех агентов.
@@ -84,6 +85,10 @@ async def _run_math_gate(
     for market_a, market_b, mf in iter_cluster_pairs(
         clusters, min_spread_pct=min_spread_pct
     ):
+        if cancellation_token and cancellation_token.is_set():
+            logger.info("[math_gate] Cancellation requested, stopping cluster pairs loop.")
+            break
+
         log_filter_result(market_a.id, market_b.id, mf)
 
         if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
@@ -116,6 +121,10 @@ async def _run_math_gate(
         cross_platform_pairs = get_matched_pairs(markets_poly, markets_kalshi)
         logger.info(f"[math_gate] Найдено кросс-платформенных кандидатов: {len(cross_platform_pairs)}")
         for market_a, market_b in cross_platform_pairs:
+            if cancellation_token and cancellation_token.is_set():
+                logger.info("[math_gate] Cancellation requested, stopping cross platform pairs loop.")
+                break
+
             if market_a.id in processed_ids or market_b.id in processed_ids:
                 continue
 
@@ -342,15 +351,15 @@ class CoreEngine:
                 loop.close()
 
     def _get_scan_limit(self) -> int:
-        from agents.shared.python.db import get_memory
-        scan_limit_raw = get_memory("scan_limit")
+        from agents.shared.python.db import get_scout_settings
+        settings = get_scout_settings()
+        scan_limit = settings.get("scan_limit", SCAN_LIMIT_DEFAULT)
         try:
-            scan_limit = int(scan_limit_raw) if scan_limit_raw is not None else SCAN_LIMIT_DEFAULT
+            scan_limit = int(scan_limit)
         except (TypeError, ValueError):
-            logger.warning(f"Invalid scan_limit in memory: {scan_limit_raw!r}, using default")
             scan_limit = SCAN_LIMIT_DEFAULT
+            
         if scan_limit <= 0:
-            logger.warning(f"scan_limit={scan_limit} <= 0, using default {SCAN_LIMIT_DEFAULT}")
             scan_limit = SCAN_LIMIT_DEFAULT
         return scan_limit
 
@@ -372,7 +381,7 @@ class CoreEngine:
                     logger.debug(f"Failed to fetch market {mid}: {e}")
                     continue
             selector = MarketSelector(self.adapter)
-            markets = selector._filter(raw_markets)[:scan_limit]
+            markets = selector._filter(raw_markets, scan_category=category)[:scan_limit]
         else:
             selector = MarketSelector(self.adapter)
             markets = selector.select(total_limit=scan_limit, category=category)
@@ -385,10 +394,13 @@ class CoreEngine:
         import threading
         from concurrent.futures import Future
         
+        cancel_event = threading.Event()
+        
         def _factory():
             return _run_math_gate(
                 markets=markets, api_key=self.api_key,
-                notify_fn=summary_callback, min_spread_pct=5.0
+                notify_fn=summary_callback, min_spread_pct=5.0,
+                cancellation_token=cancel_event
             )
         
         fut: Future = Future()
@@ -404,7 +416,8 @@ class CoreEngine:
         t.join(timeout=120)  # таймаут на весь math_gate
         if not t.is_alive():
             return fut.result()
-        logger.error("[math_gate] Timeout exceeded (120s), returning empty list")
+        logger.error("[math_gate] Timeout exceeded (120s), cancelling task...")
+        cancel_event.set()
         return []
 
     def _fetch_pre_orderbook(self, market: Market) -> Optional[Any]:

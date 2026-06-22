@@ -1184,6 +1184,29 @@ async def api_save_compound_settings(request):
             
     return web.json_response({"status": "ok"})
 
+async def api_get_scout_settings(request):
+    from agents.shared.python.db import get_scout_settings
+    settings = get_scout_settings()
+    return web.json_response(settings)
+
+async def api_save_scout_settings(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+        
+    from agents.shared.python.db import save_scout_setting
+    for k, v in body.items():
+        if v is None:
+            continue
+        try:
+            val = float(v)
+            save_scout_setting(k, str(val))
+        except ValueError:
+            pass
+            
+    return web.json_response({"status": "ok"})
+
 # === Penny Stocks Settings хэндлеры ===
 
 async def handle_penny_stocks_settings(request):
@@ -1290,6 +1313,9 @@ def create_dashboard_app() -> web.Application:
     
     app.router.add_get("/api/compound-settings", api_get_compound_settings)
     app.router.add_post("/api/compound-settings", api_save_compound_settings)
+
+    app.router.add_get("/api/scout-settings", api_get_scout_settings)
+    app.router.add_post("/api/scout-settings", api_save_scout_settings)
 
     # Penny Stocks Settings API
     app.router.add_get("/api/penny-stocks/config", api_penny_stocks_config_get)

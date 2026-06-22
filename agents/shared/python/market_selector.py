@@ -191,7 +191,13 @@ class MarketSelector:
         """
         if now is None:
             now = datetime.now(timezone.utc)
-        cooldown_ids = get_markets_on_cooldown(MARKET_COOLDOWN_HOURS)
+            
+        from agents.shared.python.db import get_scout_settings
+        scout_settings = get_scout_settings()
+        cooldown_h = scout_settings.get("cooldown_hours", MARKET_COOLDOWN_HOURS)
+        bypass_h = scout_settings.get("cooldown_bypass_hours", 12)
+        
+        cooldown_ids = get_markets_on_cooldown(cooldown_h)
         listed_ids = get_all_listed_market_ids()
         
         blacklisted = []
@@ -209,7 +215,8 @@ class MarketSelector:
                     continue
 
             # Рынок уже закрыт или закроется в течение min_hours часов
-            if (m.close_time - now).total_seconds() < min_hours * 3600:
+            hours_to_close = (m.close_time - now).total_seconds() / 3600
+            if hours_to_close < min_hours:
                 continue
             
             # Рынок в списке Игнорировать или Следить — пропускаем при стандартном скане
@@ -223,7 +230,10 @@ class MarketSelector:
                 
             # Рынок на cooldown
             if m.id in cooldown_ids:
-                continue
+                if hours_to_close < bypass_h:
+                    pass # Игнорируем cooldown для рынков, которые скоро закроются
+                else:
+                    continue
             
             filtered.append(m)
         

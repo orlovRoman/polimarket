@@ -1,4 +1,41 @@
 <!-- scout.html -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div>
+        <h3 style="margin: 0; font-size: 1.2rem; font-weight: 600; color: var(--text-primary);">Агент: SCOUT (Mispricing)</h3>
+        <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--text-secondary);">Анализ рынков и поиск математических расхождений (Edge).</p>
+    </div>
+    <button class="btn" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 8px 16px; border-radius: 8px; color: var(--text-primary); cursor: pointer;" onclick="toggleScoutSettings()">⚙️ Настройки агента</button>
+</div>
+
+<div id="scout-settings-panel" class="table-card" style="display: none; margin-bottom: 24px; padding: 20px;">
+    <div class="table-title" style="margin-bottom: 16px;">Настройки агента SCOUT</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Market Cooldown (часы)</label>
+            <input type="number" id="setting-cooldown-hours" step="1" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Cooldown Bypass (до закрытия, ч)</label>
+            <input type="number" id="setting-bypass-hours" step="1" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Scan Limit (рынков)</label>
+            <input type="number" id="setting-scan-limit" step="1" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Platt Scaling Factor (1.0 = выкл)</label>
+            <input type="number" id="setting-confidence-scaling" step="0.1" min="0.1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">SHADOW Soft-block Penalty (0.1 = 10%)</label>
+            <input type="number" id="setting-shadow-penalty" step="0.05" min="0.0" max="1.0" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+        </div>
+    </div>
+    <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+        <button class="badge badge-green" style="border: none; padding: 8px 16px; font-size: 0.9rem; font-weight: 600; cursor: pointer;" onclick="saveScoutSettings()">Сохранить настройки</button>
+    </div>
+</div>
+
 <div class="kpi-row">
     <div class="kpi-card">
         <div class="kpi-title">Win Rate (30д)</div>
@@ -67,6 +104,8 @@
         const overview = await fetchJSON('/api/overview');
         const signals = await fetchJSON('/api/signals?strategy=scout&days=30&limit=50');
         const equityData = await fetchJSON('/api/equity-curve?strategy=scout&days=30');
+
+        loadScoutSettings();
 
         if (!overview || !signals) return;
 
@@ -267,6 +306,43 @@
                 }
             });
         }
+    }
+
+    async function loadScoutSettings() {
+        const settings = await fetchJSON('/api/scout-settings');
+        if (settings) {
+            document.getElementById('setting-cooldown-hours').value = settings.cooldown_hours || 12;
+            document.getElementById('setting-bypass-hours').value = settings.cooldown_bypass_hours || 12;
+            document.getElementById('setting-scan-limit').value = settings.scan_limit || 15;
+            document.getElementById('setting-confidence-scaling').value = settings.confidence_scaling || 1.0;
+            document.getElementById('setting-shadow-penalty').value = settings.shadow_penalty_pct || 0.1;
+        }
+    }
+
+    async function saveScoutSettings() {
+        const payload = {
+            cooldown_hours: parseFloat(document.getElementById('setting-cooldown-hours').value),
+            cooldown_bypass_hours: parseFloat(document.getElementById('setting-bypass-hours').value),
+            scan_limit: parseFloat(document.getElementById('setting-scan-limit').value),
+            confidence_scaling: parseFloat(document.getElementById('setting-confidence-scaling').value),
+            shadow_penalty_pct: parseFloat(document.getElementById('setting-shadow-penalty').value)
+        };
+        const resp = await fetch('/api/scout-settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (resp.ok) {
+            alert('Настройки сохранены');
+            toggleScoutSettings();
+        } else {
+            alert('Ошибка при сохранении');
+        }
+    }
+
+    function toggleScoutSettings() {
+        const panel = document.getElementById('scout-settings-panel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
     }
 
     registerRefresh(loadScoutData);
