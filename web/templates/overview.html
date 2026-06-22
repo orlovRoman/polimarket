@@ -32,6 +32,26 @@
         <span class="text-muted" style="font-size: 0.85rem; border-left: 1px solid rgba(255, 255, 255, 0.1); padding-left: 15px; display: flex; align-items: center; gap: 6px;">
             Комиссия Polymarket на чистую прибыль: <strong style="color: var(--accent-green);">2.0%</strong>
         </span>
+</div>
+
+<div class="table-card" style="margin-top: 20px; padding: 20px; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); margin-bottom: 20px;">
+    <div class="table-title" style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+        <svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;" viewBox="0 0 24 24"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"></path></svg>
+        Настройки Telegram-оповещений
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 15px;">
+        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.95rem;">
+            <input type="checkbox" id="notif-trend-hunter" onchange="saveNotificationSettings()">
+            <span>Оповещения <strong>Trend Hunter</strong> (Новые рынки и тренды)</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.95rem;">
+            <input type="checkbox" id="notif-penny-stocks" onchange="saveNotificationSettings()">
+            <span>Оповещения <strong>Penny Stocks</strong> (Новые копеечные рынки)</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.95rem;">
+            <input type="checkbox" id="notif-favourite-compounding" onchange="saveNotificationSettings()">
+            <span>Оповещения <strong>Favourite Compounding</strong> (Высокая уверенность ≥95¢)</span>
+        </label>
     </div>
 </div>
 
@@ -468,6 +488,40 @@
         }
     }
 
+    async function loadNotificationSettings() {
+        try {
+            const res = await fetch('/api/notification-settings');
+            const data = await res.json();
+            if (data) {
+                document.getElementById('notif-trend-hunter').checked = data.notify_trend_hunter !== false;
+                document.getElementById('notif-penny-stocks').checked = data.notify_penny_stocks !== false;
+                document.getElementById('notif-favourite-compounding').checked = data.notify_favourite_compounding !== false;
+            }
+        } catch (err) {
+            console.error("Ошибка загрузки настроек оповещений:", err);
+        }
+    }
+
+    async function saveNotificationSettings() {
+        const payload = {
+            notify_trend_hunter: document.getElementById('notif-trend-hunter').checked,
+            notify_penny_stocks: document.getElementById('notif-penny-stocks').checked,
+            notify_favourite_compounding: document.getElementById('notif-favourite-compounding').checked
+        };
+        try {
+            const res = await fetch('/api/notification-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                console.error("Не удалось сохранить настройки оповещений");
+            }
+        } catch (err) {
+            console.error("Ошибка сохранения настроек оповещений:", err);
+        }
+    }
+
     async function saveGlobalStake() {
         const val = parseFloat(document.getElementById('global-stake-input').value);
         if (isNaN(val) || val <= 0) {
@@ -492,4 +546,7 @@
     }
 
     registerRefresh(loadOverviewData);
+    document.addEventListener("DOMContentLoaded", () => {
+        loadNotificationSettings();
+    });
 </script>

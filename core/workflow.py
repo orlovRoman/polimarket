@@ -699,13 +699,15 @@ def make_consensus(context: MarketContext, signal: Optional[Signal], swing_signa
         from agents.shared.python.db import get_scout_settings
         settings = get_scout_settings()
         penalty = float(settings.get("shadow_penalty_pct", 0.1))
+        penalty = max(0.0, min(0.9, penalty))  # защитный клэмп
         
         if signal:
-            signal.confidence *= (1.0 - penalty)
-            signal.edge *= (1.0 - penalty)
+            signal.confidence = round(signal.confidence * (1.0 - penalty), 4)
+            signal.edge = round(signal.edge * (1.0 - penalty), 4)
+            signal.notes = (getattr(signal, 'notes', '') or "") + f" [shadow_penalty={penalty:.0%}]"
         if swing_signal:
-            swing_signal.confidence *= (1.0 - penalty)
-            swing_signal.edge *= (1.0 - penalty)
+            swing_signal.confidence = round(swing_signal.confidence * (1.0 - penalty), 4)
+            swing_signal.edge = round(swing_signal.edge * (1.0 - penalty), 4)
             
     from core.config_provider import ConfigProvider
     MIN_SCOUT_EDGE = ConfigProvider.get_min_edge_sync("scout")

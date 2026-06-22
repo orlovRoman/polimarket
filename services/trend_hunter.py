@@ -210,7 +210,8 @@ def run_trend_hunter(dry_run: bool = False):
 
     # 4. Отправляем оповещения в Telegram (если были новые рынки)
     if new_markets_triggered and not dry_run:
-        alerts_enabled = get_memory("trend_hunter_alerts_enabled", True)
+        from agents.shared.python.db import get_notification_settings
+        alerts_enabled = get_notification_settings().get("notify_trend_hunter", True)
         if alerts_enabled:
             for m in new_markets_triggered:
                 alert_text = (

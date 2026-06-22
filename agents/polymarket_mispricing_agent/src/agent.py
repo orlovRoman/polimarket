@@ -251,55 +251,40 @@ class ScoutAgent:
         
         analysis = None
         import asyncio
-        for attempt in range(3):
-            result, _ = await asyncio.to_thread(
-                generate_content_with_fallback,
-                api_key=self.api_key,
-                payload=payload,
-                default_model=self.model,
-                agent_name="SCOUT",
-                market_id=market.id
-            )
+        result, _ = await asyncio.to_thread(
+            generate_content_with_fallback,
+            api_key=self.api_key,
+            payload=payload,
+            default_model=self.model,
+            agent_name="SCOUT",
+            market_id=market.id
+        )
+        
+        if not result:
+            raise RuntimeError("Пустой результат от LLM")
             
-            if not result:
-                continue
-                
-            try:
-                content = extract_response_text(result)
-                content = content.replace("```json", "").replace("```", "").strip()
-                analysis = json.loads(content, strict=False)
-                
-                # FIX #1: проверяем язык — если нарушение, пробуем очистить и перепроверить
+        try:
+            content = extract_response_text(result)
+            content = content.replace("```json", "").replace("```", "").strip()
+            analysis = json.loads(content, strict=False)
+            
+            bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
+            if bad_field:
+                from agents.shared.utils.language_guard import sanitize_forbidden_scripts
+                for f in TEXT_FIELDS:
+                    if f in analysis and isinstance(analysis[f], str):
+                        analysis[f] = sanitize_forbidden_scripts(analysis[f])
                 bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
                 if bad_field:
-                    from agents.shared.utils.language_guard import sanitize_forbidden_scripts
-                    if attempt < 2:
-                        # Первые 2 попытки — пробуем sanitize на месте
-                        for f in TEXT_FIELDS:
-                            if f in analysis and isinstance(analysis[f], str):
-                                analysis[f] = sanitize_forbidden_scripts(analysis[f])
-                        # Проверяем снова после sanitize
-                        bad_field = validate_russian_fields(analysis, TEXT_FIELDS)
-                        if not bad_field:
-                            logger.info(f"[{self.name}] Текстовые поля успешно санитизированы без retry")
-                        else:
-                            logger.warning(f"[{self.name}] Попытка {attempt+1}: санитизация не помогла, повторяем запрос...")
-                            analysis = None
-                            continue
-                    else:
-                        # Последняя попытка — просто sanitize и используем
-                        for f in TEXT_FIELDS:
-                            if f in analysis and isinstance(analysis[f], str):
-                                analysis[f] = sanitize_forbidden_scripts(analysis[f])
-                        logger.warning(f"[{self.name}] Попытка {attempt+1}: финальная санитизация, используем результат")
-                        bad_field = None
+                    raise RuntimeError(f"Language validation failed after sanitize on field: {bad_field}")
+                logger.warning(f"[{self.name}] Текстовые поля санитизированы")
 
-                break
-            except json.JSONDecodeError as e:
-                logger.warning(f"[{self.name}] Не удалось распарсить JSON (попытка {attempt+1}): {e}")
-                analysis = None
-        
-        if not analysis:
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"[{self.name}] Не удалось распарсить JSON: {e}")
+        except Exception as e:
+            if not isinstance(e, RuntimeError):
+                raise RuntimeError(f"[{self.name}] Внутренняя ошибка парсинга: {e}")
+            raise
             return None
             
         try:

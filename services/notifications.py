@@ -435,6 +435,10 @@ def send_temporal_corridor_alerts() -> None:
 
 async def send_compound_alert(bot, chat_id: int, opp) -> None:
     """Отправляет алерт о Favourite Compounding возможности с inline-кнопками."""
+    from agents.shared.python.db import get_notification_settings
+    if not get_notification_settings().get("notify_favourite_compounding", True):
+        return
+
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
     hours = opp.hours_left

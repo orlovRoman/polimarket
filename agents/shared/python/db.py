@@ -3862,23 +3862,28 @@ def reallocate_pending_opportunities() -> None:
     except Exception as e:
         logger.error(f"[DB] Ошибка reallocate_pending_opportunities: {e}")
 
+SCOUT_SETTINGS_SCHEMA = {
+    "cooldown_hours":      (int,   1,    168),
+    "scan_limit":          (int,   1,    100),
+    "confidence_scaling":  (float, 0.1,  2.0),
+    "shadow_penalty_pct":  (float, 0.0,  0.9),
+    "cooldown_bypass_hours": (int, 1,    72),
+}
+
 def get_scout_settings() -> dict:
-    """Возвращает настройки SCOUT агента из памяти."""
-    defaults = {
-        "cooldown_hours": 12, # Было MARKET_COOLDOWN_HOURS
-        "scan_limit": 15,
-        "confidence_scaling": 1.0,
-        "shadow_penalty_pct": 0.1,
-        "cooldown_bypass_hours": 12
-    }
+    """Возвращает настройки SCOUT агента из памяти с валидацией."""
+    defaults = {"cooldown_hours": 12, "scan_limit": 15,
+                "confidence_scaling": 1.0, "shadow_penalty_pct": 0.1,
+                "cooldown_bypass_hours": 12}
     with get_connection() as conn:
         cursor = conn.cursor()
-        for k in defaults.keys():
+        for k, (typ, lo, hi) in SCOUT_SETTINGS_SCHEMA.items():
             row = cursor.execute("SELECT value FROM memory WHERE key = ?", (f"scout_{k}",)).fetchone()
             if row:
                 try:
-                    defaults[k] = float(row["value"]) if "." in row["value"] else int(row["value"])
-                except ValueError:
+                    val = typ(row["value"])
+                    defaults[k] = max(lo, min(hi, val))
+                except (ValueError, TypeError):
                     pass
     return defaults
 
@@ -3888,6 +3893,30 @@ def save_scout_setting(key: str, value: str):
         conn.execute(
             "INSERT OR REPLACE INTO memory (key, value) VALUES (?, ?)",
             (f"scout_{key}", value)
+        )
+        conn.commit()
+
+def get_notification_settings() -> dict:
+    """Возвращает настройки Telegram-уведомлений."""
+    defaults = {
+        "notify_trend_hunter": True,
+        "notify_penny_stocks": True,
+        "notify_favourite_compounding": True
+    }
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        for k in defaults.keys():
+            row = cursor.execute("SELECT value FROM memory WHERE key = ?", (f"notif_{k}",)).fetchone()
+            if row:
+                defaults[k] = str(row["value"]).lower() == "true"
+    return defaults
+
+def save_notification_setting(key: str, value: bool):
+    """Сохраняет настройку Telegram-уведомлений."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO memory (key, value) VALUES (?, ?)",
+            (f"notif_{key}", str(value).lower())
         )
         conn.commit()
 

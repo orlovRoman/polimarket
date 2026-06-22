@@ -371,11 +371,39 @@ async def api_buy_penny_stock(request):
 
     try:
         from agents.shared.python.db import buy_virtual_penny_stock
+        from web.data_provider import save_global_virtual_stake
+        if "global_virtual_stake" in body:
+            from agents.shared.python.db import get_connection
+            with get_connection() as conn:
+                save_global_virtual_stake(conn, float(body["global_virtual_stake"]))
         await asyncio.to_thread(buy_virtual_penny_stock, market_id, price)
         return web.json_response({"status": "ok"})
     except Exception as e:
         logger.exception("Error in api_buy_penny_stock")
         return web.json_response({"error": f"Internal server error: {e}"}, status=500)
+
+async def api_get_notification_settings(request):
+    from agents.shared.python.db import get_notification_settings
+    settings = await asyncio.to_thread(get_notification_settings)
+    return web.json_response(settings)
+
+async def api_save_notification_settings(request):
+    try:
+        body = await request.json()
+        from agents.shared.python.db import save_notification_setting
+        if "notify_trend_hunter" in body:
+            await asyncio.to_thread(save_notification_setting, "notify_trend_hunter", bool(body["notify_trend_hunter"]))
+        if "notify_penny_stocks" in body:
+            await asyncio.to_thread(save_notification_setting, "notify_penny_stocks", bool(body["notify_penny_stocks"]))
+        if "notify_favourite_compounding" in body:
+            await asyncio.to_thread(save_notification_setting, "notify_favourite_compounding", bool(body["notify_favourite_compounding"]))
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.error(f"Error saving notification settings: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+async def api_scout_settings(request):
+    return web.json_response({"status": "ok"})
 
 async def api_sell_penny_stock(request):
     try:
@@ -1301,6 +1329,8 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/settings", api_get_settings)
     app.router.add_post("/api/settings", api_save_settings)
     
+    app.router.add_get("/api/notification-settings", api_get_notification_settings)
+    app.router.add_post("/api/notification-settings", api_save_notification_settings)
     app.router.add_get("/api/calibration/runs", api_calibration_runs)
     app.router.add_get("/api/calibration/pending", api_calibration_pending)
     app.router.add_get("/api/calibration/history", api_calibration_history)

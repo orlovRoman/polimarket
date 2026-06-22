@@ -474,15 +474,18 @@ async def scheduled_penny_discovery():
 
             
             new_discovered += 1
-            price_cents = int(round(m.price * 100))
-            msg = (
-                f"🪙 <b>Найден новый Penny Stock!</b>\n\n"
-                f"📍 <b>{m.title}</b>\n"
-                f"📈 Текущая цена: <b>{price_cents}¢</b>\n"
-                f"🔗 <a href='{m.url}'>Открыть рынок</a>"
-            )
-            await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
-            await asyncio.sleep(1)
+            
+            from agents.shared.python.db import get_notification_settings
+            if get_notification_settings().get("notify_penny_stocks", True):
+                price_cents = int(round(m.price * 100))
+                msg = (
+                    f"🪙 <b>Найден новый Penny Stock!</b>\n\n"
+                    f"📍 <b>{m.title}</b>\n"
+                    f"📈 Текущая цена: <b>{price_cents}¢</b>\n"
+                    f"🔗 <a href='{m.url}'>Открыть рынок</a>"
+                )
+                await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+                await asyncio.sleep(1)
             
         logger.info(f"<<< Поиск Penny Stocks завершен. Добавлено {new_discovered} новых рынков.")
     except Exception as e:
