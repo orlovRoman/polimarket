@@ -402,9 +402,6 @@ async def api_save_notification_settings(request):
         logger.error(f"Error saving notification settings: {e}")
         return web.json_response({"error": str(e)}, status=500)
 
-async def api_scout_settings(request):
-    return web.json_response({"status": "ok"})
-
 async def api_sell_penny_stock(request):
     try:
         try:

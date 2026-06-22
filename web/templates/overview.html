@@ -474,6 +474,8 @@
         } catch (err) {
             console.error("Ошибка загрузки статуса оценки:", err);
         }
+
+        await loadNotificationSettings();
     }
 
     async function loadSettings() {
@@ -546,7 +548,4 @@
     }
 
     registerRefresh(loadOverviewData);
-    document.addEventListener("DOMContentLoaded", () => {
-        loadNotificationSettings();
-    });
 </script>

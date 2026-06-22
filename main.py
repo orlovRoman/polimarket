@@ -396,6 +396,9 @@ async def scheduled_penny_discovery():
         
         preflight_cache = {}
         new_discovered = 0
+        
+        from agents.shared.python.db import get_notification_settings
+        notify_penny = get_notification_settings().get("notify_penny_stocks", True)
 
         for m in markets:
             if m.id in active_ids:
@@ -475,8 +478,7 @@ async def scheduled_penny_discovery():
             
             new_discovered += 1
             
-            from agents.shared.python.db import get_notification_settings
-            if get_notification_settings().get("notify_penny_stocks", True):
+            if notify_penny:
                 price_cents = int(round(m.price * 100))
                 msg = (
                     f"🪙 <b>Найден новый Penny Stock!</b>\n\n"

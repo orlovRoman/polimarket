@@ -279,12 +279,11 @@ class ScoutAgent:
                     raise RuntimeError(f"Language validation failed after sanitize on field: {bad_field}")
                 logger.warning(f"[{self.name}] Текстовые поля санитизированы")
 
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"[{self.name}] Не удалось распарсить JSON: {e}")
+        except (json.JSONDecodeError, RuntimeError) as e:
+            logger.warning(f"[{self.name}] Не удалось распарсить ответ LLM: {e}")
+            return None
         except Exception as e:
-            if not isinstance(e, RuntimeError):
-                raise RuntimeError(f"[{self.name}] Внутренняя ошибка парсинга: {e}")
-            raise
+            logger.error(f"[{self.name}] Внутренняя ошибка парсинга: {e}")
             return None
             
         try:
