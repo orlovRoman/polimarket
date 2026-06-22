@@ -2502,6 +2502,7 @@ def get_known_whales() -> dict:
 
 def get_performance_summary(agent_name: str = None, limit: int = 20) -> str:
     """Возвращает текстовый дайджест последних эпизодов агента (или всех)."""
+    agent_name = agent_name or None
     with get_connection() as conn:
         if agent_name:
             rows = conn.execute("""

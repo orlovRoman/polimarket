@@ -1,5 +1,7 @@
 import os
 import json
+import time
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 from core.models import Market, Signal
@@ -33,7 +35,18 @@ class ScoutAgent:
             self.base_system_instruction = f.read()
             
         self._adapter = None
-        self._scout_settings_cache = get_scout_settings()
+        self._scout_settings_cache = None
+        self._scout_settings_cache_ts = 0.0
+        self._SETTINGS_TTL = 300.0  # 5 минут TTL
+        self._settings_lock = asyncio.Lock()
+
+    async def _get_scout_settings_cached(self) -> dict:
+        async with self._settings_lock:
+            now = time.monotonic()
+            if self._scout_settings_cache is None or (now - self._scout_settings_cache_ts) > self._SETTINGS_TTL:
+                self._scout_settings_cache = await asyncio.get_event_loop().run_in_executor(None, get_scout_settings)
+                self._scout_settings_cache_ts = now
+        return self._scout_settings_cache
 
     @with_retry(max_attempts=3, initial_backoff=2.0)
     async def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
@@ -294,7 +307,8 @@ class ScoutAgent:
             priority = analysis.get("priority", "medium")
             
             # Применяем Platt Scaling (сжатие вероятностей к 50%) ТОЛЬКО к est_prob
-            scale = float(self._scout_settings_cache.get("confidence_scaling", 1.0))
+            settings_cache = await self._get_scout_settings_cached()
+            scale = float(settings_cache.get("confidence_scaling", 1.0))
             scale = max(0.1, min(1.0, scale))  # Защита: допускаем только диапазон [0.1, 1.0]
             if scale != 1.0 and scale > 0:
                 est_prob = 0.5 + (est_prob - 0.5) * scale
