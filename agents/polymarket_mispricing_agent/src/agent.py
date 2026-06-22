@@ -5,7 +5,7 @@ from typing import Optional
 from core.models import Market, Signal
 from core.context import MarketContext
 from core.math_filter import math_pre_filter, FilterDecision
-from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes, get_performance_summary, save_agent_episode, get_agent_accuracy_context, _parse_dt_utc
+from agents.shared.python.db import save_signal, get_connection, get_memory, get_market_correlations, get_agent_episodes, get_performance_summary, save_agent_episode, get_agent_accuracy_context, _parse_dt_utc, get_scout_settings
 from agents.shared.utils.web_search import fetch_rss_news, fetch_reddit_news
 
 import logging
@@ -33,6 +33,7 @@ class ScoutAgent:
             self.base_system_instruction = f.read()
             
         self._adapter = None
+        self._scout_settings_cache = get_scout_settings()
 
     @with_retry(max_attempts=3, initial_backoff=2.0)
     async def estimate_market(self, context: 'MarketContext', price_history: list = None) -> Optional[Signal]:
@@ -292,12 +293,12 @@ class ScoutAgent:
             confidence = float(analysis.get("confidence", 0.5))
             priority = analysis.get("priority", "medium")
             
-            # Применяем Platt Scaling (сжатие вероятностей к 50%)
-            from agents.shared.python.db import get_scout_settings
-            scale = float(get_scout_settings().get("confidence_scaling", 1.0))
+            # Применяем Platt Scaling (сжатие вероятностей к 50%) ТОЛЬКО к est_prob
+            scale = float(self._scout_settings_cache.get("confidence_scaling", 1.0))
+            scale = max(0.1, min(1.0, scale))  # Защита: допускаем только диапазон [0.1, 1.0]
             if scale != 1.0 and scale > 0:
                 est_prob = 0.5 + (est_prob - 0.5) * scale
-                confidence = 0.5 + (confidence - 0.5) * scale
+                # confidence НЕ трогаем — это не вероятность, а уверенность модели
                 
             # Защита от выхода за пределы [0.01, 0.99]
             est_prob = max(0.01, min(0.99, est_prob))

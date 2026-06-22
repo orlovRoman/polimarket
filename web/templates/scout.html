@@ -24,7 +24,7 @@
         </div>
         <div>
             <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);" title="Множитель для корректировки 'самоуверенности' модели. Значения меньше 1.0 сжимают вероятности ближе к 50% (исправляет overconfidence). 1.0 = выключено.">Коэффициент калибровки (Platt Scaling Factor)</label>
-            <input type="number" id="setting-confidence-scaling" step="0.1" min="0.1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+            <input type="number" id="setting-confidence-scaling" step="0.1" min="0.1" max="1.0" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
         </div>
         <div>
             <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);" title="Насколько сильно снижать уверенность (confidence) сигнала, если агент-критик SHADOW выразил сомнения. Например, 0.1 = снижение на 10%.">Штраф за сомнения критика (SHADOW Penalty)</label>

@@ -3865,7 +3865,7 @@ def reallocate_pending_opportunities() -> None:
 SCOUT_SETTINGS_SCHEMA = {
     "cooldown_hours":      (int,   1,    168),
     "scan_limit":          (int,   1,    100),
-    "confidence_scaling":  (float, 0.1,  2.0),
+    "confidence_scaling":  (float, 0.1,  1.0),
     "shadow_penalty_pct":  (float, 0.0,  0.9),
     "cooldown_bypass_hours": (int, 1,    72),
 }
