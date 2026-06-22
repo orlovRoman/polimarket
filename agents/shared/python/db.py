@@ -3107,7 +3107,7 @@ def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) ->
 def resolve_whale_stock(market_id: str, actual_outcome: str) -> None:
     with get_connection() as conn:
         row = conn.execute("""
-            SELECT title, url, initial_price, predicted_outcome, virtual_bought_price, virtual_bought_at, max_price_seen, min_price_seen, bet_size_usdc, status
+            SELECT title, url, initial_price, predicted_outcome, virtual_bought_price, virtual_bought_at, added_at, max_price_seen, min_price_seen, bet_size_usdc, status
             FROM whale_stocks_monitoring
             WHERE market_id = ?
         """, (market_id,)).fetchone()
@@ -3115,10 +3115,10 @@ def resolve_whale_stock(market_id: str, actual_outcome: str) -> None:
         if not row or row['status'] == 'RESOLVED':
             return
 
-        if row['virtual_bought_at']:
+        if row['added_at']:
             try:
                 from datetime import datetime, timezone
-                added = _parse_dt_utc(row['virtual_bought_at'])
+                added = _parse_dt_utc(row['added_at'])
                 if added and (datetime.now(timezone.utc) - added).total_seconds() < 300:
                     logger.warning(f"[WhaleResolve] Пропуск {market_id} — рынок добавлен < 5 мин назад")
                     return

@@ -36,29 +36,38 @@ def _process_market(cursor, conn, market_id, title, db_actual_outcome) -> bool:
             v_bought_at = history_row['bought_at'] if history_row else None
             v_bet_size = history_row['bet_size_usdc'] if history_row else None
 
-            cursor.execute("""
-                UPDATE whale_stocks_monitoring
-                SET status = 'ACTIVE',
-                    actual_outcome = NULL,
-                    resolved_at = NULL,
-                    virtual_bought_price = CASE WHEN virtual_bought_price IS NULL THEN ? ELSE virtual_bought_price END,
-                    virtual_bought_at = CASE WHEN virtual_bought_at IS NULL THEN ? ELSE virtual_bought_at END,
-                    bet_size_usdc = CASE WHEN bet_size_usdc IS NULL THEN ? ELSE bet_size_usdc END
-                WHERE market_id = ?
-            """, (v_bought, v_bought_at, v_bet_size, market_id))
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute("""
+                    UPDATE whale_stocks_monitoring
+                    SET status = 'ACTIVE',
+                        actual_outcome = NULL,
+                        resolved_at = NULL,
+                        virtual_bought_price = CASE WHEN virtual_bought_price IS NULL THEN ? ELSE virtual_bought_price END,
+                        virtual_bought_at = CASE WHEN virtual_bought_at IS NULL THEN ? ELSE virtual_bought_at END,
+                        bet_size_usdc = CASE WHEN bet_size_usdc IS NULL THEN ? ELSE bet_size_usdc END
+                    WHERE market_id = ?
+                """, (v_bought, v_bought_at, v_bet_size, market_id))
 
-            if history_row:
-                cursor.execute("DELETE FROM whale_virtual_trades_history WHERE market_id = ?", (market_id,))
-                logger.info(f"  Restored bought_price: {v_bought}, deleted from history.")
-            else:
-                logger.info("  No trade history found.")
+                if history_row:
+                    cursor.execute("DELETE FROM whale_virtual_trades_history WHERE market_id = ?", (market_id,))
+                    logger.info(f"  Restored bought_price: {v_bought}, deleted from history.")
+                else:
+                    logger.info("  No trade history found.")
 
-            conn.commit()
-            return True
+                if real_resolution is None:
+                    cursor.execute("UPDATE markets SET outcome = NULL WHERE id = ?", (market_id,))
+                
+                conn.commit()
+                return True
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Rollback for {market_id}: {e}")
+                return False
             
-        # Уберем 'YES' из таблицы markets в любом случае
-        cursor.execute("UPDATE markets SET outcome = NULL WHERE outcome = 'YES' AND id = ?", (market_id,))
-        conn.commit()
+        if real_resolution != 'YES':
+            cursor.execute("UPDATE markets SET outcome = NULL WHERE outcome = 'YES' AND id = ?", (market_id,))
+            conn.commit()
             
     except Exception as e:
         logger.error(f"Error processing market {market_id}: {e}")
