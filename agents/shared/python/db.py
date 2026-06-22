@@ -2938,7 +2938,7 @@ def add_whale_stock_to_monitoring(market_id: str, title: str, url: str, initial_
     with get_connection() as conn:
         conn.execute("""
             INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time)
-            VALUES (?, 'Polymarket', ?, ?, 'YES', ?, ?)
+            VALUES (?, 'Polymarket', ?, ?, NULL, ?, ?)
         """, (market_id, title, url, initial_price, close_time))
         
         row = conn.execute("SELECT whale_count, whale_directions, confidence, virtual_bought_price, current_price FROM whale_stocks_monitoring WHERE market_id = ?", (market_id,)).fetchone()
