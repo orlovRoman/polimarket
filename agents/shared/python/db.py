@@ -2500,16 +2500,25 @@ def get_known_whales() -> dict:
 
 
 
-def get_performance_summary(agent_name: str, limit: int = 20) -> str:
-    """Возвращает текстовый дайджест последних эпизодов агента."""
+def get_performance_summary(agent_name: str = None, limit: int = 20) -> str:
+    """Возвращает текстовый дайджест последних эпизодов агента (или всех)."""
     with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT agent_name, market_title, outcome, created_at
-            FROM agent_episodes
-            WHERE agent_name = ? AND event_type = 'signal_evaluated'
-            ORDER BY created_at DESC
-            LIMIT ?
-        """, (agent_name, limit)).fetchall()
+        if agent_name:
+            rows = conn.execute("""
+                SELECT agent_name, market_title, outcome, created_at
+                FROM agent_episodes
+                WHERE agent_name = ? AND event_type = 'signal_evaluated'
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (agent_name, limit)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT agent_name, market_title, outcome, created_at
+                FROM agent_episodes
+                WHERE event_type = 'signal_evaluated'
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
     if not rows:
         return "Нет недавних эпизодов."
     lines = [f"[{r['created_at'][:16]}] {r['agent_name']} | {r['market_title'] or '?'} → {r['outcome']}"
