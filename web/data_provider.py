@@ -1510,8 +1510,8 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
                                 daily_pnl[date_str]['wins'] += pnl_val
                             elif pnl_val < 0:
                                 daily_pnl[date_str]['losses'] += abs(pnl_val)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[DataProvider] Ошибка при обработке resolved row для daily chart: {e}")
 
         stats = {
             'active_count': total_active,

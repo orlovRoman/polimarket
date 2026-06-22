@@ -1118,6 +1118,10 @@
     }
     
     function renderDailyChart(chartData) {
+        if (typeof Chart === 'undefined') {
+            console.warn('Chart.js не загружен, график PnL недоступен');
+            return;
+        }
         if (dailyChart) {
             dailyChart.data.labels = chartData.labels;
             dailyChart.data.datasets[0].data = chartData.wins;

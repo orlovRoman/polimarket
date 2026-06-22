@@ -215,6 +215,14 @@ def execute_penny_trade(market_id: str, signal: dict, cfg: PennyStocksConfig, pr
             penny_edge = round(0.9 - price, 4)   # NO торгуется дешевле fair value 0.9
         else:
             penny_edge = round(0.1 - price, 4)   # YES торгуется дешевле fair value 0.1
+            
+        # Guard: не логируем сигналы с отрицательным или нулевым edge
+        if penny_edge <= 0:
+            logger.warning(
+                f"[PennyExecution] Отрицательный edge {penny_edge} для {outcome} рынка {market_id} "
+                f"(price={price}), сигнал не логируется в SignalLogger"
+            )
+            return True
         
         # Логируем сигнал
         _get_signal_logger().log_signal(
