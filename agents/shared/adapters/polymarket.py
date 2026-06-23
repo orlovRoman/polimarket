@@ -3,22 +3,9 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
-from .base_adapter import BaseMarketAdapter
 from core.models import Market
-
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
-_shared_session = requests.Session()
-_retry = Retry(
-    total=3,
-    backoff_factor=1.0,
-    status_forcelist=[429, 500, 502, 503, 504],
-    allowed_methods=["HEAD", "GET", "OPTIONS"]
-)
-_adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=_retry)
-_shared_session.mount("https://", _adapter)
-_shared_session.mount("http://", _adapter)
+from agents.shared.utils.http_client import shared_session as _shared_session
+from .base_adapter import BaseMarketAdapter
 
 logger = logging.getLogger("NexusPolyBot.PolymarketAdapter")
 

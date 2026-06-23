@@ -44,7 +44,8 @@ class ScoutAgent:
         async with self._settings_lock:
             now = time.monotonic()
             if self._scout_settings_cache is None or (now - self._scout_settings_cache_ts) > self._SETTINGS_TTL:
-                self._scout_settings_cache = await asyncio.get_event_loop().run_in_executor(None, get_scout_settings)
+                loop = asyncio.get_running_loop()
+                self._scout_settings_cache = await loop.run_in_executor(None, get_scout_settings)
                 self._scout_settings_cache_ts = now
         return self._scout_settings_cache
 

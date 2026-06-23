@@ -11,19 +11,7 @@ from agents.shared.python.db import save_memory, get_memory
 
 logger = logging.getLogger("NexusPolyBot.gemini_client")
 
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
-_session = requests.Session()
-_retry = Retry(
-    total=3,
-    backoff_factor=1.0,
-    status_forcelist=[429, 500, 502, 503, 504],
-    allowed_methods=["HEAD", "GET", "OPTIONS", "POST"]
-)
-_adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=_retry)
-_session.mount("https://", _adapter)
-_session.mount("http://", _adapter)
+from agents.shared.utils.http_client import shared_session as _session
 
 def _lower_types(schema):
     """Рекурсивно приводит значения 'type' к нижнему регистру для совместимости с OpenAI."""
