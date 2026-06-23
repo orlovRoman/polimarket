@@ -1261,7 +1261,8 @@
             const badge = document.getElementById('auto-buy-status');
             if (data && badge) {
                 const isEnabled = data.config && (data.config.auto_buy_enabled === 1 || data.config.auto_buy_enabled === true);
-                if (isEnabled && (!data.config.kill_switch || data.config.kill_switch === 0)) {
+                const killSwitchOff = data.config.kill_switch === 0 || data.config.kill_switch === false;
+                if (isEnabled && killSwitchOff) {
                     badge.className = 'badge badge-green';
                     badge.innerHTML = '🤖 Автопокупка Включена';
                 } else {
