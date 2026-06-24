@@ -1011,6 +1011,32 @@ def _init_db_impl(conn: sqlite3.Connection):
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('max_market_price', '0.95')")
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('whale_edge_bonus', '0.0')")
 
+    # Атом 1: Таблица снапшотов портфелей китов
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS whale_portfolio_snapshots (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            wallet_address  TEXT NOT NULL,
+            market_id       TEXT NOT NULL,
+            condition_id    TEXT,
+            outcome         TEXT NOT NULL,
+            size            REAL NOT NULL,
+            avg_price       REAL,
+            current_value   REAL,
+            market_title    TEXT,
+            market_url      TEXT,
+            market_close_time TEXT,
+            synced_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_wps_wallet 
+        ON whale_portfolio_snapshots(wallet_address, synced_at)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_wps_market 
+        ON whale_portfolio_snapshots(market_id, synced_at)
+    """)
+
     # Миграция: добавляем поля виртуального портфеля в penny_stocks_monitoring
     penny_cols = {row[1] for row in cursor.execute("PRAGMA table_info(penny_stocks_monitoring)").fetchall()}
     if 'virtual_bought_price' not in penny_cols:

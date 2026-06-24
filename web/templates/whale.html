@@ -76,6 +76,43 @@
         50% { opacity: .5; }
     }
 </style>
+</style>
+
+<!-- Атом 5: Whale Radar Section -->
+<div class="table-card" style="margin-bottom: 24px; padding: 16px 24px; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+    <div>
+      <h3 style="margin: 0 0 4px 0; font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">🐋 Радар Китов</h3>
+      <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">Агрегированные открытые позиции известных кошельков по рынкам</p>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <label style="font-size: 0.85rem; color: var(--text-secondary);">
+        Мин. китов:
+        <input type="number" id="whale-radar-min" value="1" min="1" max="10" class="filter-input" style="width: 60px; margin-left: 8px;">
+      </label>
+      <button id="whale-radar-refresh" class="badge badge-gray" style="border: none; cursor: pointer; padding: 8px 16px; font-weight: 600;">🔄 Обновить</button>
+      <button id="whale-radar-sync" class="badge badge-blue" style="border: none; cursor: pointer; padding: 8px 16px; font-weight: 600;">⚡ Синхронизировать</button>
+    </div>
+  </div>
+
+  <div id="whale-radar-status" style="display:none; color: #3b82f6; font-size: 0.9rem; margin-bottom: 12px;"></div>
+
+  <table class="data-table" style="width: 100%;">
+    <thead>
+      <tr>
+        <th>Событие</th>
+        <th>✅ YES (Китов / $USD)</th>
+        <th>❌ NO (Китов / $USD)</th>
+        <th>Дельта ($)</th>
+        <th>Перевес</th>
+        <th>Закрытие</th>
+      </tr>
+    </thead>
+    <tbody id="whale-radar-tbody">
+      <tr><td colspan="6" style="text-align:center; padding: 20px;">Загрузка...</td></tr>
+    </tbody>
+  </table>
+</div>
 
 <div class="table-card" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px;">
     <div>
@@ -1285,86 +1322,57 @@
         if (isNaN(maxPrice) || maxPrice < 0 || maxPrice > 1) {
             alert('Max Price должен быть числом от 0 до 1');
             return;
-        }
-        if (minPrice >= maxPrice) {
-            alert('Min Price должен быть меньше Max Price');
-            return;
-        }
-        if (isNaN(edgeBonus) || edgeBonus < 0 || edgeBonus > 0.5) {
-            alert('Edge Bonus должен быть числом от 0 до 0.5');
-            return;
+
+        if (!json.ok || json.data.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px;">Нет данных. Запустите синхронизацию.</td></tr>';
+          return;
         }
 
-        if (btn) btn.disabled = true;
-        const prevText = btn ? btn.textContent : '';
-        if (btn) btn.textContent = 'Сохранение...';
-        
-        try {
-            const payload = {
-                min_whale_win_rate: winRate,
-                min_whale_trades: trades,
-                min_market_volume: vol,
-                virtual_stake: stake,
-                min_market_price: minPrice,
-                max_market_price: maxPrice,
-                whale_edge_bonus: edgeBonus
-            };
-            const res = await fetch('/api/whale-settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (res.ok) {
-                showToast('Настройки успешно сохранены!');
-            } else {
-                const err = await res.json();
-                alert('Ошибка при сохранении настроек: ' + (err.error || 'Unknown error'));
-            }
-        } catch (e) {
-            console.error(e);
-            alert('Сетевая ошибка при сохранении');
-        } finally {
-            if (btn) {
-                btn.disabled = false;
-                btn.textContent = prevText;
-            }
-        }
+        tbody.innerHTML = json.data.map(m => {
+          const delta = m.delta_usd;
+          const deltaColor = delta >= 0 ? '#10b981' : '#ef4444';
+          const badge = m.dominant_side === 'YES' 
+            ? '<span class="badge badge-green">YES</span>' 
+            : '<span class="badge badge-red">NO</span>';
+          const title = m.market_url 
+            ? `<a href="${m.market_url}" target="_blank" style="color: var(--text-primary); text-decoration: none;">${m.market_title || m.market_id}</a>`
+            : (m.market_title || m.market_id);
+
+          return `<tr>
+            <td style="max-width: 300px; white-space: normal;">${title}</td>
+            <td>${m.yes_whales} / $${m.yes_usd.toFixed(0)}</td>
+            <td>${m.no_whales} / $${m.no_usd.toFixed(0)}</td>
+            <td style="color: ${deltaColor}; font-weight: bold;">$${Math.abs(delta).toFixed(0)}</td>
+            <td>${badge}</td>
+            <td>${m.market_close_time ? new Date(m.market_close_time).toLocaleDateString() : '—'}</td>
+          </tr>`;
+        }).join('');
+      } catch(e) {
+        console.error(e);
+      }
     }
 
-    loadWhaleSettings();
-    registerRefresh(loadWhaleStocksData);
-</script>
+    document.getElementById('whale-radar-refresh').addEventListener('click', loadWhaleRadar);
 
-<script>
-    async function editVirtualStake(marketId, currentPrice, currentStake) {
-        const newPriceStr = prompt("Введите виртуальную цену покупки (YES token, 0..1):", currentPrice);
-        if (newPriceStr === null) return;
-        const newStakeStr = prompt("Введите размер ставки (USDC):", currentStake);
-        if (newStakeStr === null) return;
-        
-        const newPrice = parseFloat(newPriceStr);
-        const newStake = parseFloat(newStakeStr);
-        
-        if (isNaN(newPrice) || newPrice < 0 || newPrice > 1 || isNaN(newStake) || newStake < 0) {
-            alert("Некорректные значения");
-            return;
-        }
-        
-        try {
-            const res = await fetch('/api/whale-settings/edit-stake', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ market_id: marketId, virtual_bought_price: newPrice, bet_size_usdc: newStake })
-            });
-            if (res.ok) {
-                loadWhaleStocksData();
-                showToast("Ставка обновлена");
-            } else {
-                const err = await res.json();
-                alert("Ошибка: " + (err.error || "Unknown"));
-            }
-        } catch (e) {
-            alert("Ошибка сети");
-        }
-    }
+    document.getElementById('whale-radar-sync').addEventListener('click', async () => {
+      const btn = document.getElementById('whale-radar-sync');
+      const status = document.getElementById('whale-radar-status');
+      btn.disabled = true;
+      btn.style.opacity = 0.5;
+      status.textContent = '⏳ Запущена фоновая синхронизация позиций... (Обновите таблицу через минуту)';
+      status.style.display = 'block';
+      
+      try {
+          await fetch('/api/whale-radar/sync', { method: 'POST' });
+          setTimeout(() => { status.style.display = 'none'; btn.disabled = false; btn.style.opacity = 1; loadWhaleRadar(); }, 10000);
+      } catch(e) {
+          status.textContent = '❌ Ошибка запуска синхронизации';
+          btn.disabled = false;
+          btn.style.opacity = 1;
+      }
+    });
+
+    // Авто-загрузка радара при открытии
+    loadWhaleRadar();
+
 </script>

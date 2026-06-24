@@ -10,6 +10,7 @@ from agents.polymarket_arbitrage_agent.src.synthetic.models import SyntheticCorr
 from agents.shared.python.db import save_synthetic_corridor, mark_synthetic_corridor_alerted
 from agents.shared.adapters.polymarket import PolymarketAdapter
 from agents.shared.utils.http_client import shared_session
+from services.http_utils import fetch_with_retry
 import config
 import time
 
@@ -62,7 +63,6 @@ def run_synthetic_corridor_scan(
     for v in violations:
         time.sleep(0.15)  # Рейт-лимит пауза
         
-        from services.http_utils import fetch_with_retry
         orderbook = fetch_with_retry(fetch_real_entry_prices, v.lower, v.upper, session)
         
         if not orderbook:

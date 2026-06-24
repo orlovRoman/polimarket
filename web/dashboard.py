@@ -301,6 +301,34 @@ async def api_calibration_force_run(request):
     finally:
         _calibration_running = False
 
+# === Whale Radar API ===
+async def api_whale_radar(request):
+    """
+    Возвращает агрегированные позиции китов по рынкам.
+    Query params:
+      - min_whales (int, default=1): минимум китов для включения рынка
+    """
+    try:
+        from agents.shared.python.whale_portfolio_service import get_whale_radar_summary
+        min_whales = int(request.query.get("min_whales", 1))
+        # Делаем вызов блокирующей функции в отдельном треде
+        data = await asyncio.to_thread(get_whale_radar_summary, min_whales)
+        return web.json_response({"ok": True, "data": data, "count": len(data)})
+    except Exception as e:
+        logger.error(f"[API /whale-radar] Ошибка: {e}")
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+async def api_whale_radar_sync(request):
+    """Ручной тригер синхронизации."""
+    try:
+        from main import scheduled_whale_portfolios_sync
+        # запускаем джобу асинхронно в бэкграунде чтобы не блокировать ответ
+        asyncio.create_task(scheduled_whale_portfolios_sync())
+        return web.json_response({"ok": True, "message": "Синхронизация запущена"})
+    except Exception as e:
+        logger.error(f"[API /whale-radar/sync] Ошибка: {e}")
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
 async def api_calibration_schedule_status(request):
     if not _scheduler:
         return web.json_response({"error": "Scheduler not available"}, status=500)
@@ -1302,6 +1330,8 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/penny-stocks", api_penny_stocks)
     app.router.add_get("/api/favourite-compounding", api_favourite_compounding)
     app.router.add_get("/api/whale-stocks", api_whale_stocks)
+    app.router.add_get("/api/whale-radar", api_whale_radar)
+    app.router.add_post("/api/whale-radar/sync", api_whale_radar_sync)
     app.router.add_get("/api/whale-settings", api_get_whale_settings)
     app.router.add_post("/api/whale-settings", api_set_whale_settings)
     app.router.add_post("/api/whale-settings/edit-stake", api_edit_whale_stake)

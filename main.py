@@ -638,6 +638,51 @@ async def scheduled_whale_monitor():
     except Exception as e:
         logger.error(f"Ошибка в мониторинге Whale Following: {e}", exc_info=True)
 
+# Атом 3: Джоба синхронизации портфелей китов
+async def scheduled_whale_portfolios_sync():
+    """
+    Фоновая джоба: раз в 2 часа качает открытые позиции всех known_whales.
+    """
+    logger.info("[WhalePortfolioSync] Запуск синхронизации портфелей китов...")
+    try:
+        from agents.shared.python.db import get_connection
+        from agents.shared.python.whale_portfolio_service import (
+            fetch_wallet_positions,
+            save_snapshot,
+        )
+        
+        with get_connection() as conn:
+            whales = conn.execute(
+                "SELECT address, alias FROM known_whales"
+            ).fetchall()
+
+        if not whales:
+            logger.warning("[WhalePortfolioSync] known_whales пустой, пропускаем синк.")
+            return
+
+        total_positions = 0
+        for whale in whales:
+            address = whale["address"]
+            alias = whale["alias"] or address[:10]
+            try:
+                positions = await fetch_wallet_positions(address)
+                saved = await asyncio.to_thread(save_snapshot, address, positions)
+                total_positions += saved
+                logger.info(f"[WhalePortfolioSync] {alias}: {saved} позиций сохранено")
+                await asyncio.sleep(0.5)  # rate-limit: 2 req/s
+            except Exception as e:
+                logger.error(f"[WhalePortfolioSync] Ошибка для {alias}: {e}")
+
+        logger.info(
+            f"[WhalePortfolioSync] Синхронизация завершена. "
+            f"{len(whales)} китов, {total_positions} позиций."
+        )
+    except asyncio.CancelledError:
+        logger.info("<<< Синхронизация портфелей китов отменена.")
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка синхронизации портфелей китов: {e}", exc_info=True)
+
 async def scheduled_favourite_compounding():
 
     """Сканирует рынки на Favourite Compounding и проверяет Exit-сигналы каждые 15 минут."""
@@ -863,6 +908,15 @@ async def start_system():
         misfire_grace_time=3600
     )
     
+    scheduler.add_job(
+        scheduled_whale_portfolios_sync,
+        trigger="interval",
+        hours=2,
+        id="whale_portfolios_sync",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.add_job(
         scheduled_weekly_evaluation,
         trigger=CronTrigger(day_of_week="mon", hour=4, minute=0),
