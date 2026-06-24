@@ -9,8 +9,9 @@ from agents.polymarket_arbitrage_agent.src.synthetic.sizing import compute_sizin
 from agents.polymarket_arbitrage_agent.src.synthetic.models import SyntheticCorridorSignal
 from agents.shared.python.db import save_synthetic_corridor, mark_synthetic_corridor_alerted
 from agents.shared.adapters.polymarket import PolymarketAdapter
-from services.http_utils import make_session_with_timeout, fetch_with_retry
+from agents.shared.utils.http_client import shared_session
 import config
+import time
 
 logger = logging.getLogger("NexusPolyBot.SyntheticCorridor")
 
@@ -53,12 +54,15 @@ def run_synthetic_corridor_scan(
         logger.info("[SCA] Арбитражных возможностей не обнаружено (нет теоретических нарушений).")
         return []
     
-    session = make_session_with_timeout()
+    session = shared_session
     found: list[SyntheticCorridorSignal] = []
     
     stats = {"no_orderbook": 0, "low_spread": 0, "low_size": 0, "passed": 0}
     
     for v in violations:
+        time.sleep(0.15)  # Рейт-лимит пауза
+        
+        from services.http_utils import fetch_with_retry
         orderbook = fetch_with_retry(fetch_real_entry_prices, v.lower, v.upper, session)
         
         if not orderbook:
