@@ -96,21 +96,23 @@
 
   <div id="whale-radar-status" style="display:none; color: #3b82f6; font-size: 0.9rem; margin-bottom: 12px;"></div>
 
-  <table class="data-table" style="width: 100%;">
-    <thead>
-      <tr>
-        <th onclick="sortRadar('title')" style="cursor:pointer; user-select:none;">Событие <span id="radar-sort-title" style="font-size:0.8em; margin-left:4px;"></span></th>
-        <th onclick="sortRadar('yes_usd')" style="cursor:pointer; user-select:none;">✅ YES (Китов / $USD) <span id="radar-sort-yes_usd" style="font-size:0.8em; margin-left:4px;"></span></th>
-        <th onclick="sortRadar('no_usd')" style="cursor:pointer; user-select:none;">❌ NO (Китов / $USD) <span id="radar-sort-no_usd" style="font-size:0.8em; margin-left:4px;"></span></th>
-        <th onclick="sortRadar('delta_usd')" style="cursor:pointer; user-select:none;">Дельта ($) <span id="radar-sort-delta_usd" style="font-size:0.8em; margin-left:4px;">▼</span></th>
-        <th onclick="sortRadar('dominant_side')" style="cursor:pointer; user-select:none;">Перевес <span id="radar-sort-dominant_side" style="font-size:0.8em; margin-left:4px;"></span></th>
-        <th onclick="sortRadar('market_close_time')" style="cursor:pointer; user-select:none;">Закрытие <span id="radar-sort-market_close_time" style="font-size:0.8em; margin-left:4px;"></span></th>
-      </tr>
-    </thead>
-    <tbody id="whale-radar-tbody">
-      <tr><td colspan="6" style="text-align:center; padding: 20px;">Загрузка...</td></tr>
-    </tbody>
-  </table>
+  <div style="max-height: 500px; overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+    <table class="data-table" style="width: 100%; margin: 0; border: none;">
+      <thead style="position: sticky; top: 0; background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(8px); z-index: 1;">
+        <tr>
+          <th onclick="sortRadar('title')" style="cursor:pointer; user-select:none; border-top: none;">Событие <span id="radar-sort-title" style="font-size:0.8em; margin-left:4px;"></span></th>
+          <th onclick="sortRadar('yes_usd')" style="cursor:pointer; user-select:none; border-top: none;">✅ YES (Китов / $USD) <span id="radar-sort-yes_usd" style="font-size:0.8em; margin-left:4px;"></span></th>
+          <th onclick="sortRadar('no_usd')" style="cursor:pointer; user-select:none; border-top: none;">❌ NO (Китов / $USD) <span id="radar-sort-no_usd" style="font-size:0.8em; margin-left:4px;"></span></th>
+          <th onclick="sortRadar('delta_usd')" style="cursor:pointer; user-select:none; border-top: none;">Дельта ($) <span id="radar-sort-delta_usd" style="font-size:0.8em; margin-left:4px;">▼</span></th>
+          <th onclick="sortRadar('dominant_side')" style="cursor:pointer; user-select:none; border-top: none;">Перевес <span id="radar-sort-dominant_side" style="font-size:0.8em; margin-left:4px;"></span></th>
+          <th onclick="sortRadar('market_close_time')" style="cursor:pointer; user-select:none; border-top: none;">Закрытие <span id="radar-sort-market_close_time" style="font-size:0.8em; margin-left:4px;"></span></th>
+        </tr>
+      </thead>
+      <tbody id="whale-radar-tbody">
+        <tr><td colspan="6" style="text-align:center; padding: 20px;">Загрузка...</td></tr>
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <div class="table-card" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px;">
