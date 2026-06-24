@@ -151,11 +151,11 @@ async def run_portfolio_sync_job():
     try:
         with get_connection() as conn:
             whales = conn.execute(
-                "SELECT address, alias FROM known_whales"
+                "SELECT address, alias FROM wallets"
             ).fetchall()
 
         if not whales:
-            logger.info("[WhaleRadar] Нет китов в known_whales для радара.")
+            logger.info("[WhaleRadar] Нет китов в wallets для радара.")
             return
 
         total_positions = 0
