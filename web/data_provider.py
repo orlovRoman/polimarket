@@ -927,17 +927,23 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
         # Расчет суммы выигрышей и проигрышей для авто-сигналов с прогнозом
         all_resolved_auto = conn.execute("""
-            SELECT initial_price, predicted_outcome, actual_outcome
+            SELECT initial_price, predicted_outcome, actual_outcome, resolved_at
             FROM penny_stocks_monitoring
             WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
         """).fetchall()
 
         sum_won = 0.0
         sum_lost = 0.0
+        
+        now = datetime.now(timezone.utc)
+        thirty_days_ago = now - timedelta(days=30)
+        daily_pnl = {}
+        
         for r in all_resolved_auto:
             init = r['initial_price']
             pred = r['predicted_outcome']
             actual = r['actual_outcome']
+            res_at_str = r['resolved_at']
             if init is not None and pred is not None and actual is not None and init > 0 and init < 1.0:
                 pred_up = pred.upper()
                 act_up = actual.upper()
@@ -952,6 +958,31 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                     sum_won += pnl_val
                 elif pnl_val < 0:
                     sum_lost += abs(pnl_val)
+                    
+                if res_at_str:
+                    res_at = _parse_dt_utc(res_at_str)
+                    if res_at and res_at >= thirty_days_ago:
+                        date_str = res_at.strftime('%Y-%m-%d')
+                        if date_str not in daily_pnl:
+                            daily_pnl[date_str] = {'wins': 0.0, 'losses': 0.0}
+                        if pnl_val > 0:
+                            daily_pnl[date_str]['wins'] += pnl_val
+                        elif pnl_val < 0:
+                            daily_pnl[date_str]['losses'] += abs(pnl_val)
+
+        chart_labels = []
+        chart_wins = []
+        chart_losses = []
+        for d in sorted(daily_pnl.keys()):
+            chart_labels.append(d)
+            chart_wins.append(round(daily_pnl[d]['wins'], 2))
+            chart_losses.append(round(daily_pnl[d]['losses'], 2))
+            
+        daily_chart_data = {
+            'labels': chart_labels,
+            'wins': chart_wins,
+            'losses': chart_losses
+        }
 
         # Всего активных с прогнозом
         total_active_predicted = conn.execute("""
@@ -971,7 +1002,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             'avg_pnl': auto_avg_pnl,
             'total_resolved_pnl': round(auto_total_pnl, 4),
             'sum_won': round(sum_won, 2),
-            'sum_lost': round(sum_lost, 2)
+            'sum_lost': round(sum_lost, 2),
+            'daily_chart_data': daily_chart_data
         }
 
         # === 2. РУЧНАЯ СТАТИСТИКА (ВИРТУАЛЬНЫЕ СДЕЛКИ) ===

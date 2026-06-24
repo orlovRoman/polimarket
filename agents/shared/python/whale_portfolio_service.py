@@ -138,3 +138,43 @@ def get_whale_radar_summary(min_whales: int = 1) -> list[dict]:
     # Сортировка: сначала рынки с наибольшей абсолютной дельтой
     result.sort(key=lambda x: abs(x["delta_usd"]), reverse=True)
     return result
+
+async def run_portfolio_sync_job():
+    """Standalone async джоба — без зависимости от main.py."""
+    import logging
+    import asyncio
+    from agents.shared.python.db import get_connection
+    from agents.shared.python.whale_portfolio_service import fetch_wallet_positions, save_snapshot
+    
+    logger = logging.getLogger("NexusPolyBot.WhaleRadar")
+    logger.info("[WhaleRadar] Запуск фоновой синхронизации портфелей китов...")
+    
+    try:
+        with get_connection() as conn:
+            whales = conn.execute(
+                "SELECT address, alias FROM known_whales"
+            ).fetchall()
+
+        if not whales:
+            logger.info("[WhaleRadar] Нет китов в known_whales для радара.")
+            return
+
+        total_positions = 0
+        for whale in whales:
+            address = whale["address"]
+            alias = whale["alias"] or address[:10]
+            try:
+                positions = await fetch_wallet_positions(address)
+                saved = await asyncio.to_thread(save_snapshot, address, positions)
+                total_positions += saved
+                logger.info(f"[WhalePortfolioSync] {alias}: {saved} позиций сохранено")
+                await asyncio.sleep(0.5)  # rate-limit: 2 req/s
+            except Exception as e:
+                logger.error(f"[WhalePortfolioSync] Ошибка для {alias}: {e}")
+                
+        logger.info(
+            f"[WhalePortfolioSync] Синхронизация завершена. "
+            f"{len(whales)} китов, {total_positions} позиций."
+        )
+    except Exception as e:
+        logger.error(f"[WhaleRadar] Глобальная ошибка синхронизации: {e}")

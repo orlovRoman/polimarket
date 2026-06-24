@@ -321,9 +321,9 @@ async def api_whale_radar(request):
 async def api_whale_radar_sync(request):
     """Ручной тригер синхронизации."""
     try:
-        from main import scheduled_whale_portfolios_sync
+        from agents.shared.python.whale_portfolio_service import run_portfolio_sync_job
         # запускаем джобу асинхронно в бэкграунде чтобы не блокировать ответ
-        asyncio.create_task(scheduled_whale_portfolios_sync())
+        asyncio.create_task(run_portfolio_sync_job())
         return web.json_response({"ok": True, "message": "Синхронизация запущена"})
     except Exception as e:
         logger.error(f"[API /whale-radar/sync] Ошибка: {e}")

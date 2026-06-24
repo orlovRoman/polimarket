@@ -185,6 +185,13 @@
     <div id="resolved-pagination-losses"></div>
 </div>
 
+<div class="table-card" style="margin-bottom: 24px;">
+    <div class="table-title">График PnL (30 дней)</div>
+    <div style="height: {{WHALE_CHART_HEIGHT | default(300)}}px; padding: 16px;">
+        <canvas id="dailyPnlChart"></canvas>
+    </div>
+</div>
+
 <div id="history-card" class="table-card" style="display: none;">
     <div class="table-title">История виртуальных сделок</div>
     <div class="table-wrapper">
@@ -1252,6 +1259,76 @@
 
         // 4. Рендерим системные оповещения
         renderSystemAlerts(data.system_alerts);
+
+        // 5. График
+        if (data.daily_chart_data) {
+            renderDailyChart(data.daily_chart_data);
+        }
+    }
+    
+    let dailyChart = null;
+
+    function renderDailyChart(chartData) {
+        if (typeof Chart === 'undefined') {
+            console.warn('Chart.js не загружен, график PnL недоступен');
+            return;
+        }
+        if (dailyChart) {
+            dailyChart.data.labels = chartData.labels;
+            dailyChart.data.datasets[0].data = chartData.wins;
+            dailyChart.data.datasets[1].data = chartData.losses;
+            dailyChart.update();
+        } else {
+            const ctx = document.getElementById('dailyPnlChart');
+            if (!ctx) return;
+            dailyChart = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [
+                        {
+                            label: 'Профит ($)',
+                            data: chartData.wins,
+                            backgroundColor: 'rgba(16, 185, 129, 0.8)', // Green
+                            borderColor: 'rgba(16, 185, 129, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Убытки ($)',
+                            data: chartData.losses,
+                            backgroundColor: 'rgba(239, 68, 68, 0.8)', // Red
+                            borderColor: 'rgba(239, 68, 68, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: 'rgba(255, 255, 255, 0.7)' }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: false,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.5)' }
+                        },
+                        y: {
+                            stacked: false,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.5)' }
+                        }
+                    }
+                }
+            });
+        }
     }
 
     async function fetchAutoBuyStatus() {
