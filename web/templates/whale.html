@@ -1322,6 +1322,97 @@
         if (isNaN(maxPrice) || maxPrice < 0 || maxPrice > 1) {
             alert('Max Price должен быть числом от 0 до 1');
             return;
+        }
+        if (minPrice >= maxPrice) {
+            alert('Min Price должен быть меньше Max Price');
+            return;
+        }
+        if (isNaN(edgeBonus) || edgeBonus < 0 || edgeBonus > 0.5) {
+            alert('Edge Bonus должен быть числом от 0 до 0.5');
+            return;
+        }
+
+        if (btn) btn.disabled = true;
+        const prevText = btn ? btn.textContent : '';
+        if (btn) btn.textContent = 'Сохранение...';
+        
+        try {
+            const payload = {
+                min_whale_win_rate: winRate,
+                min_whale_trades: trades,
+                min_market_volume: vol,
+                virtual_stake: stake,
+                min_market_price: minPrice,
+                max_market_price: maxPrice,
+                whale_edge_bonus: edgeBonus
+            };
+            const res = await fetch('/api/whale-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                showToast('Настройки успешно сохранены!');
+            } else {
+                const err = await res.json();
+                alert('Ошибка при сохранении настроек: ' + (err.error || 'Unknown error'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Сетевая ошибка при сохранении');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = prevText;
+            }
+        }
+    }
+
+    loadWhaleSettings();
+    registerRefresh(loadWhaleStocksData);
+</script>
+
+<script>
+    async function editVirtualStake(marketId, currentPrice, currentStake) {
+        const newPriceStr = prompt("Введите виртуальную цену покупки (YES token, 0..1):", currentPrice);
+        if (newPriceStr === null) return;
+        const newStakeStr = prompt("Введите размер ставки (USDC):", currentStake);
+        if (newStakeStr === null) return;
+        
+        const newPrice = parseFloat(newPriceStr);
+        const newStake = parseFloat(newStakeStr);
+        
+        if (isNaN(newPrice) || newPrice < 0 || newPrice > 1 || isNaN(newStake) || newStake < 0) {
+            alert("Некорректные значения");
+            return;
+        }
+        
+        try {
+            const res = await fetch('/api/whale-settings/edit-stake', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ market_id: marketId, virtual_bought_price: newPrice, bet_size_usdc: newStake })
+            });
+            if (res.ok) {
+                loadWhaleStocksData();
+                showToast("Ставка обновлена");
+            } else {
+                const err = await res.json();
+                alert("Ошибка: " + (err.error || "Unknown"));
+            }
+        } catch (e) {
+            alert("Ошибка сети");
+        }
+    }
+</script>
+
+<script>
+    async function loadWhaleRadar() {
+      const min = document.getElementById('whale-radar-min').value;
+      try {
+        const resp = await fetch(`/api/whale-radar?min_whales=${min}`);
+        const json = await resp.json();
+        const tbody = document.getElementById('whale-radar-tbody');
 
         if (!json.ok || json.data.length === 0) {
           tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px;">Нет данных. Запустите синхронизацию.</td></tr>';
@@ -1374,5 +1465,4 @@
 
     // Авто-загрузка радара при открытии
     loadWhaleRadar();
-
 </script>
