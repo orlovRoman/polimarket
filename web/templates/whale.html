@@ -1451,8 +1451,8 @@
             valA = (a.market_title || a.market_id).toLowerCase();
             valB = (b.market_title || b.market_id).toLowerCase();
             break;
-          case 'yes_usd': valA = a.yes_usd; valB = b.yes_usd; break;
-          case 'no_usd': valA = a.no_usd; valB = b.no_usd; break;
+          case 'yes_usd': valA = a.yes_whales * 1e9 + a.yes_usd; valB = b.yes_whales * 1e9 + b.yes_usd; break;
+          case 'no_usd': valA = a.no_whales * 1e9 + a.no_usd; valB = b.no_whales * 1e9 + b.no_usd; break;
           case 'delta_usd': valA = Math.abs(a.delta_usd); valB = Math.abs(b.delta_usd); break;
           case 'dominant_side': valA = a.dominant_side; valB = b.dominant_side; break;
           case 'market_close_time': 
