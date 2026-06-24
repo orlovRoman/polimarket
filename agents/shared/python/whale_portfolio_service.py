@@ -144,7 +144,6 @@ async def run_portfolio_sync_job():
     import logging
     import asyncio
     from agents.shared.python.db import get_connection
-    from agents.shared.python.whale_portfolio_service import fetch_wallet_positions, save_snapshot
     
     logger = logging.getLogger("NexusPolyBot.WhaleRadar")
     logger.info("[WhaleRadar] Запуск фоновой синхронизации портфелей китов...")

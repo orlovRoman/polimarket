@@ -959,7 +959,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 elif pnl_val < 0:
                     sum_lost += abs(pnl_val)
                     
-                if res_at_str:
+                if res_at_str and pnl_val != 0:
                     res_at = _parse_dt_utc(res_at_str)
                     if res_at and res_at >= thirty_days_ago:
                         date_str = res_at.strftime('%Y-%m-%d')
@@ -1518,7 +1518,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
                 
             try:
                 res_at_str = r['resolved_at']
-                if res_at_str:
+                if res_at_str and pnl_val != 0:
                     res_at = _parse_dt_utc(res_at_str)
                     if res_at:
                         if res_at >= today_start:
