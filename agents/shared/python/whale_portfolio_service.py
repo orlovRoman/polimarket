@@ -11,7 +11,7 @@ from agents.shared.python.db import get_connection
 
 logger = logging.getLogger("NexusPolyBot.WhalePortfolioService")
 
-GAMMA_POSITIONS_URL = "https://gamma-api.polymarket.com/positions"
+GAMMA_POSITIONS_URL = "https://data-api.polymarket.com/positions"
 
 # ── Fetching ──────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,8 @@ async def fetch_wallet_positions(wallet_address: str) -> list[dict]:
         "limit": 500,
     }
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        async with httpx.AsyncClient(headers=headers, timeout=20.0) as client:
             resp = await client.get(GAMMA_POSITIONS_URL, params=params)
             resp.raise_for_status()
             data = resp.json()
