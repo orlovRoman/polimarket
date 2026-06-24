@@ -1047,6 +1047,7 @@ async def api_analyze_market(request):
             with get_connection() as conn:
                 conn.execute("DELETE FROM agent_opinions WHERE market_id = ?", (market_id,))
                 conn.execute("DELETE FROM analyzed_markets WHERE market_id = ?", (market_id,))
+                conn.execute("DELETE FROM signals WHERE market_id = ? AND status = 'PENDING'", (market_id,))
         await asyncio.to_thread(clear_db)
         with _jobs_lock:
             if market_id in analysis_jobs:
@@ -1087,6 +1088,12 @@ async def api_analyze_market(request):
     if _analysis_queue is None:
         return web.json_response({"error": "Сервер ещё инициализируется, попробуйте позже."}, status=503)
     try:
+        from agents.shared.python.db import get_connection
+        def clear_zombies():
+            with get_connection() as conn:
+                conn.execute("DELETE FROM signals WHERE market_id = ? AND status = 'PENDING'", (market_id,))
+        await asyncio.to_thread(clear_zombies)
+        
         _analysis_queue.put_nowait(market_id)
         with _jobs_lock:
             analysis_jobs[market_id] = {
