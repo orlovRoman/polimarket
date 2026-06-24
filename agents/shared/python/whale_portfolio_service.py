@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 import httpx
+import asyncio
 
 from agents.shared.python.db import get_connection
 
