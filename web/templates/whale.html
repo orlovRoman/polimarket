@@ -106,10 +106,11 @@
           <th onclick="sortRadar('delta_usd')" style="cursor:pointer; user-select:none; border-top: none;">Дельта ($) <span id="radar-sort-delta_usd" style="font-size:0.8em; margin-left:4px;">▼</span></th>
           <th onclick="sortRadar('dominant_side')" style="cursor:pointer; user-select:none; border-top: none;">Перевес <span id="radar-sort-dominant_side" style="font-size:0.8em; margin-left:4px;"></span></th>
           <th onclick="sortRadar('market_close_time')" style="cursor:pointer; user-select:none; border-top: none;">Закрытие <span id="radar-sort-market_close_time" style="font-size:0.8em; margin-left:4px;"></span></th>
+          <th style="user-select:none; border-top: none;">Действия</th>
         </tr>
       </thead>
       <tbody id="whale-radar-tbody">
-        <tr><td colspan="6" style="text-align:center; padding: 20px;">Загрузка...</td></tr>
+        <tr><td colspan="7" style="text-align:center; padding: 20px;">Загрузка...</td></tr>
       </tbody>
     </table>
   </div>
@@ -546,9 +547,14 @@
 
     async function buyVirtual(marketId, priceYes, displayPrice) {
         if (priceYes === undefined || priceYes === null) {
-            console.error("Ошибка покупки: не указана цена покупки (price равен null или undefined)");
-            alert("Не удалось определить цену покупки. Пожалуйста, обновите страницу.");
-            return;
+            const userPrice = prompt("Введите цену покупки (от 0.01 до 0.99):", "0.50");
+            if (userPrice === null) return;
+            priceYes = parseFloat(userPrice);
+            if (isNaN(priceYes) || priceYes <= 0 || priceYes >= 1) {
+                alert("Некорректная цена!");
+                return;
+            }
+            displayPrice = priceYes;
         }
         const showPrice = displayPrice !== undefined ? displayPrice : priceYes;
         if (!confirm(`Купить виртуально актив по цене ${showPrice}?`)) return;
@@ -572,6 +578,16 @@
     }
 
     async function sellVirtual(marketId, currentPrice) {
+        if (currentPrice === undefined || currentPrice === null) {
+            const userPrice = prompt("Введите цену продажи (от 0.01 до 0.99):", "0.50");
+            if (userPrice === null) return;
+            currentPrice = parseFloat(userPrice);
+            if (isNaN(currentPrice) || currentPrice <= 0 || currentPrice >= 1) {
+                alert("Некорректная цена!");
+                return;
+            }
+        }
+        if (!confirm(`Продать виртуально актив по цене ${currentPrice}?`)) return;
         const res = await fetch('/api/whale-stocks/sell', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1440,7 +1456,7 @@
     function renderRadarTable() {
       const tbody = document.getElementById('whale-radar-tbody');
       if (radarData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px;">Нет данных. Запустите синхронизацию.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Нет данных. Запустите синхронизацию.</td></tr>';
         return;
       }
 
@@ -1483,6 +1499,11 @@
           <td style="color: ${deltaColor}; font-weight: bold;">$${Math.abs(delta).toFixed(0)}</td>
           <td>${badge}</td>
           <td>${m.market_close_time ? new Date(m.market_close_time).toLocaleDateString() : '—'}</td>
+          <td>
+            <button class="badge badge-blue" style="border:none; cursor:pointer; font-weight:600; margin-bottom:4px; width: 100%; display:block;" onclick="buyVirtual('${m.market_id}')">В портфель</button>
+            <button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600; margin-bottom:4px; width: 100%; display:block;" onclick="sellVirtual('${m.market_id}')">Продать</button>
+            <button class="badge badge-purple" style="border:none; cursor:pointer; font-weight:600; width: 100%; display:block;" onclick="showAnalysis('${m.market_id}')">Анализ</button>
+          </td>
         </tr>`;
       }).join('');
     }
