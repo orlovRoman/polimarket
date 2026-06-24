@@ -141,11 +141,8 @@ def get_whale_radar_summary(min_whales: int = 1) -> list[dict]:
 
 async def run_portfolio_sync_job():
     """Standalone async джоба — без зависимости от main.py."""
-    import logging
-    import asyncio
     from agents.shared.python.db import get_connection
     
-    logger = logging.getLogger("NexusPolyBot.WhaleRadar")
     logger.info("[WhaleRadar] Запуск фоновой синхронизации портфелей китов...")
     
     try:
