@@ -37,6 +37,7 @@ class Signal(BaseModel):
     position_size_usd: float = 0.0
     edge: Optional[float] = None
     confidence: float
+    notes: Optional[str] = None
     
     @field_validator('confidence')
     @classmethod
