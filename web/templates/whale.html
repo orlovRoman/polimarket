@@ -99,12 +99,12 @@
   <table class="data-table" style="width: 100%;">
     <thead>
       <tr>
-        <th>Событие</th>
-        <th>✅ YES (Китов / $USD)</th>
-        <th>❌ NO (Китов / $USD)</th>
-        <th>Дельта ($)</th>
-        <th>Перевес</th>
-        <th>Закрытие</th>
+        <th onclick="sortRadar('title')" style="cursor:pointer; user-select:none;">Событие <span id="radar-sort-title" style="font-size:0.8em; margin-left:4px;"></span></th>
+        <th onclick="sortRadar('yes_usd')" style="cursor:pointer; user-select:none;">✅ YES (Китов / $USD) <span id="radar-sort-yes_usd" style="font-size:0.8em; margin-left:4px;"></span></th>
+        <th onclick="sortRadar('no_usd')" style="cursor:pointer; user-select:none;">❌ NO (Китов / $USD) <span id="radar-sort-no_usd" style="font-size:0.8em; margin-left:4px;"></span></th>
+        <th onclick="sortRadar('delta_usd')" style="cursor:pointer; user-select:none;">Дельта ($) <span id="radar-sort-delta_usd" style="font-size:0.8em; margin-left:4px;">▼</span></th>
+        <th onclick="sortRadar('dominant_side')" style="cursor:pointer; user-select:none;">Перевес <span id="radar-sort-dominant_side" style="font-size:0.8em; margin-left:4px;"></span></th>
+        <th onclick="sortRadar('market_close_time')" style="cursor:pointer; user-select:none;">Закрытие <span id="radar-sort-market_close_time" style="font-size:0.8em; margin-left:4px;"></span></th>
       </tr>
     </thead>
     <tbody id="whale-radar-tbody">
@@ -1406,37 +1406,97 @@
 </script>
 
 <script>
+    let radarData = [];
+    let radarSortCol = 'delta_usd';
+    let radarSortDir = 'desc';
+
+    function sortRadar(col) {
+      if (radarSortCol === col) {
+        radarSortDir = radarSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        radarSortCol = col;
+        radarSortDir = 'desc';
+      }
+      renderRadarTable();
+      updateRadarSortIndicators();
+    }
+
+    function updateRadarSortIndicators() {
+      const cols = ['title', 'yes_usd', 'no_usd', 'delta_usd', 'dominant_side', 'market_close_time'];
+      cols.forEach(c => {
+        const el = document.getElementById(`radar-sort-${c}`);
+        if (el) {
+          if (c === radarSortCol) {
+            el.textContent = radarSortDir === 'asc' ? '▲' : '▼';
+          } else {
+            el.textContent = '';
+          }
+        }
+      });
+    }
+
+    function renderRadarTable() {
+      const tbody = document.getElementById('whale-radar-tbody');
+      if (radarData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px;">Нет данных. Запустите синхронизацию.</td></tr>';
+        return;
+      }
+
+      const sortedData = [...radarData].sort((a, b) => {
+        let valA, valB;
+        switch (radarSortCol) {
+          case 'title':
+            valA = (a.market_title || a.market_id).toLowerCase();
+            valB = (b.market_title || b.market_id).toLowerCase();
+            break;
+          case 'yes_usd': valA = a.yes_usd; valB = b.yes_usd; break;
+          case 'no_usd': valA = a.no_usd; valB = b.no_usd; break;
+          case 'delta_usd': valA = Math.abs(a.delta_usd); valB = Math.abs(b.delta_usd); break;
+          case 'dominant_side': valA = a.dominant_side; valB = b.dominant_side; break;
+          case 'market_close_time': 
+            valA = a.market_close_time ? new Date(a.market_close_time).getTime() : Number.MAX_SAFE_INTEGER;
+            valB = b.market_close_time ? new Date(b.market_close_time).getTime() : Number.MAX_SAFE_INTEGER;
+            break;
+        }
+        
+        if (valA < valB) return radarSortDir === 'asc' ? -1 : 1;
+        if (valA > valB) return radarSortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      tbody.innerHTML = sortedData.map(m => {
+        const delta = m.delta_usd;
+        const deltaColor = delta >= 0 ? '#10b981' : '#ef4444';
+        const badge = m.dominant_side === 'YES' 
+          ? '<span class="badge badge-green">YES</span>' 
+          : '<span class="badge badge-red">NO</span>';
+        const title = m.market_url 
+          ? `<a href="${m.market_url}" target="_blank" style="color: var(--text-primary); text-decoration: none;">${m.market_title || m.market_id}</a>`
+          : (m.market_title || m.market_id);
+
+        return `<tr>
+          <td style="max-width: 300px; white-space: normal;">${title}</td>
+          <td>${m.yes_whales} / $${m.yes_usd.toFixed(0)}</td>
+          <td>${m.no_whales} / $${m.no_usd.toFixed(0)}</td>
+          <td style="color: ${deltaColor}; font-weight: bold;">$${Math.abs(delta).toFixed(0)}</td>
+          <td>${badge}</td>
+          <td>${m.market_close_time ? new Date(m.market_close_time).toLocaleDateString() : '—'}</td>
+        </tr>`;
+      }).join('');
+    }
+
     async function loadWhaleRadar() {
       const min = document.getElementById('whale-radar-min').value;
       try {
         const resp = await fetch(`/api/whale-radar?min_whales=${min}`);
         const json = await resp.json();
-        const tbody = document.getElementById('whale-radar-tbody');
-
-        if (!json.ok || json.data.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px;">Нет данных. Запустите синхронизацию.</td></tr>';
-          return;
+        if (json.ok && json.data) {
+          radarData = json.data;
+        } else {
+          radarData = [];
         }
-
-        tbody.innerHTML = json.data.map(m => {
-          const delta = m.delta_usd;
-          const deltaColor = delta >= 0 ? '#10b981' : '#ef4444';
-          const badge = m.dominant_side === 'YES' 
-            ? '<span class="badge badge-green">YES</span>' 
-            : '<span class="badge badge-red">NO</span>';
-          const title = m.market_url 
-            ? `<a href="${m.market_url}" target="_blank" style="color: var(--text-primary); text-decoration: none;">${m.market_title || m.market_id}</a>`
-            : (m.market_title || m.market_id);
-
-          return `<tr>
-            <td style="max-width: 300px; white-space: normal;">${title}</td>
-            <td>${m.yes_whales} / $${m.yes_usd.toFixed(0)}</td>
-            <td>${m.no_whales} / $${m.no_usd.toFixed(0)}</td>
-            <td style="color: ${deltaColor}; font-weight: bold;">$${Math.abs(delta).toFixed(0)}</td>
-            <td>${badge}</td>
-            <td>${m.market_close_time ? new Date(m.market_close_time).toLocaleDateString() : '—'}</td>
-          </tr>`;
-        }).join('');
+        renderRadarTable();
+        updateRadarSortIndicators();
       } catch(e) {
         console.error(e);
       }
