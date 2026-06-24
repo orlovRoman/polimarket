@@ -1201,7 +1201,8 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         'wins_total': wins_total,
         'losses_total': losses_total,
         'history_total': history_total,
-        'system_alerts': system_alerts
+        'system_alerts': system_alerts,
+        'daily_chart_data': stats.get('daily_chart_data')
     }
 
 def _process_whale_resolved_row(r, virtual_stake: float) -> dict:
