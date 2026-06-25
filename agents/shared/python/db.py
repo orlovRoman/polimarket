@@ -1927,6 +1927,14 @@ def delete_memory(key: str) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM memory WHERE key = ?", (key,))
 
+def is_system_paused() -> bool:
+    """Возвращает True, если система находится в режиме паузы (Standby)."""
+    return get_memory("system_paused", False)
+
+def set_system_paused(state: bool) -> None:
+    """Устанавливает режим паузы системы."""
+    save_memory("system_paused", state, category="operational")
+
 def get_active_facts(limit: int = 30) -> list:
     """Загружает актуальные приоритетные факты. Обёртка для обратной совместимости."""
     return get_relevant_facts(limit=limit)

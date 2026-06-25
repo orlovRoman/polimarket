@@ -1037,6 +1037,10 @@ async def api_analyze_market(request):
             return web.json_response({"error": "market_id is required"}, status=400)
     except Exception as e:
         return web.json_response({"error": f"Invalid request body: {e}"}, status=400)
+
+    from agents.shared.python.db import is_system_paused
+    if is_system_paused():
+        return web.json_response({"error": "Система на паузе. Действие заблокировано."}, status=403)
         
     from agents.shared.python.db import get_market_discussions
     
@@ -1309,6 +1313,25 @@ async def api_penny_stocks_rederive_creds(request):
     data = await asyncio.to_thread(rederive_penny_credentials)
     return web.json_response(data)
 
+async def api_system_status(request):
+    from agents.shared.python.db import is_system_paused
+    paused = await asyncio.to_thread(is_system_paused)
+    return web.json_response({"paused": paused})
+
+async def api_system_pause(request):
+    from agents.shared.python.db import set_system_paused
+    await asyncio.to_thread(set_system_paused, True)
+    if _scheduler:
+        _scheduler.pause()
+    return web.json_response({"status": "paused"})
+
+async def api_system_resume(request):
+    from agents.shared.python.db import set_system_paused
+    await asyncio.to_thread(set_system_paused, False)
+    if _scheduler:
+        _scheduler.resume()
+    return web.json_response({"status": "active"})
+
 # === Фабрика приложения ===
 
 def create_dashboard_app() -> web.Application:
@@ -1329,6 +1352,9 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/learning", handle_learning)
     
     # JSON API маршруты
+    app.router.add_get("/api/system/status", api_system_status)
+    app.router.add_post("/api/system/pause", api_system_pause)
+    app.router.add_post("/api/system/resume", api_system_resume)
     app.router.add_get("/api/overview", api_overview)
     app.router.add_get("/api/memory-stats", api_memory_stats)
     app.router.add_get("/api/eval-status", api_eval_status)

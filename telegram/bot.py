@@ -827,10 +827,25 @@ def get_scout_accuracy_live() -> tuple[Optional[float], int]:
         logger.exception(f"Ошибка при расчете live-точности SCOUT: {e}")
     return None, 0
 
+@dp.message(Command("stop_all"))
+async def command_stop_all_handler(message: types.Message) -> None:
+    from agents.shared.python.db import set_system_paused
+    set_system_paused(True)
+    if _scheduler:
+        _scheduler.pause()
+    await message.answer("🛑 <b>Режим паузы активирован.</b>\nВсе фоновые задачи (синхронизация, сканирование, агенты) приостановлены.\nТекущие запущенные задачи будут плавно завершены.\nДашборд и Телеграм-бот остаются доступны.\nДля возобновления используйте /start_all.")
+
+@dp.message(Command("start_all"))
+async def command_start_all_handler(message: types.Message) -> None:
+    from agents.shared.python.db import set_system_paused
+    set_system_paused(False)
+    if _scheduler:
+        _scheduler.resume()
+    await message.answer("✅ <b>Режим паузы отключен.</b>\nВсе фоновые задачи возобновлены.")
 
 @dp.message(Command("status"))
 async def command_status_handler(message: types.Message) -> None:
-    from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats, get_memory
+    from agents.shared.python.db import DB_PATH, get_connection, get_memory_stats, get_memory, is_system_paused
     from config import SCAN_LIMIT_DEFAULT
     
     # Получаем настройки и метрики из БД
@@ -862,8 +877,15 @@ async def command_status_handler(message: types.Message) -> None:
     stats = await asyncio.to_thread(get_memory_stats)
 
     engine = get_core_engine()
+    is_paused = is_system_paused()
     is_scanning_real = _scan_lock.locked() or engine._scan_lock.locked()
     is_monitoring = _is_monitoring_active()
+    
+    if is_paused:
+        global_status = "🛑 СИСТЕМА НА ПАУЗЕ (STANDBY)"
+    else:
+        global_status = "🟢 СИСТЕМА АКТИВНА"
+
     monitoring_status = "🟢 Активен" if is_monitoring else "🔴 Остановлен"
     schedule_status = "🟢 Вкл (15 мин)" if _auto_schedule_enabled else "🔴 Выкл"
 
@@ -875,7 +897,7 @@ async def command_status_handler(message: types.Message) -> None:
     onchain_status = get_job_status_indicator("job_onchain_alerts")
 
     status_text = (
-        "📊 <b>Статус системы:</b>\n\n"
+        f"📊 <b>{global_status}</b>\n\n"
         f"● <b>Мониторинг:</b> {monitoring_status}\n"
         f"● <b>Авто-расписание:</b> {schedule_status}\n"
         "● <b>Оркестратор NEXUS:</b> 🟢 Активен\n"

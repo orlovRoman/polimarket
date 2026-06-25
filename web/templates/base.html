@@ -590,9 +590,12 @@
         <header>
             <div class="header-title" id="page-title">Панель управления</div>
             <div class="header-meta">
+                <button id="system-pause-btn" class="refresh-btn" onclick="toggleSystemPause()" style="border: 1px solid var(--accent-red); color: var(--accent-red); margin-right: 12px; display: none;">
+                    ⏸ ПАУЗА
+                </button>
                 <div class="status-badge">
                     <span class="status-dot"></span>
-                    Бот онлайн
+                    <span id="system-status-text">Бот онлайн</span>
                 </div>
                 <button class="refresh-btn" onclick="triggerRefresh()">
                     <svg style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
@@ -632,8 +635,54 @@
             document.getElementById('page-title').textContent = 'Стратегия: Коридоры & Арбитраж';
         }
 
+        let isSystemPaused = false;
+        
+        async function fetchSystemStatus() {
+            const data = await fetchJSON('/api/system/status');
+            if (data) {
+                isSystemPaused = data.paused;
+                updatePauseUI();
+            }
+        }
+        
+        function updatePauseUI() {
+            const btn = document.getElementById('system-pause-btn');
+            const statusText = document.getElementById('system-status-text');
+            const statusDot = document.querySelector('.status-dot');
+            btn.style.display = 'inline-block';
+            
+            if (isSystemPaused) {
+                btn.innerHTML = '▶ ВОЗОБНОВИТЬ';
+                btn.style.borderColor = 'var(--accent-green)';
+                btn.style.color = 'var(--accent-green)';
+                statusText.textContent = 'СИСТЕМА НА ПАУЗЕ (STANDBY)';
+                statusText.style.color = 'var(--accent-red)';
+                statusDot.style.backgroundColor = 'var(--accent-red)';
+            } else {
+                btn.innerHTML = '⏸ ПАУЗА';
+                btn.style.borderColor = 'var(--accent-red)';
+                btn.style.color = 'var(--accent-red)';
+                statusText.textContent = 'Бот онлайн';
+                statusText.style.color = 'var(--text-secondary)';
+                statusDot.style.backgroundColor = 'var(--accent-green)';
+            }
+        }
+        
+        async function toggleSystemPause() {
+            const endpoint = isSystemPaused ? '/api/system/resume' : '/api/system/pause';
+            const res = await fetch(endpoint, {method: 'POST'});
+            if (res.ok) {
+                isSystemPaused = !isSystemPaused;
+                updatePauseUI();
+                showToast(isSystemPaused ? 'Система поставлена на паузу' : 'Работа системы возобновлена', isSystemPaused ? 'error' : 'success');
+            } else {
+                showToast('Ошибка при изменении статуса системы', 'error');
+            }
+        }
+
         async function triggerRefresh() {
             document.getElementById("update-time").textContent = new Date().toLocaleTimeString('ru-RU');
+            await fetchSystemStatus();
             for (const cb of refreshCallbacks) {
                 try {
                     await cb();
