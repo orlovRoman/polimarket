@@ -693,6 +693,7 @@
         }
 
         window.addEventListener("DOMContentLoaded", () => {
+            fetchSystemStatus();
             triggerRefresh();
             setInterval(triggerRefresh, 30000); // 30 секунд
         });

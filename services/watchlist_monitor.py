@@ -43,8 +43,9 @@ async def run_watchlist_monitor(bot, chat_id: str) -> None:
         try:
             from agents.shared.python.db import is_system_paused
             if is_system_paused():
-                # Skip checking if system is on standby
-                pass
+                # Sleep when system is on standby
+                await asyncio.sleep(30)
+                continue
             else:
                 await _check_watchlist(bot, chat_id)
         except asyncio.CancelledError:

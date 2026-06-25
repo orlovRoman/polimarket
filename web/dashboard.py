@@ -41,6 +41,18 @@ def render_template(page_name: str) -> str:
     return html
 
 
+def require_system_active(handler):
+    @functools.wraps(handler)
+    async def wrapper(request):
+        from agents.shared.python.db import is_system_paused
+        if await asyncio.to_thread(is_system_paused):
+            return web.json_response(
+                {"error": "Система на паузе. Действие заблокировано."}, 
+                status=403
+            )
+        return await handler(request)
+    return wrapper
+
 # === HTML хэндлеры ===
 
 async def handle_favicon(request):
@@ -1037,10 +1049,6 @@ async def api_analyze_market(request):
             return web.json_response({"error": "market_id is required"}, status=400)
     except Exception as e:
         return web.json_response({"error": f"Invalid request body: {e}"}, status=400)
-
-    from agents.shared.python.db import is_system_paused
-    if is_system_paused():
-        return web.json_response({"error": "Система на паузе. Действие заблокировано."}, status=403)
         
     from agents.shared.python.db import get_market_discussions
     
@@ -1373,19 +1381,19 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get("/api/corridors", api_corridors)
     
     # POST API маршруты (виртуальный портфель и ручной анализ)
-    app.router.add_post("/api/penny-stocks/buy", api_buy_penny_stock)
-    app.router.add_post("/api/penny-stocks/sell", api_sell_penny_stock)
-    app.router.add_post("/api/penny-stocks/analyze", api_analyze_market)
+    app.router.add_post("/api/penny-stocks/buy", require_system_active(api_buy_penny_stock))
+    app.router.add_post("/api/penny-stocks/sell", require_system_active(api_sell_penny_stock))
+    app.router.add_post("/api/penny-stocks/analyze", require_system_active(api_analyze_market))
     app.router.add_get("/api/penny-stocks/analyze-status", api_analyze_market_status)
-    app.router.add_post("/api/penny-stocks/discover", api_discover_penny_stocks)
-    app.router.add_post("/api/favourite-compounding/buy", api_buy_compound_opportunity)
-    app.router.add_post("/api/favourite-compounding/sell", api_sell_compound_opportunity)
-    app.router.add_post("/api/whale-stocks/buy", api_buy_whale_stock)
-    app.router.add_post("/api/whale-stocks/sell", api_sell_whale_stock)
-    app.router.add_post("/api/whale-stocks/analyze", api_analyze_market)
+    app.router.add_post("/api/penny-stocks/discover", require_system_active(api_discover_penny_stocks))
+    app.router.add_post("/api/favourite-compounding/buy", require_system_active(api_buy_compound_opportunity))
+    app.router.add_post("/api/favourite-compounding/sell", require_system_active(api_sell_compound_opportunity))
+    app.router.add_post("/api/whale-stocks/buy", require_system_active(api_buy_whale_stock))
+    app.router.add_post("/api/whale-stocks/sell", require_system_active(api_sell_whale_stock))
+    app.router.add_post("/api/whale-stocks/analyze", require_system_active(api_analyze_market))
     app.router.add_get("/api/whale-stocks/analyze-status", api_analyze_market_status)
-    app.router.add_post("/api/whale-stocks/discover", api_discover_whale_stocks)
-    app.router.add_post("/api/delete-market", api_delete_market)
+    app.router.add_post("/api/whale-stocks/discover", require_system_active(api_discover_whale_stocks))
+    app.router.add_post("/api/delete-market", require_system_active(api_delete_market))
     app.router.add_get("/api/settings", api_get_settings)
     app.router.add_post("/api/settings", api_save_settings)
     

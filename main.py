@@ -1025,6 +1025,7 @@ async def start_system():
     from agents.shared.python.db import is_system_paused
     if is_system_paused():
         logger.info("Система находилась на паузе, приостанавливаем планировщик.")
+        await asyncio.sleep(0.1)
         scheduler.pause()
 
     # Передаём scheduler в bot.py для управления авто-расписанием через /monitor
