@@ -95,15 +95,17 @@ def get_whale_radar_summary(min_whales: int = 1) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
-                market_id,
-                market_title,
-                market_url,
-                market_close_time,
-                outcome,
-                COUNT(DISTINCT wallet_address)  AS whale_count,
-                SUM(current_value)              AS total_usd
-            FROM whale_portfolio_snapshots
-            GROUP BY market_id, outcome
+                w.market_id,
+                w.market_title,
+                w.market_url,
+                w.market_close_time,
+                w.outcome,
+                COUNT(DISTINCT w.wallet_address)  AS whale_count,
+                SUM(w.current_value)              AS total_usd
+            FROM whale_portfolio_snapshots w
+            LEFT JOIN markets m ON w.market_id = m.id
+            WHERE m.id IS NULL OR m.close_time > datetime('now', '-1 day')
+            GROUP BY w.market_id, w.outcome
             ORDER BY total_usd DESC
         """).fetchall()
 
