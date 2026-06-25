@@ -830,9 +830,6 @@ def get_scout_accuracy_live() -> tuple[Optional[float], int]:
 @dp.message(Command("stop_all"))
 async def command_stop_all_handler(message: types.Message) -> None:
     from agents.shared.python.db import set_system_paused
-    if str(message.from_user.id) != str(AUTHORIZED_CHAT_ID):
-        await message.answer("⛔ Нет прав.")
-        return
     set_system_paused(True)
     if _scheduler:
         _scheduler.pause()
@@ -841,9 +838,6 @@ async def command_stop_all_handler(message: types.Message) -> None:
 @dp.message(Command("start_all"))
 async def command_start_all_handler(message: types.Message) -> None:
     from agents.shared.python.db import set_system_paused
-    if str(message.from_user.id) != str(AUTHORIZED_CHAT_ID):
-        await message.answer("⛔ Нет прав.")
-        return
     set_system_paused(False)
     if _scheduler:
         _scheduler.resume()
