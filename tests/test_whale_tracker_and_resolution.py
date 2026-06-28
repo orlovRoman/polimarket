@@ -445,7 +445,7 @@ def test_sell_virtual_whale_stock_with_custom_sell_price():
         assert trade["sold_price"] == pytest.approx(0.85)
         assert trade["sold_outcome_price"] == pytest.approx(0.85)
         # PnL = 0.85 - 0.45 = 0.40
-        assert trade["pnl_cents"] == pytest.approx(0.40)
+        assert trade["pnl_points"] == pytest.approx(0.40)
         assert trade["pnl_percent"] == pytest.approx(88.89, abs=0.01) # (0.40 / 0.45) * 100
         
         # Проверяем, что в мониторинге сбросились параметры покупки

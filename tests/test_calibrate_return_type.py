@@ -17,7 +17,7 @@ def db():
         CREATE TABLE penny_stocks_monitoring (market_id TEXT, status TEXT,
             predicted_outcome TEXT, actual_outcome TEXT, resolved_at TEXT);
         CREATE TABLE whale_virtual_trades_history (id INTEGER PRIMARY KEY,
-            market_id TEXT, pnl_cents REAL, sold_at TEXT);
+            market_id TEXT, pnl_points REAL, sold_at TEXT);
         CREATE TABLE compound_virtual_trades_history (id INTEGER PRIMARY KEY,
             pnl_usd REAL, sold_at TEXT);
         CREATE TABLE llm_calls (id INTEGER PRIMARY KEY, agent_name TEXT,

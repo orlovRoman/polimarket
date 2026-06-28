@@ -114,7 +114,7 @@ def test_get_penny_stocks_dashboard(isolated_db):
             ('penny_c', 'Penny C', 'http://c', 0.02, 0.02, 0.02, 0.02, 'ACTIVE', NULL, NULL)
         """)
         conn.execute("""
-            INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at)
+            INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_points, pnl_percent, bought_at, sold_at)
             VALUES ('penny_b', 'Penny B', 'http://b', 'YES', 0.08, 0.08, 0.02, 0.02, -10.0, -125.0, datetime('now'), datetime('now'))
         """)
 
@@ -265,7 +265,7 @@ def test_virtual_portfolio_operations(isolated_db):
     assert len(data['portfolio']) == 1
     assert data['portfolio'][0]['market_id'] == 'penny_v'
     assert data['portfolio'][0]['virtual_bought_price'] == pytest.approx(0.04)
-    assert data['portfolio'][0]['pnl_cents'] == pytest.approx(2.5)  # (10.0 / 0.04) * 0.01
+    assert data['portfolio'][0]['pnl_points'] == pytest.approx(2.5)  # (10.0 / 0.04) * 0.01
     assert data['portfolio'][0]['pnl_percent'] == pytest.approx(25.0)
     
     # "Продаем" (удаляем)
@@ -291,7 +291,7 @@ def test_virtual_portfolio_no_outcome_approx(isolated_db):
     p = data['portfolio'][0]
     assert p['bought_outcome_price'] == pytest.approx(0.96, abs=1e-4)
     assert p['current_outcome_price'] == pytest.approx(0.97, abs=1e-4)
-    assert p['pnl_cents'] == pytest.approx(0.1, abs=1e-4)  # (10.0 / 0.96) * 0.01 rounded to 2 decimals
+    assert p['pnl_points'] == pytest.approx(0.1, abs=1e-4)  # (10.0 / 0.96) * 0.01 rounded to 2 decimals
     assert p['pnl_percent'] == pytest.approx(1.04, abs=0.01)
 
 def test_cheapest_price_outcome_no_direction(isolated_db):
@@ -367,7 +367,7 @@ def test_virtual_portfolio_null_prediction_no_outcome(isolated_db):
     assert p['cheap_outcome'] == 'NO'
     assert p['bought_outcome_price'] == pytest.approx(0.06, abs=1e-4)
     assert p['current_outcome_price'] == pytest.approx(0.07, abs=1e-4)
-    assert p['pnl_cents'] == pytest.approx(1.67, abs=1e-4)  # (10.0 / 0.06) * 0.01 rounded to 2 decimals
+    assert p['pnl_points'] == pytest.approx(1.67, abs=1e-4)  # (10.0 / 0.06) * 0.01 rounded to 2 decimals
 
 def test_virtual_sell_saves_to_history(isolated_db):
     """Продажа виртуальной позиции переносит её в penny_virtual_trades_history с верным PnL."""
@@ -395,7 +395,7 @@ def test_virtual_sell_saves_to_history(isolated_db):
         assert row['bought_outcome_price'] == pytest.approx(0.04)
         assert row['sold_price'] == pytest.approx(0.06)
         assert row['sold_outcome_price'] == pytest.approx(0.06)
-        assert row['pnl_cents'] == pytest.approx(0.02, abs=1e-4)
+        assert row['pnl_points'] == pytest.approx(0.02, abs=1e-4)
         assert row['pnl_percent'] == pytest.approx(50.0, abs=1e-4)
 
 def test_resolve_closes_virtual_trade(isolated_db):
@@ -421,7 +421,7 @@ def test_resolve_closes_virtual_trade(isolated_db):
         assert row['bought_outcome_price'] == pytest.approx(0.05, abs=1e-4)
         assert row['sold_price'] == pytest.approx(0.0)  # YES-цена при выигрыше NO равна 0.0
         assert row['sold_outcome_price'] == pytest.approx(1.0)  # выиграли, исход равен 1.0
-        assert row['pnl_cents'] == pytest.approx(0.95, abs=1e-4) # 1.0 - 0.05
+        assert row['pnl_points'] == pytest.approx(0.95, abs=1e-4) # 1.0 - 0.05
         assert row['pnl_percent'] == pytest.approx(1900.0, abs=1e-4)
 
 def test_virtual_kpis(isolated_db):
@@ -429,7 +429,7 @@ def test_virtual_kpis(isolated_db):
     # Вставляем две сделки в историю
     with db_module.get_connection() as conn:
         conn.execute("""
-            INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, sold_at)
+            INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_points, pnl_percent, sold_at)
             VALUES 
             ('m1', 'M1', 'url1', 'YES', 0.04, 0.04, 0.06, 0.06, 0.02, 50.0, datetime('now')),
             ('m2', 'M2', 'url2', 'NO', 0.95, 0.05, 0.98, 0.02, -0.03, -60.0, datetime('now'))
@@ -490,7 +490,7 @@ def test_virtual_history_current_price(isolated_db):
 
         # Вставляем сделки в историю
         conn.execute("""
-            INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, sold_at)
+            INSERT INTO penny_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_points, pnl_percent, sold_at)
             VALUES 
             ('m_active_yes', 'M Active YES', 'url1', 'YES', 0.05, 0.05, 0.07, 0.07, 0.02, 40.0, datetime('now')),
             ('m_active_no', 'M Active NO', 'url2', 'NO', 0.95, 0.05, 0.93, 0.07, 0.02, 40.0, datetime('now')),
@@ -537,7 +537,7 @@ def test_get_whale_stocks_dashboard(isolated_db):
             ('whale_c', 'Whale C', 'http://c', 0.50, 0.50, 0.50, 0.50, 'ACTIVE', NULL, NULL)
         """)
         conn.execute("""
-            INSERT INTO whale_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, sold_at)
+            INSERT INTO whale_virtual_trades_history (market_id, title, url, outcome, bought_price, bought_outcome_price, sold_price, sold_outcome_price, pnl_points, pnl_percent, bought_at, sold_at)
             VALUES ('whale_b', 'Whale B', 'http://b', 'YES', 0.40, 0.40, 0.60, 0.60, 20.0, 50.0, datetime('now'), datetime('now'))
         """)
 

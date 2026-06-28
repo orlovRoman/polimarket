@@ -964,7 +964,7 @@ def _init_db_impl(conn: sqlite3.Connection):
             bought_outcome_price REAL NOT NULL,
             sold_price REAL NOT NULL,
             sold_outcome_price REAL NOT NULL,
-            pnl_cents REAL NOT NULL,
+            pnl_points REAL NOT NULL,
             pnl_percent REAL NOT NULL,
             bought_at TIMESTAMP,
             sold_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -986,7 +986,7 @@ def _init_db_impl(conn: sqlite3.Connection):
             bought_outcome_price REAL NOT NULL,
             sold_price REAL NOT NULL,
             sold_outcome_price REAL NOT NULL,
-            pnl_cents REAL NOT NULL,
+            pnl_points REAL NOT NULL,
             pnl_percent REAL NOT NULL,
             bought_at TIMESTAMP,
             sold_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -2744,20 +2744,20 @@ def sell_virtual_penny_stock(market_id: str) -> None:
                 bought_outcome = v_bought
                 curr_outcome = v_curr
                 
-            pnl_cents = round(curr_outcome - bought_outcome, 2)
-            pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
+            pnl_points = round(curr_outcome - bought_outcome, 2)
+            pnl_percent = round((pnl_points / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
             
             # Записываем сделку в историю
             conn.execute("""
                 INSERT INTO penny_virtual_trades_history (
                     market_id, title, url, outcome, bought_price, bought_outcome_price, 
-                    sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at,
+                    sold_price, sold_outcome_price, pnl_points, pnl_percent, bought_at,
                     max_price_seen, min_price_seen, bet_size_usdc
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 market_id, row['title'], row['url'], outcome_to_track,
                 v_bought, bought_outcome, v_curr, curr_outcome,
-                pnl_cents, pnl_percent, v_bought_at,
+                pnl_points, pnl_percent, v_bought_at,
                 row['max_price_seen'], row['min_price_seen'], v_bet_size
             ))
             
@@ -2816,19 +2816,19 @@ def resolve_penny_stock(market_id: str, actual_outcome: str) -> str:
             else:
                 v_sold = sold_outcome        # т.е. если sold_outcome=1.0 (YES выиграл), то YES-цена = 1.0
                 
-            pnl_cents = round(sold_outcome - bought_outcome, 2)
-            pnl_percent = round((pnl_cents / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
+            pnl_points = round(sold_outcome - bought_outcome, 2)
+            pnl_percent = round((pnl_points / bought_outcome * 100), 2) if bought_outcome > 0 else 0.0
             
             # Записываем сделку в историю
             conn.execute("""
                 INSERT INTO penny_virtual_trades_history (
                     market_id, title, url, outcome, bought_price, bought_outcome_price, 
-                    sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at, bet_size_usdc
+                    sold_price, sold_outcome_price, pnl_points, pnl_percent, bought_at, bet_size_usdc
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 market_id, row['title'], row['url'], outcome_to_track,
                 v_bought, bought_outcome, v_sold, sold_outcome,
-                pnl_cents, pnl_percent, v_bought_at, v_bet_size
+                pnl_points, pnl_percent, v_bought_at, v_bet_size
             ))
             
         # 2. Обновляем статус рынка на RESOLVED и очищаем виртуальную покупку
@@ -3130,7 +3130,7 @@ def sell_virtual_whale_stock(market_id: str, sell_price: float | None = None) ->
             conn.execute("""
                 INSERT INTO whale_virtual_trades_history (
                     market_id, title, url, outcome, bought_price, bought_outcome_price, 
-                    sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at,
+                    sold_price, sold_outcome_price, pnl_points, pnl_percent, bought_at,
                     max_price_seen, min_price_seen, bet_size_usdc
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -3200,7 +3200,7 @@ def resolve_whale_stock(market_id: str, actual_outcome: str) -> None:
                 conn.execute("""
                     INSERT INTO whale_virtual_trades_history (
                         market_id, title, url, outcome, bought_price, bought_outcome_price, 
-                        sold_price, sold_outcome_price, pnl_cents, pnl_percent, bought_at,
+                        sold_price, sold_outcome_price, pnl_points, pnl_percent, bought_at,
                         max_price_seen, min_price_seen, bet_size_usdc
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (

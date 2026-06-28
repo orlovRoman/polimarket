@@ -58,7 +58,7 @@ def db():
         );
         CREATE TABLE whale_virtual_trades_history (
             id INTEGER PRIMARY KEY, market_id TEXT,
-            pnl_cents REAL, bought_outcome_price REAL, sold_at TEXT
+            pnl_points REAL, bought_outcome_price REAL, sold_at TEXT
         );
         CREATE TABLE compound_chains (
             id INTEGER PRIMARY KEY, status TEXT,

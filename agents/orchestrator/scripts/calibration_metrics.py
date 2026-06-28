@@ -49,7 +49,7 @@ def get_win_rate_by_strategy(conn, window_days: int) -> dict:
     # Упростим: берем virtual trades history
     whale_rows = conn.execute("""
         SELECT COUNT(*) as total,
-               SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins
+               SUM(CASE WHEN pnl_points > 0 THEN 1 ELSE 0 END) as wins
         FROM whale_virtual_trades_history
         WHERE sold_at >= datetime('now', ?)
     """, (f'-{window_days} days',)).fetchone()
@@ -140,7 +140,7 @@ def get_pnl_by_strategy(conn, window_days: int) -> dict:
             
     # 2. Whale
     whale_pnl = conn.execute("""
-        SELECT SUM(pnl_cents) / 100.0 as pnl
+        SELECT SUM(pnl_points) / 100.0 as pnl
         FROM whale_virtual_trades_history
         WHERE sold_at >= datetime('now', ?)
     """, (f'-{window_days} days',)).fetchone()

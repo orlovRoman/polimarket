@@ -737,10 +737,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         resolved_offset = (resolved_page - 1) * resolved_limit
         resolved_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price, h.bet_size_usdc as bet_size_usdc
+                   h.pnl_points as pnl_realized, h.bought_outcome_price as bought_outcome_price, h.bet_size_usdc as bet_size_usdc
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price, SUM(bet_size_usdc) as bet_size_usdc
+                SELECT market_id, SUM(pnl_points) as pnl_points, AVG(bought_outcome_price) as bought_outcome_price, SUM(bet_size_usdc) as bet_size_usdc
                 FROM penny_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -778,10 +778,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         wins_offset = (wins_page - 1) * wins_limit
         wins_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price, h.bet_size_usdc as bet_size_usdc
+                   h.pnl_points as pnl_realized, h.bought_outcome_price as bought_outcome_price, h.bet_size_usdc as bet_size_usdc
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price, SUM(bet_size_usdc) as bet_size_usdc
+                SELECT market_id, SUM(pnl_points) as pnl_points, AVG(bought_outcome_price) as bought_outcome_price, SUM(bet_size_usdc) as bet_size_usdc
                 FROM penny_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -797,10 +797,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         losses_offset = (losses_page - 1) * losses_limit
         losses_rows = conn.execute("""
             SELECT p.market_id, p.title, p.url, p.initial_price, p.current_price, p.max_price_seen, p.min_price_seen, p.predicted_outcome, p.actual_outcome, p.edge, p.confidence, p.resolved_at,
-                   h.pnl_cents as pnl_realized, h.bought_outcome_price as bought_outcome_price, h.bet_size_usdc as bet_size_usdc
+                   h.pnl_points as pnl_realized, h.bought_outcome_price as bought_outcome_price, h.bet_size_usdc as bet_size_usdc
             FROM penny_stocks_monitoring p
             LEFT JOIN (
-                SELECT market_id, SUM(pnl_cents) as pnl_cents, AVG(bought_outcome_price) as bought_outcome_price, SUM(bet_size_usdc) as bet_size_usdc
+                SELECT market_id, SUM(pnl_points) as pnl_points, AVG(bought_outcome_price) as bought_outcome_price, SUM(bet_size_usdc) as bet_size_usdc
                 FROM penny_virtual_trades_history
                 GROUP BY market_id
             ) h ON p.market_id = h.market_id
@@ -849,14 +849,14 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 bought_outcome = v_bought
                 curr_outcome = v_curr
 
-            pnl_cents = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
-            pnl_percent = (pnl_cents / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
+            pnl_points = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
+            pnl_percent = (pnl_points / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
             
-            pnl_dollars = (virtual_stake / bought_outcome) * pnl_cents if (bought_outcome is not None and bought_outcome > 0) else 0.0
+            pnl_dollars = (virtual_stake / bought_outcome) * pnl_points if (bought_outcome is not None and bought_outcome > 0) else 0.0
 
             row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
-            row_dict['pnl_cents'] = round(pnl_dollars, 2)
+            row_dict['pnl_points'] = round(pnl_dollars, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
 
             portfolio.append(row_dict)
@@ -1010,10 +1010,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
         manual_stats_row = conn.execute("""
             SELECT
                 COUNT(*) as count,
-                SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
-                MAX(CASE WHEN bought_outcome_price > 0 THEN pnl_cents / bought_outcome_price ELSE 0.0 END) as best_pnl,
-                AVG(CASE WHEN bought_outcome_price > 0 THEN pnl_cents / bought_outcome_price ELSE 0.0 END) as avg_pnl,
-                SUM(CASE WHEN bought_outcome_price > 0 THEN pnl_cents / bought_outcome_price ELSE 0.0 END) as total_pnl
+                SUM(CASE WHEN pnl_points > 0 THEN 1 ELSE 0 END) as wins,
+                MAX(CASE WHEN bought_outcome_price > 0 THEN pnl_points / bought_outcome_price ELSE 0.0 END) as best_pnl,
+                AVG(CASE WHEN bought_outcome_price > 0 THEN pnl_points / bought_outcome_price ELSE 0.0 END) as avg_pnl,
+                SUM(CASE WHEN bought_outcome_price > 0 THEN pnl_points / bought_outcome_price ELSE 0.0 END) as total_pnl
             FROM penny_virtual_trades_history
         """).fetchone()
 
@@ -1103,7 +1103,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 h.bought_outcome_price, 
                 h.sold_price, 
                 h.sold_outcome_price, 
-                h.pnl_cents, 
+                h.pnl_points, 
                 h.pnl_percent, 
                 h.bought_at, 
                 h.sold_at, 
@@ -1397,14 +1397,14 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
                 bought_outcome = v_bought
                 curr_outcome = v_curr
 
-            pnl_cents = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
-            pnl_percent = (pnl_cents / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
+            pnl_points = curr_outcome - bought_outcome if (curr_outcome is not None and bought_outcome is not None) else 0.0
+            pnl_percent = (pnl_points / bought_outcome * 100) if (bought_outcome is not None and bought_outcome > 0) else 0.0
             
-            pnl_dollars = (v_bet / bought_outcome) * pnl_cents if (bought_outcome is not None and bought_outcome > 0) else 0.0
+            pnl_dollars = (v_bet / bought_outcome) * pnl_points if (bought_outcome is not None and bought_outcome > 0) else 0.0
 
             row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
-            row_dict['pnl_cents'] = round(pnl_dollars, 2)
+            row_dict['pnl_points'] = round(pnl_dollars, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
             row_dict['bet_size_usdc'] = v_bet
 
