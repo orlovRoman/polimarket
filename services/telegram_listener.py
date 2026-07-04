@@ -9,6 +9,7 @@ import logging
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 # Подключаем корень проекта для правильных импортов
 sys.path.insert(0, str(Path(__file__).parent.parent))
