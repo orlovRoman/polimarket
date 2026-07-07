@@ -55,11 +55,6 @@ def sync_trades_from_data_api(limit: int = 500):
                     alias = trade.get("pseudonym") or trade.get("name")
                     
                     # Проверяем уникальность по времени и кошельку, чтобы не спамить дубликатами.
-                    # TransactionHash API к сожалению не выдает для всех сделок стабильно,
-                    # но мы можем проверять хэш, если он есть.
-                    tx_hash = trade.get("transactionHash")
-                    
-                    # Так как мы не храним transaction_hash в БД, проверяем по (кошелек, рынок, сумма) за последние 5 минут
                     c.execute("""
                         SELECT 1 FROM trader_transactions 
                         WHERE wallet_address = ? AND market_id = ? AND outcome = ? AND abs(amount_usd - ?) < 0.1
@@ -69,6 +64,18 @@ def sync_trades_from_data_api(limit: int = 500):
                     
                     if c.fetchone():
                         continue  # Уже сохранили недавно
+                        
+                    # Важно: Чтобы не было ошибки FOREIGN KEY (market_id) REFERENCES markets(id), 
+                    # убеждаемся, что рынок есть в таблице markets.
+                    title = trade.get("title", f"Unknown Market {market_id}")
+                    slug = trade.get("slug", "")
+                    url = f"https://polymarket.com/event/{slug}" if slug else ""
+                    
+                    # Пытаемся добавить рынок-пустышку (если его еще нет)
+                    c.execute("""
+                        INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time, condition_id)
+                        VALUES (?, 'polymarket', ?, ?, 'unknown', ?, datetime('now', '+1 year'), ?)
+                    """, (market_id, title, url, price, market_id))
                         
                     # Вызываем оригинальную функцию сохранения (она заодно добавляет кошелек в wallets)
                     save_trader_transaction(
