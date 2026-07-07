@@ -544,6 +544,14 @@ async def scheduled_penny_monitor():
         logger.error(f"Ошибка при автоматическом мониторинге Penny Stocks: {e}", exc_info=True)
 
 
+async def scheduled_data_api_sync():
+    try:
+        from services.data_api_syncer import sync_trades_from_data_api
+        import asyncio
+        await asyncio.to_thread(sync_trades_from_data_api, 500)
+    except Exception as e:
+        logger.error(f"Ошибка при фоновой синхронизации сделок с Data API: {e}", exc_info=True)
+
 async def scheduled_whale_discovery():
     try:
         from agents.shared.python.db import get_memory
@@ -970,6 +978,10 @@ async def start_system():
     # scheduler.add_job(scheduled_cross_arbitrage_scan, 'interval', hours=4)  # кросс-арбитраж отключен/перенесен в конец
     scheduler.add_job(scheduled_synthetic_corridors, 'interval', minutes=15) # синтетические коридоры каждые 15 м
     scheduler.add_job(scheduled_temporal_corridors, 'interval', minutes=30) # временные коридоры каждые 30 м
+    
+    # Регулярно стягиваем свежие сделки с Data API для Whale Discovery (каждые 2 минуты)
+    scheduler.add_job(scheduled_data_api_sync, 'interval', minutes=2)
+    
     scheduler.add_job(scheduled_wallet_recalculation, 'cron', hour=3) # пересчет win_rate кошельков раз в сутки в 3:00 ночи
     scheduler.add_job(scheduled_insiders_recalculation, 'interval', hours=1) # пересчет инсайдеров каждый час
     scheduler.add_job(scheduled_cluster_update, 'interval', hours=1) # пересчет кластеров каждый час
