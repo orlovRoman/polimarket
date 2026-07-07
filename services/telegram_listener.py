@@ -41,11 +41,13 @@ logger = logging.getLogger("NexusPolyBot.telegram_listener")
 
 try:
     from telethon import TelegramClient, events
-    from telethon.errors import FloodWaitError
+    from telethon.errors import FloodWaitError, PersistentTimestampOutdatedError, HistoryGetFailedError
 except ImportError:
     TelegramClient = None
     events = None
     FloodWaitError = Exception
+    PersistentTimestampOutdatedError = Exception
+    HistoryGetFailedError = Exception
 
 _ENTITY_CACHE_TTL = 3600
 _entity_username_cache: dict[int, tuple[str, float]] = {}
@@ -831,8 +833,8 @@ async def main():
         api_hash = api_hash_input
         phone = phone_input
         
-    logger.info(f"[Listener] Инициализация Telegram клиента (сессия: {SESSION_PATH})...")
-    client = TelegramClient(SESSION_PATH, int(api_id), api_hash)
+    # catch_up=False prevents PersistentTimestampOutdatedError loops
+    client = TelegramClient(SESSION_PATH, int(api_id), api_hash, catch_up=False)
     
     # Инициализация NewsProcessor для новостных каналов
     news_processor = NewsProcessor(api_key=GOOGLE_API_KEY)

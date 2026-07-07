@@ -552,7 +552,18 @@ async def scheduled_whale_discovery():
         logger.info(">>> Запуск автоматического поиска китов (Whale Following)...")
         from services.onchain_trend_alert import scan_volume_spikes, scan_large_single_bets, scan_wallet_series
         import asyncio
+        from agents.shared.python.db import get_connection
         
+        # Проверка живости источника данных (Telegram Listener)
+        with get_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT count(*) FROM trader_transactions WHERE timestamp >= datetime('now', '-24 hours')")
+            recent_tx_count = c.fetchone()[0]
+            
+        if recent_tx_count == 0:
+            logger.warning("⚠️ Источник данных о китах (Telegram Listener) не получил ни одной сделки за последние 24 часа. Поиск китов пропущен.")
+            return
+            
         await asyncio.to_thread(scan_volume_spikes)
         await asyncio.to_thread(scan_large_single_bets)
         await asyncio.to_thread(scan_wallet_series)

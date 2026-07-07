@@ -43,11 +43,10 @@ def _cached_get(url: str) -> Optional[Any]:
 
 def get_recent_trades(condition_id: str, limit: int = 200) -> List[Dict[str, Any]]:
     """Последние сделки на рынке — адреса, направление, размер."""
-    url = f"{CLOB_BASE}/trades?condition_id={condition_id}&limit={limit}"
-    data = _cached_get(url)
-    if not data:
-        return []
-    return data.get("data", [])
+    # Polymarket CLOB API trades endpoint now requires L2 auth or is deprecated.
+    # We rely entirely on Telegram Listener for whale signals now.
+    logger.debug(f"get_recent_trades called for {condition_id}, but API is deprecated.")
+    return []
 
 def get_top_positions(condition_id: str, min_usd: float = 500) -> List[Dict[str, Any]]:
     """Текущие позиции кошельков (открытые) — кто сколько держит."""
