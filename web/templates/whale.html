@@ -838,12 +838,12 @@
         } else {
             historyTbody.innerHTML = historyList.map((row, index) => {
                 let pnlClass = '';
-                if (row.pnl_points > 0) {
+                if (row.pnl_dollars > 0) {
                     pnlClass = 'text-green';
-                } else if (row.pnl_points < 0) {
+                } else if (row.pnl_dollars < 0) {
                     pnlClass = 'text-red';
                 }
-                const pnlSign = row.pnl_points > 0 ? '+' : '';
+                const pnlSign = row.pnl_dollars > 0 ? '+' : '';
                 
                 let directionBadge = '';
                 if (row.outcome === 'YES') {
@@ -865,7 +865,7 @@
                         <td>${row.current_outcome_price === null || row.current_outcome_price === undefined ? '—' : formatPriceCents(row.current_outcome_price)}</td>
                         <td>${formatPriceCents(row.max_price_seen_outcome)}</td>
                         <td>${formatPriceCents(row.min_price_seen_outcome)}</td>
-                        <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_points)} (${pnlSign}${row.pnl_percent.toFixed(2)}%)</span></td>
+                        <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_dollars)} (${pnlSign}${row.pnl_percent.toFixed(2)}%)</span></td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.bought_at)}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${formatDate(row.sold_at)}</td>
                     </tr>
@@ -1123,12 +1123,12 @@
         } else {
             portfolioTbody.innerHTML = data.portfolio.map((row, index) => {
                 let pnlClass = '';
-                if (row.pnl_points > 0) {
+                if (row.pnl_dollars > 0) {
                     pnlClass = 'text-green';
-                } else if (row.pnl_points < 0) {
+                } else if (row.pnl_dollars < 0) {
                     pnlClass = 'text-red';
                 }
-                const pnlSign = row.pnl_points > 0 ? '+' : '';
+                const pnlSign = row.pnl_dollars > 0 ? '+' : '';
                 
                 let directionBadge = '';
                 if (row.predicted_outcome !== null) {
@@ -1145,7 +1145,7 @@
                         <td>${formatWhaleAddress(row.wallet_address)}</td>
                         <td>${formatPriceCents(row.bought_outcome_price)}</td>
                         <td>${formatPriceCents(row.current_outcome_price)}</td>
-                        <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_points)} (${pnlSign}${row.pnl_percent}%)</span></td>
+                        <td><span class="${pnlClass}">${pnlSign}${formatPriceCents(row.pnl_dollars)} (${pnlSign}${row.pnl_percent}%)</span></td>
                         <td>
                             <button class="badge badge-blue" style="border:none; cursor:pointer; font-weight:600; margin-right:4px;" onclick="editVirtualStake('${row.market_id}', ${row.virtual_bought_price}, ${row.bet_size_usdc})">Изменить</button>
                             <button class="badge badge-red" style="border:none; cursor:pointer; font-weight:600;" onclick="sellVirtual('${row.market_id}', ${row.current_price})">Продать</button>

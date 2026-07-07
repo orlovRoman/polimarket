@@ -1072,13 +1072,13 @@ async def start_system():
         sys.exit(1)
 
     logger.info("Планировщик настроен.")
-    scheduler.start()
-    
     from agents.shared.python.db import is_system_paused
-    if is_system_paused():
-        logger.info("Система находилась на паузе, приостанавливаем планировщик.")
-        await asyncio.sleep(0.1)
-        scheduler.pause()
+    paused = is_system_paused()
+    
+    if paused:
+        logger.info("Система находится на паузе, планировщик стартует в приостановленном состоянии.")
+        
+    scheduler.start(paused=paused)
 
     # Передаём scheduler в bot.py для управления авто-расписанием через /monitor
     from telegram.bot import set_scheduler as bot_set_scheduler

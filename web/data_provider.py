@@ -856,7 +856,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
             row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
-            row_dict['pnl_points'] = round(pnl_dollars, 2)
+            row_dict['pnl_dollars'] = round(pnl_dollars, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
 
             portfolio.append(row_dict)
@@ -1404,7 +1404,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
 
             row_dict['bought_outcome_price'] = round(bought_outcome, 4) if bought_outcome is not None else None
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
-            row_dict['pnl_points'] = round(pnl_dollars, 2)
+            row_dict['pnl_dollars'] = round(pnl_dollars, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
             row_dict['bet_size_usdc'] = v_bet
 

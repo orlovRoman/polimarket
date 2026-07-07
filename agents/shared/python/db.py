@@ -1916,10 +1916,16 @@ def get_memory(key: str, default: Any = None) -> Any:
         )
         row = cursor.fetchone()
         if row:
+            val_str = row['value']
+            # Обработка legacy строк "True"/"False" перед JSON парсингом
+            if val_str == "True": return True
+            if val_str == "False": return False
             try:
-                return json.loads(row['value'])
+                return json.loads(val_str)
             except json.JSONDecodeError:
-                return row['value']
+                if str(val_str).lower() == 'true': return True
+                if str(val_str).lower() == 'false': return False
+                return val_str
         return default
 
 def delete_memory(key: str) -> None:

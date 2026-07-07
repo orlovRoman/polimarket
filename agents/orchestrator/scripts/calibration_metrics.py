@@ -140,7 +140,7 @@ def get_pnl_by_strategy(conn, window_days: int) -> dict:
             
     # 2. Whale
     whale_pnl = conn.execute("""
-        SELECT SUM(pnl_points) / 100.0 as pnl
+        SELECT SUM(pnl_points) as pnl
         FROM whale_virtual_trades_history
         WHERE sold_at >= datetime('now', ?)
     """, (f'-{window_days} days',)).fetchone()

@@ -109,7 +109,6 @@ async def api_system_status_get(request):
         "strategy_whale_enabled",
         "strategy_penny_stocks_enabled",
         "strategy_favourite_compounding_enabled",
-        "strategy_compound_parlays_enabled",
         "process_memory_archive_enabled",
         "process_evaluation_enabled",
         "process_wallet_recalculation_enabled",
