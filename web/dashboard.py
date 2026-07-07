@@ -99,6 +99,38 @@ async def api_overview(request):
     data = await asyncio.to_thread(data_provider.get_overview_stats)
     return web.json_response(data)
 
+async def api_system_status_get(request):
+    from agents.shared.python.db import get_memory
+    keys = [
+        "strategy_scout_enabled",
+        "strategy_synthetic_corridor_enabled",
+        "strategy_temporal_corridor_enabled",
+        "strategy_cross_platform_enabled",
+        "strategy_whale_enabled",
+        "strategy_penny_stocks_enabled",
+        "strategy_favourite_compounding_enabled",
+        "strategy_compound_parlays_enabled",
+        "process_memory_archive_enabled",
+        "process_evaluation_enabled",
+        "process_wallet_recalculation_enabled",
+        "process_clusters_insiders_enabled",
+        "process_audit_resolutions_enabled"
+    ]
+    data = {}
+    for key in keys:
+        # Default to True
+        data[key] = get_memory(key, True)
+    return web.json_response(data)
+
+@require_system_active
+async def api_system_status_post(request):
+    data = await request.json()
+    from agents.shared.python.db import save_memory
+    for key, value in data.items():
+        if isinstance(value, bool):
+            save_memory(key, value)
+    return web.json_response({"status": "ok"})
+
 async def api_memory_stats(request):
     data = await asyncio.to_thread(data_provider.get_memory_stats)
     return web.json_response(data)
@@ -1364,6 +1396,8 @@ def create_dashboard_app() -> web.Application:
     app.router.add_post("/api/system/pause", api_system_pause)
     app.router.add_post("/api/system/resume", api_system_resume)
     app.router.add_get("/api/overview", api_overview)
+    app.router.add_get("/api/system-status", api_system_status_get)
+    app.router.add_post("/api/system-status", api_system_status_post)
     app.router.add_get("/api/memory-stats", api_memory_stats)
     app.router.add_get("/api/eval-status", api_eval_status)
     app.router.add_get("/api/learning-impact", api_learning_impact)

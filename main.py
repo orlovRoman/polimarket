@@ -21,6 +21,9 @@ engine = CoreEngine()
 
 async def scheduled_job():
     """Периодическая задача: запуск анализа рынков движком."""
+    from agents.shared.python.db import get_memory
+    if not get_memory("strategy_scout_enabled", True):
+        return
     logger.info(">>> Запуск планового сканирования рынков...")
     try:
         # Используем единственный экземпляр NexusAgent (Option A+)
@@ -73,6 +76,9 @@ async def scheduled_job():
             logger.error(f"Ошибка при выполнении сканирования: {e}", exc_info=True)
 
 async def scheduled_memory_archive():
+    from agents.shared.python.db import get_memory
+    if not get_memory("process_memory_archive_enabled", True):
+        return
     logger.info(">>> Запуск процесса автоархивации памяти и GC (Memory GC)...")
     try:
         from agents.orchestrator.scripts.memory_archiver import main as run_archiver
@@ -106,6 +112,9 @@ async def scheduled_trend_hunting():
 
 async def scheduled_cross_arbitrage_scan():
     """Автоматический кросс-платформенный арбитражный скан (Polymarket ↔ Kalshi)."""
+    from agents.shared.python.db import get_memory
+    if not get_memory("strategy_cross_platform_enabled", True):
+        return
     logger.info(">>> Кросс-арбитраж: запуск скана...")
     try:
         from core.config_provider import ConfigProvider
@@ -133,6 +142,9 @@ async def scheduled_cross_arbitrage_scan():
 
 async def scheduled_synthetic_corridors():
     """Скан внутрирыночных синтетических коридоров (Polymarket)."""
+    from agents.shared.python.db import get_memory
+    if not get_memory("strategy_synthetic_corridor_enabled", True):
+        return
     logger.info(">>> Синтетические коридоры: запуск скана...")
     try:
         from core.config_provider import ConfigProvider
@@ -160,6 +172,9 @@ async def scheduled_synthetic_corridors():
 
 async def scheduled_temporal_corridors():
     """Скан временных коридоров (Temporal Arbitrage)."""
+    from agents.shared.python.db import get_memory
+    if not get_memory("strategy_temporal_corridor_enabled", True):
+        return
     logger.info(">>> Временные коридоры: запуск скана...")
     try:
         from services.temporal_corridor_scanner import run_temporal_corridor_scan
@@ -181,6 +196,9 @@ async def scheduled_temporal_corridors():
 
 async def scheduled_wallet_recalculation():
     """Периодический пересчет win_rate кошельков."""
+    from agents.shared.python.db import get_memory
+    if not get_memory("process_wallet_recalculation_enabled", True):
+        return
     logger.info(">>> Запуск периодического пересчета win_rate крупных кошельков...")
     try:
         from services.wallet_tracker import recalculate_win_rates
@@ -195,6 +213,9 @@ async def scheduled_wallet_recalculation():
 
 async def scheduled_insiders_recalculation():
     """Периодический пересчет статуса инсайдеров."""
+    from agents.shared.python.db import get_memory
+    if not get_memory("process_clusters_insiders_enabled", True):
+        return
     logger.info(">>> Запуск периодического пересчета статуса инсайдеров...")
     try:
         from core.insider_filter import recalculate_all_insiders
@@ -208,6 +229,9 @@ async def scheduled_insiders_recalculation():
 
 async def scheduled_cluster_update():
     """Периодическое обновление кластеров кошельков (раз в час)."""
+    from agents.shared.python.db import get_memory
+    if not get_memory("process_clusters_insiders_enabled", True):
+        return
     logger.info(">>> Запуск периодического обновления кластеров кошельков (Strategy 01)...")
     try:
         from core.strategy01_worker import update_wallet_clusters
@@ -221,6 +245,9 @@ async def scheduled_cluster_update():
 
 async def scheduled_audit_resolutions():
     """Периодический аудит исходов рынков."""
+    from agents.shared.python.db import get_memory
+    if not get_memory("process_audit_resolutions_enabled", True):
+        return
     logger.info(">>> Запуск аудита резолюций...")
     try:
         from core.eval.outcome_tracker import OutcomeTracker
@@ -327,6 +354,9 @@ def ensure_single_instance():
 
 async def scheduled_daily_evaluation():
     try:
+        from agents.shared.python.db import get_memory
+        if not get_memory("process_evaluation_enabled", True):
+            return
         logger.info(">>> Запуск ежедневного оценивания стратегий (Evaluation Engine)...")
         from core.eval.evaluation_engine import EvaluationEngine
         engine = EvaluationEngine()
@@ -353,6 +383,9 @@ async def scheduled_calibration():
 
 async def scheduled_weekly_evaluation():
     try:
+        from agents.shared.python.db import get_memory
+        if not get_memory("process_evaluation_enabled", True):
+            return
         logger.info(">>> Запуск еженедельного глубокого оценивания стратегий (Evaluation Engine)...")
         from core.eval.evaluation_engine import EvaluationEngine
         engine = EvaluationEngine()
@@ -363,6 +396,9 @@ async def scheduled_weekly_evaluation():
 
 async def scheduled_penny_discovery():
     try:
+        from agents.shared.python.db import get_memory
+        if not get_memory("strategy_penny_stocks_enabled", True):
+            return
         logger.info(">>> Запуск автоматического поиска Penny Stocks...")
         from agents.shared.python.market_selector import MarketSelector
         from core.singleton import get_core_engine
@@ -495,6 +531,9 @@ async def scheduled_penny_discovery():
 
 async def scheduled_penny_monitor():
     try:
+        from agents.shared.python.db import get_memory
+        if not get_memory("strategy_penny_stocks_enabled", True):
+            return
         logger.info(">>> Запуск мониторинга Penny Stocks...")
         from agents.shared.python.penny_execution_service import monitor_active_penny_stocks
         from core.singleton import get_core_engine
@@ -507,6 +546,9 @@ async def scheduled_penny_monitor():
 
 async def scheduled_whale_discovery():
     try:
+        from agents.shared.python.db import get_memory
+        if not get_memory("strategy_whale_enabled", True):
+            return
         logger.info(">>> Запуск автоматического поиска китов (Whale Following)...")
         from services.onchain_trend_alert import scan_volume_spikes, scan_large_single_bets, scan_wallet_series
         import asyncio
@@ -544,6 +586,9 @@ async def scheduled_agent_accuracy_recalc():
 
 async def scheduled_whale_monitor():
     try:
+        from agents.shared.python.db import get_memory
+        if not get_memory("strategy_whale_enabled", True):
+            return
         logger.info(">>> Запуск мониторинга Whale Following...")
         from agents.shared.python.db import (
             get_active_whale_stocks,
@@ -644,6 +689,9 @@ async def scheduled_whale_portfolios_sync():
     Фоновая джоба: раз в 2 часа качает открытые позиции всех known_whales.
     """
     try:
+        from agents.shared.python.db import get_memory
+        if not get_memory("strategy_whale_enabled", True):
+            return
         from agents.shared.python.whale_portfolio_service import run_portfolio_sync_job
         await run_portfolio_sync_job()
     except asyncio.CancelledError:
@@ -655,6 +703,10 @@ async def scheduled_whale_portfolios_sync():
 async def scheduled_favourite_compounding():
 
     """Сканирует рынки на Favourite Compounding и проверяет Exit-сигналы каждые 15 минут."""
+    from agents.shared.python.db import get_memory
+    if not get_memory("strategy_favourite_compounding_enabled", True):
+        return
+
     from telegram.bot import _favourite_compound_lock, _scan_lock, _penny_scan_lock
     if _favourite_compound_lock.locked() or _scan_lock.locked() or _penny_scan_lock.locked():
         logger.info("Favourite Compounding: плановое сканирование пропущено, так как активен другой скан.")
