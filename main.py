@@ -560,9 +560,17 @@ async def scheduled_whale_discovery():
             c.execute("SELECT count(*) FROM trader_transactions WHERE timestamp >= datetime('now', '-24 hours')")
             recent_tx_count = c.fetchone()[0]
             
-        if recent_tx_count == 0:
-            logger.warning("⚠️ Источник данных о китах (Telegram Listener) не получил ни одной сделки за последние 24 часа. Поиск китов пропущен.")
-            return
+        system_started_at = get_memory("system_started_at", None)
+        if recent_tx_count == 0 and system_started_at:
+            import datetime
+            try:
+                started = datetime.datetime.fromisoformat(system_started_at)
+                uptime_hours = (datetime.datetime.utcnow() - started).total_seconds() / 3600
+                if uptime_hours > 24:
+                    logger.warning("⚠️ Источник данных о китах (Telegram Listener) не получил ни одной сделки за 24ч аптайма. Поиск китов пропущен.")
+                    return
+            except Exception:
+                pass
             
         await asyncio.to_thread(scan_volume_spikes)
         await asyncio.to_thread(scan_large_single_bets)
