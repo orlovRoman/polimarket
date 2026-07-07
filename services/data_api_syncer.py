@@ -28,33 +28,29 @@ def sync_trades_from_data_api(limit: int = 500):
             
         saved_count = 0
         
-        with get_connection() as conn:
-            c = conn.cursor()
-            
-            for trade in data:
-                try:
-                    wallet = trade.get("proxyWallet")
-                    if not wallet:
-                        continue
-                        
-                    # Condition ID — это уникальный идентификатор рынка (исхода) в контрактах
-                    market_id = trade.get("conditionId", "")
-                    if not market_id:
-                        continue
-                        
-                    outcome = trade.get("outcome", "Unknown")
-                    size_shares = float(trade.get("size", 0.0))
-                    price = float(trade.get("price", 0.0))
+        for trade in data:
+            try:
+                wallet = trade.get("proxyWallet")
+                if not wallet:
+                    continue
                     
-                    # Сумма в USD = кол-во акций * цену покупки
-                    amount_usd = size_shares * price
-                    if amount_usd <= 0:
-                        continue
-                        
-                    # Для псевдонимов китов (если у кошелька есть имя на Polymarket)
-                    alias = trade.get("pseudonym") or trade.get("name")
+                market_id = trade.get("conditionId", "")
+                if not market_id:
+                    continue
                     
-                    # Проверяем уникальность по времени и кошельку, чтобы не спамить дубликатами.
+                outcome = trade.get("outcome", "Unknown")
+                size_shares = float(trade.get("size", 0.0))
+                price = float(trade.get("price", 0.0))
+                amount_usd = size_shares * price
+                if amount_usd <= 0:
+                    continue
+                    
+                alias = trade.get("pseudonym") or trade.get("name")
+                
+                # Короткое соединение для проверки дублей и создания рынка
+                skip_trade = False
+                with get_connection() as conn:
+                    c = conn.cursor()
                     c.execute("""
                         SELECT 1 FROM trader_transactions 
                         WHERE wallet_address = ? AND market_id = ? AND outcome = ? AND abs(amount_usd - ?) < 0.1
@@ -63,32 +59,31 @@ def sync_trades_from_data_api(limit: int = 500):
                     """, (wallet, market_id, outcome, amount_usd))
                     
                     if c.fetchone():
-                        continue  # Уже сохранили недавно
+                        skip_trade = True
+                    else:
+                        title = trade.get("title", f"Unknown Market {market_id}")
+                        slug = trade.get("slug", "")
+                        url = f"https://polymarket.com/event/{slug}" if slug else ""
+                        c.execute("""
+                            INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time, condition_id)
+                            VALUES (?, 'polymarket', ?, ?, 'unknown', ?, datetime('now', '+1 year'), ?)
+                        """, (market_id, title, url, price, market_id))
                         
-                    # Важно: Чтобы не было ошибки FOREIGN KEY (market_id) REFERENCES markets(id), 
-                    # убеждаемся, что рынок есть в таблице markets.
-                    title = trade.get("title", f"Unknown Market {market_id}")
-                    slug = trade.get("slug", "")
-                    url = f"https://polymarket.com/event/{slug}" if slug else ""
+                if skip_trade:
+                    continue
                     
-                    # Пытаемся добавить рынок-пустышку (если его еще нет)
-                    c.execute("""
-                        INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time, condition_id)
-                        VALUES (?, 'polymarket', ?, ?, 'unknown', ?, datetime('now', '+1 year'), ?)
-                    """, (market_id, title, url, price, market_id))
-                        
-                    # Вызываем оригинальную функцию сохранения (она заодно добавляет кошелек в wallets)
-                    save_trader_transaction(
-                        wallet_address=wallet,
-                        market_id=market_id,
-                        outcome=outcome,
-                        amount_usd=amount_usd,
-                        price=price,
-                        alias=alias
-                    )
-                    saved_count += 1
-                except Exception as e:
-                    logger.debug(f"[DataApiSyncer] Ошибка парсинга сделки: {e}")
+                # Сохраняем саму транзакцию (внутри откроется новое соединение)
+                save_trader_transaction(
+                    wallet_address=wallet,
+                    market_id=market_id,
+                    outcome=outcome,
+                    amount_usd=amount_usd,
+                    price=price,
+                    alias=alias
+                )
+                saved_count += 1
+            except Exception as e:
+                logger.debug(f"[DataApiSyncer] Ошибка парсинга сделки: {e}")
                     
         if saved_count > 0:
             logger.info(f"[DataApiSyncer] Успешно скачано и сохранено новых ончейн-сделок: {saved_count}")
