@@ -121,7 +121,6 @@ async def api_system_status_get(request):
         data[key] = get_memory(key, True)
     return web.json_response(data)
 
-@require_system_active
 async def api_system_status_post(request):
     data = await request.json()
     from agents.shared.python.db import save_memory
