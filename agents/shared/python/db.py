@@ -2309,6 +2309,14 @@ def save_agent_episode(
 
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        # Гарантируем, что market_id существует в таблице markets (чтобы избежать FOREIGN KEY constraint failed)
+        if market_id:
+            cursor.execute("""
+                INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time, condition_id, volume)
+                VALUES (?, 'polymarket', ?, '', 'unknown', 0.5, datetime('now', '+1 year'), ?, 0)
+            """, (market_id, market_title or f"Market {market_id}", market_id))
+            
         cursor.execute('''
             INSERT INTO agent_episodes
             (agent_name, event_type, market_id, market_title, summary, context, outcome)
