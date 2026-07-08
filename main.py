@@ -546,6 +546,10 @@ async def scheduled_penny_monitor():
 
 async def scheduled_data_api_sync():
     try:
+        from agents.shared.python.db import get_memory
+        if not get_memory("system_active", default=True):
+            return  # система на паузе — не синхронизируем
+            
         from services.data_api_syncer import sync_trades_from_data_api
         import asyncio
         await asyncio.to_thread(sync_trades_from_data_api, 500)

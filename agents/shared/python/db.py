@@ -2452,7 +2452,7 @@ def get_agent_accuracy(agent_name: str) -> dict:
     accuracy = round(correct / total, 3) if total > 0 else 0.0
     return {"total": total, "correct": correct, "incorrect": incorrect, "accuracy": accuracy}
 
-def save_trader_transaction(wallet_address: str, market_id: str, outcome: str, amount_usd: float, price: float = None, alias: str = None):
+def save_trader_transaction(wallet_address: str, market_id: str, outcome: str, amount_usd: float, price: float = None, alias: str = None, tx_hash: str = None):
     """
     Сохраняет транзакцию трейдера. Если кошелек отсутствует в wallets,
     автоматически добавляет его.
@@ -2480,9 +2480,9 @@ def save_trader_transaction(wallet_address: str, market_id: str, outcome: str, a
                 
         # 2. Добавляем транзакцию
         cursor.execute("""
-            INSERT INTO trader_transactions (wallet_address, market_id, outcome, amount_usd, price)
-            VALUES (?, ?, ?, ?, ?)
-        """, (wallet_address, market_id, outcome, amount_usd, price))
+            INSERT INTO trader_transactions (wallet_address, market_id, outcome, amount_usd, price, tx_hash)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (wallet_address, market_id, outcome, amount_usd, price, tx_hash))
         
 
 def get_market_trader_transactions(market_id: str, limit: int = 200) -> list:

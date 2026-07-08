@@ -47,20 +47,28 @@ def sync_trades_from_data_api(limit: int = 500):
                     
                 alias = trade.get("pseudonym") or trade.get("name")
                 
+                tx_hash = trade.get("transactionHash")
+                
                 # Короткое соединение для проверки дублей и создания рынка
                 skip_trade = False
                 with get_connection() as conn:
                     c = conn.cursor()
-                    c.execute("""
-                        SELECT 1 FROM trader_transactions 
-                        WHERE wallet_address = ? AND market_id = ? AND outcome = ? AND abs(amount_usd - ?) < 0.1
-                        AND timestamp >= datetime('now', '-5 minutes')
-                        LIMIT 1
-                    """, (wallet, market_id, outcome, amount_usd))
                     
-                    if c.fetchone():
-                        skip_trade = True
+                    if tx_hash:
+                        c.execute("SELECT 1 FROM trader_transactions WHERE tx_hash = ? LIMIT 1", (tx_hash,))
+                        if c.fetchone():
+                            skip_trade = True
                     else:
+                        c.execute("""
+                            SELECT 1 FROM trader_transactions 
+                            WHERE wallet_address = ? AND market_id = ? AND outcome = ? AND abs(amount_usd - ?) < 0.1
+                            AND timestamp >= datetime('now', '-1 hour')
+                            LIMIT 1
+                        """, (wallet, market_id, outcome, amount_usd))
+                        if c.fetchone():
+                            skip_trade = True
+                    
+                    if not skip_trade:
                         title = trade.get("title", f"Unknown Market {market_id}")
                         slug = trade.get("slug", "")
                         url = f"https://polymarket.com/event/{slug}" if slug else ""
@@ -79,7 +87,8 @@ def sync_trades_from_data_api(limit: int = 500):
                     outcome=outcome,
                     amount_usd=amount_usd,
                     price=price,
-                    alias=alias
+                    alias=alias,
+                    tx_hash=tx_hash
                 )
                 saved_count += 1
             except Exception as e:
