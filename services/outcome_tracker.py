@@ -101,7 +101,7 @@ def _get_pending_with_closed_market() -> list[dict]:
                    m.title as market_title, m.close_time, m.outcome as market_resolved_outcome
             FROM signals s
             JOIN markets m ON s.market_id = m.id
-            WHERE s.status = 'PENDING'
+            WHERE s.status IN ('PENDING', 'ARCHIVED')
               AND (
                 datetime(m.close_time) < datetime('now')
                 OR m.outcome IN ('YES', 'NO')
