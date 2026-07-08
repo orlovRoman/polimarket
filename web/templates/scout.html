@@ -75,7 +75,7 @@
 </div>
 
 <div class="table-card">
-    <div class="table-title">Последние 20 сигналов Scout</div>
+    <div class="table-title">Все сигналы Scout</div>
     <table>
         <thead>
             <tr>
@@ -94,20 +94,28 @@
             </tr>
         </tbody>
     </table>
+    <div id="signals-pagination"></div>
 </div>
 
 <script>
     let equityChart = null;
     let calibrationChart = null;
+    let currentPage = 1;
+    let limit = 20;
+    let totalSignals = 0;
 
     async function loadScoutData() {
         const overview = await fetchJSON('/api/overview');
-        const signals = await fetchJSON('/api/signals?strategy=scout&days=30&limit=50');
-        const equityData = await fetchJSON('/api/equity-curve?strategy=scout&days=30');
+        const signalsData = await fetchJSON(`/api/signals?strategy=scout&days=all&limit=${limit}&page=${currentPage}`);
+        const equityData = await fetchJSON('/api/equity-curve?strategy=scout&days=all');
 
         loadScoutSettings();
 
-        if (!overview || !signals) return;
+        if (!overview || !signalsData) return;
+        
+        const signals = signalsData.signals || [];
+        totalSignals = signalsData.total || 0;
+        const statsObj = signalsData.stats || {};
 
         // 1. Рендерим KPI из overview
         const stats = overview['scout'];
@@ -117,34 +125,16 @@
             document.getElementById('kpi-count').textContent = stats.signals_count;
         }
 
-        // Вычисляем Brier Score и Avg Edge на лету по сигналам для точности
-        let brierSum = 0;
-        let brierCount = 0;
-        let edgeSum = 0;
-        let edgeCount = 0;
-
-        signals.forEach(sig => {
-            const p = sig.estimated_probability === null ? sig.predicted_probability : sig.estimated_probability;
-            if (p !== null && (sig.status === 'WIN' || sig.status === 'LOSS')) {
-                const outcome = sig.status === 'WIN' ? 1.0 : 0.0;
-                brierSum += (p - outcome) * (p - outcome);
-                brierCount++;
-            }
-            if (sig.edge !== null) {
-                edgeSum += sig.edge;
-                edgeCount++;
-            }
-        });
-
-        const avgBrier = brierCount > 0 ? (brierSum / brierCount) : null;
-        const avgEdge = edgeCount > 0 ? (edgeSum / edgeCount) : null;
+        // Вычисляем Brier Score и Avg Edge (backend теперь возвращает глобальные stats при пагинации)
+        const avgBrier = statsObj.brier_score !== undefined ? statsObj.brier_score : null;
+        const avgEdge = statsObj.avg_edge !== undefined ? statsObj.avg_edge : null;
 
         document.getElementById('kpi-brier').textContent = formatBrier(avgBrier);
         document.getElementById('kpi-edge').textContent = avgEdge === null ? '—' : formatPercent(avgEdge);
 
-        // 2. Рендерим таблицу сигналов (последние 20)
+        // 2. Рендерим таблицу сигналов
         const tbody = document.getElementById('signals-tbody');
-        const displaySignals = signals.slice(0, 20);
+        const displaySignals = signals;
         if (displaySignals.length === 0) {
             tbody.innerHTML = `<tr><td colspan="7" style="text-align: center;" class="text-muted">Сигналы не найдены</td></tr>`;
         } else {
@@ -165,6 +155,8 @@
                 `;
             }).join('');
         }
+        
+        renderPagination();
 
         // 3. Строим кривую доходности
         if (equityData) {
@@ -345,5 +337,31 @@
         panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
     }
 
+    function renderPagination() {
+        const container = document.getElementById('signals-pagination');
+        if (totalSignals <= limit) {
+            container.innerHTML = '';
+            return;
+        }
+        const totalPages = Math.ceil(totalSignals / limit);
+        let html = `<div class="pagination-controls" style="display:flex; justify-content:center; align-items:center; gap:8px; margin-top:16px;">`;
+        html += `<button class="btn btn-secondary btn-sm" onclick="changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>&laquo; Назад</button>`;
+        html += `<span class="text-muted" style="font-size:0.9rem;">Стр. ${currentPage} из ${totalPages}</span>`;
+        html += `<button class="btn btn-secondary btn-sm" onclick="changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>Вперед &raquo;</button>`;
+        html += `</div>`;
+        container.innerHTML = html;
+    }
+
+    function changePage(newPage) {
+        const totalPages = Math.ceil(totalSignals / limit);
+        if (newPage >= 1 && newPage <= totalPages) {
+            currentPage = newPage;
+            loadScoutData();
+        }
+    }
+
     registerRefresh(loadScoutData);
+    
+    // Initial load
+    loadScoutData();
 </script>
