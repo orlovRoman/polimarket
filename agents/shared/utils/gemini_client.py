@@ -150,6 +150,19 @@ def convert_gemini_to_openai(payload: dict, model_name: str = "", strict_json: b
     converted_msgs, _ = _convert_messages(contents)
     openai_messages.extend(converted_msgs)
     
+    # 2.5. Если это Cerebras (или gpt-oss), ужимаем длинные промпты (лимит 8192 токена)
+    # Русский текст ест очень много токенов (до 1-2 на символ), поэтому 13000 символов = ~13000 токенов
+    is_cerebras = ("cerebras" in model_name.lower() or "gpt-oss" in model_name.lower() or "llama" in model_name.lower() or "qwen" in model_name.lower() or "zai" in model_name.lower())
+    if is_cerebras:
+        MAX_CHARS = 12000  # Примерно 4000-6000 токенов
+        for msg in openai_messages:
+            if msg["role"] == "user" and len(msg.get("content", "")) > MAX_CHARS:
+                content = msg["content"]
+                keep_top = 4000
+                keep_bottom = 5000
+                if len(content) > (keep_top + keep_bottom):
+                    msg["content"] = content[:keep_top] + "\n\n... [СЛИШКОМ ДЛИННЫЙ КОНТЕКСТ, ЧАСТЬ ВЫРЕЗАНА ИЗ-ЗА ЛИМИТОВ CEREBRAS] ...\n\n" + content[-keep_bottom:]
+
     openai_payload = {
         "model": model_name,
         "messages": openai_messages
