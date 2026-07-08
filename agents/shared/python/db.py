@@ -2317,6 +2317,12 @@ def save_agent_episode(
                 VALUES (?, 'polymarket', ?, '', 'unknown', 0.5, datetime('now', '+1 year'), ?, 0)
             """, (market_id, market_title or f"Market {market_id}", market_id))
             
+            if market_title and market_title != f"Market {market_id}":
+                cursor.execute("""
+                    UPDATE markets SET title = ?
+                    WHERE id = ? AND title LIKE 'Market %'
+                """, (market_title, market_id))
+                
         cursor.execute('''
             INSERT INTO agent_episodes
             (agent_name, event_type, market_id, market_title, summary, context, outcome)

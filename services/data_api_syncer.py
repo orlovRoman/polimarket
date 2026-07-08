@@ -73,8 +73,13 @@ def sync_trades_from_data_api(limit: int = 500):
                         slug = trade.get("slug", "")
                         url = f"https://polymarket.com/event/{slug}" if slug else ""
                         c.execute("""
-                            INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time, condition_id, volume)
+                            INSERT INTO markets (id, platform, title, url, outcome, price, close_time, condition_id, volume)
                             VALUES (?, 'polymarket', ?, ?, 'unknown', ?, datetime('now', '+1 year'), ?, 500000000.0)
+                            ON CONFLICT(id) DO UPDATE SET
+                                title = CASE WHEN markets.title LIKE 'Market %' OR markets.title LIKE 'Unknown Market %' THEN excluded.title ELSE markets.title END,
+                                url = CASE WHEN markets.url = '' THEN excluded.url ELSE markets.url END,
+                                price = excluded.price,
+                                condition_id = excluded.condition_id
                         """, (market_id, title, url, price, market_id))
                         
                 if skip_trade:

@@ -120,8 +120,8 @@
         // 1. Рендерим KPI из overview
         const stats = overview['scout'];
         if (stats) {
-            document.getElementById('kpi-winrate').textContent = stats.win_rate === null ? '—' : formatPercent(stats.win_rate);
-            document.getElementById('kpi-sharpe').textContent = stats.sharpe === null ? '—' : stats.sharpe.toFixed(2);
+            document.getElementById('kpi-winrate').textContent = (stats.win_rate == null) ? '—' : formatPercent(stats.win_rate);
+            document.getElementById('kpi-sharpe').textContent = (stats.sharpe == null) ? '—' : stats.sharpe.toFixed(2);
             document.getElementById('kpi-count').textContent = stats.signals_count;
         }
 
