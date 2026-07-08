@@ -1158,12 +1158,12 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
 
             row_dict['current_outcome_price'] = current_outcome_price
             bought_outcome_price = row_dict.get('bought_outcome_price')
-            raw_pnl = row_dict['pnl_cents'] or 0.0
+            raw_pnl = row_dict['pnl_points'] or 0.0
             if bought_outcome_price and 0.0 < bought_outcome_price < 1.0:
                 shares = virtual_stake / bought_outcome_price
-                row_dict['pnl_cents'] = round(raw_pnl * shares, 2)
+                row_dict['pnl_points'] = round(raw_pnl * shares, 2)
             else:
-                row_dict['pnl_cents'] = round(raw_pnl * virtual_stake, 2)
+                row_dict['pnl_points'] = round(raw_pnl * virtual_stake, 2)
             virtual_history.append(row_dict)
 
         # Последние проанализированные рынки для системных оповещений

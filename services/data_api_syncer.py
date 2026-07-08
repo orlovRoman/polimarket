@@ -65,8 +65,8 @@ def sync_trades_from_data_api(limit: int = 500):
                         slug = trade.get("slug", "")
                         url = f"https://polymarket.com/event/{slug}" if slug else ""
                         c.execute("""
-                            INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time, condition_id)
-                            VALUES (?, 'polymarket', ?, ?, 'unknown', ?, datetime('now', '+1 year'), ?)
+                            INSERT OR IGNORE INTO markets (id, platform, title, url, outcome, price, close_time, condition_id, volume)
+                            VALUES (?, 'polymarket', ?, ?, 'unknown', ?, datetime('now', '+1 year'), ?, 500000000.0)
                         """, (market_id, title, url, price, market_id))
                         
                 if skip_trade:
