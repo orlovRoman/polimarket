@@ -467,11 +467,23 @@ def _init_db_impl(conn: sqlite3.Connection):
             outcome TEXT NOT NULL,
             amount_usd REAL NOT NULL,
             price REAL,
+            tx_hash TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (wallet_address) REFERENCES wallets (address),
             FOREIGN KEY (market_id) REFERENCES markets (id)
         )
     ''')
+    
+    # Миграции
+    try:
+        cursor.execute("ALTER TABLE trader_transactions ADD COLUMN tx_hash TEXT")
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
+        
+    try:
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_hash ON trader_transactions(tx_hash) WHERE tx_hash IS NOT NULL")
+    except Exception:
+        pass
     
     # Таблица истории чата Telegram
     cursor.execute("""
