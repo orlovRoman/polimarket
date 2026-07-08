@@ -2597,68 +2597,7 @@ async def callback_analyze_market(callback: CallbackQuery) -> None:
     market_id = callback.data[len("analyze_mkt_"):]
     engine = get_core_engine()
     
-    # 1. Проверяем, есть ли уже сохраненные мнения в базе данных
-    opinions = await asyncio.to_thread(get_market_discussions, market_id)
-    if opinions:
-        await callback.answer("📦 Восстанавливаю анализ из памяти...", show_alert=False)
-        
-        market_info = await asyncio.to_thread(get_market_from_db, market_id)
-        if not market_info:
-            try:
-                m = await asyncio.to_thread(engine.adapter.get_market, market_id)
-                if m:
-                    market_info = {
-                        "title": m.title,
-                        "url": m.url,
-                        "price": m.price
-                    }
-            except Exception:
-                pass
-                
-        title = market_info.get("title", f"Рынок {market_id}") if market_info else f"Рынок {market_id}"
-        url = market_info.get("url", f"https://polymarket.com/event/{market_id}") if market_info else f"https://polymarket.com/event/{market_id}"
-        price = market_info.get("price", 0.5) if market_info else 0.5
-        
-        price_yes = int(price * 100)
-        price_no = 100 - price_yes
-        
-        summary_text = (
-            "🗣️ <b>Архивное обсуждение рынка (из памяти):</b>\n"
-            f"<a href='{url}'>{title}</a> (YES: {price_yes}¢ | NO: {price_no}¢)\n\n"
-        )
-        
-        scout_op = next((o for o in opinions if o["agent_name"] == "SCOUT"), None)
-        swing_op = next((o for o in opinions if o["agent_name"] == "SWING"), None)
-        shadow_op = next((o for o in opinions if o["agent_name"] == "SHADOW"), None)
-        
-        if scout_op:
-            summary_text += f"🧠 <b>SCOUT (Фундаментал):</b>\n{scout_op['opinion']}\n\n"
-        if swing_op:
-            summary_text += f"🏄 <b>SWING (Хайп):</b>\n{swing_op['opinion']}\n\n"
-        if shadow_op:
-            shadow_status = "✅ СОГЛАСЕН" if shadow_op["agree"] else "❌ ПРОТИВ"
-            summary_text += (
-                f"🛡️ <b>SHADOW (Инфраструктура):</b> {shadow_status}\n"
-                f"{shadow_op['opinion']}\n\n"
-            )
-            
-        summary_text += "✨ <b>ИТОГ: Восстановлено из памяти (LLM не вызывался).</b>"
-        
-        mid = market_id[:40]
-        market_action_markup = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🚫 Игнорировать", callback_data=f"ignore_mkt_{mid}"),
-                InlineKeyboardButton(text="🔍 Проанализировать", callback_data=f"analyze_mkt_{mid}"),
-                InlineKeyboardButton(text="📥 В идеи", callback_data=f"add_idea_{mid}")
-            ],
-            [
-                InlineKeyboardButton(text="🏷 Блокировать теги", callback_data=f"block_tags_select_{mid}")
-            ]
-        ])
-        
-        await callback.message.answer(summary_text, reply_markup=market_action_markup, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        return
-
+    # В ручном режиме всегда запускаем свежий анализ, игнорируя старые мнения в базе
     # 2. Если архивных мнений нет, запускаем интерактивный анализ
     from agents.shared.python.db import get_connection
     from core.workflow import run_agent_evaluation, process_consensus
