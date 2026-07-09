@@ -366,7 +366,7 @@ class ScoutAgent:
             
             if edge > min_edge:
                 signal = Signal(
-                    id=f"scout_{market.id}_{int(datetime.now().timestamp())}",
+                    id=f"scout_{market.id}_{target_outcome}",
                     type="MISPRICING",
                     market_id=market.id,
                     platform=market.platform,

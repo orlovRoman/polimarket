@@ -522,7 +522,7 @@ class SwingAgent:
                 from core.models import SwingSignal
                 
                 signal = SwingSignal(
-                    id=f"sig-swing-{market.id}-{int(datetime.now().timestamp())}",
+                    id=f"sig-swing-{market.id}-{target_outcome}",
                     market_id=market.id,
                     type="SWING",
                     platform=market.platform,
