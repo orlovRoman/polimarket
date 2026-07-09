@@ -232,10 +232,10 @@ def _resolve_signal(row: dict, resolution: str) -> None:
             WHERE id = ?
         """, (resolution, row["market_id"]))
 
-        try:
-            update_episodes_for_market(row["market_id"], resolution)
-        except Exception as ep_err:
-            logger.error(f"[OutcomeTracker] Error updating episodes for market {row['market_id']}: {ep_err}")
+    try:
+        update_episodes_for_market(row["market_id"], resolution)
+    except Exception as ep_err:
+        logger.error(f"[OutcomeTracker] Error updating episodes for market {row['market_id']}: {ep_err}")
 
     logger.info(
         f"[OutcomeTracker] {row['id'][:8]}… → {resolution} "
