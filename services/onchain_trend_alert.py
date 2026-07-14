@@ -224,7 +224,7 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
                     JOIN markets m ON t.market_id = m.id
                     WHERE t.timestamp > datetime('now', '-4 hours')
                     GROUP BY t.market_id
-                    HAVING vol_prev > 100.0 AND (vol_recent / vol_prev) >= ?
+                    HAVING (vol_prev > 20.0 OR vol_recent > 500.0) AND (vol_recent / vol_prev) >= ?
                 )
                 SELECT sm.*, wal.win_rate, wal.n_trades
                 FROM spike_markets sm
@@ -392,7 +392,7 @@ def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, m
     confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades)
         
     # Fallback for large bets from unknown wallets
-    amount_usd = row.get("total_vol") or 0.0
+    amount_usd = row.get("total_amount_usd") or 0.0
     if confidence < 0.6 and amount_usd >= 5000.0:
         confidence = 0.6
         bonus_mult = 0.8
