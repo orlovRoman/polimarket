@@ -1021,6 +1021,7 @@ def _init_db_impl(conn: sqlite3.Connection):
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('min_market_volume', '5000.0')")
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('min_market_price', '0.05')")
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('max_market_price', '0.95')")
+    cursor.execute("UPDATE whale_settings SET value = '0.95' WHERE key = 'max_market_price' AND value = '0.8'")
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('whale_edge_bonus', '0.0')")
 
     # Атом 1: Таблица снапшотов портфелей китов

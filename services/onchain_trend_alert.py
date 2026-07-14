@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 from datetime import datetime, timezone
 from agents.shared.python.db import get_connection, is_alert_already_sent, mark_alert_sent
+from config import WHALE_GATE_MIN_CONFIDENCE
 
 logger = logging.getLogger("NexusPolyBot.OnchainTrend")
 
@@ -272,16 +273,19 @@ def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_
     win_rate = row.get("win_rate") or 0.0
     n_trades = row.get("n_trades") or 0
     is_insider = row.get("is_insider")
+    amount_usd = row.get("amount_usd") or 0.0
     confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades, amount_usd)
         
     # Skip creating trading signals for low-confidence whales
-    from config import WHALE_GATE_MIN_CONFIDENCE
     if confidence < WHALE_GATE_MIN_CONFIDENCE:
         logger.info(f"Skipped whale signal (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, amount={amount_usd}, reason=LOW_CONF")
         return None
 
     try:
         side = row["outcome"]
+        if str(side).upper() not in ("YES", "NO"):
+            logger.warning(f"Unknown outcome '{side}' in single bet, skipping")
+            return None
         is_yes = str(side).upper() in ["YES", "1", "TRUE"]
         
         if row["price"] is not None:
@@ -390,9 +394,9 @@ def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, m
     win_rate = row.get("win_rate") or 0.0
     n_trades = row.get("n_trades") or 0
     is_insider = row.get("is_insider")
+    amount_usd = row.get("total_amount_usd") or 0.0
     confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades, amount_usd)
         
-    from config import WHALE_GATE_MIN_CONFIDENCE
     if confidence < WHALE_GATE_MIN_CONFIDENCE:
         logger.info(f"Skipped whale series (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, amount={amount_usd}, reason=LOW_CONF")
         return None
