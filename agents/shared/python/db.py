@@ -1457,24 +1457,27 @@ def mark_temporal_corridor_alerted(signal_id: str) -> None:
         conn.execute("UPDATE temporal_corridors SET alerted = 1 WHERE signal_id = ?", (signal_id,))
 
 def is_alert_already_sent(alert_key: str, ttl_hours: int = 12) -> bool:
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT sent_at FROM sent_alerts WHERE alert_key = ?",
-            (alert_key,)
-        )
-        row = cursor.fetchone()
-        if not row:
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT sent_at FROM sent_alerts WHERE alert_key = ?",
+                (alert_key,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+            sent_at_str = str(row["sent_at"]).replace(" ", "T").replace("Z", "+00:00")
+            sent_at = _parse_dt_utc(sent_at_str)
+            if not sent_at:
+                return False
+            # Учитываем, что sent_at сохраняется в UTC
+            if sent_at.tzinfo is None:
+                sent_at = sent_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - sent_at < timedelta(hours=ttl_hours):
+                return True
             return False
-        sent_at_str = str(row["sent_at"]).replace(" ", "T").replace("Z", "+00:00")
-        sent_at = _parse_dt_utc(sent_at_str)
-        if not sent_at:
-            return False
-        # Учитываем, что sent_at сохраняется в UTC
-        if sent_at.tzinfo is None:
-            sent_at = sent_at.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) - sent_at < timedelta(hours=ttl_hours):
-            return True
+    except sqlite3.OperationalError:
         return False
 
 def mark_alert_sent(alert_key: str, alert_type: str) -> None:

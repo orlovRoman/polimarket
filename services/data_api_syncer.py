@@ -39,9 +39,12 @@ def sync_trades_from_data_api(limit: int = 1500):
                     continue
                     
                 outcome_raw = trade.get("outcome", "Unknown")
-                if str(outcome_raw).upper() in ["YES", "1", "TRUE"]:
+                outcome_index = trade.get("outcomeIndex")
+                if outcome_index is not None and str(outcome_index).isdigit() and int(outcome_index) in [0, 1]:
+                    outcome = "YES" if int(outcome_index) == 0 else "NO"
+                elif str(outcome_raw).upper() in ["YES", "1", "TRUE", "BUY", "LONG", "UP", "OVER"]:
                     outcome = "YES"
-                elif str(outcome_raw).upper() in ["NO", "0", "FALSE"]:
+                elif str(outcome_raw).upper() in ["NO", "0", "FALSE", "SELL", "SHORT", "DOWN", "UNDER"]:
                     outcome = "NO"
                 else:
                     outcome = outcome_raw

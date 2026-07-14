@@ -287,7 +287,6 @@ async def job_onchain_alerts():
                 disable_web_page_preview=True,
                 reply_markup=keyboard
             )
-            mark_alert_sent(f"onchain_spike_{spike['market_id']}", "onchain_spike")
             logger.info(f"Отправлен ончейн-алерт по рынку: {spike['title']}")
             
         # 2. Сканируем крупные одиночные ставки (тихая запись в БД)

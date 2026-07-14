@@ -241,11 +241,18 @@ def scan_volume_spikes(min_spike_ratio: float = 1.5) -> list[dict]:
             spikes.append(processed)
     return spikes
 
-def _evaluate_wallet_confidence(win_rate: float, n_trades: int, is_insider: bool, min_win_rate: float, min_trades: int) -> tuple[float, float]:
+def _evaluate_wallet_confidence(win_rate: float, n_trades: int, is_insider: bool, min_win_rate: float, min_trades: int, amount_usd: float = 0.0) -> tuple[float, float]:
     if is_insider:
-        return 0.8, 1.5
-    elif win_rate >= min_win_rate and n_trades >= min_trades:
-        return 0.6, 1.0
+        return 0.85, 1.5
+    if win_rate >= min_win_rate and n_trades >= min_trades:
+        return 0.65, 1.0
+    # Градация по размеру ставки
+    if amount_usd >= 20000.0:
+        return 0.65, 0.9
+    elif amount_usd >= 5000.0:
+        return 0.60, 0.8  # текущий фоллбэк
+    elif amount_usd >= 1000.0:
+        return 0.45, 0.5  # новая промежуточная зона
     return 0.3, 0.5
 
 def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_trades: int, min_market_price: float, max_market_price: float, base_bonus: float) -> Optional[dict]:
@@ -265,17 +272,11 @@ def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_
     win_rate = row.get("win_rate") or 0.0
     n_trades = row.get("n_trades") or 0
     is_insider = row.get("is_insider")
-    confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades)
+    confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades, amount_usd)
         
-    # Fallback for large bets from unknown wallets
-    amount_usd = row.get("amount_usd") or 0.0
-    if confidence < 0.6 and amount_usd >= 5000.0:
-        confidence = 0.6
-        bonus_mult = 0.8
-        logger.info(f"Applying fallback confidence 0.6 for large bet: ${amount_usd} from wallet {row['wallet_address']}")
-
     # Skip creating trading signals for low-confidence whales
-    if confidence < 0.6:
+    from config import WHALE_GATE_MIN_CONFIDENCE
+    if confidence < WHALE_GATE_MIN_CONFIDENCE:
         logger.info(f"Skipped whale signal (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, amount={amount_usd}, reason=LOW_CONF")
         return None
 
@@ -389,16 +390,10 @@ def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, m
     win_rate = row.get("win_rate") or 0.0
     n_trades = row.get("n_trades") or 0
     is_insider = row.get("is_insider")
-    confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades)
+    confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades, amount_usd)
         
-    # Fallback for large bets from unknown wallets
-    amount_usd = row.get("total_amount_usd") or 0.0
-    if confidence < 0.6 and amount_usd >= 5000.0:
-        confidence = 0.6
-        bonus_mult = 0.8
-        logger.info(f"Applying fallback confidence 0.6 for large series: ${amount_usd} from wallet {row['wallet_address']}")
-
-    if confidence < 0.6:
+    from config import WHALE_GATE_MIN_CONFIDENCE
+    if confidence < WHALE_GATE_MIN_CONFIDENCE:
         logger.info(f"Skipped whale series (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, amount={amount_usd}, reason=LOW_CONF")
         return None
 
