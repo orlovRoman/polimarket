@@ -986,7 +986,7 @@ async def start_system():
     # Регулярно стягиваем свежие сделки с Data API для Whale Discovery (каждые 2 минуты)
     scheduler.add_job(scheduled_data_api_sync, 'interval', minutes=2)
     
-    scheduler.add_job(scheduled_wallet_recalculation, 'cron', hour=3) # пересчет win_rate кошельков раз в сутки в 3:00 ночи
+    scheduler.add_job(scheduled_wallet_recalculation, 'interval', hours=4) # пересчет win_rate кошельков каждые 4 часа
     scheduler.add_job(scheduled_insiders_recalculation, 'interval', hours=1) # пересчет инсайдеров каждый час
     scheduler.add_job(scheduled_cluster_update, 'interval', hours=1) # пересчет кластеров каждый час
     scheduler.add_job(scheduled_audit_resolutions, 'interval', hours=24) # кросс-чек исходов раз в сутки

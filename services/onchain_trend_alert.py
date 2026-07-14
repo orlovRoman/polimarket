@@ -267,23 +267,31 @@ def _process_single_bet_row(row: dict, min_vol: float, min_win_rate: float, min_
     is_insider = row.get("is_insider")
     confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades)
         
+    # Fallback for large bets from unknown wallets
+    amount_usd = row.get("amount_usd") or 0.0
+    if confidence < 0.6 and amount_usd >= 5000.0:
+        confidence = 0.6
+        bonus_mult = 0.8
+        logger.info(f"Applying fallback confidence 0.6 for large bet: ${amount_usd} from wallet {row['wallet_address']}")
+
     # Skip creating trading signals for low-confidence whales
     if confidence < 0.6:
-        logger.info(f"Skipped whale signal (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, reason=LOW_CONF")
+        logger.info(f"Skipped whale signal (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, amount={amount_usd}, reason=LOW_CONF")
         return None
 
     try:
         side = row["outcome"]
+        is_yes = str(side).upper() in ["YES", "1", "TRUE"]
         
         if row["price"] is not None:
             entry_price = row["price"]
-            price_yes = row["price"] if side == "YES" else (1.0 - row["price"])
+            price_yes = row["price"] if is_yes else (1.0 - row["price"])
         else:
             price_yes = m_price
-            entry_price = price_yes if side == "YES" else (1.0 - price_yes)
+            entry_price = price_yes if is_yes else (1.0 - price_yes)
             
         bonus = base_bonus * bonus_mult
-        prob = min(0.97, price_yes + bonus) if side == "YES" else max(0.03, (1.0 - price_yes) + bonus)
+        prob = min(0.97, price_yes + bonus) if is_yes else max(0.03, (1.0 - price_yes) + bonus)
         
         summary_msg = f"Whale single bet: ${row['amount_usd']:,.0f} on {side} by {row['wallet_address'][:8]}... on {row['title']}"
         logger.info(f"[OnchainTrend] {summary_msg} (conf={confidence})")
@@ -383,22 +391,30 @@ def _process_wallet_series_row(row: dict, min_vol: float, min_win_rate: float, m
     is_insider = row.get("is_insider")
     confidence, bonus_mult = _evaluate_wallet_confidence(win_rate, n_trades, is_insider, min_win_rate, min_trades)
         
+    # Fallback for large bets from unknown wallets
+    amount_usd = row.get("total_vol") or 0.0
+    if confidence < 0.6 and amount_usd >= 5000.0:
+        confidence = 0.6
+        bonus_mult = 0.8
+        logger.info(f"Applying fallback confidence 0.6 for large series: ${amount_usd} from wallet {row['wallet_address']}")
+
     if confidence < 0.6:
-        logger.info(f"Skipped whale series (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, reason=LOW_CONF")
+        logger.info(f"Skipped whale series (wallet filter): wallet={row['wallet_address']}, win_rate={win_rate}, n_trades={n_trades}, is_insider={is_insider}, amount={amount_usd}, reason=LOW_CONF")
         return None
 
     try:
         side = "YES" if row["yes_vol"] > row["no_vol"] else "NO"
+        is_yes = str(side).upper() in ["YES", "1", "TRUE"]
         
         if row["avg_price"] is not None:
             entry_price = row["avg_price"]
-            price_yes = row["avg_price"] if side == "YES" else (1.0 - row["avg_price"])
+            price_yes = row["avg_price"] if is_yes else (1.0 - row["avg_price"])
         else:
             price_yes = m_price
-            entry_price = price_yes if side == "YES" else (1.0 - price_yes)
+            entry_price = price_yes if is_yes else (1.0 - price_yes)
             
         bonus = base_bonus * bonus_mult
-        prob = min(0.97, price_yes + bonus) if side == "YES" else max(0.03, (1.0 - price_yes) + bonus)
+        prob = min(0.97, price_yes + bonus) if is_yes else max(0.03, (1.0 - price_yes) + bonus)
         
         summary_msg = f"Whale series: ${row['total_amount_usd']:,.0f} ({row['tx_count']} txs) on {side} by {row['wallet_address'][:8]}... on {row['title']}"
         logger.info(f"[OnchainTrend] {summary_msg} (conf={confidence})")

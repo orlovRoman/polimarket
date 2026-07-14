@@ -8,7 +8,7 @@ logger = logging.getLogger("NexusPolyBot.DataApiSyncer")
 
 DATA_API_URL = "https://data-api.polymarket.com/trades"
 
-def sync_trades_from_data_api(limit: int = 500):
+def sync_trades_from_data_api(limit: int = 1500):
     """
     Периодически скачивает свежие сделки с открытого Data API Polymarket
     и сохраняет их в базу trader_transactions для последующего анализа Whale Discovery.
@@ -38,11 +38,17 @@ def sync_trades_from_data_api(limit: int = 500):
                 if not market_id:
                     continue
                     
-                outcome = trade.get("outcome", "Unknown")
+                outcome_raw = trade.get("outcome", "Unknown")
+                if str(outcome_raw).upper() in ["YES", "1", "TRUE"]:
+                    outcome = "YES"
+                elif str(outcome_raw).upper() in ["NO", "0", "FALSE"]:
+                    outcome = "NO"
+                else:
+                    outcome = outcome_raw
                 size_shares = float(trade.get("size", 0.0))
                 price = float(trade.get("price", 0.0))
                 amount_usd = size_shares * price
-                if amount_usd <= 0:
+                if amount_usd <= 100.0:
                     continue
                     
                 alias = trade.get("pseudonym") or trade.get("name")
@@ -74,11 +80,10 @@ def sync_trades_from_data_api(limit: int = 500):
                         url = f"https://polymarket.com/event/{slug}" if slug else ""
                         c.execute("""
                             INSERT INTO markets (id, platform, title, url, outcome, price, close_time, condition_id, volume)
-                            VALUES (?, 'polymarket', ?, ?, 'unknown', ?, datetime('now', '+1 year'), ?, 500000000.0)
+                            VALUES (?, 'polymarket', ?, ?, 'unknown', ?, datetime('now', '+1 year'), ?, NULL)
                             ON CONFLICT(id) DO UPDATE SET
                                 title = CASE WHEN markets.title LIKE 'Market %' OR markets.title LIKE 'Unknown Market %' THEN excluded.title ELSE markets.title END,
                                 url = CASE WHEN markets.url = '' THEN excluded.url ELSE markets.url END,
-                                price = excluded.price,
                                 condition_id = excluded.condition_id
                         """, (market_id, title, url, price, market_id))
                         
