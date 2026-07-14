@@ -844,29 +844,49 @@ async def api_sell_whale_stock(request):
         logger.exception("Error in api_sell_whale_stock")
         return web.json_response({"error": f"Internal server error: {e}"}, status=500)
 
-async def api_discover_whale_stocks(request):
+_whale_scan_in_progress = False
+
+async def background_whale_scan():
+    global _whale_scan_in_progress
     try:
         from services.onchain_trend_alert import scan_volume_spikes, scan_large_single_bets, scan_wallet_series
         from telegram.bot import bot, AUTHORIZED_CHAT_ID
         
+        logger.info("[Dashboard] Starting background whale scan...")
         spikes = await asyncio.to_thread(scan_volume_spikes) or []
         bets = await asyncio.to_thread(scan_large_single_bets) or []
         series = await asyncio.to_thread(scan_wallet_series) or []
         
         total_discovered = len(spikes) + len(bets) + len(series)
+        logger.info(f"[Dashboard] Background whale scan finished. Discovered: {total_discovered}")
         
-        if total_discovered > 0:
-            msg = (
-                f"🐳 <b>Принудительный поиск Whale Following</b>\n\n"
-                f"С дашборда запрошен принудительный поиск активности китов.\n"
-                f"Обнаружено сигналов: <b>{total_discovered}</b> (всплески: {len(spikes)}, крупные ставки: {len(bets)}, серии сделок: {len(series)})."
-            )
-            try:
-                await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
-            except Exception as tg_err:
-                logger.error(f"Failed to send Telegram notification: {tg_err}")
-                
-        return web.json_response({"status": "ok", "discovered": total_discovered})
+        msg = (
+            f"🐳 <b>Принудительный поиск Whale Following завершен</b>\n\n"
+            f"С дашборда был запрошен ручной поиск активности китов.\n"
+            f"Обнаружено сигналов: <b>{total_discovered}</b>\n"
+            f"• Всплески объема: {len(spikes)}\n"
+            f"• Крупные одиночные ставки: {len(bets)}\n"
+            f"• Серии сделок: {len(series)}"
+        )
+        try:
+            await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+        except Exception as tg_err:
+            logger.error(f"Failed to send Telegram notification: {tg_err}")
+            
+    except Exception as e:
+        logger.exception("Error in background_whale_scan")
+    finally:
+        _whale_scan_in_progress = False
+
+async def api_discover_whale_stocks(request):
+    global _whale_scan_in_progress
+    try:
+        if _whale_scan_in_progress:
+            return web.json_response({"status": "processing", "message": "Сканирование уже выполняется в фоновом режиме."})
+            
+        _whale_scan_in_progress = True
+        asyncio.create_task(background_whale_scan())
+        return web.json_response({"status": "started"})
         
     except Exception as e:
         logger.exception("Error in api_discover_whale_stocks")
