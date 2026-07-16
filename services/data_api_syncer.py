@@ -51,7 +51,7 @@ def sync_trades_from_data_api(limit: int = 1500):
                 size_shares = float(trade.get("size", 0.0))
                 price = float(trade.get("price", 0.0))
                 amount_usd = size_shares * price
-                if amount_usd <= 100.0:
+                if amount_usd <= 10.0:
                     continue
                     
                 alias = trade.get("pseudonym") or trade.get("name")

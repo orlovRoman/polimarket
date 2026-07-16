@@ -104,7 +104,7 @@ def get_whale_radar_summary(min_whales: int = 1) -> list[dict]:
                 SUM(w.current_value)              AS total_usd
             FROM whale_portfolio_snapshots w
             WHERE w.market_close_time IS NULL
-               OR w.market_close_time > date('now', '-1 day')
+               OR w.market_close_time > datetime('now', '-1 day')
             GROUP BY w.market_id, w.outcome
             ORDER BY total_usd DESC
         """).fetchall()
