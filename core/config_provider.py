@@ -63,15 +63,7 @@ class ConfigProvider:
 
         val = cls._get_store().get_latest_applied_value_sync("min_spread", strategy_type)
         if val is None:
-            # Значения по умолчанию, если в БД нет записей
-            if strategy_type == "synthetic_corridor":
-                val = 0.005  # 0.5% (было 0.8%)
-            elif strategy_type == "temporal_corridor":
-                val = 0.010  # 1.0% (было 2.0%)
-            elif strategy_type == "cross_platform":
-                val = getattr(config, "ARB_MIN_SPREAD_ALERT", 5.0) / 100.0  # 0.05 (5.0%)
-            else:
-                val = 0.010  # Дефолт для неизвестных
+            val = 0.010  # Дефолт для всех стратегий
                 
         cls._cache[cache_key] = val
         return val

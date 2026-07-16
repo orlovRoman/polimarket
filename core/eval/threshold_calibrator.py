@@ -248,18 +248,6 @@ class ThresholdCalibrator:
                 lambda m, c, t: self.suggest_edge_threshold(m, c, t, "whale")
             ),
             (
-                StrategyType.SYNTHETIC_CORRIDOR,
-                "min_spread",
-                lambda: ConfigProvider.get_min_spread_sync("synthetic_corridor"),
-                lambda m, c, t: self.suggest_spread_threshold(m, c, t, "synthetic_corridor")
-            ),
-            (
-                StrategyType.TEMPORAL_CORRIDOR,
-                "min_spread",
-                lambda: ConfigProvider.get_min_spread_sync("temporal_corridor"),
-                lambda m, c, t: self.suggest_spread_threshold(m, c, t, "temporal_corridor")
-            ),
-            (
                 StrategyType.WHALE,
                 "whale_win_rate_threshold",
                 lambda: ConfigProvider.get_whale_win_rate_threshold_sync(),

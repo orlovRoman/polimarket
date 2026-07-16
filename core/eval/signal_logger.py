@@ -13,9 +13,6 @@ logger = logging.getLogger("NexusPolyBot.SignalLogger")
 
 class StrategyType(str, Enum):
     SCOUT = 'scout'
-    SYNTHETIC_CORRIDOR = 'synthetic_corridor'
-    TEMPORAL_CORRIDOR = 'temporal_corridor'
-    CROSS_PLATFORM = 'cross_platform'
     WHALE = 'whale'
     PENNY_STOCKS = 'penny_stocks'
 
@@ -278,21 +275,7 @@ class SignalLogger:
             # Рынок отменен, PnL = 0, не прибыльный
             return False, 0.0
 
-        # Для коридоров и арбитража:
-        if strategy_type in ('synthetic_corridor', 'temporal_corridor', 'cross_platform'):
-            expected_pnl = metadata.get('pnl_in_corridor_usd') or metadata.get('expected_pnl_usd')
-            if expected_pnl is not None:
-                try:
-                    pnl_val = float(expected_pnl)
-                except (ValueError, TypeError):
-                    pnl_val = 0.0
-                is_win = pnl_val > 0
-                pnl = pnl_val if is_win else -abs(pnl_val)
-                return is_win, round(pnl, 2)
-            # fallback если метаданные не содержат PnL
-            is_win = (target_outcome == resolution_outcome)
-            pnl = virtual_stake * 0.10 if is_win else -virtual_stake
-            return is_win, round(pnl, 2)
+
 
         # По умолчанию (для scout и whale):
         # Если target_outcome совпадает с resolution_outcome

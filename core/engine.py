@@ -113,46 +113,7 @@ async def _run_math_gate(
                 )
                 processed_ids.extend([market_a.id, market_b.id])
 
-    # 2. Кросс-платформенные пары
-    markets_poly = [m for m in markets if m.platform == "polymarket"]
-    markets_kalshi = [m for m in markets if m.platform == "kalshi"]
-    
-    if markets_poly and markets_kalshi:
-        cross_platform_pairs = get_matched_pairs(markets_poly, markets_kalshi)
-        logger.info(f"[math_gate] Найдено кросс-платформенных кандидатов: {len(cross_platform_pairs)}")
-        for market_a, market_b in cross_platform_pairs:
-            if cancellation_token and cancellation_token.is_set():
-                logger.info("[math_gate] Cancellation requested, stopping cross platform pairs loop.")
-                break
-
-            if market_a.id in processed_ids or market_b.id in processed_ids:
-                continue
-
-            # Минуя _quick_pair_check (пары уже матчнуты), передаем с порогом 3.0
-            mf = math_pre_filter(market_a, market_b, min_spread_pct=3.0)
-            log_filter_result(market_a.id, market_b.id, mf)
-
-            if mf.decision == FilterDecision.CONFIRMED_ARBITRAGE:
-                await _notify_helper(
-                    notify_fn,
-                    signal_type="MATH_ARB",
-                    market=market_a,
-                    details=mf,
-                )
-                processed_ids.extend([market_a.id, market_b.id])
-
-            elif mf.decision == FilterDecision.AMBIGUOUS:
-                result = await asyncio.to_thread(
-                    route_ambiguous, mf, market_a, market_b, api_key
-                )
-                if result and result.get("confirmed_arb"):
-                    await _notify_helper(
-                        notify_fn,
-                        signal_type="MATH_ARB_CONFIRMED",
-                        market=market_a,
-                        details=mf,
-                    )
-                    processed_ids.extend([market_a.id, market_b.id])
+    # Кросс-платформенное сканирование удалено
 
     return processed_ids
 

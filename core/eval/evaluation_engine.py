@@ -105,22 +105,6 @@ class EvaluationEngine:
             if sug:
                 suggestions.append(sug)
                 
-        elif strategy in (StrategyType.SYNTHETIC_CORRIDOR, StrategyType.TEMPORAL_CORRIDOR, StrategyType.CROSS_PLATFORM):
-            # Для коридоров и кросс-платформы параметр называется min_spread
-            current_spread = await self.calibration_store.get_latest_applied_value("min_spread", strategy.value)
-            if current_spread is None:
-                # Значения по умолчанию
-                if strategy == StrategyType.SYNTHETIC_CORRIDOR:
-                    current_spread = 0.8
-                elif strategy == StrategyType.TEMPORAL_CORRIDOR:
-                    current_spread = 2.0
-                else:
-                    current_spread = 5.0
-                    
-            sug = self.calibrator.suggest_spread_threshold(metrics, current_spread, trend, strategy.value)
-            if sug:
-                suggestions.append(sug)
-                
         elif strategy == StrategyType.WHALE:
             current_whale_tr = await self.calibration_store.get_latest_applied_value("whale_win_rate_threshold", strategy.value)
             if current_whale_tr is None:

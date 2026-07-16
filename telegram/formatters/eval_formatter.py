@@ -9,12 +9,8 @@ def format_eval_report(report: EvaluationReport) -> str:
     date_str = report.generated_at.strftime("%Y-%m-%d")
     msg = f"📊 <b>ОТЧЕТ ОБ ОЦЕНКЕ СИСТЕМЫ — {date_str}</b>\n\n"
     
-    # Маппинг названий стратегий для вывода
     strategy_names = {
         StrategyType.SCOUT.value: "🕵️ SCOUT (LLM)",
-        StrategyType.SYNTHETIC_CORRIDOR.value: "🔬 SYNTHETIC CORRIDOR",
-        StrategyType.TEMPORAL_CORRIDOR.value: "⏳ TEMPORAL CORRIDOR",
-        StrategyType.CROSS_PLATFORM.value: "🔄 CROSS PLATFORM",
         StrategyType.WHALE.value: "🐋 WHALE FOLLOWING"
     }
 

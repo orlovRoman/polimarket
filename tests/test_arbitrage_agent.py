@@ -48,24 +48,7 @@ def test_correlation_spacex_bug_filtered_by_math(agent):
     mock_llm.assert_not_called()
     assert result is None
 
-def test_cross_platform_ambiguous_calls_llm(agent):
-    a = make_market("Will Fed cut rates in June?", 0.40, "polymarket", mid="1")
-    b = make_market("Will Fed cut rates in June?", 0.62, "kalshi", mid="2")
-    llm_resp_str = json.dumps({
-        "has_arbitrage": True,
-        "arbitrage_type": "price_divergence",
-        "spread_percent": 22.0,
-        "reasoning": "LLM says yes",
-        "trade_instruction": "BUY",
-        "action_a": "BUY_YES",
-        "action_b": "SELL_YES",
-        "risk_level": "LOW",
-        "expected_pnl_pct": 20.0
-    })
-    mock_result = {"candidates": [{"content": {"parts": [{"text": llm_resp_str}]}}]}
-    with patch.object(agent, '_call_llm', return_value=(mock_result, "raw")) as mock_llm:
-        agent.analyze_cross_platform(a, b, match_score=0.9)
-    mock_llm.assert_called_once()
+# Тест analyze_cross_platform удален
 
 def test_spread_is_from_math_not_llm(agent):
     a = make_market("Democrat wins election", 0.60, platform="polymarket", mid="1")

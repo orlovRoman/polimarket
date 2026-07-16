@@ -145,9 +145,7 @@ def _resolve_signal(row: dict, resolution: str) -> None:
     if resolution != "N/A":
         pnl_realized = 0.0
         strategy = (row["strategy_type"] or "").lower()
-        if strategy in ('synthetic_corridor', 'temporal_corridor', 'cross_platform'):
-            pnl_realized = virtual_stake * 0.15 if was_correct else -virtual_stake
-        elif strategy == 'favourite_compound':
+        if strategy == 'favourite_compound':
             # Для Favourite Compounding с учетом комиссии 2% и своей ставки
             try:
                 from agents.shared.python.db import get_compound_settings

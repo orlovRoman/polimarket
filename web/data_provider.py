@@ -41,9 +41,6 @@ def get_status_emoji(sharpe: float | None, win_rate: float | None) -> str:
 STRATEGY_ALIASES = {
     'favourite_compound': 'favourite_compounding',
     'compound_parlay': 'compound_parlays',
-    'temporal': 'temporal_corridor',
-    'synthetic': 'synthetic_corridor',
-    'cross': 'cross_platform',
 }
 
 def normalize_strategy_name(name: str) -> str:
@@ -387,7 +384,7 @@ def get_overview_stats() -> dict:
     }
     
     strategies = [
-        'scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks',
+        'scout', 'whale', 'penny_stocks',
         'favourite_compounding', 'compound_parlays'
     ]
     
@@ -465,7 +462,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
         days = 30
 
     from agents.shared.python.db import get_connection
-    strategies = ['scout', 'synthetic_corridor', 'temporal_corridor', 'cross_platform', 'whale', 'penny_stocks', 'favourite_compounding', 'compound_parlays']
+    strategies = ['scout', 'whale', 'penny_stocks', 'favourite_compounding', 'compound_parlays']
     period_start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
     def get_curve_for_strategy(conn, stype):
@@ -858,6 +855,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
             row_dict['pnl_dollars'] = round(pnl_dollars, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
+            row_dict['pnl_points'] = round(pnl_dollars, 2)
 
             portfolio.append(row_dict)
 
@@ -1406,6 +1404,7 @@ def get_whale_stocks_dashboard(active_page=1, active_limit=100, wins_page=1, win
             row_dict['current_outcome_price'] = round(curr_outcome, 4) if curr_outcome is not None else None
             row_dict['pnl_dollars'] = round(pnl_dollars, 2)
             row_dict['pnl_percent'] = round(pnl_percent, 2)
+            row_dict['pnl_points'] = round(pnl_points, 4)
             row_dict['bet_size_usdc'] = v_bet
 
             portfolio.append(row_dict)

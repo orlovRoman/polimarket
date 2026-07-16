@@ -82,8 +82,7 @@ async def handle_whale(request):
     return web.Response(text=html, content_type="text/html")
 
 async def handle_corridors(request):
-    html = await asyncio.to_thread(render_template, "corridors.html")
-    return web.Response(text=html, content_type="text/html")
+    raise web.HTTPFound("/overview")
 
 async def handle_calibration(request):
     html = await asyncio.to_thread(render_template, "calibration.html")
@@ -117,8 +116,12 @@ async def api_system_status_get(request):
     ]
     data = {}
     for key in keys:
-        # Default to True
-        data[key] = get_memory(key, True)
+        default_val = False if key in [
+            "strategy_synthetic_corridor_enabled",
+            "strategy_temporal_corridor_enabled",
+            "strategy_cross_platform_enabled"
+        ] else True
+        data[key] = get_memory(key, default_val)
     return web.json_response(data)
 
 ALLOWED_TOGGLE_KEYS = {
@@ -284,22 +287,15 @@ async def api_signals(request):
     return web.json_response(data)
 
 async def api_corridors(request):
-    synthetic_page = get_int_query(request, "synthetic_page", 1)
-    synthetic_limit = get_int_query(request, "synthetic_limit", 50)
-    temporal_page = get_int_query(request, "temporal_page", 1)
-    temporal_limit = get_int_query(request, "temporal_limit", 50)
-    cross_page = get_int_query(request, "cross_page", 1)
-    cross_limit = get_int_query(request, "cross_limit", 50)
-    
-    data = await asyncio.to_thread(
-        data_provider.get_corridors_dashboard,
-        synthetic_page=synthetic_page,
-        synthetic_limit=synthetic_limit,
-        temporal_page=temporal_page,
-        temporal_limit=temporal_limit,
-        cross_page=cross_page,
-        cross_limit=cross_limit
-    )
+    data = {
+        'synthetic': [],
+        'temporal': [],
+        'cross': [],
+        'kpis': {},
+        'synthetic_total': 0,
+        'temporal_total': 0,
+        'cross_total': 0
+    }
     return web.json_response(data)
 
 async def api_calibration_runs(request):

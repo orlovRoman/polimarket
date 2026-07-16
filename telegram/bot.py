@@ -128,8 +128,6 @@ async def set_commands(bot: Bot):
         BotCommand(command="cleanup", description="Очистить устаревшие сигналы"),
         BotCommand(command="restart", description="Перезапуск бота"),
         BotCommand(command="health", description="Здоровье системы (LLM и чекпоинты)"),
-        BotCommand(command="arbitrage", description="Запуск кросс-платформенного арбитража (PM ↔ Kalshi)"),
-        BotCommand(command="corridor", description="Временной арбитраж (Temporal Corridor)"),
         BotCommand(command="lists", description="Списки рынков: Игнорировать / Следить"),
         BotCommand(command="eval", description="Запуск оценки торговых стратегий"),
         BotCommand(command="eval_status", description="Просмотр текущих порогов"),
@@ -397,8 +395,6 @@ async def command_help_handler(message: types.Message) -> None:
         "❓ /help — это сообщение\n"
         "👋 /start — перезапустить приветствие\n\n"
         "<b>Экспериментальные функции:</b>\n"
-        "⚖️ /arbitrage — кросс-платформенный арбитраж (Polymarket ↔ Kalshi)\n"
-        "🔄 /synthetic — внутрирыночный арбитраж (синтетические коридоры Polymarket)\n"
         "🪙 /penny — Меню Penny Stocks (дешевые рынки)\n"
         "💰 /compound — Favourite Compounding (≥95¢)\n\n"
         "<i>*Точность SCOUT в меню /status показывает % успешных сигналов. Она 'накапливается', пока рынки, по которым бот дал сигнал, физически не закроются на Polymarket, чтобы сверить прогноз с реальностью.</i>\n\n"
@@ -583,27 +579,7 @@ async def callback_monitor_schedule_toggle(callback: CallbackQuery) -> None:
 
 @dp.message(Command("synthetic"))
 async def command_synthetic_handler(message: types.Message) -> None:
-    """Запуск сканирования синтетических коридоров по запросу."""
-    await message.answer("🔄 Запускаю математический поиск синтетических коридоров (Polymarket). Это займет пару минут...")
-    try:
-        from services.synthetic_corridor_scanner import run_synthetic_corridor_scan
-        from services.notifications import send_synthetic_corridor_alerts
-        
-        found = await asyncio.to_thread(
-            run_synthetic_corridor_scan,
-            poly_limit=200,  # Чуть больше лимит при ручном скане
-            budget_per_trade=200.0,
-            min_volume=1_000,
-            min_executable_contracts=5,
-        )
-        if found:
-            await asyncio.to_thread(send_synthetic_corridor_alerts)
-            await message.answer(f"✅ Сканирование завершено. Найдено {len(found)} коридоров. Алерты отправлены.")
-        else:
-            await message.answer("🤷‍♂️ Сканирование завершено. Синтетические коридоры (спред > 1.5%) не найдены.")
-    except Exception as e:
-        logger.error(f"Ошибка ручного сканирования синтетических коридоров: {e}", exc_info=True)
-        await message.answer(f"❌ Произошла ошибка при сканировании: {e}")
+    await message.answer("❌ Стратегия Synthetic Corridor отключена.")
 
 @dp.message(Command("health"))
 async def command_health_handler(message: types.Message) -> None:
@@ -1614,75 +1590,11 @@ async def command_restart_handler(message: types.Message) -> None:
 
 @dp.message(Command("arbitrage"))
 async def command_arbitrage_handler(message: types.Message) -> None:
-    status_msg = await message.answer("🔄 <b>Запускаю кросс-сканирование Polymarket ↔ Kalshi...</b>\n\n<i>Этот процесс занимает 1-2 минуты, так как агент ARBITRAGE сверяет десятки пар.</i>", parse_mode="HTML")
-    
-    try:
-        import traceback as tb
-        from core.arbitrage_workflow import run_cross_platform_scan
-        api_key = os.getenv("GOOGLE_API_KEY")
-        found = await asyncio.to_thread(
-            run_cross_platform_scan,
-            api_key=api_key,
-            poly_limit=100,
-            kalshi_limit=100,
-            min_spread_alert=3.0,
-        )
-        
-        if not found:
-            await status_msg.edit_text("⚖️ Сканирование завершено. <b>Безрисковых арбитражных связок с достаточным спредом не найдено.</b>", parse_mode="HTML")
-            return
-            
-        response = f"🔥 <b>НАЙДЕНО КРОСС-АРБИТРАЖНЫХ ИДЕЙ: {len(found)}</b>\n\n"
-        for i, s in enumerate(found[:10]):
-            response += (
-                f"<b>{i+1}. {s.arbitrage_type}</b> (Спред: <b>{s.spread_percent:.1f}%</b>)\n"
-                f"🔵 PM: <a href='{s.market_a_url}'>{s.market_a_price*100:.0f}¢</a> | 🟢 Kalshi: <a href='{s.market_b_url}'>{s.market_b_price*100:.0f}¢</a>\n"
-                f"💡 Обоснование: {s.reasoning}\n"
-                f"🎯 Действие: <b>{s.trade_instruction}</b>\n\n"
-            )
-            
-        await status_msg.edit_text(response, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        
-    except Exception as e:
-        error_text = tb.format_exc()[-800:]  # последние 800 символов трассировки
-        logger.error(f"[ARBITRAGE] Ошибка: {error_text}")
-        await status_msg.edit_text(f"❌ <b>Ошибка арбитражного сканирования:</b>\n<pre>{str(e)[:400]}</pre>", parse_mode="HTML")
+    await message.answer("❌ Стратегия Cross Platform Arbitrage отключена.")
 
 @dp.message(Command("corridor"))
 async def command_corridor_handler(message: types.Message) -> None:
-    status_msg = await message.answer("🕐 <b>Сканирую временные коридоры...</b>", parse_mode="HTML")
-    try:
-        from services.temporal_corridor_scanner import run_temporal_corridor_scan
-        signals = await asyncio.to_thread(
-            run_temporal_corridor_scan, poly_limit=500, budget=200.0
-        )
-        if not signals:
-            await status_msg.edit_text("🕐 Временных коридоров с положительным EV не найдено.")
-            return
-
-        text = f"🕐 <b>Временные коридоры — найдено {len(signals)}:</b>\n\n"
-        for s in signals[:5]:
-            text += (
-                f"📍 <b>{s.event_title[:50]}</b>\n"
-                f"📅 NO до <b>{s.early_leg.expiry.strftime('%d %b')}</b> "
-                f"({s.early_leg.entry_cost*100:.0f}¢) "
-                f"+ YES до <b>{s.late_leg.expiry.strftime('%d %b')}</b> "
-                f"({s.late_leg.entry_cost*100:.0f}¢)\n"
-                f"📊 P(коридор)=<b>{s.p_in_corridor*100:.0f}%</b> "
-                f"| gap=<b>{s.date_gap_days}д</b>\n"
-                f"💰 Реальный спред: <b>+{s.real_spread_pct:.1f}%</b> "
-                f"| Q-score: <b>{s.quality_score:.2f}</b>\n"
-                f"🎯 S1=${s.pnl_s1_before_early:.0f} | "
-                f"S2=<b>${s.pnl_s2_in_corridor:.0f}</b> | "
-                f"S3=${s.pnl_s3_never:.0f}\n"
-                f"💵 EV: <b>${s.ev_usd:.2f}</b> (бюджет ${s.early_stake_usd + s.late_stake_usd:.0f})\n"
-                f"🚪 {s.exit_rule[:100]}\n"
-                f"🔗 <a href='{s.event_url}'>Открыть</a>\n\n"
-            )
-        await status_msg.edit_text(text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
-    except Exception as e:
-        logger.error(f"[TC] Ошибка в команде /corridor: {e}", exc_info=True)
-        await status_msg.edit_text(f"❌ Ошибка сканирования: {e}")
+    await message.answer("❌ Стратегия Temporal Corridor отключена.")
 
 
 @dp.message(Command("cleanup"))
@@ -3251,21 +3163,6 @@ async def command_eval_status_handler(message: types.Message) -> None:
         if scout_val is None:
             scout_val = getattr(config, "MIN_EDGE_DEFAULT", 0.05)
             
-        # synthetic corridor
-        synthetic_val = await store.get_latest_applied_value("min_spread", StrategyType.SYNTHETIC_CORRIDOR.value)
-        if synthetic_val is None:
-            synthetic_val = 0.008  # 0.8%
-            
-        # temporal corridor
-        temporal_val = await store.get_latest_applied_value("min_spread", StrategyType.TEMPORAL_CORRIDOR.value)
-        if temporal_val is None:
-            temporal_val = 0.020  # 2.0%
-            
-        # cross platform
-        cross_val = await store.get_latest_applied_value("min_spread", StrategyType.CROSS_PLATFORM.value)
-        if cross_val is None:
-            cross_val = 0.050  # 5.0%
-            
         # whale
         whale_val = await store.get_latest_applied_value("whale_win_rate_threshold", StrategyType.WHALE.value)
         if whale_val is None:
@@ -3274,9 +3171,6 @@ async def command_eval_status_handler(message: types.Message) -> None:
         status_text = (
             "⚙️ <b>Текущие торговые пороги систем:</b>\n\n"
             f"🕵️ <b>SCOUT:</b> min_edge = <code>{scout_val:.1%}</code>\n"
-            f"🔬 <b>SYNTHETIC CORRIDOR:</b> min_spread = <code>{synthetic_val:.1%}</code>\n"
-            f"⏳ <b>TEMPORAL CORRIDOR:</b> min_spread = <code>{temporal_val:.1%}</code>\n"
-            f"🔄 <b>CROSS PLATFORM:</b> min_spread = <code>{cross_val:.1%}</code>\n"
             f"🐋 <b>WHALE FOLLOWING:</b> win_rate_threshold = <code>{whale_val:.0%}</code>\n"
         )
         await message.answer(status_text, parse_mode="HTML")
@@ -3289,13 +3183,6 @@ async def command_eval_history_handler(message: types.Message) -> None:
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🕵️ Scout",            callback_data="evalhist_scout"),
-            InlineKeyboardButton(text="📊 Synthetic Corridor", callback_data="evalhist_synthetic_corridor"),
-        ],
-        [
-            InlineKeyboardButton(text="⏱ Temporal Corridor",  callback_data="evalhist_temporal_corridor"),
-            InlineKeyboardButton(text="🌐 Cross Platform",     callback_data="evalhist_cross_platform"),
-        ],
-        [
             InlineKeyboardButton(text="🐳 Whale",              callback_data="evalhist_whale"),
         ],
     ])
@@ -3313,9 +3200,6 @@ async def callback_eval_history_handler(callback: types.CallbackQuery) -> None:
     from core.eval.signal_logger import StrategyType
     strategy_map = {
         "scout":               StrategyType.SCOUT,
-        "synthetic_corridor":  StrategyType.SYNTHETIC_CORRIDOR,
-        "temporal_corridor":   StrategyType.TEMPORAL_CORRIDOR,
-        "cross_platform":      StrategyType.CROSS_PLATFORM,
         "whale":               StrategyType.WHALE,
     }
     strategy = strategy_map.get(strategy_input)
