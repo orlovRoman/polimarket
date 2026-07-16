@@ -206,8 +206,9 @@ def test_save_and_get_compound_opportunity():
     assert matched[0]["outcome"] == "YES"
     assert matched[0]["status"] == "NEW"
 
-    # Save again should do nothing
+    # Idempotency check
     save_compound_opportunity(opp)
+    assert len(get_compound_opportunities(limit=100)) == len(active_opps)
 
 
 @pytest.mark.asyncio

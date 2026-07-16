@@ -699,7 +699,9 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
             # Дозагрузка стакана для NO исхода, если выбран NO
             from core.constants import Outcome
             target_outcome = getattr(active_signal, 'target_outcome', Outcome.YES)
-            if target_outcome.upper() == Outcome.NO and len(m.tokens) > 1 and adapter:
+            target_str = target_outcome.value if hasattr(target_outcome, 'value') else str(target_outcome)
+            no_val = Outcome.NO.value if hasattr(Outcome.NO, 'value') else str(Outcome.NO)
+            if target_str.upper() == no_val.upper() and len(m.tokens) > 1 and adapter:
                 try:
                     ob_raw = adapter.get_orderbook(m.tokens[1])
                     if ob_raw:
@@ -841,10 +843,10 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
                 shadow_signal = None
             
             status_sh = "✅ Согласен" if (shadow_signal and shadow_signal.agree) else "❌ Против"
-            update_state(shadow_status=f"{status_sh} (Увер: {shadow_signal.confidence if shadow_signal else 0})")
+            conf = shadow_signal.confidence if shadow_signal else 0.0
+            update_state(shadow_status=f"{status_sh} (Увер: {conf:.0%})")
             
             if shadow_signal:
-                from core.workflow import add_discussion_message
                 add_discussion_message(m.id, shadow_signal.agent_name, shadow_signal.opinion, shadow_signal.confidence, shadow_signal.agree)
                 
         context.shadow_opinion = shadow_signal
