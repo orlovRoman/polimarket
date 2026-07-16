@@ -10,10 +10,6 @@ try:
     print(f"Connected in {time.time() - t0:.3f}s. Checking journal mode...")
     mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
     print(f"Journal mode: {mode}")
-    t0 = time.time()
-    print("Running count query...")
-    count = conn.execute("SELECT COUNT(*) FROM whale_portfolio_snapshots").fetchone()[0]
-    print(f"Counted {count} rows in {time.time() - t0:.3f}s.")
     
     t0 = time.time()
     print("Table and indexes definition:")
