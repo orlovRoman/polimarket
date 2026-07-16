@@ -16,9 +16,14 @@ try:
     print(f"Counted {count} rows in {time.time() - t0:.3f}s.")
     
     t0 = time.time()
-    print("Testing get_whale_radar_summary(1) execution...")
-    # Simulate get_whale_radar_summary logic
-    rows = conn.execute("""
+    print("Explaining COUNT query plan...")
+    plan1 = conn.execute("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM whale_portfolio_snapshots").fetchall()
+    for p in plan1:
+        print(dict(p))
+        
+    print("Explaining get_whale_radar_summary query plan...")
+    plan2 = conn.execute("""
+        EXPLAIN QUERY PLAN
         SELECT
             w.market_id,
             w.market_title,
@@ -33,6 +38,8 @@ try:
         GROUP BY w.market_id, w.outcome
         ORDER BY total_usd DESC
     """).fetchall()
-    print(f"Query returned {len(rows)} rows in {time.time() - t0:.3f}s.")
+    for p in plan2:
+        print(dict(p))
+        
 except Exception as e:
     print("Error:", e)
