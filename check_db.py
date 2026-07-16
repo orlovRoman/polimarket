@@ -16,14 +16,10 @@ try:
     print(f"Counted {count} rows in {time.time() - t0:.3f}s.")
     
     t0 = time.time()
-    uniq_wallets = conn.execute("SELECT COUNT(DISTINCT wallet_address) FROM whale_portfolio_snapshots").fetchone()[0]
-    total_wallets = conn.execute("SELECT COUNT(*) FROM wallets").fetchone()[0]
-    print(f"Unique wallets in snapshots: {uniq_wallets}")
-    print(f"Total wallets in wallets table: {total_wallets}")
-    
-    # Check if there are snapshots for wallets that are no longer in wallets table
-    orphans = conn.execute("SELECT COUNT(DISTINCT wallet_address) FROM whale_portfolio_snapshots WHERE wallet_address NOT IN (SELECT address FROM wallets)").fetchone()[0]
-    print(f"Orphaned wallets in snapshots: {orphans}")
+    print("Table and indexes definition:")
+    defs = conn.execute("SELECT sql FROM sqlite_master WHERE tbl_name='whale_portfolio_snapshots'").fetchall()
+    for d in defs:
+        print(d['sql'])
     
 except Exception as e:
     print("Error:", e)
