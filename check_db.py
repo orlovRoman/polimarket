@@ -12,49 +12,12 @@ try:
     print(f"Journal mode: {mode}")
     
     t0 = time.time()
-    print("Creating index idx_wps_radar...")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_wps_radar ON whale_portfolio_snapshots(market_close_time, market_id, outcome, current_value, wallet_address)")
-    print(f"Index created in {time.time() - t0:.3f}s.")
-    
-    t0 = time.time()
-    print("Explaining get_whale_radar_summary query plan with new index...")
-    plan = conn.execute("""
-        EXPLAIN QUERY PLAN
-        SELECT
-            w.market_id,
-            w.market_title,
-            w.market_url,
-            w.market_close_time,
-            w.outcome,
-            COUNT(DISTINCT w.wallet_address)  AS whale_count,
-            SUM(w.current_value)              AS total_usd
-        FROM whale_portfolio_snapshots w
-        WHERE w.market_close_time IS NULL
-           OR w.market_close_time > datetime('now', '-1 day')
-        GROUP BY w.market_id, w.outcome
-        ORDER BY total_usd DESC
-    """).fetchall()
-    for p in plan:
-        print(dict(p))
-        
-    t0 = time.time()
-    print("Running get_whale_radar_summary query...")
-    rows = conn.execute("""
-        SELECT
-            w.market_id,
-            w.market_title,
-            w.market_url,
-            w.market_close_time,
-            w.outcome,
-            COUNT(DISTINCT w.wallet_address)  AS whale_count,
-            SUM(w.current_value)              AS total_usd
-        FROM whale_portfolio_snapshots w
-        WHERE w.market_close_time IS NULL
-           OR w.market_close_time > datetime('now', '-1 day')
-        GROUP BY w.market_id, w.outcome
-        ORDER BY total_usd DESC
-    """).fetchall()
-    print(f"Query completed in {time.time() - t0:.3f}s. Returned {len(rows)} rows.")
+    uniq_markets = conn.execute("SELECT COUNT(DISTINCT market_id) FROM whale_portfolio_snapshots").fetchone()[0]
+    null_close_time = conn.execute("SELECT COUNT(*) FROM whale_portfolio_snapshots WHERE market_close_time IS NULL").fetchone()[0]
+    not_null_close_time = conn.execute("SELECT COUNT(*) FROM whale_portfolio_snapshots WHERE market_close_time IS NOT NULL").fetchone()[0]
+    print(f"Unique markets: {uniq_markets}")
+    print(f"Rows with close_time IS NULL: {null_close_time}")
+    print(f"Rows with close_time IS NOT NULL: {not_null_close_time}")
     
 except Exception as e:
     print("Error:", e)
