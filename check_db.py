@@ -16,30 +16,14 @@ try:
     print(f"Counted {count} rows in {time.time() - t0:.3f}s.")
     
     t0 = time.time()
-    print("Explaining COUNT query plan...")
-    plan1 = conn.execute("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM whale_portfolio_snapshots").fetchall()
-    for p in plan1:
-        print(dict(p))
-        
-    print("Explaining get_whale_radar_summary query plan...")
-    plan2 = conn.execute("""
-        EXPLAIN QUERY PLAN
-        SELECT
-            w.market_id,
-            w.market_title,
-            w.market_url,
-            w.market_close_time,
-            w.outcome,
-            COUNT(DISTINCT w.wallet_address)  AS whale_count,
-            SUM(w.current_value)              AS total_usd
-        FROM whale_portfolio_snapshots w
-        WHERE w.market_close_time IS NULL
-           OR w.market_close_time > datetime('now', '-1 day')
-        GROUP BY w.market_id, w.outcome
-        ORDER BY total_usd DESC
-    """).fetchall()
-    for p in plan2:
-        print(dict(p))
-        
+    uniq_wallets = conn.execute("SELECT COUNT(DISTINCT wallet_address) FROM whale_portfolio_snapshots").fetchone()[0]
+    total_wallets = conn.execute("SELECT COUNT(*) FROM wallets").fetchone()[0]
+    print(f"Unique wallets in snapshots: {uniq_wallets}")
+    print(f"Total wallets in wallets table: {total_wallets}")
+    
+    # Check if there are snapshots for wallets that are no longer in wallets table
+    orphans = conn.execute("SELECT COUNT(DISTINCT wallet_address) FROM whale_portfolio_snapshots WHERE wallet_address NOT IN (SELECT address FROM wallets)").fetchone()[0]
+    print(f"Orphaned wallets in snapshots: {orphans}")
+    
 except Exception as e:
     print("Error:", e)
