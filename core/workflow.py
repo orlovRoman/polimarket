@@ -304,7 +304,7 @@ def _fetch_grounded_context(market: Market, api_key: str, model: str, oracle_dom
 
 
 
-async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None, scan_category: Optional[str] = None, run_id: Optional[str] = None):
+async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, adapter=None, trigger_type="scheduled", source_url=None, source_text=None, triggered_at=None, price_history=None, pre_orderbook=None, scan_category: Optional[str] = None, run_id: Optional[str] = None, shadow=None):
     import config
     if getattr(config, "shutdown_requested", False):
         logger.info("[workflow] Прерывание оценки: запрошена остановка системы.")
@@ -688,6 +688,166 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
     else:
         save_memory(last_analysis_key, datetime.now(timezone.utc).isoformat(),
                     category='cache', ttl=300)
+
+    # ── SHADOW-анализ, если предоставлен ──────────────────────────────────────
+    shadow_signal = None
+    if shadow is not None:
+        active_signal = signal or swing_signal
+        if active_signal:
+            update_state(shadow_status="🔄 Проверяет ордербук...")
+            
+            # Дозагрузка стакана для NO исхода, если выбран NO
+            from core.constants import Outcome
+            target_outcome = getattr(active_signal, 'target_outcome', Outcome.YES)
+            if target_outcome.upper() == Outcome.NO and len(m.tokens) > 1 and adapter:
+                try:
+                    ob_raw = adapter.get_orderbook(m.tokens[1])
+                    if ob_raw:
+                        from core.context import OrderbookSnapshot
+                        context.orderbook = OrderbookSnapshot(
+                            top_bid=ob_raw.get("top_bid"),
+                            top_ask=ob_raw.get("top_ask"),
+                            spread_cents=round(ob_raw["spread"] * 100, 4) if ob_raw.get("spread") is not None else None,
+                            bid_depth_5=ob_raw.get("bid_depth_5"),
+                            ask_depth_5=ob_raw.get("ask_depth_5"),
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to fetch orderbook for NO: {e}")
+
+            orderbook = None
+            if context.orderbook is not None:
+                orderbook = {
+                    "top_bid": context.orderbook.top_bid,
+                    "top_ask": context.orderbook.top_ask,
+                    "spread": round(context.orderbook.spread_cents / 100, 4) if context.orderbook.spread_cents is not None else None,
+                    "bid_depth_5": context.orderbook.bid_depth_5,
+                    "ask_depth_5": context.orderbook.ask_depth_5,
+                }
+            
+            logger.info("  SHADOW проверяет...")
+            from services.onchain_provider import get_recent_trades, get_top_positions
+            from core.smart_money import analyze_smart_money
+
+            onchain_trades = get_recent_trades(m.condition_id) if m.condition_id else []
+            onchain_positions = get_top_positions(m.condition_id) if m.condition_id else []
+            smart_money = analyze_smart_money(onchain_trades, onchain_positions)
+            
+            context.smart_money = smart_money
+            
+            from services.wallet_tracker import ingest_trades
+            ingest_trades(m.id, onchain_trades)
+            
+            from core.onchain_scorer import compute_onchain_score
+            oc_score = compute_onchain_score(smart_money, target_outcome=target_outcome)
+            
+            # Корректируем edge детерминированно
+            if active_signal and signal and oc_score and getattr(oc_score, 'confidence', 0.0) > 0.3:
+                if oc_score.direction == "CONFIRM":
+                    signal.edge = min(signal.edge * (1 + oc_score.score * 0.2), 0.95)
+                elif oc_score.direction == "CONTRA":
+                    signal.edge = signal.edge * (1 - abs(oc_score.score) * 0.3)
+            
+            context.onchain_annotation = getattr(oc_score, 'annotation', '')
+            
+            try:
+                scout_opinion = getattr(signal, 'details', '') or getattr(signal, 'signal_cause', '') if signal else ""
+                swing_opinion = getattr(swing_signal, 'details', '') or getattr(swing_signal, 'catalyst', '') if swing_signal else ""
+                combined_opinion = "\n\n".join(filter(None, [scout_opinion, swing_opinion]))
+                
+                from core.liquidity_checker import check_liquidity_fast
+                liq = check_liquidity_fast(orderbook)
+                has_smart_money = bool(smart_money and getattr(smart_money, 'available', False))
+                
+                if not liq.ok and not has_smart_money:
+                    from core.models import AgentOpinion
+                    shadow_signal = AgentOpinion(
+                        agent_name="SHADOW",
+                        market_id=m.id,
+                        opinion=liq.reason,
+                        confidence=liq.confidence,
+                        agree=False,
+                        orderbook_facts=liq.reason,
+                        risk_assessment="Ордербук пуст, Smart Money отсутствуют",
+                        shadow_verdict="SHADOW: авто-отклонение (нет данных)",
+                        liquidity_risk=liq.liquidity_risk
+                    )
+                    logger.info(f"  [SHADOW fast-path] Авто-отклонение: {liq.reason}")
+                    try:
+                        from agents.shared.python.db import save_agent_episode
+                        save_agent_episode(
+                            agent_name="SHADOW",
+                            event_type="signal_evaluated",
+                            market_id=m.id,
+                            market_title=m.title,
+                            summary=f"Agree=False, confidence={liq.confidence:.2%}, target={str(target_outcome)}, price={m.price:.2f} (fast-path: {liq.reason})",
+                            context={
+                                "price": m.price,
+                                "target_outcome": str(target_outcome),
+                                "agree": False,
+                                "confidence": liq.confidence,
+                                "liquidity_risk": liq.liquidity_risk,
+                                "opinion": liq.reason
+                            },
+                            outcome="unknown"
+                        )
+                    except Exception as ep_err:
+                        logger.error(f"[SHADOW fast-path] Ошибка сохранения эпизода: {ep_err}")
+                else:
+                    from core.whale_gate import check_whale_gate
+                    gate = check_whale_gate(oc_score)
+                    if not gate.allow:
+                        gate_confidence = getattr(oc_score, 'confidence', 0.5) if oc_score else 0.5
+                        from core.models import AgentOpinion
+                        shadow_signal = AgentOpinion(
+                            agent_name="SHADOW",
+                            market_id=m.id,
+                            opinion=gate.reason,
+                            confidence=gate_confidence,
+                            agree=False,
+                            orderbook_facts="Whale Gate active",
+                            risk_assessment="Крупные кошельки торгуют против идеи",
+                            shadow_verdict=gate.reason,
+                            liquidity_risk="HIGH"
+                        )
+                        logger.info(f"  [WHALE GATE] {gate.reason}")
+                        try:
+                            from agents.shared.python.db import save_agent_episode
+                            save_agent_episode(
+                                agent_name="SHADOW",
+                                event_type="signal_evaluated",
+                                market_id=m.id,
+                                market_title=m.title,
+                                summary=f"Agree=False, confidence={gate_confidence:.2%}, target={str(target_outcome)}, price={m.price:.2f} (Whale Gate: {gate.reason})",
+                                context={
+                                    "price": m.price,
+                                    "target_outcome": str(target_outcome),
+                                    "agree": False,
+                                    "confidence": gate_confidence,
+                                    "liquidity_risk": "HIGH",
+                                    "opinion": gate.reason
+                                },
+                                outcome="unknown"
+                            )
+                        except Exception as ep_err:
+                            logger.error(f"[SHADOW WhaleGate] Ошибка сохранения эпизода: {ep_err}")
+                    else:
+                        shadow_signal = await asyncio.to_thread(shadow.analyze_idea, context, combined_opinion, price_history=price_history)
+                save_checkpoint(f"shadow_{m.id}", status="ok")
+            except LLMUnavailableError:
+                save_checkpoint(f"shadow_{m.id}", status="llm_unavailable")
+                raise
+            except Exception as e:
+                save_checkpoint(f"shadow_{m.id}", status="error", error=str(e))
+                shadow_signal = None
+            
+            status_sh = "✅ Согласен" if (shadow_signal and shadow_signal.agree) else "❌ Против"
+            update_state(shadow_status=f"{status_sh} (Увер: {shadow_signal.confidence if shadow_signal else 0})")
+            
+            if shadow_signal:
+                from core.workflow import add_discussion_message
+                add_discussion_message(m.id, shadow_signal.agent_name, shadow_signal.opinion, shadow_signal.confidence, shadow_signal.agree)
+                
+        context.shadow_opinion = shadow_signal
 
     return signal, swing_signal, context
 

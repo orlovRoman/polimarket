@@ -2637,7 +2637,8 @@ async def callback_analyze_market(callback: CallbackQuery) -> None:
                 adapter=engine.adapter,
                 trigger_type="manual",
                 price_history=price_hist,
-                pre_orderbook=pre_orderbook
+                pre_orderbook=pre_orderbook,
+                shadow=engine.shadow
             )
             
             if context is None:
@@ -2646,19 +2647,7 @@ async def callback_analyze_market(callback: CallbackQuery) -> None:
                 return
                 
             active_signal = signal or swing_signal
-            
-            await update_tg_status(shadow_status="⚙️ Анализирует...")
-            
-            opinion_shadow = engine._run_shadow_analysis(
-                m=market,
-                active_signal=active_signal,
-                signal=signal,
-                swing_signal=swing_signal,
-                context=context,
-                price_hist=price_hist,
-                _update_state=sync_update_state,
-                log=logger.info
-            )
+            opinion_shadow = getattr(context, 'shadow_opinion', None)
             
             if opinion_shadow:
                 status_sh = "✅ Согласен" if opinion_shadow.agree else "❌ Против"

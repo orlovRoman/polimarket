@@ -275,8 +275,6 @@ class SignalLogger:
             # Рынок отменен, PnL = 0, не прибыльный
             return False, 0.0
 
-
-
         # По умолчанию (для scout и whale):
         # Если target_outcome совпадает с resolution_outcome
         if strategy_type in ('scout', 'whale', 'penny_stocks') or not strategy_type:
