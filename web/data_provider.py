@@ -99,9 +99,18 @@ def _load_penny_stocks_stats(conn, stats, virtual_stake):
     """
     penny_rows = conn.execute("""
         SELECT
-            predicted_outcome, actual_outcome, initial_price, resolved_at
-        FROM penny_stocks_monitoring
-        WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
+            p.predicted_outcome, p.actual_outcome, p.initial_price, p.resolved_at,
+            h.pnl_realized_points, h.bought_outcome_price, h.bet_size_usdc
+        FROM penny_stocks_monitoring p
+        LEFT JOIN (
+            SELECT market_id, 
+                   SUM(pnl_points) as pnl_realized_points, 
+                   AVG(bought_outcome_price) as bought_outcome_price,
+                   SUM(bet_size_usdc) as bet_size_usdc
+            FROM penny_virtual_trades_history
+            GROUP BY market_id
+        ) h ON p.market_id = h.market_id
+        WHERE p.status = 'RESOLVED' AND p.predicted_outcome IS NOT NULL
     """).fetchall()
 
     total = len(penny_rows)
@@ -119,6 +128,9 @@ def _load_penny_stocks_stats(conn, stats, virtual_stake):
         act = r['actual_outcome']
         init_price = r['initial_price']
         res_at_str = r['resolved_at']
+        pnl_realized_pts = r['pnl_realized_points']
+        bought_outcome_price = r['bought_outcome_price']
+        bet_size = r['bet_size_usdc']
         
         if not pred or not act:
             continue
@@ -132,20 +144,26 @@ def _load_penny_stocks_stats(conn, stats, virtual_stake):
 
         pred_up = pred.upper()
         act_up = act.upper()
-
-        buy_price = init_price if pred_up == 'YES' else (1.0 - init_price)
-        if not (0.001 < buy_price < 0.999):
-            continue
-            
         is_win = (pred_up == act_up)
         total_valid += 1
         if is_win:
             total_wins += 1
         
-        if is_win:
-            pnl = (virtual_stake / buy_price) * (1.0 - buy_price)
-        else:
-            pnl = -virtual_stake
+        pnl = 0.0
+        if pnl_realized_pts is not None and bought_outcome_price and 0.0 < bought_outcome_price < 1.0:
+            # Считаем по реальной сделке
+            bet_val = bet_size if bet_size else virtual_stake
+            gross = (bet_val / bought_outcome_price) * pnl_realized_pts
+            pnl = gross * 0.98 if gross > 0 else gross
+        elif init_price is not None:
+            # Считаем гипотетический
+            buy_price = init_price if pred_up == 'YES' else (1.0 - init_price)
+            if 0.001 < buy_price < 0.999:
+                if is_win:
+                    gross = (virtual_stake / buy_price) * (1.0 - buy_price)
+                    pnl = gross * 0.98
+                else:
+                    pnl = -virtual_stake
             
         if res_at >= seven_days_ago:
             pnl_7d += pnl
@@ -625,7 +643,8 @@ def _process_penny_resolved_row(r, virtual_stake: float) -> dict:
         bought_outcome = (1.0 - init) if pred_up == 'NO' else init
         sold_outcome = 1.0 if act_up == pred_up else 0.0
         if bought_outcome > 0:
-            pnl_auto = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
+            gross = (virtual_stake / bought_outcome) * (sold_outcome - bought_outcome)
+            pnl_auto = round(gross * 0.98 if gross > 0 else gross, 2)
         else:
             pnl_auto = 0.0
     row_dict['pnl_auto'] = pnl_auto
@@ -638,15 +657,17 @@ def _process_penny_resolved_row(r, virtual_stake: float) -> dict:
         bought_outcome = (1.0 - init) if track_up == 'NO' else init
         sold_outcome = 1.0 if act_up == track_up else 0.0
         if bought_outcome > 0:
-            row_dict['pnl_realized'] = round((virtual_stake / bought_outcome) * (sold_outcome - bought_outcome), 2)
+            gross = (virtual_stake / bought_outcome) * (sold_outcome - bought_outcome)
+            row_dict['pnl_realized'] = round(gross * 0.98 if gross > 0 else gross, 2)
         else:
             row_dict['pnl_realized'] = 0.0
     else:
         bought_price = row_dict.get('bought_outcome_price')
         bet_size = row_dict.get('bet_size_usdc') or virtual_stake
         if bought_price and 0.0 < bought_price < 1.0:
-            # pnl_realized is already raw profit/loss (e.g. 0.95 or -1.0)
-            row_dict['pnl_realized'] = round((bet_size / bought_price) * (row_dict['pnl_realized'] or 0.0), 2)
+            # pnl_realized is already raw profit/loss (e.g. 0.80 or -0.20)
+            gross = (bet_size / bought_price) * (row_dict['pnl_realized'] or 0.0)
+            row_dict['pnl_realized'] = round(gross * 0.98 if gross > 0 else gross, 2)
         else:
             row_dict['pnl_realized'] = 0.0
 
@@ -910,7 +931,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             auto_avg_pnl = (auto_resolved_row['avg_pnl'] or 0.0) * virtual_stake
             auto_total_pnl = (auto_resolved_row['total_pnl'] or 0.0) * virtual_stake
 
-        # Средняя цена входа активных авто-сигналов
+        # Средняя цена входа завершенных авто-сигналов
         avg_entry_auto_row = conn.execute("""
             SELECT AVG(
                 CASE
@@ -919,7 +940,7 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
                 END
             ) as avg_entry
             FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE' AND predicted_outcome IS NOT NULL
+            WHERE status = 'RESOLVED' AND predicted_outcome IS NOT NULL
         """).fetchone()
         avg_entry_auto = avg_entry_auto_row['avg_entry'] if avg_entry_auto_row else None
 
@@ -1025,18 +1046,10 @@ def get_penny_stocks_dashboard(active_page=1, active_limit=100, resolved_page=1,
             manual_avg_pnl = (manual_stats_row['avg_pnl'] or 0.0) * virtual_stake
             manual_total_pnl = (manual_stats_row['total_pnl'] or 0.0) * virtual_stake
 
-        # Средняя цена входа в активном ручном портфеле
+        # Средняя цена входа завершенных ручных сделок
         avg_entry_manual_row = conn.execute("""
-            SELECT AVG(
-                CASE
-                    WHEN predicted_outcome = 'NO' THEN 1.0 - virtual_bought_price
-                    ELSE virtual_bought_price
-                END
-            ) as avg_entry
-            FROM penny_stocks_monitoring
-            WHERE status = 'ACTIVE' 
-              AND virtual_bought_price IS NOT NULL
-              AND predicted_outcome IS NOT NULL
+            SELECT AVG(bought_outcome_price) as avg_entry
+            FROM penny_virtual_trades_history
         """).fetchone()
         avg_entry_manual = avg_entry_manual_row['avg_entry'] if avg_entry_manual_row else None
 
@@ -2240,11 +2253,10 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             manual_avg_pnl = manual_stats_row['avg_pnl'] or 0.0
             manual_total_pnl = manual_stats_row['total_pnl'] or 0.0
 
+        # Средняя цена входа завершенных сделок Favourite Compounding
         avg_entry_manual_row = conn.execute("""
-            SELECT AVG(virtual_bought_price) as avg_entry
-            FROM compound_opportunities
-            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT', 'ALERTED_EXIT')
-              AND virtual_bought_price IS NOT NULL
+            SELECT AVG(bought_outcome_price) as avg_entry
+            FROM compound_virtual_trades_history
         """).fetchone()
         avg_entry_manual = avg_entry_manual_row['avg_entry'] if avg_entry_manual_row else None
 

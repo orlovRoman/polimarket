@@ -969,24 +969,9 @@ async def start_system():
         misfire_grace_time=600,
     )
 
-    scheduler.add_job(
-        scheduled_resolution_fetcher,
-        trigger="interval",
-        hours=6,
-        id="resolution_fetcher",
-        replace_existing=True,
-        misfire_grace_time=600,
-    )
-
-    # Авторезолюция сигналов — каждые 30 минут
-    scheduler.add_job(
-        scheduled_signal_resolution,
-        trigger="interval",
-        minutes=30,
-        id="signal_resolution_job",
-        replace_existing=True,
-        misfire_grace_time=600,
-    )
+    # ВНИМАНИЕ: Джобы resolution_fetcher и signal_resolution_job удалены из планировщика.
+    # Вся авторезолюция сигналов и рынков теперь централизована в scheduled_outcome_tracker
+    # во избежание Race Condition и затирания реального PnL прокси-значениями.
 
     scheduler.add_job(
         scheduled_favourite_compounding,

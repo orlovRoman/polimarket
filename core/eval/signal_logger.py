@@ -258,7 +258,7 @@ class SignalLogger:
         target_outcome: str,
         market_price_at_signal: float,
         resolution_outcome: str,
-        metadata: Dict[str, Any]
+        metadata: dict
     ) -> tuple[bool, float]:
         """
         Вычисляет, было ли предсказание прибыльным, и считает виртуальный PnL.
@@ -275,13 +275,23 @@ class SignalLogger:
             # Рынок отменен, PnL = 0, не прибыльный
             return False, 0.0
 
-        # По умолчанию (для scout и whale):
-        # Если target_outcome совпадает с resolution_outcome
+        is_win = (target_outcome == resolution_outcome)
+
+        # Специальный расчет для Favourite Compounding
+        if strategy_type == 'favourite_compound':
+            from services.favourite_compounder import calc_compound_pnl
+            try:
+                from agents.shared.python.db import get_compound_settings
+                compound_stake = float(get_compound_settings().get("virtual_stake", virtual_stake))
+            except Exception:
+                compound_stake = virtual_stake
+            price_safe = market_price_at_signal if market_price_at_signal is not None else 0.95
+            exit_price = 1.0 if is_win else 0.0
+            pnl = calc_compound_pnl(compound_stake, price_safe, exit_price)
+            return is_win, pnl
+
+        # Для scout, whale, penny_stocks и по умолчанию
         if strategy_type in ('scout', 'whale', 'penny_stocks') or not strategy_type:
-            is_win = (target_outcome == resolution_outcome)
-            # Виртуальный PnL
-            # Если мы покупаем YES по цене market_price_at_signal, при победе получаем 1.0, иначе 0.0.
-            # Если target_outcome == 'NO', мы покупаем NO по цене (1.0 - market_price_at_signal).
             price_safe = market_price_at_signal if market_price_at_signal is not None else 0.5
             buy_price = price_safe if target_outcome == 'YES' else (1.0 - price_safe)
             if not (0.001 < buy_price < 0.999):
@@ -290,13 +300,14 @@ class SignalLogger:
             # Количество контрактов, которые мы могли купить на virtual_stake
             contracts = virtual_stake / buy_price
             if is_win:
-                pnl = contracts * (1.0 - buy_price)
+                # Чистая прибыль с вычетом комиссии Polymarket 2%
+                gross_pnl = contracts * (1.0 - buy_price)
+                pnl = gross_pnl * 0.98
             else:
                 pnl = -virtual_stake
             return is_win, round(pnl, 2)
 
         # Если мы не можем детально восстановить, то:
         logger.warning(f"Неизвестный strategy_type '{strategy_type}', используется proxy PnL.")
-        is_win = (target_outcome == resolution_outcome)
-        pnl = virtual_stake * 0.15 if is_win else -virtual_stake  # Прокси-доходность 15% для выигрышного арбитража/коридора
+        pnl = (virtual_stake * 0.15 * 0.98) if is_win else -virtual_stake  # Прокси-доходность 15% с вычетом комиссии 2%
         return is_win, round(pnl, 2)

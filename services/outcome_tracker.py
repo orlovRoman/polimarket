@@ -175,7 +175,7 @@ def _resolve_signal(row: dict, resolution: str) -> None:
 
             contracts = virtual_stake / buy_price
             if was_correct:
-                pnl_realized = contracts * (1.0 - buy_price)
+                pnl_realized = contracts * (1.0 - buy_price) * 0.98
             else:
                 pnl_realized = -virtual_stake
 

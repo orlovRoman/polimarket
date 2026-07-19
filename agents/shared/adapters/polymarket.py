@@ -46,6 +46,18 @@ class PolymarketAdapter(BaseMarketAdapter):
     def __init__(self):
         self.api_url = "https://gamma-api.polymarket.com"
         self.session = _shared_session
+        
+        # Кэш компактных рынков (TTL = 60 секунд)
+        self._compact_markets_cache = None
+        self._compact_markets_cache_ts = 0.0
+        self._COMPACT_CACHE_TTL = 60.0
+        
+        # Кэш детализированных рынков (TTL = 30 секунд)
+        self._market_detail_cache = {}
+        self._DETAIL_CACHE_TTL = 30.0
+        
+        import threading
+        self._cache_lock = threading.Lock()
 
     @property
     def name(self) -> str:
@@ -409,6 +421,14 @@ class PolymarketAdapter(BaseMarketAdapter):
         return self._parse_markets(items, limit)
 
     def get_market(self, market_id: str) -> Optional[Market]:
+        import time
+        now = time.time()
+        with self._cache_lock:
+            if market_id in self._market_detail_cache:
+                m_obj, ts = self._market_detail_cache[market_id]
+                if (now - ts) < self._DETAIL_CACHE_TTL:
+                    return m_obj
+
         response = self.session.get(f"{self.api_url}/markets/{market_id}", timeout=15)
         response.raise_for_status()
         item = response.json()
@@ -449,7 +469,7 @@ class PolymarketAdapter(BaseMarketAdapter):
         if item.get("closed") is True or item.get("closed") == "true":
             outcome_val = self._parse_outcome(item)
             
-        return Market(
+        m_obj = Market(
             id=item["id"],
             platform=self.name,
             title=q_formatted,
@@ -463,6 +483,11 @@ class PolymarketAdapter(BaseMarketAdapter):
             condition_id=item.get("conditionId"),
             event_slug=item.get("event_slug") or item.get("slug")
         )
+        
+        with self._cache_lock:
+            self._market_detail_cache[market_id] = (m_obj, time.time())
+            
+        return m_obj
 
     def get_market_tags(self, market_id: str) -> List[str]:
         """Получает теги и слаги для рынка из Gamma API."""
@@ -519,6 +544,13 @@ class PolymarketAdapter(BaseMarketAdapter):
         Загружает ВСЕ активные рынки для скрининга (compact-формат).
         Пагинированная загрузка по 100 рынков за запрос.
         """
+        import time
+        now = time.time()
+        with self._cache_lock:
+            if self._compact_markets_cache is not None and (now - self._compact_markets_cache_ts) < self._COMPACT_CACHE_TTL:
+                logger.info("[PolymarketAdapter] Возвращаем list_all_markets_compact из кэша")
+                return self._compact_markets_cache.copy()
+
         all_markets = []
         offset = 0
         max_pages = 10  # Защита от бесконечного цикла (макс. 1000 рынков)
@@ -579,6 +611,12 @@ class PolymarketAdapter(BaseMarketAdapter):
                 break
         
         logger.info(f"[PolymarketAdapter] Загружено {len(all_markets)} рынков (compact)")
+        
+        # Записываем результат в кэш
+        with self._cache_lock:
+            self._compact_markets_cache = all_markets
+            self._compact_markets_cache_ts = time.time()
+            
         return all_markets
 
     def get_event_by_slug(self, slug: str) -> List[Market]:
