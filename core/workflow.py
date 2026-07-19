@@ -328,6 +328,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
                     f"[workflow] Пропуск дубля (in-session): {m.id} "
                     f"({trigger_type}), добавлен {time.monotonic() - _analyzed_in_session[dedup_key]:.0f}с назад"
                 )
+                update_state(scout_status="⚪️ Дубликат", swing_status="⚪️ Дубликат", shadow_status="⚪️ Дубликат")
                 return None, None, None
             _analyzed_in_session[dedup_key] = time.monotonic()
 
@@ -342,6 +343,7 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
                         f"[workflow] Дедупликация (БД): рынок {m.id} уже анализировался "
                         f"{age_sec:.0f}с назад (trigger={trigger_type}), пропускаем"
                     )
+                    update_state(scout_status="⚪️ Анализировали недавно", swing_status="⚪️ Недавно", shadow_status="⚪️ Недавно")
                     return None, None, None
             except (ValueError, TypeError):
                 pass
@@ -592,6 +594,11 @@ async def run_agent_evaluation(m: Market, scout, swing, update_state: Callable, 
             total=1, passed=0,
             blocked_no_volume=int(gate.blocked_by == "volume"),
             blocked_no_whales=int(gate.blocked_by == "whales")
+        )
+        update_state(
+            scout_status=f"⚪️ {gate.reason}",
+            swing_status=f"⚪️ {gate.reason}",
+            shadow_status="⚪️ Пропущен"
         )
         return None, None, None
     else:
