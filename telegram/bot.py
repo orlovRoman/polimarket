@@ -2048,11 +2048,13 @@ async def send_ideas_page(message_or_callback, page: int = 0) -> None:
     action_buttons = []
     for idx, s in enumerate(chunk, 1):
         truncated_id = s['id'][:30]
+        market_id_full = s.get('market_id') or s['id']
+        mid = market_id_full[:40]
         global_idx = start_idx + idx
         row = [
             InlineKeyboardButton(
-                text=f"🔍 Анализ {global_idx}",
-                callback_data=f"show_analysis_{truncated_id}"
+                text=f"🔍 Проанализировать {global_idx}",
+                callback_data=f"analyze_mkt_{mid}"
             ),
             InlineKeyboardButton(
                 text=f"🗑️ Удалить {global_idx}",
