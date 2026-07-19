@@ -526,13 +526,9 @@ def _resolve_compound_outcomes() -> int:
             target_outcome = opp.get("outcome", "YES")
             was_correct = res == target_outcome
             
-            if was_correct:
-                contracts = virtual_stake / price
-                pnl = contracts * (1.0 - price) * (1.0 - ROICalculator.POLY_FEE_PCT)
-            else:
-                pnl = -virtual_stake
-                
-            pnl = round(pnl, 2)
+            from services.favourite_compounder import calc_compound_pnl
+            exit_price = 1.0 if was_correct else 0.0
+            pnl = calc_compound_pnl(virtual_stake, price, exit_price)
             
             # Обновляем таблицу compound_opportunities
             resolve_compound_opportunity(opp["id"], res, pnl)
@@ -547,8 +543,8 @@ def _resolve_compound_outcomes() -> int:
                 if sig_row:
                     _resolve_signal(dict(sig_row), res)
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} Auto PnL=${pnl:.2f}")
-        elif opp_status == "NEW" or resolved_manual:
-            # Если статус NEW или куплена только вручную, всё равно закрываем саму возможность
+        elif opp_status == "NEW":
+            # Если статус NEW (даже если была ручная сделка, мы уже разрешили её в шаге 1), закрываем саму возможность с 0 PnL
             resolve_compound_opportunity(opp["id"], res, 0.0)
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} (без PnL / только ручная сделка)")
             

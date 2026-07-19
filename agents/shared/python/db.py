@@ -3404,10 +3404,8 @@ def sell_virtual_compound_opportunity(opp_id: str, price: float) -> None:
             v_bought = row['virtual_bought_price']
             v_bought_at = row['virtual_bought_at']
             v_sold = _round_price(price)
-            
-            pnl_usd = virtual_stake * (v_sold - v_bought) / v_bought
-            if pnl_usd > 0:
-                pnl_usd = pnl_usd * (1.0 - 0.02)  # POLY_FEE_PCT
+            from services.favourite_compounder import calc_compound_pnl
+            pnl_usd = calc_compound_pnl(virtual_stake, v_bought, v_sold)
             pnl_percent = (pnl_usd / virtual_stake) * 100
             
             conn.execute("""
@@ -3446,13 +3444,8 @@ def resolve_compound_opportunity_manual_portfolio(opp_id: str, actual_outcome: s
             # При разрешении оракулом цена исхода 1.0 (если победа) или 0.0 (если проигрыш)
             exit_outcome_price = 1.0 if actual_outcome == outcome else 0.0
             
-            if actual_outcome == outcome:
-                # Победа
-                pnl_usd = virtual_stake * (1.0 - v_bought) / v_bought * (1.0 - 0.02)
-            else:
-                # Проигрыш
-                pnl_usd = -virtual_stake
-                
+            from services.favourite_compounder import calc_compound_pnl
+            pnl_usd = calc_compound_pnl(virtual_stake, v_bought, exit_outcome_price)
             pnl_percent = (pnl_usd / virtual_stake) * 100
             
             conn.execute("""

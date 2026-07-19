@@ -2041,11 +2041,10 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
             elif price is not None and outcome is not None and price > 0:
                 actual_up = actual.upper()
                 outcome_up = outcome.upper()
-                if actual_up == outcome_up:
-                    pnl_realized = virtual_stake * (1.0 - price) / price * 0.98
-                else:
-                    pnl_realized = -virtual_stake
-                row_dict['pnl_realized'] = round(pnl_realized, 2)
+                from services.favourite_compounder import calc_compound_pnl
+                exit_price = 1.0 if actual_up == outcome_up else 0.0
+                pnl_realized = calc_compound_pnl(virtual_stake, price, exit_price)
+                row_dict['pnl_realized'] = pnl_realized
                 row_dict['pnl_is_hypothetical'] = True
             else:
                 row_dict['pnl_realized'] = 0.0
@@ -2127,9 +2126,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         all_resolved_auto = conn.execute("""
             SELECT price, outcome, actual_outcome, pnl_usd
             FROM compound_opportunities
-            WHERE status = 'RESOLVED' AND market_id NOT IN (
-                SELECT DISTINCT market_id FROM compound_virtual_trades_history
-            )
+            WHERE status = 'RESOLVED'
             ORDER BY resolved_at ASC
         """).fetchall()
 
@@ -2193,7 +2190,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         avg_entry_auto_row = conn.execute("""
             SELECT AVG(price) as avg_entry
             FROM compound_opportunities
-            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT', 'ALERTED_EXIT')
+            WHERE status = 'RESOLVED'
         """).fetchone()
         avg_entry_auto = avg_entry_auto_row['avg_entry'] if avg_entry_auto_row else None
 

@@ -203,6 +203,16 @@ class ObviousnessValidator:
         return 0.0, ""
 
 
+def calc_compound_pnl(stake: float, entry_price: float, exit_price: float, fee_pct: float = 0.02) -> float:
+    """Универсальный расчет PnL для сделок Favourite Compounding."""
+    if entry_price <= 0:
+        return 0.0
+    contracts = stake / entry_price
+    gross_pnl = contracts * (exit_price - entry_price)
+    if gross_pnl > 0:
+        gross_pnl *= (1.0 - fee_pct)
+    return round(gross_pnl, 2)
+
 # ════════════════════════════════════════════════════
 # 4. ROI CALCULATOR
 # ════════════════════════════════════════════════════

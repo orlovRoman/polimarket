@@ -573,7 +573,7 @@
                     totalPnL += (Number.parseFloat(c.current_stake) || 0) - (Number.parseFloat(c.initial_stake) || 0);
                 });
                 failedChains.forEach(c => {
-                    totalPnL -= (Number.parseFloat(c.current_stake) || 0);
+                    totalPnL -= (Number.parseFloat(c.initial_stake) || 0);
                 });
             }
             kpiActive.textContent = activeChains;
