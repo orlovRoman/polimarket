@@ -1,6 +1,8 @@
 import requests
 import json
 import logging
+import time
+import threading
 from datetime import datetime, timezone
 from typing import List, Optional
 from core.models import Market
@@ -55,8 +57,8 @@ class PolymarketAdapter(BaseMarketAdapter):
         # Кэш детализированных рынков (TTL = 30 секунд)
         self._market_detail_cache = {}
         self._DETAIL_CACHE_TTL = 30.0
+        self._DETAIL_CACHE_MAX_SIZE = 200
         
-        import threading
         self._cache_lock = threading.Lock()
 
     @property
@@ -421,7 +423,6 @@ class PolymarketAdapter(BaseMarketAdapter):
         return self._parse_markets(items, limit)
 
     def get_market(self, market_id: str) -> Optional[Market]:
-        import time
         now = time.time()
         with self._cache_lock:
             if market_id in self._market_detail_cache:
@@ -485,6 +486,12 @@ class PolymarketAdapter(BaseMarketAdapter):
         )
         
         with self._cache_lock:
+            if len(self._market_detail_cache) >= self._DETAIL_CACHE_MAX_SIZE:
+                # Удаляем записи с истёкшим TTL
+                expired = [k for k, (_, ts) in self._market_detail_cache.items()
+                           if (now - ts) >= self._DETAIL_CACHE_TTL]
+                for k in expired:
+                    del self._market_detail_cache[k]
             self._market_detail_cache[market_id] = (m_obj, time.time())
             
         return m_obj
@@ -544,7 +551,6 @@ class PolymarketAdapter(BaseMarketAdapter):
         Загружает ВСЕ активные рынки для скрининга (compact-формат).
         Пагинированная загрузка по 100 рынков за запрос.
         """
-        import time
         now = time.time()
         with self._cache_lock:
             if self._compact_markets_cache is not None and (now - self._compact_markets_cache_ts) < self._COMPACT_CACHE_TTL:

@@ -11,6 +11,7 @@ import os
 from typing import Optional
 
 from agents.shared.python.db import get_connection
+from core.utils import calc_compound_pnl
 
 logger = logging.getLogger("NexusPolyBot.OutcomeTracker")
 
@@ -35,10 +36,21 @@ def run_resolution_cycle() -> dict:
         logger.error(f"[OutcomeTracker] Ошибка при очистке старых сигналов/эпизодов: {e}")
 
     stats = {"resolved": 0, "skipped": 0, "errors": 0}
+    
+    # Сначала всегда запускаем резолюцию Favourite Compounding позиций
+    resolved_compounds = 0
+    try:
+        resolved_compounds = _resolve_compound_outcomes()
+    except Exception as e:
+        logger.error(f"[OutcomeTracker] Ошибка резолюции compound-позиций: {e}", exc_info=True)
+
     pending = _get_pending_with_closed_market()
     logger.info(f"[OutcomeTracker] Найдено {len(pending)} сигналов для резолюции.")
 
     if not pending:
+        if resolved_compounds > 0:
+            _update_all_strategy_metrics()
+        logger.info(f"[OutcomeTracker] Итог: {stats}")
         return stats
 
     resolved_items = []
@@ -65,13 +77,6 @@ def run_resolution_cycle() -> dict:
         except Exception as exc:
             logger.error(f"[OutcomeTracker] Ошибка резолюции {row['id']}: {exc}")
             stats["errors"] += 1
-
-    # Авторезолюция Favourite Compounding позиций
-    resolved_compounds = 0
-    try:
-        resolved_compounds = _resolve_compound_outcomes()
-    except Exception as e:
-        logger.error(f"[OutcomeTracker] Ошибка резолюции compound-позиций: {e}", exc_info=True)
 
     if stats["resolved"] > 0 or resolved_compounds > 0:
         _update_all_strategy_metrics()
@@ -521,12 +526,11 @@ def _resolve_compound_outcomes() -> int:
             
         # 2. Если это авто-сделка (или лид/кандидат), разрешаем её
         opp_status = opp.get("status")
-        if opp_status in ("BOUGHT", "ALERTED", "ALERTED_EXIT"):
+        if opp_status in ("BOUGHT", "ALERTED", "ALERTED_EXIT") and not resolved_manual:
             price = opp["price"]
             target_outcome = opp.get("outcome", "YES")
             was_correct = res == target_outcome
             
-            from services.favourite_compounder import calc_compound_pnl
             exit_price = 1.0 if was_correct else 0.0
             pnl = calc_compound_pnl(virtual_stake, price, exit_price)
             
@@ -543,8 +547,8 @@ def _resolve_compound_outcomes() -> int:
                 if sig_row:
                     _resolve_signal(dict(sig_row), res)
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} Auto PnL=${pnl:.2f}")
-        elif opp_status == "NEW":
-            # Если статус NEW (даже если была ручная сделка, мы уже разрешили её в шаге 1), закрываем саму возможность с 0 PnL
+        elif opp_status == "NEW" or resolved_manual:
+            # Если статус NEW или была ручная сделка, закрываем саму возможность с 0 PnL
             resolve_compound_opportunity(opp["id"], res, 0.0)
             logger.info(f"[Compound] Резолюция оракула для {opp['id']}: {res} (без PnL / только ручная сделка)")
             

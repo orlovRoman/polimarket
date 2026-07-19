@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pydantic import BaseModel, Field, field_validator
 
 from agents.shared.python.db import DB_PATH
+from core.utils import calc_compound_pnl
 
 logger = logging.getLogger("NexusPolyBot.SignalLogger")
 
@@ -279,7 +280,6 @@ class SignalLogger:
 
         # Специальный расчет для Favourite Compounding
         if strategy_type == 'favourite_compound':
-            from services.favourite_compounder import calc_compound_pnl
             try:
                 from agents.shared.python.db import get_compound_settings
                 compound_stake = float(get_compound_settings().get("virtual_stake", virtual_stake))

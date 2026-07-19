@@ -8,7 +8,6 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 from core.models import Market, Signal, MarketCorrelation
-from core.utils import calc_compound_pnl
 
 # Импортируем путь из единого конфига
 import sys
@@ -1022,7 +1021,6 @@ def _init_db_impl(conn: sqlite3.Connection):
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('min_market_volume', '5000.0')")
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('min_market_price', '0.05')")
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('max_market_price', '0.95')")
-    cursor.execute("UPDATE whale_settings SET value = '0.95' WHERE key = 'max_market_price' AND value = '0.8'")
     cursor.execute("INSERT OR IGNORE INTO whale_settings (key, value) VALUES ('whale_edge_bonus', '0.0')")
 
     # Атом 1: Таблица снапшотов портфелей китов
@@ -1386,27 +1384,24 @@ def mark_cross_arbitrage_alerted(signal_id: str) -> None:
 # Функции для сохранения и получения коридоров удалены
 
 def is_alert_already_sent(alert_key: str, ttl_hours: int = 12) -> bool:
-    try:
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT sent_at FROM sent_alerts WHERE alert_key = ?",
-                (alert_key,)
-            )
-            row = cursor.fetchone()
-            if not row:
-                return False
-            sent_at_str = str(row["sent_at"]).replace(" ", "T").replace("Z", "+00:00")
-            sent_at = _parse_dt_utc(sent_at_str)
-            if not sent_at:
-                return False
-            # Учитываем, что sent_at сохраняется в UTC
-            if sent_at.tzinfo is None:
-                sent_at = sent_at.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - sent_at < timedelta(hours=ttl_hours):
-                return True
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT sent_at FROM sent_alerts WHERE alert_key = ?",
+            (alert_key,)
+        )
+        row = cursor.fetchone()
+        if not row:
             return False
-    except sqlite3.OperationalError:
+        sent_at_str = str(row["sent_at"]).replace(" ", "T").replace("Z", "+00:00")
+        sent_at = _parse_dt_utc(sent_at_str)
+        if not sent_at:
+            return False
+        # Учитываем, что sent_at сохраняется в UTC
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - sent_at < timedelta(hours=ttl_hours):
+            return True
         return False
 
 def mark_alert_sent(alert_key: str, alert_type: str) -> None:
@@ -3405,7 +3400,10 @@ def sell_virtual_compound_opportunity(opp_id: str, price: float) -> None:
             v_bought = row['virtual_bought_price']
             v_bought_at = row['virtual_bought_at']
             v_sold = _round_price(price)
-            pnl_usd = calc_compound_pnl(virtual_stake, v_bought, v_sold)
+            
+            pnl_usd = virtual_stake * (v_sold - v_bought) / v_bought
+            if pnl_usd > 0:
+                pnl_usd = pnl_usd * (1.0 - 0.02)  # POLY_FEE_PCT
             pnl_percent = (pnl_usd / virtual_stake) * 100
             
             conn.execute("""
@@ -3444,7 +3442,13 @@ def resolve_compound_opportunity_manual_portfolio(opp_id: str, actual_outcome: s
             # При разрешении оракулом цена исхода 1.0 (если победа) или 0.0 (если проигрыш)
             exit_outcome_price = 1.0 if actual_outcome == outcome else 0.0
             
-            pnl_usd = calc_compound_pnl(virtual_stake, v_bought, exit_outcome_price)
+            if actual_outcome == outcome:
+                # Победа
+                pnl_usd = virtual_stake * (1.0 - v_bought) / v_bought * (1.0 - 0.02)
+            else:
+                # Проигрыш
+                pnl_usd = -virtual_stake
+                
             pnl_percent = (pnl_usd / virtual_stake) * 100
             
             conn.execute("""
