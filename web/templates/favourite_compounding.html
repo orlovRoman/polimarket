@@ -85,6 +85,13 @@
     <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
         <button class="badge badge-green" style="border: none; padding: 8px 16px; font-size: 0.9rem; font-weight: 600; cursor: pointer;" onclick="saveCompoundSettings()">Сохранить настройки</button>
     </div>
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+    <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Период статистики:</div>
+    <div class="opinion-tabs" style="display: flex; gap: 6px;">
+        <button id="period-btn-all" class="opinion-tab-btn active" style="padding: 4px 12px; font-size: 0.8rem;" onclick="setCompoundPeriod('all')">Всё время</button>
+        <button id="period-btn-24h" class="opinion-tab-btn" style="padding: 4px 12px; font-size: 0.8rem;" onclick="setCompoundPeriod('24h')">24 часа</button>
+        <button id="period-btn-7d" class="opinion-tab-btn" style="padding: 4px 12px; font-size: 0.8rem;" onclick="setCompoundPeriod('7d')">7 дней</button>
+    </div>
 </div>
 
 <div class="kpi-row">
@@ -511,6 +518,18 @@
         }
     }
 
+    let currentPeriod = 'all';
+
+    function setCompoundPeriod(period) {
+        currentPeriod = period;
+        document.querySelectorAll('#period-btn-all, #period-btn-24h, #period-btn-7d').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById(`period-btn-${period}`);
+        if (btn) btn.classList.add('active');
+        if (lastFetchedData) {
+            updateKPIDisplay(lastFetchedData);
+        }
+    }
+
     function updateKPIDisplay(data) {
         const kpiActiveTitle = document.getElementById('kpi-active-title');
         const kpiActive = document.getElementById('kpi-active');
@@ -525,34 +544,40 @@
         const kpiTotalPnL = document.getElementById('kpi-total-pnl');
 
         if (currentTab === 'auto' || currentTab === 'losses' || currentTab === 'wins') {
+            let currentStats = data.stats;
+            if (currentPeriod === '24h' && data.stats_24h) {
+                currentStats = data.stats_24h;
+            } else if (currentPeriod === '7d' && data.stats_7d) {
+                currentStats = data.stats_7d;
+            }
+
             kpiActiveTitle.textContent = "Всего в мониторинге";
-            kpiActive.textContent = data.stats.active_count;
+            kpiActive.textContent = currentStats.active_count;
             kpiResolvedTitle.textContent = "Сигналов завершено";
-            kpiResolvedCount.textContent = data.stats.auto_resolved_count;
+            kpiResolvedCount.textContent = currentStats.auto_resolved_count;
             
-            const wr = data.stats.win_rate;
+            const wr = currentStats.win_rate;
             kpiWinrate.textContent = wr === null ? "—" : `${(wr * 100).toFixed(1)}%`;
             document.getElementById('kpi-avg-entry-title').textContent = "Ср. цена входа";
-            kpiAvgEntry.textContent = data.stats.avg_entry_price === null ? "—" : formatPriceCents(data.stats.avg_entry_price);
+            kpiAvgEntry.textContent = currentStats.avg_entry_price === null ? "—" : formatPriceCents(currentStats.avg_entry_price);
             kpiAvgEntry.style.color = "var(--text-primary)";
             
-            const best = data.stats.best_trade_pnl;
+            const best = currentStats.best_trade_pnl;
             kpiBestTrade.innerHTML = formatPnLUSD(best);
             kpiAvgPnLTitle.textContent = "Ср. PnL сигнала";
-            kpiAvgPnL.innerHTML = formatPnLUSD(data.stats.avg_pnl);
+            kpiAvgPnL.innerHTML = formatPnLUSD(currentStats.avg_pnl);
             kpiTotalPnLTitle.textContent = "Общий PnL сигналов";
-            kpiTotalPnL.innerHTML = formatPnLUSD(data.stats.total_resolved_pnl);
+            kpiTotalPnL.innerHTML = formatPnLUSD(currentStats.total_resolved_pnl);
 
             document.getElementById('kpi-wins-count-card').style.display = 'block';
             document.getElementById('kpi-losses-count-card').style.display = 'block';
-            document.getElementById('kpi-wins-count').textContent = data.wins_total ?? 0;
-            document.getElementById('kpi-losses-count').textContent = data.losses_total ?? 0;
-            
+            document.getElementById('kpi-wins-count-title').textContent = "Выиграно ($)";
+            document.getElementById('kpi-wins-count').innerHTML = formatPnLUSD(currentStats.sum_won || 0);
 
+            document.getElementById('kpi-losses-count-title').textContent = "Проиграно ($)";
+            document.getElementById('kpi-losses-count').innerHTML = formatPnLUSD(-(currentStats.sum_lost || 0));
 
         } else if (currentTab === 'chains') {
-            document.getElementById('kpi-wins-count').textContent = '0';
-            document.getElementById('kpi-losses-count').textContent = '0';
             document.getElementById('kpi-wins-count-card').style.display = 'none';
             document.getElementById('kpi-losses-count-card').style.display = 'none';
 
@@ -590,7 +615,6 @@
                     totalPortfolio += (Number.parseFloat(c.current_stake) || 0);
                 });
             }
-            // безопасно: totalPortfolio вычислен из parseFloat(c.current_stake), XSS невозможен
             kpiAvgEntry.innerHTML = formatPnLUSD(totalPortfolio).replace('+', '');
             kpiAvgEntry.style.color = "var(--text-primary)";
             
@@ -604,24 +628,36 @@
             document.getElementById('kpi-wins-count-card').style.display = 'none';
             document.getElementById('kpi-losses-count-card').style.display = 'none';
         } else {
+            let currentManualStats = data.manual_stats;
+            if (currentPeriod === '24h' && data.manual_stats_24h) {
+                currentManualStats = data.manual_stats_24h;
+            } else if (currentPeriod === '7d' && data.manual_stats_7d) {
+                currentManualStats = data.manual_stats_7d;
+            }
+
             kpiActiveTitle.textContent = "Активных сделок";
             kpiActive.textContent = data.portfolio ? data.portfolio.length : 0;
             kpiResolvedTitle.textContent = "Сделок завершено";
-            kpiResolvedCount.textContent = data.manual_stats.count;
+            kpiResolvedCount.textContent = currentManualStats.count;
             
-            const wr = data.manual_stats.win_rate;
+            const wr = currentManualStats.win_rate;
             document.getElementById('kpi-avg-entry-title').textContent = "Ср. цена входа";
             kpiWinrate.textContent = wr === null ? "—" : `${(wr * 100).toFixed(1)}%`;
-            kpiAvgEntry.textContent = data.manual_stats.avg_entry_price === null ? "—" : formatPriceCents(data.manual_stats.avg_entry_price);
+            kpiAvgEntry.textContent = currentManualStats.avg_entry_price === null ? "—" : formatPriceCents(currentManualStats.avg_entry_price);
             
-            kpiBestTrade.innerHTML = formatPnLUSD(data.manual_stats.best_trade_pnl);
+            kpiBestTrade.innerHTML = formatPnLUSD(currentManualStats.best_trade_pnl);
             kpiAvgPnLTitle.textContent = "Ср. PnL сделки";
-            kpiAvgPnL.innerHTML = formatPnLUSD(data.manual_stats.avg_pnl);
+            kpiAvgPnL.innerHTML = formatPnLUSD(currentManualStats.avg_pnl);
             kpiTotalPnLTitle.textContent = "Общий PnL сделок";
-            kpiTotalPnL.innerHTML = formatPnLUSD(data.manual_stats.total_trades_pnl);
+            kpiTotalPnL.innerHTML = formatPnLUSD(currentManualStats.total_trades_pnl);
 
-            document.getElementById('kpi-wins-count-card').style.display = 'none';
-            document.getElementById('kpi-losses-count-card').style.display = 'none';
+            document.getElementById('kpi-wins-count-card').style.display = 'block';
+            document.getElementById('kpi-losses-count-card').style.display = 'block';
+            document.getElementById('kpi-wins-count-title').textContent = "Выиграно ($)";
+            document.getElementById('kpi-wins-count').innerHTML = formatPnLUSD(currentManualStats.sum_won || 0);
+
+            document.getElementById('kpi-losses-count-title').textContent = "Проиграно ($)";
+            document.getElementById('kpi-losses-count').innerHTML = formatPnLUSD(-(currentManualStats.sum_lost || 0));
         }
     }
 

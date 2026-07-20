@@ -2137,137 +2137,190 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
 
         # === 1. АВТО-СТАТИСТИКА (СИГНАЛЫ АГЕНТОВ) ===
         all_resolved_auto = conn.execute("""
-            SELECT price, outcome, actual_outcome, pnl_usd
+            SELECT price, outcome, actual_outcome, pnl_usd, resolved_at, created_at
             FROM compound_opportunities
             WHERE status = 'RESOLVED'
             ORDER BY resolved_at ASC
         """).fetchall()
 
-        auto_count = len(all_resolved_auto)
-        auto_wins = 0
-        auto_best_pnl = -999999.0
-        auto_total_pnl = 0.0
-        sum_won = 0.0
-        sum_lost = 0.0
-        
-        current_streak = 0
-        streak_type = None
-        max_drawdown = 0.0
-        peak_pnl = 0.0
-        running_pnl = 0.0
+        all_manual_trades = conn.execute("""
+            SELECT bought_outcome_price, bought_price, pnl_usd, sold_at, bought_at
+            FROM compound_virtual_trades_history
+            ORDER BY sold_at DESC
+        """).fetchall()
 
-        for r in all_resolved_auto:
-            price = r['price']
-            outcome = r['outcome']
-            actual = r['actual_outcome']
-            if price is not None and outcome is not None and actual is not None and price > 0:
-                act_up = actual.upper()
-                out_up = outcome.upper()
-                is_win = (act_up == out_up)
-                
-                if is_win:
-                    auto_wins += 1
-                    pnl_val = r['pnl_usd'] if r['pnl_usd'] is not None else (virtual_stake / price) * (1.0 - price) * 0.98
+        now_utc = datetime.now(timezone.utc)
+        cutoff_24h = now_utc - timedelta(hours=24)
+        cutoff_7d = now_utc - timedelta(days=7)
+
+        def _calc_auto_period_stats(records, cutoff_dt=None):
+            count = 0
+            wins = 0
+            best_pnl = -999999.0
+            total_pnl = 0.0
+            sum_won = 0.0
+            sum_lost = 0.0
+            sum_entry_price = 0.0
+            entry_price_count = 0
+            current_streak = 0
+            streak_type = None
+            max_drawdown = 0.0
+            peak_pnl = 0.0
+            running_pnl = 0.0
+
+            for r_raw in records:
+                r = dict(r_raw)
+                if cutoff_dt is not None:
+                    resolved_raw = r.get('resolved_at') or r.get('created_at') or ""
+                    if resolved_raw:
+                        try:
+                            dt = _parse_dt_utc(str(resolved_raw))
+                            if dt < cutoff_dt:
+                                continue
+                        except Exception:
+                            pass
+                count += 1
+                price = r.get('price')
+                outcome = r.get('outcome')
+                actual = r.get('actual_outcome')
+                if price is not None and price > 0:
+                    sum_entry_price += price
+                    entry_price_count += 1
+
+                if price is not None and outcome is not None and actual is not None and price > 0:
+                    act_up = str(actual).upper()
+                    out_up = str(outcome).upper()
+                    is_win = (act_up == out_up)
+
+                    if is_win:
+                        wins += 1
+                        pnl_val = r.get('pnl_usd') if r.get('pnl_usd') is not None else (virtual_stake / price) * (1.0 - price) * 0.98
+                        sum_won += pnl_val
+                        if streak_type == "WIN":
+                            current_streak += 1
+                        else:
+                            streak_type = "WIN"
+                            current_streak = 1
+                    else:
+                        pnl_val = r.get('pnl_usd') if r.get('pnl_usd') is not None else -virtual_stake
+                        sum_lost += abs(pnl_val)
+                        if streak_type == "LOSS":
+                            current_streak += 1
+                        else:
+                            streak_type = "LOSS"
+                            current_streak = 1
+
+                    total_pnl += pnl_val
+                    if pnl_val > best_pnl:
+                        best_pnl = pnl_val
+
+                    running_pnl += pnl_val
+                    if running_pnl > peak_pnl:
+                        peak_pnl = running_pnl
+                    drawdown = peak_pnl - running_pnl
+                    if drawdown > max_drawdown:
+                        max_drawdown = drawdown
+
+            if best_pnl == -999999.0:
+                best_pnl = 0.0
+
+            win_rate = wins / count if count > 0 else None
+            avg_pnl = total_pnl / count if count > 0 else 0.0
+            avg_entry = sum_entry_price / entry_price_count if entry_price_count > 0 else None
+
+            kelly_fraction = 0.0
+            if wins > 0 and count > 0:
+                p = wins / count
+                avg_win_pnl = sum_won / wins
+                if avg_win_pnl > 0:
+                    b = avg_win_pnl / virtual_stake
+                    kelly_fraction = p - (1.0 - p) / b
+                    kelly_fraction = max(0.0, kelly_fraction) * 0.5
+
+            return {
+                'active_count': active_total,
+                'active_predicted_count': active_total,
+                'resolved_count': count,
+                'auto_resolved_count': count,
+                'win_rate': win_rate,
+                'avg_entry_price': avg_entry,
+                'best_trade_pnl': round(best_pnl, 2),
+                'avg_pnl': round(avg_pnl, 2),
+                'total_resolved_pnl': round(total_pnl, 2),
+                'sum_won': round(sum_won, 2),
+                'sum_lost': round(sum_lost, 2),
+                'wins_total': wins,
+                'losses_total': count - wins,
+                'current_streak': f"{current_streak} {streak_type}" if streak_type else "0",
+                'max_drawdown': round(max_drawdown, 2),
+                'kelly_fraction': round(kelly_fraction * 100, 1)
+            }
+
+        def _calc_manual_period_stats(records, cutoff_dt=None):
+            count = 0
+            wins = 0
+            best_pnl = -999999.0
+            total_pnl = 0.0
+            sum_won = 0.0
+            sum_lost = 0.0
+            sum_entry_price = 0.0
+            entry_price_count = 0
+
+            for r_raw in records:
+                r = dict(r_raw)
+                if cutoff_dt is not None:
+                    sold_raw = r.get('sold_at') or r.get('bought_at') or ""
+                    if sold_raw:
+                        try:
+                            dt = _parse_dt_utc(str(sold_raw))
+                            if dt < cutoff_dt:
+                                continue
+                        except Exception:
+                            pass
+                count += 1
+                pnl_val = r.get('pnl_usd') or 0.0
+                bought_price = r.get('bought_outcome_price') or r.get('bought_price')
+                if bought_price is not None and bought_price > 0:
+                    sum_entry_price += bought_price
+                    entry_price_count += 1
+
+                if pnl_val > 0:
+                    wins += 1
                     sum_won += pnl_val
-                    if streak_type == "WIN":
-                        current_streak += 1
-                    else:
-                        streak_type = "WIN"
-                        current_streak = 1
                 else:
-                    pnl_val = r['pnl_usd'] if r['pnl_usd'] is not None else -virtual_stake
                     sum_lost += abs(pnl_val)
-                    if streak_type == "LOSS":
-                        current_streak += 1
-                    else:
-                        streak_type = "LOSS"
-                        current_streak = 1
-                
-                auto_total_pnl += pnl_val
-                if pnl_val > auto_best_pnl:
-                    auto_best_pnl = pnl_val
-                    
-                running_pnl += pnl_val
-                if running_pnl > peak_pnl:
-                    peak_pnl = running_pnl
-                drawdown = peak_pnl - running_pnl
-                if drawdown > max_drawdown:
-                    max_drawdown = drawdown
 
-        if auto_best_pnl == -999999.0:
-            auto_best_pnl = 0.0
+                total_pnl += pnl_val
+                if pnl_val > best_pnl:
+                    best_pnl = pnl_val
 
-        auto_win_rate = auto_wins / auto_count if auto_count > 0 else None
-        auto_avg_pnl = auto_total_pnl / auto_count if auto_count > 0 else 0.0
+            if best_pnl == -999999.0:
+                best_pnl = 0.0
 
-        avg_entry_auto_row = conn.execute("""
-            SELECT AVG(price) as avg_entry
-            FROM compound_opportunities
-            WHERE status = 'RESOLVED'
-        """).fetchone()
-        avg_entry_auto = avg_entry_auto_row['avg_entry'] if avg_entry_auto_row else None
+            win_rate = wins / count if count > 0 else None
+            avg_pnl = total_pnl / count if count > 0 else 0.0
+            avg_entry = sum_entry_price / entry_price_count if entry_price_count > 0 else None
 
-        kelly_fraction = 0.0
-        if auto_wins > 0 and auto_count > 0:
-            p = auto_wins / auto_count
-            avg_win_pnl = sum_won / auto_wins
-            if avg_win_pnl > 0:
-                b = avg_win_pnl / virtual_stake
-                kelly_fraction = p - (1.0 - p) / b
-                kelly_fraction = max(0.0, kelly_fraction) * 0.5
-        stats = {
-            'active_count': active_total,
-            'active_predicted_count': active_total,
-            'resolved_count': wins_total + losses_total,
-            'auto_resolved_count': auto_count,
-            'win_rate': auto_win_rate,
-            'avg_entry_price': avg_entry_auto,
-            'best_trade_pnl': round(auto_best_pnl, 2),
-            'avg_pnl': round(auto_avg_pnl, 2),
-            'total_resolved_pnl': round(auto_total_pnl, 2),
-            'sum_won': round(sum_won, 2),
-            'sum_lost': round(sum_lost, 2),
-            'current_streak': f"{current_streak} {streak_type}" if streak_type else "0",
-            'max_drawdown': round(max_drawdown, 2),
-            'kelly_fraction': round(kelly_fraction * 100, 1)
-        }
+            return {
+                'count': count,
+                'win_rate': win_rate,
+                'avg_entry_price': avg_entry,
+                'best_trade_pnl': round(best_pnl, 2),
+                'avg_pnl': round(avg_pnl, 2),
+                'total_trades_pnl': round(total_pnl, 2),
+                'sum_won': round(sum_won, 2),
+                'sum_lost': round(sum_lost, 2),
+                'wins_total': wins,
+                'losses_total': count - wins
+            }
 
-        # === 2. РУЧНАЯ СТАТИСТИКА (ВИРТУАЛЬНЫЕ СДЕЛКИ) ===
-        manual_stats_row = conn.execute("""
-            SELECT
-                COUNT(*) as count,
-                SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
-                MAX(pnl_usd) as best_pnl,
-                AVG(pnl_usd) as avg_pnl,
-                SUM(pnl_usd) as total_pnl
-            FROM compound_virtual_trades_history
-        """).fetchone()
+        stats = _calc_auto_period_stats(all_resolved_auto, cutoff_dt=None)
+        stats_24h = _calc_auto_period_stats(all_resolved_auto, cutoff_dt=cutoff_24h)
+        stats_7d = _calc_auto_period_stats(all_resolved_auto, cutoff_dt=cutoff_7d)
 
-        manual_win_rate = None
-        manual_best_pnl = 0.0
-        manual_avg_pnl = 0.0
-        manual_total_pnl = 0.0
-        if manual_stats_row and manual_stats_row['count'] > 0:
-            manual_win_rate = manual_stats_row['wins'] / manual_stats_row['count']
-            manual_best_pnl = manual_stats_row['best_pnl'] or 0.0
-            manual_avg_pnl = manual_stats_row['avg_pnl'] or 0.0
-            manual_total_pnl = manual_stats_row['total_pnl'] or 0.0
-
-        # Средняя цена входа завершенных сделок Favourite Compounding
-        avg_entry_manual_row = conn.execute("""
-            SELECT AVG(bought_outcome_price) as avg_entry
-            FROM compound_virtual_trades_history
-        """).fetchone()
-        avg_entry_manual = avg_entry_manual_row['avg_entry'] if avg_entry_manual_row else None
-
-        manual_stats = {
-            'count': manual_stats_row['count'] if manual_stats_row else 0,
-            'win_rate': manual_win_rate,
-            'avg_entry_price': avg_entry_manual,
-            'best_trade_pnl': manual_best_pnl,
-            'avg_pnl': manual_avg_pnl,
-            'total_trades_pnl': round(manual_total_pnl, 2)
-        }
+        manual_stats = _calc_manual_period_stats(all_manual_trades, cutoff_dt=None)
+        manual_stats_24h = _calc_manual_period_stats(all_manual_trades, cutoff_dt=cutoff_24h)
+        manual_stats_7d = _calc_manual_period_stats(all_manual_trades, cutoff_dt=cutoff_7d)
 
         # Подсчет истории виртуальных сделок
         history_total = conn.execute("SELECT COUNT(*) as cnt FROM compound_virtual_trades_history").fetchone()['cnt']
@@ -2347,7 +2400,11 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         'resolved_losses': resolved_losses,
         'portfolio': portfolio,
         'stats': stats,
+        'stats_24h': stats_24h,
+        'stats_7d': stats_7d,
         'manual_stats': manual_stats,
+        'manual_stats_24h': manual_stats_24h,
+        'manual_stats_7d': manual_stats_7d,
         'virtual_history': virtual_history,
         'total_active': active_total,
         'total_won_usd': total_won_usd,

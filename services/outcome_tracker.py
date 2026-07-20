@@ -524,9 +524,9 @@ def _resolve_compound_outcomes() -> int:
             resolve_compound_opportunity_manual_portfolio(opp["id"], res)
             resolved_manual = True
             
-        # 2. Если это авто-сделка (или лид/кандидат), разрешаем её
+        # 2. Если это авто-сделка или ручная сделка, разрешаем её с расчетом PnL
         opp_status = opp.get("status")
-        if opp_status in ("BOUGHT", "ALERTED", "ALERTED_EXIT") and not resolved_manual:
+        if opp_status in ("BOUGHT", "ALERTED", "ALERTED_EXIT") or resolved_manual:
             price = opp["price"]
             target_outcome = opp.get("outcome", "YES")
             was_correct = res == target_outcome

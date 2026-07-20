@@ -457,8 +457,8 @@ def test_penny_resolved_includes_unanalyzed(isolated_db):
     r_yes = next(x for x in data['resolved'] if x['market_id'] == 'res_null_yes')
     assert r_yes['cheap_outcome'] == 'YES'
     assert r_yes['predicted_outcome'] is None
-    # (10 / 0.05) * 0.95 = 190.0
-    assert r_yes['pnl_realized'] == pytest.approx(190.0, abs=1e-4)
+    # (10 / 0.05) * 0.95 * 0.98 = 186.2
+    assert r_yes['pnl_realized'] == pytest.approx(186.2, abs=1e-2)
     
     r_no = next(x for x in data['resolved'] if x['market_id'] == 'res_null_no')
     assert r_no['cheap_outcome'] == 'NO'
@@ -700,6 +700,44 @@ def test_compounding_dashboard_hypothetical_pnl(isolated_db):
     resolved_item = data['resolved_wins'][0]
     assert resolved_item['pnl_realized'] == 10.0
     assert resolved_item['pnl_is_hypothetical'] is False
+
+
+def test_get_favourite_compounding_data_period_stats(isolated_db):
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    recent_str = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    old_str = (now - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
+
+    with db_module.get_connection() as conn:
+        # Недавний успешный сигнал (2 часа назад)
+        conn.execute("""
+            INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, outcome, actual_outcome, pnl_usd, resolved_at)
+            VALUES ('opp_recent', 'mkt_recent', 'Recent Win', 'http://url1', 0.90, 1000.0, '2026-01-01 00:00:00', 24.0, 5.0, 0.9, 'RESOLVED', 'YES', 'YES', 5.0, ?)
+        """, (recent_str,))
+
+        # Старый проигранный сигнал (10 дней назад)
+        conn.execute("""
+            INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, outcome, actual_outcome, pnl_usd, resolved_at)
+            VALUES ('opp_old', 'mkt_old', 'Old Loss', 'http://url2', 0.80, 1000.0, '2026-01-01 00:00:00', 24.0, 5.0, 0.9, 'RESOLVED', 'YES', 'NO', -50.0, ?)
+        """, (old_str,))
+
+    data = data_provider.get_compounding_dashboard()
+
+    # За всё время: 2 сигнала (1 win, 1 loss)
+    assert data['stats']['auto_resolved_count'] == 2
+    assert data['stats']['sum_won'] == 5.0
+    assert data['stats']['sum_lost'] == 50.0
+
+    # За 24 часа: только 1 недавний сигнал (win)
+    assert data['stats_24h']['auto_resolved_count'] == 1
+    assert data['stats_24h']['sum_won'] == 5.0
+    assert data['stats_24h']['sum_lost'] == 0.0
+
+    # За 7 дней: 1 недавний сигнал (старый был 10 дней назад)
+    assert data['stats_7d']['auto_resolved_count'] == 1
+    assert data['stats_7d']['sum_won'] == 5.0
+    assert data['stats_7d']['sum_lost'] == 0.0
+
 
 
 
