@@ -5,7 +5,7 @@ import time
 
 from core.eval.signal_logger import SignalLogger
 from agents.shared.adapters.polymarket import PolymarketAdapter
-from services.favourite_compounder import calc_compound_pnl
+from core.utils import calc_compound_pnl
 
 def test_signal_logger_scout_performance():
     logger = SignalLogger()
@@ -145,6 +145,43 @@ def test_polymarket_adapter_cache_eviction():
     # Кэш должен очиститься от старых элементов, так как их TTL истек
     assert len(adapter._market_detail_cache) == 1
     assert "mkt-new" in adapter._market_detail_cache
+
+
+def test_polymarket_adapter_cache_hard_limit():
+    adapter = PolymarketAdapter()
+    
+    # Жесткий лимит кэша — 5 элементов, TTL бесконечный (элементы НЕ истекают)
+    adapter._DETAIL_CACHE_MAX_SIZE = 5
+    adapter._DETAIL_CACHE_TTL = 99999.0
+    
+    m_mock = MagicMock()
+    m_mock.id = "test"
+    
+    now = time.time()
+    # Заполним кэш 5 элементами с разным временем (m-0 — самый старый)
+    for i in range(5):
+        adapter._market_detail_cache[f"m-{i}"] = (m_mock, now + i)
+        
+    # Добавляем 6-й элемент через get_market
+    mock_response_detail = MagicMock()
+    mock_response_detail.json.return_value = {
+        "id": "mkt-hard-cap",
+        "question": "Test Hard Cap?",
+        "outcomes": '["YES", "NO"]',
+        "outcomePrices": '["0.8", "0.2"]',
+        "closed": False,
+        "slug": "hard-cap-slug",
+        "conditionId": "cond-cap"
+    }
+    mock_response_detail.status_code = 200
+    
+    with patch.object(adapter.session, "get", return_value=mock_response_detail):
+        adapter.get_market("mkt-hard-cap")
+        
+    # Кэш НЕ должен быть больше 5 элементов (hard limit), и самый старый ('m-0') должен вытолкнуться
+    assert len(adapter._market_detail_cache) <= 5
+    assert "m-0" not in adapter._market_detail_cache
+    assert "mkt-hard-cap" in adapter._market_detail_cache
 
 
 def test_outcome_tracker_resolved_manual(isolated_db):

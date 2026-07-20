@@ -492,6 +492,10 @@ class PolymarketAdapter(BaseMarketAdapter):
                            if (now - ts) >= self._DETAIL_CACHE_TTL]
                 for k in expired:
                     del self._market_detail_cache[k]
+                # Hard cap: если всё ещё полон — выталкиваем самую старую запись (LRU)
+                if len(self._market_detail_cache) >= self._DETAIL_CACHE_MAX_SIZE:
+                    oldest_key = min(self._market_detail_cache, key=lambda k: self._market_detail_cache[k][1])
+                    del self._market_detail_cache[oldest_key]
             self._market_detail_cache[market_id] = (m_obj, time.time())
             
         return m_obj
