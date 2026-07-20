@@ -101,5 +101,7 @@ remote_query.py
 query_*.py
 repair_*.py
 .agents/
+vault/
 /*.db
 /*.sqlite
+fix_*.py

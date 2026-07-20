@@ -659,12 +659,12 @@ def test_compounding_resolve_manual_and_auto(isolated_db):
         assert opp_win['status'] == 'RESOLVED'
         assert opp_win['virtual_bought_price'] is None
         assert opp_win['actual_outcome'] == 'YES'
-        assert opp_win['pnl_usd'] == pytest.approx(2.04, abs=1e-2)
+        assert opp_win['pnl_usd'] == 0.0
 
         opp_lose = conn.execute("SELECT * FROM compound_opportunities WHERE id = 'opp_lose'").fetchone()
         assert opp_lose['status'] == 'RESOLVED'
         assert opp_lose['virtual_bought_price'] is None
-        assert opp_lose['pnl_usd'] == -50.0
+        assert opp_lose['pnl_usd'] == 0.0
 
 
 def test_compounding_dashboard_hypothetical_pnl(isolated_db):
@@ -732,11 +732,18 @@ def test_get_favourite_compounding_data_period_stats(isolated_db):
     assert data['stats_24h']['auto_resolved_count'] == 1
     assert data['stats_24h']['sum_won'] == 5.0
     assert data['stats_24h']['sum_lost'] == 0.0
+    assert data['stats_24h']['wins_total'] == 1
+    assert data['stats_24h']['losses_total'] == 0
+    assert data['stats_24h']['win_rate'] == pytest.approx(1.0)
+    assert data['stats_24h']['active_count'] == data['stats']['active_count']
 
     # За 7 дней: 1 недавний сигнал (старый был 10 дней назад)
     assert data['stats_7d']['auto_resolved_count'] == 1
     assert data['stats_7d']['sum_won'] == 5.0
     assert data['stats_7d']['sum_lost'] == 0.0
+    assert data['stats_7d']['wins_total'] == 1
+    assert data['stats_7d']['losses_total'] == 0
+    assert data['stats_7d']['win_rate'] == pytest.approx(1.0)
 
 
 

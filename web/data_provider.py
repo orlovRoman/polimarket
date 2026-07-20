@@ -2153,7 +2153,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
         cutoff_24h = now_utc - timedelta(hours=24)
         cutoff_7d = now_utc - timedelta(days=7)
 
-        def _calc_auto_period_stats(records, cutoff_dt=None):
+        def _calc_auto_period_stats(records, active_cnt, cutoff_dt=None):
             count = 0
             wins = 0
             best_pnl = -999999.0
@@ -2238,8 +2238,9 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                     kelly_fraction = max(0.0, kelly_fraction) * 0.5
 
             return {
-                'active_count': active_total,
-                'active_predicted_count': active_total,
+                # active_count обозначает число live-позиций в текущем мониторинге
+                'active_count': active_cnt,
+                'active_predicted_count': active_cnt,
                 'resolved_count': count,
                 'auto_resolved_count': count,
                 'win_rate': win_rate,
@@ -2314,9 +2315,9 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                 'losses_total': count - wins
             }
 
-        stats = _calc_auto_period_stats(all_resolved_auto, cutoff_dt=None)
-        stats_24h = _calc_auto_period_stats(all_resolved_auto, cutoff_dt=cutoff_24h)
-        stats_7d = _calc_auto_period_stats(all_resolved_auto, cutoff_dt=cutoff_7d)
+        stats = _calc_auto_period_stats(all_resolved_auto, active_total, cutoff_dt=None)
+        stats_24h = _calc_auto_period_stats(all_resolved_auto, active_total, cutoff_dt=cutoff_24h)
+        stats_7d = _calc_auto_period_stats(all_resolved_auto, active_total, cutoff_dt=cutoff_7d)
 
         manual_stats = _calc_manual_period_stats(all_manual_trades, cutoff_dt=None)
         manual_stats_24h = _calc_manual_period_stats(all_manual_trades, cutoff_dt=cutoff_24h)

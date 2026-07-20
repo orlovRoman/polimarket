@@ -219,8 +219,36 @@ def test_outcome_tracker_resolved_manual(isolated_db):
         # Также проверим, что ручная сделка записалась в историю с реальным PnL
         trade = conn.execute("SELECT sold_price, pnl_usd FROM compound_virtual_trades_history WHERE market_id = 'mkt-manual-1'").fetchone()
         assert trade is not None
-        assert trade['sold_price'] == 1.0
-        # stake = 50.0, entry = 0.95, exit = 1.0, contracts = 50 / 0.95 = 52.6315
-        # gross = 52.6315 * 0.05 = 2.6315
-        # net = 2.6315 * 0.98 = 2.58
         assert trade['pnl_usd'] == 2.58
+
+
+def test_no_double_pnl_on_manual_resolve(isolated_db):
+    from services.outcome_tracker import _resolve_compound_outcomes
+    from agents.shared.python.db import get_connection
+
+    with get_connection() as conn:
+        # Вставляем рынок
+        conn.execute("""
+            INSERT INTO markets (id, platform, title, url, outcome, price, close_time)
+            VALUES ('mkt-skip-1', 'polymarket', 'Skipped Title', 'http://url-skip', 'unknown', 0.95, datetime('now', '-20 minutes'))
+        """)
+        # Вставляем opp со статусом SKIPPED и ручной отметкой
+        conn.execute("""
+            INSERT INTO compound_opportunities (
+                id, market_id, title, url, price, volume_usd, close_time, hours_left, confidence, outcome, status, virtual_bought_price, virtual_bought_at
+            ) VALUES (
+                'opp-skip-1', 'mkt-skip-1', 'Skipped Title', 'http://url-skip', 0.95, 10000.0,
+                datetime('now', '-20 minutes'), 1.0, 0.9, 'YES', 'SKIPPED', 0.95, datetime('now', '-25 minutes')
+            )
+        """)
+
+    with patch("services.outcome_tracker._fetch_resolution", return_value="YES"), \
+         patch("agents.shared.python.db.get_compound_settings", return_value={"virtual_stake": 50.0}):
+        resolved_count = _resolve_compound_outcomes()
+        assert resolved_count == 1
+
+    with get_connection() as conn:
+        opp = conn.execute("SELECT status, pnl_usd FROM compound_opportunities WHERE id = 'opp-skip-1'").fetchone()
+        assert opp['status'] == 'RESOLVED'
+        assert opp['pnl_usd'] == 0.0
+
