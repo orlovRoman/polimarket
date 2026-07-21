@@ -691,11 +691,11 @@ class CoreEngine:
     ):
         """
         Анализ поста Telegram. Защищён от дублирования через статус PROCESSING.
+        (NewsProcessor был удален, функция сохранена для совместимости)
         """
         from agents.shared.python.db import (
             get_telegram_post_info, mark_telegram_post_status
         )
-        # NewsProcessor removed
         from services.notifications import send_telegram_to_chat
 
         post_info = await asyncio.to_thread(get_telegram_post_info, post_id)
@@ -713,95 +713,13 @@ class CoreEngine:
         await asyncio.to_thread(mark_telegram_post_status, post_id, 'PROCESSING')
 
         text = post_info.get('text', '')
-        message_id = post_info.get('message_id')
-
         if not text:
             logger.error(f"Post {post_id} text is empty.")
             await asyncio.to_thread(mark_telegram_post_status, post_id, 'ANALYZED')
             return
 
-        try:
-            np = NewsProcessor(api_key=self.api_key)
-            markets = await asyncio.to_thread(np.find_relevant_markets, text)
-
-            if not markets:
-                logger.info(f"Post {post_id}: No relevant markets found. Reason: {np.failure_reason}")
-                await asyncio.to_thread(mark_telegram_post_status, post_id, 'NO_MARKETS')
-                try:
-                    source_hint = ""
-                    if source_url:
-                        source_hint = f"\n📡 Пост: <a href='{source_url}'>{source_text or 'Источник'}</a>"
-                    
-                    if np.failure_reason == "MARKET_CLOSED" and np.closed_markets:
-                        m_closed = np.closed_markets[0]
-                        close_date = m_closed.close_time.strftime("%d %b") if m_closed.close_time else "недавно"
-                        msg = f"⚠️ Рынок <b><a href='{m_closed.url}'>{m_closed.title}</a></b> найден, но уже закрылся {close_date}. Анализ невозможен.{source_hint}"
-                    elif np.failure_reason == "IRRELEVANT":
-                        msg = f"⚪️ Тема новости оценена как нерелевантная для торговли рынками предсказаний.{source_hint}"
-                    else:
-                        msg = f"⚪️ Не найдено подходящих рынков на Polymarket для этой новости.{source_hint}"
-                        
-                    await asyncio.to_thread(send_telegram_to_chat, msg, chat_id)
-                except Exception as e:
-                    logger.error(f"Failed to send NO_MARKETS notification: {e}")
-                return
-
-            logger.info(f"Post {post_id}: Found {len(markets)} markets, starting analysis.")
-
-            effective_message_id = source_message_id or message_id
-            if not source_url and effective_message_id:
-                if source_username:
-                    clean_username = source_username.lstrip('@')
-                    source_url = f"https://t.me/{clean_username}/{effective_message_id}"
-                else:
-                    db_chat_id = post_info.get('chat_id')
-                    if db_chat_id:
-                        clean_id = str(db_chat_id).replace('-100', '')
-                        source_url = f"https://t.me/c/{clean_id}/{effective_message_id}"
-
-            def _notify(msg: str, reply_markup: dict = None) -> None:
-                send_telegram_to_chat(msg, chat_id, reply_markup=reply_markup)
-
-            if len(markets) > 3:
-                logger.info(
-                    f"Post {post_id}: найдено {len(markets)} рынков, "
-                    "анализируем первые 3 (остальные пропущены)."
-                )
-
-            for m in markets[:3]:
-                try:
-                    await asyncio.to_thread(
-                        self.run_team_discussion,
-                        None,
-                        _notify,
-                        None,
-                        m.id,
-                        None,
-                        trigger_type="event_driven",
-                        source_url=source_url,
-                        source_text=source_text,
-                        triggered_at=datetime.now(timezone.utc)
-                    )
-                except NoMarketsFoundError as e:
-                    await asyncio.to_thread(send_telegram_to_chat, f"⚠️ {e}", chat_id)
-                except RuntimeError as e:
-                    await asyncio.to_thread(send_telegram_to_chat, f"⚠️ {e}", chat_id)
-                    break
-                except LLMUnavailableError as e:
-                    logger.warning(f"Gemini API limits hit для market {m.id}. Fast fallback.")
-                    await self._send_fast_signal(m, source_url, source_text, chat_id)
-                except Exception as e:
-                    logger.exception(f"analyze_post_async error for {m.id}: {e}")
-                finally:
-                    # Небольшая пауза между отчетами, чтобы сообщения шли по порядку
-                    await asyncio.sleep(2)
-
-            await asyncio.to_thread(mark_telegram_post_status, post_id, 'ANALYZED')
-
-        except Exception as e:
-            logger.exception(f"analyze_post_async fatal error for post {post_id}: {e}")
-            # Сбрасываем статус, чтобы можно было перезапустить при желании
-            await asyncio.to_thread(mark_telegram_post_status, post_id, 'ERROR')
+        logger.info(f"Post {post_id}: NewsProcessor removed, skipping legacy news analysis.")
+        await asyncio.to_thread(mark_telegram_post_status, post_id, 'NO_MARKETS')
 
     async def _send_fast_signal(
         self, m: Market, source_url: Optional[str], source_text: Optional[str], chat_id: Any

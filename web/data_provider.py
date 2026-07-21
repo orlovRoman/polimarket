@@ -2337,8 +2337,8 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                             active_24h += 1
                         if dt >= cutoff_7d:
                             active_7d += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"[data_provider] Не удалось распарсить created_at='{c_at_str}': {e}")
 
         stats = _calc_auto_period_stats(all_resolved_auto, active_total, cutoff_dt=None)
         stats_24h = _calc_auto_period_stats(all_resolved_auto, active_24h, cutoff_dt=cutoff_24h)
