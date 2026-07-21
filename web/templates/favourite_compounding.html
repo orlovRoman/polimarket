@@ -533,6 +533,7 @@
     }
 
     function updateKPIDisplay(data) {
+        if (!data) return;
         const kpiActiveTitle = document.getElementById('kpi-active-title');
         const kpiActive = document.getElementById('kpi-active');
         const kpiResolvedTitle = document.getElementById('kpi-resolved-title');

@@ -625,7 +625,7 @@ def test_compounding_resolve_manual_and_auto(isolated_db):
         conn.execute("""
             INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, outcome, virtual_bought_price, virtual_bought_at)
             VALUES 
-            ('opp_win', 'mkt_win', 'Win Opp', 'http://win', 0.96, 12000.0, '2025-06-15 12:00:00', 48.0, 4.1, 0.85, 'BOUGHT', 'YES', 0.96, '2025-06-12 12:00:00'),
+            ('opp_win', 'mkt_win', 'Win Opp', 'http://win', 0.96, 12000.0, '2025-06-15 12:00:00', 48.0, 4.1, 0.85, 'BOUGHT', 'YES', NULL, NULL),
             ('opp_lose', 'mkt_lose', 'Lose Opp', 'http://lose', 0.95, 12000.0, '2025-06-15 12:00:00', 48.0, 4.1, 0.85, 'BOUGHT', 'YES', 0.95, '2025-06-12 12:00:00')
         """)
         conn.execute("INSERT OR REPLACE INTO memory (key, value) VALUES ('global_virtual_stake', '50.0')")
@@ -645,22 +645,20 @@ def test_compounding_resolve_manual_and_auto(isolated_db):
         assert resolved_count == 2
 
     with db_module.get_connection() as conn:
-        win_trade = conn.execute("SELECT * FROM compound_virtual_trades_history WHERE market_id = 'mkt_win'").fetchone()
-        assert win_trade is not None
-        assert win_trade['pnl_usd'] == pytest.approx(2.04, abs=1e-2)
-        assert win_trade['pnl_percent'] == pytest.approx(4.08, abs=1e-2)
-
+        # Для ручной сделки opp_lose записался PnL в историю виртуальных сделок
         lose_trade = conn.execute("SELECT * FROM compound_virtual_trades_history WHERE market_id = 'mkt_lose'").fetchone()
         assert lose_trade is not None
         assert lose_trade['pnl_usd'] == pytest.approx(-50.0)
         assert lose_trade['pnl_percent'] == pytest.approx(-100.0)
 
+        # Для авто-сделки opp_win посчитался и записался авто-PnL в compound_opportunities.pnl_usd
         opp_win = conn.execute("SELECT * FROM compound_opportunities WHERE id = 'opp_win'").fetchone()
         assert opp_win['status'] == 'RESOLVED'
         assert opp_win['virtual_bought_price'] is None
         assert opp_win['actual_outcome'] == 'YES'
-        assert opp_win['pnl_usd'] == 0.0
+        assert opp_win['pnl_usd'] == pytest.approx(2.04, abs=1e-2)
 
+        # Для ручной сделки opp_lose в compound_opportunities.pnl_usd записался 0.0 (чтобы не удваивать PnL)
         opp_lose = conn.execute("SELECT * FROM compound_opportunities WHERE id = 'opp_lose'").fetchone()
         assert opp_lose['status'] == 'RESOLVED'
         assert opp_lose['virtual_bought_price'] is None
@@ -721,29 +719,38 @@ def test_get_favourite_compounding_data_period_stats(isolated_db):
             VALUES ('opp_old', 'mkt_old', 'Old Loss', 'http://url2', 0.80, 1000.0, '2026-01-01 00:00:00', 24.0, 5.0, 0.9, 'RESOLVED', 'YES', 'NO', -50.0, ?)
         """, (old_str,))
 
+        conn.execute("""
+            INSERT INTO compound_opportunities (id, market_id, title, url, price, volume_usd, close_time, hours_left, roi_net_pct, confidence, status, created_at)
+            VALUES
+            ('active_old', 'mkt_act_old', 'Old Active', 'http://url_act1', 0.95, 1000.0, '2026-01-01 00:00:00', 24.0, 5.0, 0.9, 'NEW', ?),
+            ('active_new', 'mkt_act_new', 'New Active', 'http://url_act2', 0.95, 1000.0, '2026-01-01 00:00:00', 24.0, 5.0, 0.9, 'NEW', ?)
+        """, (old_str, recent_str))
+
     data = data_provider.get_compounding_dashboard()
 
-    # За всё время: 2 сигнала (1 win, 1 loss)
+    # За всё время: 2 сигнала (1 win, 1 loss) и 2 активных
     assert data['stats']['auto_resolved_count'] == 2
     assert data['stats']['sum_won'] == 5.0
     assert data['stats']['sum_lost'] == 50.0
+    assert data['stats']['active_count'] == 2
 
-    # За 24 часа: только 1 недавний сигнал (win)
+    # За 24 часа: только 1 недавний сигнал (win) и 1 недавний активный
     assert data['stats_24h']['auto_resolved_count'] == 1
     assert data['stats_24h']['sum_won'] == 5.0
     assert data['stats_24h']['sum_lost'] == 0.0
     assert data['stats_24h']['wins_total'] == 1
     assert data['stats_24h']['losses_total'] == 0
     assert data['stats_24h']['win_rate'] == pytest.approx(1.0)
-    assert data['stats_24h']['active_count'] == data['stats']['active_count']
+    assert data['stats_24h']['active_count'] == 1
 
-    # За 7 дней: 1 недавний сигнал (старый был 10 дней назад)
+    # За 7 дней: 1 недавний сигнал и 1 недавний активный
     assert data['stats_7d']['auto_resolved_count'] == 1
     assert data['stats_7d']['sum_won'] == 5.0
     assert data['stats_7d']['sum_lost'] == 0.0
     assert data['stats_7d']['wins_total'] == 1
     assert data['stats_7d']['losses_total'] == 0
     assert data['stats_7d']['win_rate'] == pytest.approx(1.0)
+    assert data['stats_7d']['active_count'] == 1
 
 
 

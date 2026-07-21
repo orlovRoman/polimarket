@@ -2315,9 +2315,34 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                 'losses_total': count - wins
             }
 
+        now_utc = datetime.now(timezone.utc)
+        cutoff_24h = now_utc - timedelta(hours=24)
+        cutoff_7d = now_utc - timedelta(days=7)
+
+        active_opps_rows = conn.execute("""
+            SELECT created_at
+            FROM compound_opportunities
+            WHERE status IN ('NEW', 'ALERTED', 'BOUGHT', 'ALERTED_EXIT')
+        """).fetchall()
+
+        active_24h = 0
+        active_7d = 0
+        for row in active_opps_rows:
+            c_at_str = dict(row).get('created_at')
+            if c_at_str:
+                try:
+                    dt = _parse_dt_utc(str(c_at_str))
+                    if dt:
+                        if dt >= cutoff_24h:
+                            active_24h += 1
+                        if dt >= cutoff_7d:
+                            active_7d += 1
+                except Exception:
+                    pass
+
         stats = _calc_auto_period_stats(all_resolved_auto, active_total, cutoff_dt=None)
-        stats_24h = _calc_auto_period_stats(all_resolved_auto, active_total, cutoff_dt=cutoff_24h)
-        stats_7d = _calc_auto_period_stats(all_resolved_auto, active_total, cutoff_dt=cutoff_7d)
+        stats_24h = _calc_auto_period_stats(all_resolved_auto, active_24h, cutoff_dt=cutoff_24h)
+        stats_7d = _calc_auto_period_stats(all_resolved_auto, active_7d, cutoff_dt=cutoff_7d)
 
         manual_stats = _calc_manual_period_stats(all_manual_trades, cutoff_dt=None)
         manual_stats_24h = _calc_manual_period_stats(all_manual_trades, cutoff_dt=cutoff_24h)
