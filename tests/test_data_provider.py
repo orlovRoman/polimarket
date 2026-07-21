@@ -26,7 +26,7 @@ def test_get_overview_stats_empty(isolated_db):
     assert isinstance(stats, dict)
     assert 'scout' in stats
     assert stats['scout']['win_rate'] is None
-    assert stats['scout']['pnl_7d'] == pytest.approx(0.0)
+    assert stats['scout']['periods']['7d']['pnl'] == pytest.approx(0.0)
 
 def test_get_overview_stats_with_data(isolated_db):
     # Создаем тестовый рынок
@@ -59,9 +59,9 @@ def test_get_overview_stats_with_data(isolated_db):
     stats = data_provider.get_overview_stats()
     assert stats['scout']['win_rate'] == pytest.approx(1.0)
     assert stats['scout']['sharpe'] == pytest.approx(2.5)
-    assert stats['scout']['pnl_7d'] == pytest.approx(15.0)
-    assert stats['scout']['pnl_30d'] == pytest.approx(15.0)
-    assert stats['scout']['signals_count'] == 1
+    assert stats['scout']['periods']['7d']['pnl'] == pytest.approx(15.0)
+    assert stats['scout']['periods']['30d']['pnl'] == pytest.approx(15.0)
+    assert stats['scout']['periods']['all']['signals_count'] == 1
     assert stats['scout']['status_emoji'] == "🟢"
 
 def test_get_equity_curve(isolated_db):

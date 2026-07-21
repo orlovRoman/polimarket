@@ -19,6 +19,9 @@ def db():
             id TEXT PRIMARY KEY, platform TEXT, title TEXT,
             url TEXT, outcome TEXT, price REAL, close_time TEXT
         );
+        CREATE TABLE whale_settings (
+            key TEXT PRIMARY KEY, value TEXT
+        );
         CREATE TABLE signals (
             id INTEGER PRIMARY KEY,
             strategy_type TEXT, status TEXT,
@@ -54,11 +57,29 @@ def db():
             resolved_at TIMESTAMP,
             virtual_bought_price REAL DEFAULT NULL,
             virtual_bought_at TIMESTAMP DEFAULT NULL,
-            wallet_address TEXT
+            wallet_address TEXT,
+            whale_count INTEGER DEFAULT 1,
+            whale_directions TEXT DEFAULT '',
+            bet_size_usdc REAL DEFAULT NULL
         );
         CREATE TABLE whale_virtual_trades_history (
             id INTEGER PRIMARY KEY, market_id TEXT,
-            pnl_points REAL, bought_outcome_price REAL, sold_at TEXT
+            title TEXT, url TEXT, outcome TEXT,
+            bought_price REAL, bought_outcome_price REAL,
+            sold_price REAL, sold_outcome_price REAL,
+            pnl_points REAL, pnl_percent REAL,
+            bought_at TIMESTAMP, sold_at TIMESTAMP,
+            wallet_address TEXT, bet_size_usdc REAL
+        );
+        CREATE TABLE penny_virtual_trades_history (
+            id INTEGER PRIMARY KEY, market_id TEXT,
+            title TEXT, url TEXT, outcome TEXT,
+            bought_price REAL, bought_outcome_price REAL,
+            sold_price REAL, sold_outcome_price REAL,
+            pnl_points REAL, pnl_percent REAL,
+            bought_at TIMESTAMP, sold_at TIMESTAMP,
+            max_price_seen REAL, min_price_seen REAL,
+            bet_size_usdc REAL
         );
         CREATE TABLE compound_chains (
             id INTEGER PRIMARY KEY, status TEXT,
@@ -132,7 +153,7 @@ class TestSignalsCountMax:
             mock_gc.return_value.__exit__ = MagicMock(return_value=False)
             stats = get_overview_stats()
 
-        assert stats["scout"]["signals_count"] >= 50
+        assert stats["scout"]["periods"]["all"]["signals_count"] >= 50
 
     def test_signals_count_takes_larger_value(self, db):
         """Если signals вернул больше, чем strategy_metrics — берём большее."""
@@ -153,7 +174,7 @@ class TestSignalsCountMax:
             mock_gc.return_value.__exit__ = MagicMock(return_value=False)
             stats = get_overview_stats()
 
-        assert stats["scout"]["signals_count"] == 10
+        assert stats["scout"]["periods"]["all"]["signals_count"] == 10
 
 
 # ──────────────────────────────────────────────────────────────
@@ -229,7 +250,7 @@ class TestCloseTimeFallback:
 class TestSQLiteConnectionProxy:
     def test_proxy_intercepts_pragma_in_execute(self):
         """PRAGMA foreign_keys = ON подменяется на OFF через execute."""
-        from tests.conftest import SQLiteConnectionProxy
+        from conftest import SQLiteConnectionProxy
         real_conn = sqlite3.connect(":memory:")
         proxy = SQLiteConnectionProxy(real_conn)
         
@@ -241,7 +262,7 @@ class TestSQLiteConnectionProxy:
 
     def test_proxy_intercepts_pragma_in_executescript(self):
         """PRAGMA foreign_keys = ON подменяется в executescript."""
-        from tests.conftest import SQLiteConnectionProxy
+        from conftest import SQLiteConnectionProxy
         real_conn = sqlite3.connect(":memory:")
         proxy = SQLiteConnectionProxy(real_conn)
         
@@ -252,7 +273,7 @@ class TestSQLiteConnectionProxy:
 
     def test_proxy_passthrough_normal_queries(self):
         """Обычные запросы не блокируются прокси."""
-        from tests.conftest import SQLiteConnectionProxy
+        from conftest import SQLiteConnectionProxy
         real_conn = sqlite3.connect(":memory:")
         proxy = SQLiteConnectionProxy(real_conn)
         proxy.execute("CREATE TABLE t (x INTEGER)")
@@ -289,8 +310,8 @@ class TestCompoundParlaysPnlNotOverwritten:
             stats = get_overview_stats()
 
         # pnl_7d должен быть (18-10) + (-10) = -2, а не 0
-        assert stats.get("compound_parlays", {}).get("pnl_7d", 0) != 0 or \
-               stats.get("compound_parlays", {}).get("pnl_30d", 0) != 0, \
+        assert stats.get("compound_parlays", {}).get("periods", {}).get("7d", {}).get("pnl", 0) != 0 or \
+               stats.get("compound_parlays", {}).get("periods", {}).get("30d", {}).get("pnl", 0) != 0, \
                "compound_parlays pnl был перезаписан нулём из пустого signals"
 
 
@@ -299,9 +320,8 @@ class TestCompoundParlaysPnlNotOverwritten:
 # ──────────────────────────────────────────────────────────────
 class TestOverviewStatsStructure:
     EXPECTED_STRATEGIES = [
-        'scout', 'synthetic_corridor', 'temporal_corridor',
-        'cross_platform', 'whale', 'penny_stocks',
-        'favourite_compounding', 'compound_parlays',
+        'scout', 'whale', 'penny_stocks',
+        'favourite_compounding', 'compound_parlays'
     ]
 
     def test_all_strategies_present(self, db):
@@ -321,7 +341,7 @@ class TestOverviewStatsStructure:
             mock_gc.return_value.__exit__ = MagicMock(return_value=False)
             stats = get_overview_stats()
 
-        required_keys = {'win_rate', 'sharpe', 'pnl_7d', 'pnl_30d', 'signals_count'}
+        required_keys = {'win_rate', 'sharpe', 'periods', 'status_emoji'}
         for strat, data in stats.items():
             missing = required_keys - set(data.keys())
             assert not missing, f"Стратегия '{strat}' не имеет ключей: {missing}"

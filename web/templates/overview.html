@@ -108,22 +108,29 @@ input:checked + .slider:before {
 </div>
 
 <div class="table-card">
-    <div class="table-title">Мониторинг торговых стратегий</div>
+    <div class="table-title" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>Мониторинг торговых стратегий</span>
+        <div class="opinion-tabs" style="border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; display: flex;">
+            <button id="overview-btn-24h" class="opinion-tab-btn" style="padding: 4px 12px; font-size: 0.8rem;" onclick="setOverviewPeriod('24h')">24 часа</button>
+            <button id="overview-btn-7d" class="opinion-tab-btn" style="padding: 4px 12px; font-size: 0.8rem;" onclick="setOverviewPeriod('7d')">7 дней</button>
+            <button id="overview-btn-30d" class="opinion-tab-btn active" style="padding: 4px 12px; font-size: 0.8rem;" onclick="setOverviewPeriod('30d')">30 дней</button>
+            <button id="overview-btn-all" class="opinion-tab-btn" style="padding: 4px 12px; font-size: 0.8rem;" onclick="setOverviewPeriod('all')">Всё время</button>
+        </div>
+    </div>
     <table>
         <thead>
             <tr>
                 <th>Стратегия</th>
                 <th>Статус / Вкл</th>
-                <th>Win Rate (30д)</th>
-                <th>PnL (30д)</th>
-                <th>PnL (7д)</th>
+                <th>Win Rate</th>
+                <th>PnL</th>
                 <th>Sharpe Ratio</th>
-                <th>Всего сигналов</th>
+                <th>Сигналы</th>
             </tr>
         </thead>
         <tbody id="strategies-tbody">
             <tr>
-                <td colspan="7" style="text-align: center;" class="text-muted">Загрузка данных...</td>
+                <td colspan="6" style="text-align: center;" class="text-muted">Загрузка данных...</td>
             </tr>
         </tbody>
     </table>
@@ -257,6 +264,79 @@ input:checked + .slider:before {
     };
 
     let multiChart = null;
+    let globalOverviewStats = null;
+    let currentOverviewPeriod = '30d';
+
+    function setOverviewPeriod(period) {
+        currentOverviewPeriod = period;
+        document.querySelectorAll('.opinion-tabs .opinion-tab-btn').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById(`overview-btn-${period}`);
+        if(btn) btn.classList.add('active');
+        renderOverviewTable();
+    }
+
+    function renderOverviewTable() {
+        const stats = globalOverviewStats;
+        if (!stats) return;
+
+        let totalPnL = 0;
+        let totalSignals = 0;
+        let winRateSum = 0;
+        let winRateCount = 0;
+        let bestStratName = '—';
+        let bestStratPnL = -999999;
+
+        for (const stype in stats) {
+            const s = stats[stype];
+            const pData = s.periods[currentOverviewPeriod];
+            
+            totalPnL += pData.pnl;
+            totalSignals += pData.signals_count;
+            
+            let wr = pData.win_rate !== null ? pData.win_rate : s.win_rate;
+            if (wr !== null) {
+                winRateSum += wr;
+                winRateCount++;
+            }
+            if (pData.pnl > bestStratPnL && pData.signals_count > 0) {
+                bestStratPnL = pData.pnl;
+                bestStratName = strategyDisplayNames[stype] || stype;
+            }
+        }
+
+        const avgWinRate = winRateCount > 0 ? (winRateSum / winRateCount) : null;
+
+        document.getElementById('kpi-total-pnl').innerHTML = formatPnL(totalPnL);
+        document.getElementById('kpi-total-signals').textContent = totalSignals;
+        document.getElementById('kpi-avg-winrate').textContent = avgWinRate === null ? '—' : formatPercent(avgWinRate);
+        document.getElementById('kpi-best-strat').textContent = bestStratName;
+
+        const tbody = document.getElementById('strategies-tbody');
+        tbody.innerHTML = Object.keys(stats).map(stype => {
+            const s = stats[stype];
+            const pData = s.periods[currentOverviewPeriod];
+            const name = strategyDisplayNames[stype] || stype;
+            const url = strategyUrls[stype] || '#';
+            let wr = pData.win_rate !== null ? pData.win_rate : s.win_rate;
+            
+            return `
+                <tr>
+                    <td><a href="${url}" style="color:var(--text-primary); font-weight:600; text-decoration:none; border-bottom:1px dotted var(--text-secondary);">${name}</a></td>
+                    <td style="text-align:center; display:flex; align-items:center; justify-content:center; gap:8px;">
+                        <span style="font-size:1.1rem;">${s.status_emoji}</span>
+                        <label class="switch">
+                          <input type="checkbox" onchange="toggleSystemStatus('strategy_' + '${stype}' + '_enabled', this)" ${window.systemStatusCache && window.systemStatusCache['strategy_'+stype+'_enabled'] ? 'checked' : ''}>
+                          <span class="slider"></span>
+                        </label>
+                    </td>
+                    <td>${wr === null ? '—' : formatPercent(wr)}</td>
+                    <td>${formatPnL(pData.pnl)}</td>
+                    <td class="${s.sharpe < 0 ? 'text-red' : s.sharpe > 1 ? 'text-green' : ''}">${s.sharpe === null ? '—' : s.sharpe.toFixed(2)}</td>
+                    <td>${pData.signals_count}</td>
+                </tr>
+            `;
+        }).join('');
+    }
 
     async function toggleSystemStatus(key, checkbox) {
         const payload = {};
@@ -300,60 +380,9 @@ input:checked + .slider:before {
         `).join('');
 
         if (!stats) return;
-
-        // 1. Считаем глобальные KPI
-        let totalPnL = 0;
-        let totalSignals = 0;
-        let winRateSum = 0;
-        let winRateCount = 0;
-        let bestStratName = '—';
-        let bestStratPnL = -999999;
-
-        for (const stype in stats) {
-            const s = stats[stype];
-            totalPnL += s.pnl_30d;
-            totalSignals += s.signals_count;
-            if (s.win_rate !== null) {
-                winRateSum += s.win_rate;
-                winRateCount++;
-            }
-            if (s.pnl_30d > bestStratPnL && s.signals_count > 0) {
-                bestStratPnL = s.pnl_30d;
-                bestStratName = strategyDisplayNames[stype] || stype;
-            }
-        }
-
-        const avgWinRate = winRateCount > 0 ? (winRateSum / winRateCount) : null;
-
-        document.getElementById('kpi-total-pnl').innerHTML = formatPnL(totalPnL);
-        document.getElementById('kpi-total-signals').textContent = totalSignals;
-        document.getElementById('kpi-avg-winrate').textContent = avgWinRate === null ? '—' : formatPercent(avgWinRate);
-        document.getElementById('kpi-best-strat').textContent = bestStratName;
-
-        // 2. Рендерим таблицу стратегий
-        const tbody = document.getElementById('strategies-tbody');
-        tbody.innerHTML = Object.keys(stats).map(stype => {
-            const s = stats[stype];
-            const name = strategyDisplayNames[stype] || stype;
-            const url = strategyUrls[stype] || '#';
-            return `
-                <tr>
-                    <td><a href="${url}" style="color:var(--text-primary); font-weight:600; text-decoration:none; border-bottom:1px dotted var(--text-secondary);">${name}</a></td>
-                    <td style="text-align:center; display:flex; align-items:center; justify-content:center; gap:8px;">
-                        <span style="font-size:1.1rem;">${s.status_emoji}</span>
-                        <label class="switch">
-                          <input type="checkbox" onchange="toggleSystemStatus('strategy_' + '${stype}' + '_enabled', this)" ${window.systemStatusCache && window.systemStatusCache['strategy_'+stype+'_enabled'] ? 'checked' : ''}>
-                          <span class="slider"></span>
-                        </label>
-                    </td>
-                    <td>${s.win_rate === null ? '—' : formatPercent(s.win_rate)}</td>
-                    <td>${formatPnL(s.pnl_30d)}</td>
-                    <td>${formatPnL(s.pnl_7d)}</td>
-                    <td class="${s.sharpe < 0 ? 'text-red' : s.sharpe > 1 ? 'text-green' : ''}">${s.sharpe === null ? '—' : s.sharpe.toFixed(2)}</td>
-                    <td>${s.signals_count}</td>
-                </tr>
-            `;
-        }).join('');
+        globalOverviewStats = stats;
+        
+        renderOverviewTable();
 
         // 3. Выделяем кандидатов на авто-отключение
         const candidates = Object.keys(stats).filter(stype => stats[stype].sharpe !== null && stats[stype].sharpe < 0);
