@@ -293,7 +293,7 @@ input:checked + .slider:before {
             totalPnL += pData.pnl;
             totalSignals += pData.signals_count;
             
-            let wr = pData.win_rate !== null ? pData.win_rate : s.win_rate;
+            let wr = pData.win_rate;
             if (wr !== null) {
                 winRateSum += wr;
                 winRateCount++;
@@ -317,7 +317,7 @@ input:checked + .slider:before {
             const pData = s.periods[currentOverviewPeriod];
             const name = strategyDisplayNames[stype] || stype;
             const url = strategyUrls[stype] || '#';
-            let wr = pData.win_rate !== null ? pData.win_rate : s.win_rate;
+            let wr = pData.win_rate;
             
             return `
                 <tr>

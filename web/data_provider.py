@@ -2,6 +2,7 @@
 import sqlite3
 import math
 import logging
+import copy
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 import json
@@ -529,7 +530,6 @@ def get_overview_stats() -> dict:
         'favourite_compounding', 'compound_parlays'
     ]
     
-    import copy
     stats = {}
     for s in strategies:
         stats[s] = copy.deepcopy(DEFAULT_STRATEGY_STATS)

@@ -5,6 +5,10 @@ import sqlite3
 import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock
+try:
+    from tests.helpers import SQLiteConnectionProxy
+except ImportError:
+    from helpers import SQLiteConnectionProxy
 
 
 # ──────────────────────────────────────────────────────────────
@@ -250,7 +254,6 @@ class TestCloseTimeFallback:
 class TestSQLiteConnectionProxy:
     def test_proxy_intercepts_pragma_in_execute(self):
         """PRAGMA foreign_keys = ON подменяется на OFF через execute."""
-        from conftest import SQLiteConnectionProxy
         real_conn = sqlite3.connect(":memory:")
         proxy = SQLiteConnectionProxy(real_conn)
         
@@ -262,7 +265,6 @@ class TestSQLiteConnectionProxy:
 
     def test_proxy_intercepts_pragma_in_executescript(self):
         """PRAGMA foreign_keys = ON подменяется в executescript."""
-        from conftest import SQLiteConnectionProxy
         real_conn = sqlite3.connect(":memory:")
         proxy = SQLiteConnectionProxy(real_conn)
         
@@ -273,7 +275,6 @@ class TestSQLiteConnectionProxy:
 
     def test_proxy_passthrough_normal_queries(self):
         """Обычные запросы не блокируются прокси."""
-        from conftest import SQLiteConnectionProxy
         real_conn = sqlite3.connect(":memory:")
         proxy = SQLiteConnectionProxy(real_conn)
         proxy.execute("CREATE TABLE t (x INTEGER)")
