@@ -745,25 +745,25 @@
     function renderTablesOnly() {
         if (!lastFetchedData) return;
         
-        let activeData = [...lastFetchedData.active];
+        let activeData = Array.isArray(lastFetchedData.active) ? [...lastFetchedData.active] : [];
         sortDataArray(activeData, sortState.active.col, sortState.active.dir);
         renderActiveTable(activeData);
         
-        if (lastFetchedData.chains) {
+        if (Array.isArray(lastFetchedData.chains)) {
             renderChainsTables(lastFetchedData.chains);
         }
         
-        let winsData = [...lastFetchedData.resolved_wins];
-        winsData = winsData.filter(r => r.actual_outcome === r.outcome);
+        let winsData = Array.isArray(lastFetchedData.resolved_wins) ? [...lastFetchedData.resolved_wins] : [];
+        winsData = winsData.filter(r => r && r.actual_outcome === r.outcome);
         winsData.forEach(row => {
-            row.was_correct = true;
+            if (row) row.was_correct = true;
         });
         sortDataArray(winsData, sortState.wins.col, sortState.wins.dir);
         renderWinsTable(winsData);
 
-        let lossesData = [...lastFetchedData.resolved_losses];
+        let lossesData = Array.isArray(lastFetchedData.resolved_losses) ? [...lastFetchedData.resolved_losses] : [];
         lossesData.forEach(row => {
-            row.was_correct = false; // By definition these are losses
+            if (row) row.was_correct = false;
         });
         sortDataArray(lossesData, sortState.losses.col, sortState.losses.dir);
         renderLossesTable(lossesData);
@@ -998,7 +998,8 @@
 
     function renderVirtualHistoryTable(historyList) {
         const historyTbody = document.getElementById('virtual-history-tbody');
-        if (!historyList || historyList.length === 0) {
+        if (!historyTbody) return;
+        if (!Array.isArray(historyList) || historyList.length === 0) {
             historyTbody.innerHTML = `<tr><td colspan="8" style="text-align: center;" class="text-muted">История пуста</td></tr>`;
         } else {
             historyTbody.innerHTML = historyList.map((row, index) => {
