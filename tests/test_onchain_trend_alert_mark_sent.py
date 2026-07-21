@@ -24,11 +24,17 @@ def test_scan_volume_spikes_marks_alert_sent(monkeypatch):
                 "title": "Arsenal FC",
                 "url": "https://polymarket.com/event/ucl-psg-ars",
                 "price": 0.5,
-                "vol_recent": 1500.0,
+                "market_volume": 10000.0,
+                "top_wallet": "0x123",
+                "win_rate": 0.85,
+                "n_trades": 20,
+                "vol_recent": 15000.0,
                 "vol_prev": 200.0,
                 "yes_vol": 1000.0,
                 "no_vol": 500.0
             }]
+        def fetchone(self):
+            return None
             
     class DummyConn:
         def execute(self, sql, params=()):

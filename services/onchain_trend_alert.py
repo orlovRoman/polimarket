@@ -109,8 +109,8 @@ def _log_whale_signal_to_eval(
 
 def _process_spike_row(row: dict, min_market_price: float, max_market_price: float, base_bonus: float, min_vol: float, min_win_rate: float = 0.50, min_trades: int = 3) -> Optional[dict]:
     row = dict(row)
-    m_price = row["market_price"] if row["market_price"] is not None else 0.5
-    vol = row.get("market_volume") or 0.0
+    m_price = row.get("market_price") if row.get("market_price") is not None else row.get("price", 0.5)
+    vol = row.get("market_volume") or row.get("vol_recent", 0.0)
     
     if vol < min_vol or m_price <= min_market_price or m_price >= max_market_price:
         logger.info(f"Skipped whale spike (market filter): market_id={row['market_id']}, vol={vol}, price={m_price}, reason=EXTREME_PRICE_OR_VOL")
@@ -144,7 +144,7 @@ def _process_spike_row(row: dict, min_market_price: float, max_market_price: flo
         
         prob = max(0.0, min(1.0, prob))
 
-        m_price = row["market_price"] if row["market_price"] is not None else 0.5
+        m_price = row.get("market_price") if row.get("market_price") is not None else row.get("price", 0.5)
         entry_price = m_price if side == "YES" else (1.0 - m_price)
 
         _log_whale_signal_to_eval(

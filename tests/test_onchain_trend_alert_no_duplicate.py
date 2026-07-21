@@ -24,11 +24,17 @@ def test_scan_volume_spikes_no_duplicate_alert(monkeypatch):
                 "title": "Chelsea FC",
                 "url": "https://polymarket.com/event/ucl-che-ars",
                 "price": 0.45,
-                "vol_recent": 1200.0,
+                "market_volume": 10000.0,
+                "top_wallet": "0x123",
+                "win_rate": 0.85,
+                "n_trades": 20,
+                "vol_recent": 15000.0,
                 "vol_prev": 150.0,
                 "yes_vol": 800.0,
                 "no_vol": 400.0
             }]
+        def fetchone(self):
+            return None
             
     class DummyConn:
         def execute(self, sql, params=()):
