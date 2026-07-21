@@ -5,10 +5,7 @@ import sqlite3
 import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock
-try:
-    from tests.helpers import SQLiteConnectionProxy
-except ImportError:
-    from helpers import SQLiteConnectionProxy
+from tests.helpers import SQLiteConnectionProxy
 
 
 # ──────────────────────────────────────────────────────────────
@@ -30,6 +27,7 @@ def db():
             id INTEGER PRIMARY KEY,
             strategy_type TEXT, status TEXT,
             pnl_realized REAL, resolved_at TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             edge REAL, estimated_probability REAL,
             predicted_probability REAL
         );
@@ -87,7 +85,8 @@ def db():
         );
         CREATE TABLE compound_chains (
             id INTEGER PRIMARY KEY, status TEXT,
-            initial_stake REAL, current_stake REAL, updated_at TEXT
+            initial_stake REAL, current_stake REAL, updated_at TEXT,
+            resolved_at TEXT DEFAULT NULL
         );
         CREATE TABLE compound_virtual_trades_history (
             id INTEGER PRIMARY KEY, sold_at TEXT,
@@ -165,7 +164,7 @@ class TestSignalsCountMax:
         db.execute("INSERT INTO strategy_metrics VALUES (1,'scout',0.6,1.2,5)")
         for i in range(10):
             db.execute(
-                "INSERT INTO signals VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO signals (id, strategy_type, status, pnl_realized, resolved_at, edge, estimated_probability, predicted_probability) VALUES (?,?,?,?,?,?,?,?)",
                 (i+1, "scout", "WIN", 1.0,
                  (now - timedelta(days=i)).strftime("%Y-%m-%d %H:%M:%S"),
                  0.1, 0.6, 0.65)
@@ -293,7 +292,7 @@ class TestCompoundParlaysPnlNotOverwritten:
         now = datetime.now(timezone.utc)
         # В compound_chains есть данные
         db.executemany(
-            "INSERT INTO compound_chains VALUES (?,?,?,?,?)",
+            "INSERT INTO compound_chains (id, status, initial_stake, current_stake, updated_at) VALUES (?,?,?,?,?)",
             [
                 (1, "COMPLETED", 10.0, 18.0,
                  (now - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")),
@@ -346,3 +345,67 @@ class TestOverviewStatsStructure:
         for strat, data in stats.items():
             missing = required_keys - set(data.keys())
             assert not missing, f"Стратегия '{strat}' не имеет ключей: {missing}"
+
+
+# ──────────────────────────────────────────────────────────────
+# Дополнительные регрессионные тесты
+# ──────────────────────────────────────────────────────────────
+class TestRecentBugFixes:
+    def test_open_signals_counted_in_24h_period(self, db):
+        """Проверяем, что OPEN сигналы созданные за 24h попадают в signals_count."""
+        now = datetime.now(timezone.utc)
+        db.execute(
+            "INSERT INTO signals (id, strategy_type, status, created_at) VALUES (?, ?, ?, ?)",
+            (101, "scout", "OPEN", now.strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        db.execute(
+            "INSERT INTO signals (id, strategy_type, status, created_at) VALUES (?, ?, ?, ?)",
+            (102, "scout", "OPEN", now.strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        db.commit()
+
+        from web.data_provider import get_overview_stats
+        with patch("agents.shared.python.db.get_connection") as mock_gc:
+            mock_gc.return_value.__enter__ = lambda s: db
+            mock_gc.return_value.__exit__ = MagicMock(return_value=False)
+            stats = get_overview_stats()
+
+        assert stats["scout"]["periods"]["24h"]["signals_count"] == 2
+        # Т.к. нет закрытых (WIN/LOSS) за 24h, win_rate равен None
+        assert stats["scout"]["periods"]["24h"]["win_rate"] is None
+
+    def test_penny_stocks_stats_gracefully_handles_missing_table(self, db):
+        """Если penny_stocks_monitoring отсутствует, get_overview_stats не падает."""
+        db.execute("DROP TABLE IF EXISTS penny_stocks_monitoring")
+        db.execute("DROP TABLE IF EXISTS penny_virtual_trades_history")
+        db.commit()
+
+        from web.data_provider import get_overview_stats
+        with patch("agents.shared.python.db.get_connection") as mock_gc:
+            mock_gc.return_value.__enter__ = lambda s: db
+            mock_gc.return_value.__exit__ = MagicMock(return_value=False)
+            stats = get_overview_stats()
+
+        assert stats["penny_stocks"]["periods"]["24h"]["signals_count"] == 0
+
+    def test_compound_chains_resolved_at_filtering(self, db):
+        """Завершённая 60 дней назад цепочка не попадает в 7d PnL, даже если updated_at свежий."""
+        now = datetime.now(timezone.utc)
+        old_res = (now - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
+        fresh_upd = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+        db.execute(
+            "INSERT INTO compound_chains (id, status, initial_stake, current_stake, updated_at, resolved_at) VALUES (?,?,?,?,?,?)",
+            (1, "COMPLETED", 10.0, 20.0, fresh_upd, old_res)
+        )
+        db.commit()
+
+        from web.data_provider import get_overview_stats
+        with patch("agents.shared.python.db.get_connection") as mock_gc:
+            mock_gc.return_value.__enter__ = lambda s: db
+            mock_gc.return_value.__exit__ = MagicMock(return_value=False)
+            stats = get_overview_stats()
+
+        assert stats["compound_parlays"]["periods"]["7d"]["pnl"] == 0.0
+        assert stats["compound_parlays"]["periods"]["all"]["pnl"] == 10.0
+

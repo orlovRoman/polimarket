@@ -1,16 +1,20 @@
+import sys
+from pathlib import Path
+
+root_dir = Path(__file__).resolve().parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
+
 import pytest
 import os
 import sqlite3
-from pathlib import Path
 from unittest.mock import patch
 from core.onchain_gate import GateResult
 import config
 import agents.shared.python.db as db_module
 
-try:
-    from tests.helpers import SQLiteConnectionProxy, SQLiteCursorProxy
-except ImportError:
-    from helpers import SQLiteConnectionProxy, SQLiteCursorProxy
+from tests.helpers import SQLiteConnectionProxy, SQLiteCursorProxy
+
 
 @pytest.fixture(autouse=True)
 def disable_foreign_keys(monkeypatch):

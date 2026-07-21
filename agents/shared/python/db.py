@@ -1185,9 +1185,15 @@ def _init_db_impl(conn: sqlite3.Connection):
             target_steps INTEGER NOT NULL,
             current_step INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            resolved_at TIMESTAMP DEFAULT NULL
         )
     """)
+    try:
+        cursor.execute("ALTER TABLE compound_chains ADD COLUMN resolved_at TIMESTAMP DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS compound_chain_bets (
@@ -3719,10 +3725,16 @@ def add_bet_to_compound_chain(chain_id: int, step_index: int, opp_id: str, bet_p
 def update_compound_chain_status(chain_id: int, status: str, current_stake: float, current_step: int) -> None:
     try:
         with get_connection() as conn:
-            conn.execute(
-                "UPDATE compound_chains SET status = ?, current_stake = ?, current_step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (status, current_stake, current_step, chain_id)
-            )
+            if status in ('COMPLETED', 'FAILED'):
+                conn.execute(
+                    "UPDATE compound_chains SET status = ?, current_stake = ?, current_step = ?, updated_at = CURRENT_TIMESTAMP, resolved_at = COALESCE(resolved_at, CURRENT_TIMESTAMP) WHERE id = ?",
+                    (status, current_stake, current_step, chain_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE compound_chains SET status = ?, current_stake = ?, current_step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (status, current_stake, current_step, chain_id)
+                )
             conn.commit()
     except Exception as e:
         logger.error(f"[DB] Ошибка update_compound_chain_status: {e}")

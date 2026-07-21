@@ -76,21 +76,26 @@ def _load_signals_pnl(conn, stats):
     rows_pnl = conn.execute("""
         SELECT strategy_type,
                COUNT(*) as total,
-               SUM(CASE WHEN resolved_at >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as signals_24h,
-               SUM(CASE WHEN resolved_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as signals_7d,
-               SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as signals_30d,
+               SUM(CASE WHEN COALESCE(created_at, resolved_at) >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as signals_24h,
+               SUM(CASE WHEN COALESCE(created_at, resolved_at) >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as signals_7d,
+               SUM(CASE WHEN COALESCE(created_at, resolved_at) >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as signals_30d,
                
+               SUM(CASE WHEN status IN ('WIN', 'LOSS') AND resolved_at >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as resolved_24h,
+               SUM(CASE WHEN status IN ('WIN', 'LOSS') AND resolved_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as resolved_7d,
+               SUM(CASE WHEN status IN ('WIN', 'LOSS') AND resolved_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as resolved_30d,
+               SUM(CASE WHEN status IN ('WIN', 'LOSS') THEN 1 ELSE 0 END) as resolved_all,
+
                SUM(CASE WHEN status = 'WIN' THEN 1 ELSE 0 END) as wins_all,
                SUM(CASE WHEN status = 'WIN' AND resolved_at >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as wins_24h,
                SUM(CASE WHEN status = 'WIN' AND resolved_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as wins_7d,
                SUM(CASE WHEN status = 'WIN' AND resolved_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as wins_30d,
 
-               SUM(pnl_realized) as pnl_all,
-               SUM(CASE WHEN resolved_at >= datetime('now', '-24 hours') THEN pnl_realized ELSE 0 END) as pnl_24h,
-               SUM(CASE WHEN resolved_at >= datetime('now', '-7 days') THEN pnl_realized ELSE 0 END) as pnl_7d,
-               SUM(CASE WHEN resolved_at >= datetime('now', '-30 days') THEN pnl_realized ELSE 0 END) as pnl_30d
+               SUM(CASE WHEN status IN ('WIN', 'LOSS') THEN pnl_realized ELSE 0 END) as pnl_all,
+               SUM(CASE WHEN status IN ('WIN', 'LOSS') AND resolved_at >= datetime('now', '-24 hours') THEN pnl_realized ELSE 0 END) as pnl_24h,
+               SUM(CASE WHEN status IN ('WIN', 'LOSS') AND resolved_at >= datetime('now', '-7 days') THEN pnl_realized ELSE 0 END) as pnl_7d,
+               SUM(CASE WHEN status IN ('WIN', 'LOSS') AND resolved_at >= datetime('now', '-30 days') THEN pnl_realized ELSE 0 END) as pnl_30d
         FROM signals
-        WHERE status IN ('WIN', 'LOSS') AND strategy_type IS NOT NULL
+        WHERE strategy_type IS NOT NULL
         GROUP BY strategy_type
     """).fetchall()
     for r in rows_pnl:
@@ -99,127 +104,132 @@ def _load_signals_pnl(conn, stats):
             periods = stats[stype]['periods']
             periods['24h']['pnl'] = round(r['pnl_24h'] or 0.0, 2)
             periods['24h']['signals_count'] = r['signals_24h'] or 0
-            periods['24h']['win_rate'] = (r['wins_24h'] / r['signals_24h']) if r['signals_24h'] else None
+            periods['24h']['win_rate'] = (r['wins_24h'] / r['resolved_24h']) if r['resolved_24h'] else None
             
             periods['7d']['pnl'] = round(r['pnl_7d'] or 0.0, 2)
             periods['7d']['signals_count'] = r['signals_7d'] or 0
-            periods['7d']['win_rate'] = (r['wins_7d'] / r['signals_7d']) if r['signals_7d'] else None
+            periods['7d']['win_rate'] = (r['wins_7d'] / r['resolved_7d']) if r['resolved_7d'] else None
             
             periods['30d']['pnl'] = round(r['pnl_30d'] or 0.0, 2)
             periods['30d']['signals_count'] = r['signals_30d'] or 0
-            periods['30d']['win_rate'] = (r['wins_30d'] / r['signals_30d']) if r['signals_30d'] else None
+            periods['30d']['win_rate'] = (r['wins_30d'] / r['resolved_30d']) if r['resolved_30d'] else None
             
             periods['all']['pnl'] = round(r['pnl_all'] or 0.0, 2)
             existing_count = periods['all']['signals_count']
             periods['all']['signals_count'] = max(existing_count, r['total'] or 0)
-            periods['all']['win_rate'] = (r['wins_all'] / r['total']) if r['total'] else None
+            periods['all']['win_rate'] = (r['wins_all'] / r['resolved_all']) if r['resolved_all'] else None
 
 def _load_penny_stocks_stats(conn, stats, virtual_stake):
     """
     Внутренний хелпер для get_overview_stats. Должен вызываться только
     внутри одной транзакции (разделяя общее соединение conn).
     """
-    penny_rows = conn.execute("""
-        SELECT
-            p.predicted_outcome, p.actual_outcome, p.initial_price, p.resolved_at,
-            h.pnl_realized_points, h.bought_outcome_price, h.bet_size_usdc
-        FROM penny_stocks_monitoring p
-        LEFT JOIN (
-            SELECT market_id, 
-                   SUM(pnl_points) as pnl_realized_points, 
-                   AVG(bought_outcome_price) as bought_outcome_price,
-                   SUM(bet_size_usdc) as bet_size_usdc
-            FROM penny_virtual_trades_history
-            GROUP BY market_id
-        ) h ON p.market_id = h.market_id
-        WHERE p.status = 'RESOLVED' AND p.predicted_outcome IS NOT NULL
-    """).fetchall()
+    try:
+        penny_rows = conn.execute("""
+            SELECT
+                p.predicted_outcome, p.actual_outcome, p.initial_price, p.resolved_at,
+                h.pnl_realized_points, h.bought_outcome_price, h.bet_size_usdc
+            FROM penny_stocks_monitoring p
+            LEFT JOIN (
+                SELECT market_id, 
+                       SUM(pnl_points) as pnl_realized_points, 
+                       AVG(bought_outcome_price) as bought_outcome_price,
+                       SUM(bet_size_usdc) as bet_size_usdc
+                FROM penny_virtual_trades_history
+                GROUP BY market_id
+            ) h ON p.market_id = h.market_id
+            WHERE p.status = 'RESOLVED' AND p.predicted_outcome IS NOT NULL
+        """).fetchall()
 
-    total = len(penny_rows)
-    pnl_24h, pnl_7d, pnl_30d, pnl_all = 0.0, 0.0, 0.0, 0.0
-    wins_24h, wins_7d, wins_30d, wins_all = 0, 0, 0, 0
-    valid_24h, valid_7d, valid_30d, valid_all = 0, 0, 0, 0
-    
-    now = datetime.now(timezone.utc)
-    one_day_ago = now - timedelta(hours=24)
-    seven_days_ago = now - timedelta(days=7)
-    thirty_days_ago = now - timedelta(days=30)
-    
-    for r in penny_rows:
-        pred = r['predicted_outcome']
-        act = r['actual_outcome']
-        init_price = r['initial_price']
-        res_at_str = r['resolved_at']
-        pnl_realized_pts = r['pnl_realized_points']
-        bought_outcome_price = r['bought_outcome_price']
-        bet_size = r['bet_size_usdc']
+        total = len(penny_rows)
+        pnl_24h, pnl_7d, pnl_30d, pnl_all = 0.0, 0.0, 0.0, 0.0
+        wins_24h, wins_7d, wins_30d, wins_all = 0, 0, 0, 0
+        valid_24h, valid_7d, valid_30d, valid_all = 0, 0, 0, 0
         
-        if not pred or not act:
-            continue
+        now = datetime.now(timezone.utc)
+        one_day_ago = now - timedelta(hours=24)
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
         
-        try:
-            res_at = _parse_dt_utc(res_at_str)
-            if res_at is None:
-                continue
-        except Exception:
-            continue
-
-        pred_up = pred.upper()
-        act_up = act.upper()
-        is_win = (pred_up == act_up)
-        
-        valid_all += 1
-        if is_win: wins_all += 1
-        if res_at >= one_day_ago:
-            valid_24h += 1
-            if is_win: wins_24h += 1
-        if res_at >= seven_days_ago:
-            valid_7d += 1
-            if is_win: wins_7d += 1
-        if res_at >= thirty_days_ago:
-            valid_30d += 1
-            if is_win: wins_30d += 1
-        
-        pnl = 0.0
-        if pnl_realized_pts is not None and bought_outcome_price and 0.0 < bought_outcome_price < 1.0:
-            # Считаем по реальной сделке
-            bet_val = bet_size if bet_size else virtual_stake
-            gross = (bet_val / bought_outcome_price) * pnl_realized_pts
-            pnl = gross * 0.98 if gross > 0 else gross
-        elif init_price is not None:
-            # Считаем гипотетический
-            buy_price = init_price if pred_up == 'YES' else (1.0 - init_price)
-            if 0.001 < buy_price < 0.999:
-                if is_win:
-                    gross = (virtual_stake / buy_price) * (1.0 - buy_price)
-                    pnl = gross * 0.98
-                else:
-                    pnl = -virtual_stake
+        for r in penny_rows:
+            pred = r['predicted_outcome']
+            act = r['actual_outcome']
+            init_price = r['initial_price']
+            res_at_str = r['resolved_at']
+            pnl_realized_pts = r['pnl_realized_points']
+            bought_outcome_price = r['bought_outcome_price']
+            bet_size = r['bet_size_usdc']
             
-        pnl_all += pnl
-        if res_at >= one_day_ago:
-            pnl_24h += pnl
-        if res_at >= seven_days_ago:
-            pnl_7d += pnl
-        if res_at >= thirty_days_ago:
-            pnl_30d += pnl
+            if not pred or not act:
+                continue
+            
+            try:
+                res_at = _parse_dt_utc(res_at_str)
+                if res_at is None:
+                    continue
+            except Exception:
+                continue
 
-    periods = stats['penny_stocks']['periods']
-    periods['24h']['pnl'] = round(pnl_24h, 2)
-    periods['24h']['signals_count'] = valid_24h
-    periods['24h']['win_rate'] = (wins_24h / valid_24h) if valid_24h else None
+            pred_up = pred.upper()
+            act_up = act.upper()
+            is_win = (pred_up == act_up)
+            
+            valid_all += 1
+            if is_win: wins_all += 1
+            if res_at >= one_day_ago:
+                valid_24h += 1
+                if is_win: wins_24h += 1
+            if res_at >= seven_days_ago:
+                valid_7d += 1
+                if is_win: wins_7d += 1
+            if res_at >= thirty_days_ago:
+                valid_30d += 1
+                if is_win: wins_30d += 1
+            
+            pnl = 0.0
+            if pnl_realized_pts is not None and bought_outcome_price and 0.0 < bought_outcome_price < 1.0:
+                # Считаем по реальной сделке
+                bet_val = bet_size if bet_size else virtual_stake
+                gross = (bet_val / bought_outcome_price) * pnl_realized_pts
+                pnl = gross * 0.98 if gross > 0 else gross
+            elif init_price is not None:
+                # Считаем гипотетический
+                buy_price = init_price if pred_up == 'YES' else (1.0 - init_price)
+                if 0.001 < buy_price < 0.999:
+                    if is_win:
+                        gross = (virtual_stake / buy_price) * (1.0 - buy_price)
+                        pnl = gross * 0.98
+                    else:
+                        pnl = -virtual_stake
+                
+            pnl_all += pnl
+            if res_at >= one_day_ago:
+                pnl_24h += pnl
+            if res_at >= seven_days_ago:
+                pnl_7d += pnl
+            if res_at >= thirty_days_ago:
+                pnl_30d += pnl
 
-    periods['7d']['pnl'] = round(pnl_7d, 2)
-    periods['7d']['signals_count'] = valid_7d
-    periods['7d']['win_rate'] = (wins_7d / valid_7d) if valid_7d else None
+        periods = stats['penny_stocks']['periods']
+        periods['24h']['pnl'] = round(pnl_24h, 2)
+        periods['24h']['signals_count'] = valid_24h
+        periods['24h']['win_rate'] = (wins_24h / valid_24h) if valid_24h else None
 
-    periods['30d']['pnl'] = round(pnl_30d, 2)
-    periods['30d']['signals_count'] = valid_30d
-    periods['30d']['win_rate'] = (wins_30d / valid_30d) if valid_30d else None
+        periods['7d']['pnl'] = round(pnl_7d, 2)
+        periods['7d']['signals_count'] = valid_7d
+        periods['7d']['win_rate'] = (wins_7d / valid_7d) if valid_7d else None
 
-    periods['all']['pnl'] = round(pnl_all, 2)
-    periods['all']['signals_count'] = total
-    periods['all']['win_rate'] = (wins_all / valid_all) if valid_all else None
+        periods['30d']['pnl'] = round(pnl_30d, 2)
+        periods['30d']['signals_count'] = valid_30d
+        periods['30d']['win_rate'] = (wins_30d / valid_30d) if valid_30d else None
+
+        periods['all']['pnl'] = round(pnl_all, 2)
+        periods['all']['signals_count'] = total
+        periods['all']['win_rate'] = (wins_all / valid_all) if valid_all else None
+
+    except Exception as e:
+        logger.warning(f"[Overview] Ошибка при загрузке статистики penny_stocks: {e}", exc_info=True)
+
 
 def _load_whale_stats(conn, stats, virtual_stake):
     """
@@ -464,21 +474,21 @@ def _load_compounding_stats(conn, stats, virtual_stake):
         parlays_pnl = conn.execute("""
             SELECT
                 COUNT(*) as total,
-                SUM(CASE WHEN updated_at >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as signals_24h,
-                SUM(CASE WHEN updated_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as signals_7d,
-                SUM(CASE WHEN updated_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as signals_30d,
+                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as signals_24h,
+                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as signals_7d,
+                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as signals_30d,
                 SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as wins_all,
-                SUM(CASE WHEN status = 'COMPLETED' AND updated_at >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as wins_24h,
-                SUM(CASE WHEN status = 'COMPLETED' AND updated_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as wins_7d,
-                SUM(CASE WHEN status = 'COMPLETED' AND updated_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as wins_30d,
+                SUM(CASE WHEN status = 'COMPLETED' AND COALESCE(resolved_at, updated_at) >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as wins_24h,
+                SUM(CASE WHEN status = 'COMPLETED' AND COALESCE(resolved_at, updated_at) >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as wins_7d,
+                SUM(CASE WHEN status = 'COMPLETED' AND COALESCE(resolved_at, updated_at) >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as wins_30d,
                 SUM(CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END) as pnl_all,
-                SUM(CASE WHEN updated_at >= datetime('now', '-24 hours') THEN
+                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-24 hours') THEN
                     CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END
                     ELSE 0.0 END) as pnl_24h,
-                SUM(CASE WHEN updated_at >= datetime('now', '-7 days') THEN
+                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-7 days') THEN
                     CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END
                     ELSE 0.0 END) as pnl_7d,
-                SUM(CASE WHEN updated_at >= datetime('now', '-30 days') THEN
+                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-30 days') THEN
                     CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END
                     ELSE 0.0 END) as pnl_30d
                 FROM compound_chains
