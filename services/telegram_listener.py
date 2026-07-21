@@ -26,7 +26,6 @@ from services.notifications import send_telegram as send_telegram_notify
 
 from types import SimpleNamespace
 from core.engine import CoreEngine
-from agents.orchestrator.src.news_processor import NewsProcessor
 from core.arb_scanner import _PRICE_TAG_RE
 
 def clean_market_url(url: str) -> str:
@@ -698,58 +697,9 @@ async def _process_whale_channel_message(chat_name, text, entities, tg_post_url,
                 post_text=f"[{chat_name}] whale signal"
             )
 
-async def _process_news_channel_message(chat_name, text, entities, tg_post_url, news_processor, is_target_source):
-    if not is_target_source:
-        pm_url = None
-        if entities:
-            for ent in entities:
-                if hasattr(ent, 'url') and ent.url:
-                    if 'polymarket.com/event/' in ent.url or 'polymarket.com/market/' in ent.url:
-                        pm_url = clean_market_url(ent.url)
-                        break
-
-        if not pm_url:
-            pm_url_match = re.search(
-                r'https?://polymarket\.com/(?:event|market)/[a-zA-Z0-9_-]+', text
-            )
-            if pm_url_match:
-                pm_url = clean_market_url(pm_url_match.group(0))
-
-        if pm_url:
-            market_ids = await resolve_market_ids_from_url(pm_url, text)
-            if market_ids:
-                logger.info(f"[Listener] 🔗 Найден прямой URL рынка в сигнале из {chat_name}. Триггерим.")
-                await trigger_nexus_scan(
-                    market_ids[0],
-                    amount_usd=0.0,
-                    source=chat_name,
-                    market_url=pm_url,
-                    post_url=tg_post_url,
-                    post_text=f"[{chat_name}] news signal"
-                )
-            else:
-                logger.info(f"[Listener] ⚪️ Пост был в группе {chat_name}, но рынок с URL {pm_url} не определен (пропускаем).")
-            return
-
-        markets = news_processor.find_relevant_markets(text)
-        if markets:
-            logger.info(f"[Listener] 🟢 Найдено {len(markets)} рынков для новости. Триггерим первый.")
-            await trigger_nexus_scan(
-                markets[0].id,
-                amount_usd=0.0,
-                source=chat_name,
-                market_url=getattr(markets[0], 'url', ''),
-                post_url=tg_post_url,
-                post_text=f"[{chat_name}] news signal"
-            )
-        else:
-            logger.info(f"[Listener] ⚪️ Пост был в группе {chat_name}, но соответствующий рынок не определен (пропускаем).")
-
 async def handle_incoming_telegram_message(
     event,
     client,
-    news_processor,
-    target_sources,
     target_chat_id
 ):
     should_ignore, chat = await _should_ignore_message(event, target_chat_id)
@@ -771,16 +721,10 @@ async def handle_incoming_telegram_message(
     logger.info(f"[Listener] 🔗 source_url = {tg_post_url}")
     
     try:
-        is_target_source = _is_target_source_match(chat_name, chat.id, target_sources)
-        if is_target_source:
-            if "polymarketalerthub" in chat_name.lower():
-                logger.warning("[Listener] ⚠️ ВНИМАНИЕ: polymarketalerthub добавлен в target_sources! Это приведет к двойному анализу (глубокий API + быстрый Nexus).")
-            await _process_target_source_analysis(chat, msg_id, text, tg_post_url, chat_name)
-
         if chat_name.lower() in _WHALE_CHANNELS:
-            await _process_whale_channel_message(chat_name, text, event.message.entities, tg_post_url, is_target_source)
+            await _process_whale_channel_message(chat_name, text, event.message.entities, tg_post_url, False)
         else:
-            await _process_news_channel_message(chat_name, text, event.message.entities, tg_post_url, news_processor, is_target_source)
+            logger.info(f"[Listener] ⚪️ Сообщение из каналов без алертов китов ({chat_name}) игнорируется (новостной анализ отключен).")
                 
     except Exception as e:
         logger.error(f"[Listener] ❌ Ошибка при обработке сообщения: {e}\n{traceback.format_exc()}")
@@ -790,16 +734,14 @@ async def main():
         logger.error("[Listener] ❌ Telethon не установлен. Запустите: pip install telethon")
         return
         
-    # Проверяем наличие учетных данных в .env
     api_id = TG_API_ID
     api_hash = TG_API_HASH
     phone = TG_PHONE
     
     if not api_id or not api_hash:
         logger.info("="*60)
-        logger.info("ТАБЛИЦА НАСТНОЕК TELEGRAM USERBOT")
+        logger.info("ТАБЛИЦА НАСТРОЕК TELEGRAM USERBOT")
         logger.info("Для работы real-time слушателя вам нужны API ID и API Hash.")
-        logger.info("Их можно получить за 2 минуты на сайте: https://my.telegram.org")
         logger.info("="*60)
         
         loop = asyncio.get_running_loop()
@@ -811,14 +753,12 @@ async def main():
             logger.error("Ошибка: Настройки не введены. Работа завершена.")
             return
             
-        # Записываем в .env файл
         env_path = PROJECT_ROOT / ".env"
         lines = []
         if env_path.exists():
             with open(env_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
                 
-        # ... (прочие строки остаются) ...
         lines = [l for l in lines if not any(x in l for x in ["TG_API_ID", "TG_API_HASH", "TG_PHONE"])]
         
         lines.append(f"\nTG_API_ID={api_id_input}\n")
@@ -833,20 +773,9 @@ async def main():
         api_hash = api_hash_input
         phone = phone_input
         
-    # catch_up=False prevents PersistentTimestampOutdatedError loops
     client = TelegramClient(SESSION_PATH, int(api_id), api_hash, catch_up=False)
     
-    # Инициализация NewsProcessor для новостных каналов
-    news_processor = NewsProcessor(api_key=GOOGLE_API_KEY)
-    
     chats_to_listen = list(_WHALE_CHANNELS)
-    target_sources = []
-    if TELEGRAM_GROUP2_SOURCE and TELEGRAM_GROUP2_SOURCE != "group2_source":
-        target_sources = [s.strip().lower() for s in TELEGRAM_GROUP2_SOURCE.split(",")]
-        for s in target_sources:
-            if s not in chats_to_listen:
-                chats_to_listen.append(s.replace('@', ''))
-        
     TARGET_CHAT_ID = str(TELEGRAM_GROUP2_TARGET_ID) if TELEGRAM_GROUP2_TARGET_ID else None
 
     @client.on(events.NewMessage(chats=chats_to_listen))
@@ -854,21 +783,16 @@ async def main():
         await handle_incoming_telegram_message(
             event=event,
             client=client,
-            news_processor=news_processor,
-            target_sources=target_sources,
             target_chat_id=TARGET_CHAT_ID
         )
 
-    # Запуск клиента Telegram
     logger.info(f"[Listener] Подключение к Telegram (авторизация по телефону: {phone})...")
     await client.start(phone=lambda: phone)
-    logger.info("[Listener] 🎉 Успешно подключено! Слушатель канала @polymarketalerthub активен.")
+    logger.info("[Listener] 🎉 Успешно подключено! Мониторинг китов (Whale Alerts) активен.")
     
-    # Будем работать бесконечно
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
-    # Если запуск из обычной консоли
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

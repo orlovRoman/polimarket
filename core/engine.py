@@ -695,7 +695,7 @@ class CoreEngine:
         from agents.shared.python.db import (
             get_telegram_post_info, mark_telegram_post_status
         )
-        from agents.orchestrator.src.news_processor import NewsProcessor
+        # NewsProcessor removed
         from services.notifications import send_telegram_to_chat
 
         post_info = await asyncio.to_thread(get_telegram_post_info, post_id)
