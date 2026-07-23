@@ -856,7 +856,9 @@ async def start_system():
         if _shutdown_done:
             return
         _shutdown_done = True
-        logger.info("🚨 Получен сигнал завершения, запускаем отмену фоновых задач...")
+        import traceback
+        stack_str = "".join(traceback.format_stack())
+        logger.info(f"🚨 Получен сигнал завершения (args={args}), стек вызова:\n{stack_str}")
         import config
         config.shutdown_requested = True
         for task in [polling_task, api_task, watchlist_task, dashboard_task]:
