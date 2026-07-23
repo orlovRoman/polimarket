@@ -15,7 +15,19 @@ class AnalyzeRequest(BaseModel):
     source_message_id: int | None = None
     source_url: str | None = None
     source_text: str | None = None
-
+@app.get("/")
+def root_index():
+    return {
+        "status": "online",
+        "service": "Polymarket Nexus API",
+        "dashboard_url": ":8050",
+        "docs_url": "/docs",
+        "endpoints": {
+            "status": "/api/status",
+            "markets": "/api/markets",
+            "docs": "/docs"
+        }
+    }
 @app.get("/api/status")
 def get_status() -> Dict[str, Any]:
     return engine.get_status()
