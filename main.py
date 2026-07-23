@@ -1055,8 +1055,10 @@ async def start_system():
 
     try:
         import config
+        logger.info(f"🚀 Бот успешно запущен и готов к работе. shutdown_requested={getattr(config, 'shutdown_requested', False)}")
         while not getattr(config, "shutdown_requested", False):
             await asyncio.sleep(1)
+        logger.info("⚠️ Завершение главного цикла по флагу shutdown_requested=True")
     except Exception as e:
         logger.error(f"Критическая ошибка в главном цикле: {e}", exc_info=True)
     finally:
