@@ -256,13 +256,19 @@ def ensure_single_instance():
     _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # Позволяем быстрому повторному привязыванию порта при перезапуске
     _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        # Пытаемся занять фиксированный локальный порт эксклюзивно
-        _lock_socket.bind(("127.0.0.1", 61234))
-        _lock_socket.listen(0)
-    except OSError:
-        logger.error("[КРИТИЧЕСКАЯ ОШИБКА] Другая копия бота уже работает! Экстренное завершение...")
-        sys.exit(1)
+    for attempt in range(5):
+        try:
+            # Пытаемся занять фиксированный локальный порт эксклюзивно
+            _lock_socket.bind(("127.0.0.1", 61234))
+            _lock_socket.listen(0)
+            logger.info("🔒 Успешно захвачен порт 61234. Запуск разрешен.")
+            return
+        except OSError:
+            if attempt < 4:
+                time.sleep(1)
+            else:
+                logger.error("[КРИТИЧЕСКАЯ ОШИБКА] Другая копия бота уже работает! Экстренное завершение...")
+                sys.exit(1)
 
 async def scheduled_daily_evaluation():
     try:
