@@ -9,6 +9,7 @@ from aiohttp import web
 from web import data_provider
 import re
 from web.whale_config import WHALE_DASHBOARD_CONFIG
+from config import TELEGRAM_NOTIFICATIONS_ENABLED
 
 logger = logging.getLogger("NexusPolyBot.WebDashboard")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -703,7 +704,6 @@ async def api_discover_penny_stocks(request):
                 f"Обнаружено и добавлено в мониторинг: <b>{new_discovered}</b> новых рынков.\n"
                 f"<i>Запущен фоновый последовательный анализ агентами...</i>"
             )
-            from config import TELEGRAM_NOTIFICATIONS_ENABLED
             if TELEGRAM_NOTIFICATIONS_ENABLED:
                 try:
                     await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
@@ -866,7 +866,6 @@ async def background_whale_scan():
             f"• Крупные одиночные ставки: {len(bets)}\n"
             f"• Серии сделок: {len(series)}"
         )
-        from config import TELEGRAM_NOTIFICATIONS_ENABLED
         if TELEGRAM_NOTIFICATIONS_ENABLED:
             try:
                 await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)

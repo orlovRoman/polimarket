@@ -148,6 +148,11 @@ class FakeTemporalSignal:
     is_guaranteed_arbitrage = False
 
 
+# REMOVED: Тестовые классы TestCrossArbitrageDeserialization, TestTemporalCorridorFormat и TestCrossArbitrageFormat
+# были удалены в коммите 3256205 в связи с выводом из эксплуатации и полным удалением логики
+# синтетического и временного коридорного арбитража (функции format_temporal_corridor_alert, format_cross_arbitrage_alert
+# и send_cross_arbitrage_alerts были вырезаны из services/notifications.py).
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Баг #3 — mark_correlations_notified вызывается в finally
 # ──────────────────────────────────────────────────────────────────────────────
@@ -280,3 +285,25 @@ class TestCorrelationAlerts:
 
         mock_notify.assert_called_once()
         fake_db.mark_correlations_notified.assert_called_once_with([40])
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Проверка выключения Telegram уведомлений при TELEGRAM_NOTIFICATIONS_ENABLED=False
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestTelegramDisabled:
+
+    def test_send_telegram_disabled_returns_false(self, monkeypatch):
+        """Когда TELEGRAM_NOTIFICATIONS_ENABLED=False, send_telegram возвращает False без выполнения веб-запросов."""
+        import services.notifications as n
+        monkeypatch.setattr("config.TELEGRAM_NOTIFICATIONS_ENABLED", False)
+        result = n.send_telegram("test message")
+        assert result is False
+
+    def test_send_telegram_to_chat_disabled_returns_false(self, monkeypatch):
+        """Когда TELEGRAM_NOTIFICATIONS_ENABLED=False, send_telegram_to_chat возвращает False без выполнения веб-запросов."""
+        import services.notifications as n
+        monkeypatch.setattr("config.TELEGRAM_NOTIFICATIONS_ENABLED", False)
+        result = n.send_telegram_to_chat("test message", chat_id="12345")
+        assert result is False
+

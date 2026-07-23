@@ -15,7 +15,7 @@ from telegram.bot import dp, bot, init_nexus_agent, get_nexus_agent, AUTHORIZED_
 from agents.shared.python.db import save_memory, cleanup_expired_memory, cleanup_chat_history, cleanup_old_price_history, cleanup_old_episodes
 import uvicorn
 from core.api import app as fastapi_app
-from config import logger  # Единый логгер из config.py — не дублируем basicConfig
+from config import logger, TELEGRAM_NOTIFICATIONS_ENABLED  # Единый логгер и флаг уведомлений из config.py
 
 engine = CoreEngine()
 
@@ -991,7 +991,6 @@ async def start_system():
         misfire_grace_time=3600,
     )
 
-    from config import TELEGRAM_NOTIFICATIONS_ENABLED
     if TELEGRAM_NOTIFICATIONS_ENABLED:
         logger.info("🤖 Бот NEXUS запускается...")
         try:
@@ -1051,30 +1050,33 @@ async def start_system():
             signal.signal(sig, _request_shutdown)
 
     try:
-        done, _ = await asyncio.wait(
-            [polling_task, api_task, dashboard_task],
-            return_when=asyncio.FIRST_COMPLETED
-        )
-        for task in done:
-            try:
-                exc = task.exception()
-                if exc:
-                    logger.error(f"Задача завершилась с ошибкой: {exc}", exc_info=exc)
-                else:
-                    logger.info("Задача успешно завершилась.")
-            except asyncio.CancelledError:
-                logger.info("Задача была отменена.")
-                raise
+        main_tasks = [t for t in [polling_task, api_task, dashboard_task] if t is not None]
+        if main_tasks:
+            done, _ = await asyncio.wait(
+                main_tasks,
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                try:
+                    exc = task.exception()
+                    if exc:
+                        logger.error(f"Задача завершилась с ошибкой: {exc}", exc_info=exc)
+                    else:
+                        logger.info("Задача успешно завершилась.")
+                except asyncio.CancelledError:
+                    logger.info("Задача была отменена.")
+                    raise
     except Exception as e:
         logger.error(f"Критическая ошибка в главном цикле: {e}", exc_info=True)
     finally:
         logger.info("🔧 Graceful shutdown (finally): завершаем все фоновые задачи...")
         
-        # 1. Останавливаем polling бота
-        try:
-            await dp.stop_polling()
-        except Exception:
-            pass
+        # 1. Останавливаем polling бота если он был запущен
+        if TELEGRAM_NOTIFICATIONS_ENABLED:
+            try:
+                await dp.stop_polling()
+            except Exception:
+                pass
             
         # 2. Ждём текущие jobs планировщика max 15 сек
         try:
@@ -1099,18 +1101,21 @@ async def start_system():
                 pass
 
         # 3. Отменяем фоновые задачи
-        for task in [polling_task, api_task, watchlist_task, dashboard_task]:
-            if task and not task.done():
+        active_bg_tasks = [t for t in [polling_task, api_task, watchlist_task, dashboard_task] if t is not None]
+        for task in active_bg_tasks:
+            if not task.done():
                 task.cancel()
                 
         # 4. Ожидаем завершения отменённых задач
-        await asyncio.gather(polling_task, api_task, watchlist_task, dashboard_task, return_exceptions=True)
+        if active_bg_tasks:
+            await asyncio.gather(*active_bg_tasks, return_exceptions=True)
         
-        # 5. Закрываем сессию
-        try:
-            await bot.session.close()
-        except Exception:
-            pass
+        # 5. Закрываем сессию если включен Telegram
+        if TELEGRAM_NOTIFICATIONS_ENABLED:
+            try:
+                await bot.session.close()
+            except Exception:
+                pass
             
         # 6. Освобождаем сокет-лок
         global _lock_socket
