@@ -4,7 +4,7 @@
 Все отправки в Telegram идут только через этот модуль.
 """
 import requests
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, logger
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_NOTIFICATIONS_ENABLED, logger
 
 
 def _convert_reply_markup(reply_markup):
@@ -24,6 +24,9 @@ def _convert_reply_markup(reply_markup):
 
 def send_telegram(text: str, parse_mode: str = "HTML", reply_markup = None) -> bool:
     """Базовая отправка сообщения. Возвращает True при успехе."""
+    if not TELEGRAM_NOTIFICATIONS_ENABLED:
+        logger.debug("[Notifier] Уведомления Telegram отключены в конфигурации.")
+        return False
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.warning("[Notifier] TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID не задан.")
         return False
@@ -61,6 +64,9 @@ def send_telegram(text: str, parse_mode: str = "HTML", reply_markup = None) -> b
 
 def send_telegram_to_chat(text: str, chat_id: str, parse_mode: str = "HTML", reply_markup = None) -> bool:
     """Отправка сообщения в конкретный чат (используется для event-driven). Возвращает True при успехе."""
+    if not TELEGRAM_NOTIFICATIONS_ENABLED:
+        logger.debug("[Notifier] Уведомления Telegram отключены в конфигурации.")
+        return False
     if not TELEGRAM_BOT_TOKEN or not chat_id:
         logger.warning(f"[Notifier] TELEGRAM_BOT_TOKEN или chat_id ({chat_id}) не задан.")
         return False

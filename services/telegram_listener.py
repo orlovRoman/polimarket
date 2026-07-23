@@ -730,6 +730,11 @@ async def handle_incoming_telegram_message(
         logger.error(f"[Listener] ❌ Ошибка при обработке сообщения: {e}\n{traceback.format_exc()}")
 
 async def main():
+    from config import TELEGRAM_NOTIFICATIONS_ENABLED
+    if not TELEGRAM_NOTIFICATIONS_ENABLED:
+        logger.info("[Listener] Telegram интеграция отключена в конфигурации. Завершение работы слушателя.")
+        return
+
     if TelegramClient is None:
         logger.error("[Listener] ❌ Telethon не установлен. Запустите: pip install telethon")
         return

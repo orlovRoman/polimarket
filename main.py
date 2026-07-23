@@ -991,22 +991,30 @@ async def start_system():
         misfire_grace_time=3600,
     )
 
-    logger.info("🤖 Бот NEXUS запускается...")
-    try:
-        # Option A+: явная асинхронная инициализация NexusAgent ДО начала polling и планировщика
-        await init_nexus_agent()
-        from telegram.bot import set_commands
-        await set_commands(bot)
-        
-        # Запускаем фоновый мониторинг watchlist-рынков
-        from services.watchlist_monitor import run_watchlist_monitor
-        watchlist_task = asyncio.create_task(
-            run_watchlist_monitor(bot, AUTHORIZED_CHAT_ID)
-        )
-        logger.info("✅ Watchlist-монитор запущен.")
-    except Exception as e:
-        logger.error(f"Критическая ошибка инициализации бота/агента: {e}")
-        sys.exit(1)
+    from config import TELEGRAM_NOTIFICATIONS_ENABLED
+    if TELEGRAM_NOTIFICATIONS_ENABLED:
+        logger.info("🤖 Бот NEXUS запускается...")
+        try:
+            # Option A+: явная асинхронная инициализация NexusAgent ДО начала polling и планировщика
+            await init_nexus_agent()
+            from telegram.bot import set_commands
+            await set_commands(bot)
+            
+            # Запускаем фоновый мониторинг watchlist-рынков
+            from services.watchlist_monitor import run_watchlist_monitor
+            watchlist_task = asyncio.create_task(
+                run_watchlist_monitor(bot, AUTHORIZED_CHAT_ID)
+            )
+            logger.info("✅ Watchlist-монитор запущен.")
+        except Exception as e:
+            logger.error(f"Критическая ошибка инициализации бота/агента: {e}")
+            sys.exit(1)
+    else:
+        logger.info("ℹ️ Телеграм-интеграция отключена. Запуск в автономном режиме без бота и уведомлений.")
+        try:
+            await init_nexus_agent()
+        except Exception as e:
+            logger.warning(f"Ошибка при инициализации NexusAgent (автономный режим): {e}")
 
     logger.info("Планировщик настроен.")
     from agents.shared.python.db import is_system_paused
@@ -1029,7 +1037,10 @@ async def start_system():
     logger.info("Запуск дашборда...")
     dashboard_task = asyncio.create_task(start_dashboard())
 
-    polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
+    if TELEGRAM_NOTIFICATIONS_ENABLED:
+        polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
+    else:
+        polling_task = None
     
     # Устанавливаем обработчики сигналов в самом конце, чтобы переопределить обработчики Playwright/Uvicorn
     for sig in (signal.SIGTERM, signal.SIGINT):

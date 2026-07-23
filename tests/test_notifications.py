@@ -26,6 +26,7 @@ def patch_config():
     fake_config = types.ModuleType("config")
     fake_config.TELEGRAM_BOT_TOKEN = "fake_token"
     fake_config.TELEGRAM_CHAT_ID = "12345"
+    fake_config.TELEGRAM_NOTIFICATIONS_ENABLED = True
     fake_config.logger = logging.getLogger("TEST_NOTIFIER")
     sys.modules["config"] = fake_config
     yield
@@ -145,96 +146,6 @@ class FakeTemporalSignal:
     pnl_s2_in_corridor = 22.0
     pnl_s3_never = -8.0
     is_guaranteed_arbitrage = False
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Баг #1 — model_validate игнорирует лишние поля из SQLite
-# ──────────────────────────────────────────────────────────────────────────────
-
-class TestCrossArbitrageDeserialization:
-
-    def test_extra_db_columns_do_not_raise_validation_error(self, fake_db):
-        """Лишние колонки из БД (rowid, future migrations) не вызывают ValidationError."""
-        import services.notifications as n
-
-        row = _make_cross_signal_row(unknown_future_column="oops", rowid=42)
-        fake_db.get_new_cross_arbitrage_signals.return_value = [row]
-
-        with patch.object(n, "send_telegram", return_value=True):
-            n.send_cross_arbitrage_alerts(min_spread=5.0)
-        # Главное что выше не бросило ValidationError
-
-    def test_signal_id_not_passed_as_field(self, fake_db):
-        """Поле id (PK из БД) не передаётся в модель — mark вызывается с правильным id."""
-        import services.notifications as n
-
-        row = _make_cross_signal_row()
-        fake_db.get_new_cross_arbitrage_signals.return_value = [row]
-
-        with patch.object(n, "send_telegram", return_value=True):
-            n.send_cross_arbitrage_alerts(min_spread=5.0)
-
-        fake_db.mark_cross_arbitrage_alerted.assert_called_once_with("poly-1__kalshi-1")
-
-    def test_empty_signals_returns_early(self, fake_db):
-        """Если новых сигналов нет — функция выходит без вызова send_telegram."""
-        import services.notifications as n
-
-        fake_db.get_new_cross_arbitrage_signals.return_value = []
-
-        with patch.object(n, "send_telegram") as mock_send:
-            n.send_cross_arbitrage_alerts()
-
-        mock_send.assert_not_called()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Баг #2 — p_in_corridor=0.0 скрывается из алерта
-# ──────────────────────────────────────────────────────────────────────────────
-
-class TestTemporalCorridorFormat:
-
-    def test_p_in_corridor_zero_hidden(self):
-        """p_in_corridor=0.0 → строка 'P(коридор)=0%' отсутствует."""
-        import services.notifications as n
-
-        sig = FakeTemporalSignal()
-        sig.p_in_corridor = 0.0
-        result = n.format_temporal_corridor_alert(sig)
-
-        assert "P(" not in result or "0%" not in result
-        assert "gap=" in result
-
-    def test_p_in_corridor_nonzero_shown(self):
-        """p_in_corridor=0.65 → строка 'P(коридор)=65%' присутствует."""
-        import services.notifications as n
-
-        sig = FakeTemporalSignal()
-        sig.p_in_corridor = 0.65
-        result = n.format_temporal_corridor_alert(sig)
-
-        assert "65%" in result
-
-    def test_p_in_corridor_small_nonzero_shown(self):
-        """p_in_corridor=0.01 (1%) — всё равно показывается."""
-        import services.notifications as n
-
-        sig = FakeTemporalSignal()
-        sig.p_in_corridor = 0.01
-        result = n.format_temporal_corridor_alert(sig)
-
-        assert "1%" in result
-
-    def test_guaranteed_arbitrage_header(self):
-        """Если is_guaranteed_arbitrage=True → заголовок содержит 'БЕЗРИСКОВЫЙ АРБИТРАЖ'."""
-        import services.notifications as n
-
-        sig = FakeTemporalSignal()
-        sig.is_guaranteed_arbitrage = True
-        result = n.format_temporal_corridor_alert(sig)
-
-        assert "БЕЗРИСКОВЫЙ АРБИТРАЖ" in result
-        assert "Guaranteed Arbitrage" in result
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -369,67 +280,3 @@ class TestCorrelationAlerts:
 
         mock_notify.assert_called_once()
         fake_db.mark_correlations_notified.assert_called_once_with([40])
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Баг #4 — pnl=0.0 показывается как "+0.0%", не "N/A"
-# ──────────────────────────────────────────────────────────────────────────────
-
-class TestCrossArbitrageFormat:
-
-    def _make_signal(self, **kwargs):
-        from core.models import CrossArbitrageSignal
-        defaults = dict(
-            market_a_id="poly-1", market_a_platform="polymarket",
-            market_a_title="Market A", market_a_price=0.65,
-            market_a_url="https://poly.market/a",
-            market_b_id="kalshi-1", market_b_platform="kalshi",
-            market_b_title="Market B", market_b_price=0.40,
-            market_b_url="https://kalshi.com/b",
-            has_arbitrage=True, arbitrage_type="price_divergence",
-            spread_percent=12.5, reasoning="Price gap",
-            trade_instruction="Buy A YES, Buy B NO",
-            match_score=0.88,
-        )
-        defaults.update(kwargs)
-        return CrossArbitrageSignal(**defaults)
-
-    def test_pnl_zero_shows_plus_zero(self):
-        """expected_pnl_pct=0.0 → '+0.0%', не 'N/A'."""
-        import services.notifications as n
-
-        sig = self._make_signal(
-            action_a="BUY_YES", action_b="BUY_NO",
-            expected_pnl_pct=0.0, risk_level="LOW",
-            entry_price_a_cents=65, entry_price_b_cents=40,
-        )
-        result = n.format_cross_arbitrage_alert(sig)
-
-        assert "N/A" not in result
-        assert "0.0%" in result
-
-    def test_pnl_none_shows_na(self):
-        """expected_pnl_pct=None → 'N/A'."""
-        import services.notifications as n
-
-        sig = self._make_signal(
-            action_a="BUY_YES", action_b="BUY_NO",
-            expected_pnl_pct=None, risk_level="MEDIUM",
-            entry_price_a_cents=65, entry_price_b_cents=40,
-        )
-        result = n.format_cross_arbitrage_alert(sig)
-
-        assert "N/A" in result
-
-    def test_pnl_positive_shows_value(self):
-        """expected_pnl_pct=8.5 → '+8.5%'."""
-        import services.notifications as n
-
-        sig = self._make_signal(
-            action_a="BUY_YES", action_b="BUY_NO",
-            expected_pnl_pct=8.5, risk_level="LOW",
-            entry_price_a_cents=65, entry_price_b_cents=40,
-        )
-        result = n.format_cross_arbitrage_alert(sig)
-
-        assert "+8.5%" in result

@@ -703,10 +703,12 @@ async def api_discover_penny_stocks(request):
                 f"Обнаружено и добавлено в мониторинг: <b>{new_discovered}</b> новых рынков.\n"
                 f"<i>Запущен фоновый последовательный анализ агентами...</i>"
             )
-            try:
-                await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
-            except Exception as tg_err:
-                logger.error(f"Failed to send Telegram notification: {tg_err}")
+            from config import TELEGRAM_NOTIFICATIONS_ENABLED
+            if TELEGRAM_NOTIFICATIONS_ENABLED:
+                try:
+                    await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+                except Exception as tg_err:
+                    logger.error(f"Failed to send Telegram notification: {tg_err}")
                 
         return web.json_response({"status": "ok", "discovered": new_discovered})
         
@@ -864,10 +866,12 @@ async def background_whale_scan():
             f"• Крупные одиночные ставки: {len(bets)}\n"
             f"• Серии сделок: {len(series)}"
         )
-        try:
-            await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
-        except Exception as tg_err:
-            logger.error(f"Failed to send Telegram notification: {tg_err}")
+        from config import TELEGRAM_NOTIFICATIONS_ENABLED
+        if TELEGRAM_NOTIFICATIONS_ENABLED:
+            try:
+                await bot.send_message(AUTHORIZED_CHAT_ID, msg, parse_mode="HTML", disable_web_page_preview=True)
+            except Exception as tg_err:
+                logger.error(f"Failed to send Telegram notification: {tg_err}")
             
     except Exception as e:
         logger.exception("Error in background_whale_scan")

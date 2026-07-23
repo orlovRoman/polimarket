@@ -42,6 +42,9 @@ TG_API_ID = os.getenv("TG_API_ID", "")
 TG_API_HASH = os.getenv("TG_API_HASH", "")
 TG_PHONE = os.getenv("TG_PHONE", "")
 
+# Флаг включения/отключения интеграции и уведомлений в Telegram
+TELEGRAM_NOTIFICATIONS_ENABLED = os.getenv("TELEGRAM_NOTIFICATIONS_ENABLED", "false").lower() in ("true", "1", "yes")
+
 # Ключи бота и чата для уведомлений
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
@@ -197,12 +200,15 @@ def startup_check():
     missing = []
     if not GOOGLE_API_KEY:
         missing.append("GOOGLE_API_KEY")
-    if not TELEGRAM_BOT_TOKEN:
-        missing.append("TELEGRAM_BOT_TOKEN")
-    if not TELEGRAM_CHAT_ID:
-        missing.append("TELEGRAM_CHAT_ID")
-    if not TG_API_ID or not TG_API_HASH:
-        missing.append("TG_API_ID / TG_API_HASH (нужны для Telethon userbot)")
+    if TELEGRAM_NOTIFICATIONS_ENABLED:
+        if not TELEGRAM_BOT_TOKEN:
+            missing.append("TELEGRAM_BOT_TOKEN")
+        if not TELEGRAM_CHAT_ID:
+            missing.append("TELEGRAM_CHAT_ID")
+        if not TG_API_ID or not TG_API_HASH:
+            missing.append("TG_API_ID / TG_API_HASH (нужны для Telethon userbot)")
+    else:
+        logger.info("[Config] Интеграция с Telegram и отправка уведомлений ОТКЛЮЧЕНЫ.")
         
     if missing:
         raise RuntimeError(f"Отсутствуют обязательные переменные окружения: {', '.join(missing)}")
@@ -241,6 +247,7 @@ __all__ = [
     "PROJECT_ROOT", "VAULT_PATH", "DB_PATH", "MEMORY_FACTS_LIMIT",
     "MARKET_COOLDOWN_HOURS", "MARKET_OFFSET_MAX", "PRICE_RANGE_MIN", "PRICE_RANGE_MAX",
     "MIN_MARKET_VOLUME_USD", "SCAN_CATEGORIES", "TG_API_ID", "TG_API_HASH", "TG_PHONE",
+    "TELEGRAM_NOTIFICATIONS_ENABLED",
     "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_BOT_ID",
     "TELEGRAM_GROUP2_SOURCE", "TELEGRAM_GROUP2_TARGET_ID",
     "SCAN_LIMIT_DEFAULT", "MIN_EDGE_DEFAULT", "WHALE_ALERT_MIN_USD",
