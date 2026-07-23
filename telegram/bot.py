@@ -39,11 +39,12 @@ from agents.orchestrator.src.agent import NexusAgent
 # Загружаем переменные окружения
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_NOTIFICATIONS_ENABLED = os.getenv("TELEGRAM_NOTIFICATIONS_ENABLED", "false").lower() == "true"
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 LOG_PATH = Path(__file__).parent.parent / "logs" / "main.log"
 
-if not TELEGRAM_BOT_TOKEN:
+if TELEGRAM_NOTIFICATIONS_ENABLED and not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN не найден в .env файле!")
 
 # Инициализируем БД при старте
@@ -94,13 +95,13 @@ async def init_nexus_agent() -> None:
     log.info("✅ NexusAgent инициализирован успешно.")
 
 # Инициализируем бота и диспетчер событий aiogram
-bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)) if TELEGRAM_BOT_TOKEN else None
 dp = Dispatcher()
 
 # ID чата, авторизованного для управления ботом
 AUTHORIZED_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-if not AUTHORIZED_CHAT_ID:
+if TELEGRAM_NOTIFICATIONS_ENABLED and not AUTHORIZED_CHAT_ID:
     raise EnvironmentError(
         "CRITICAL: TELEGRAM_CHAT_ID не задан в .env!\n"
         "Без него бот доступен ЛЮБОМУ пользователю Telegram.\n"
