@@ -1050,22 +1050,9 @@ async def start_system():
             signal.signal(sig, _request_shutdown)
 
     try:
-        main_tasks = [t for t in [polling_task, api_task, dashboard_task] if t is not None]
-        if main_tasks:
-            done, _ = await asyncio.wait(
-                main_tasks,
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            for task in done:
-                try:
-                    exc = task.exception()
-                    if exc:
-                        logger.error(f"Задача завершилась с ошибкой: {exc}", exc_info=exc)
-                    else:
-                        logger.info("Задача успешно завершилась.")
-                except asyncio.CancelledError:
-                    logger.info("Задача была отменена.")
-                    raise
+        import config
+        while not getattr(config, "shutdown_requested", False):
+            await asyncio.sleep(1)
     except Exception as e:
         logger.error(f"Критическая ошибка в главном цикле: {e}", exc_info=True)
     finally:
