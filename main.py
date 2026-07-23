@@ -222,9 +222,8 @@ async def job_onchain_alerts():
 
 async def start_fastapi():
     """Запуск FastAPI сервера в фоне (через asyncio)"""
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info", handle_signals=False)
     server = uvicorn.Server(config)
-    server.install_signal_handlers = lambda: None  # отключаем перехват сигналов uvicorn'ом
     await server.serve()
 
 async def start_dashboard():
@@ -255,15 +254,11 @@ def ensure_single_instance():
     Это надежнее файловых локов (особенно на сетевых дисках CIFS/SMB)."""
     global _lock_socket
     _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # Позволяем быстрому повторному привязыванию порта
+    # Позволяем быстрому повторному привязыванию порта при перезапуске
     _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    # SO_REUSEPORT может отсутствовать в Windows, проверяем наличие
-    if hasattr(socket, "SO_REUSEPORT"):
-        _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     try:
-        # Пытаемся занять фиксированный локальный порт
+        # Пытаемся занять фиксированный локальный порт эксклюзивно
         _lock_socket.bind(("127.0.0.1", 61234))
-        # Захватываем порт эксклюзивно
         _lock_socket.listen(0)
     except OSError:
         logger.error("[КРИТИЧЕСКАЯ ОШИБКА] Другая копия бота уже работает! Экстренное завершение...")
