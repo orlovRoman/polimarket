@@ -198,10 +198,12 @@ SQLite database with WAL journal mode and 5000ms busy timeout. Thread-safe via c
 ## 8. Config and Environment
 **File:** `config.py` (121 lines)
 
-### Project structure:
+### Project structure & Server Environment:
+- `SERVER` = Debian GNU/Linux (`agent-gemini-cli-poly`)
+- `SWAP` = 2 GB `/swapfile` (chmod 600, activated via `swapon`, mounted in `/etc/fstab` with duplicate checks)
 - `PROJECT_ROOT` = directory containing config.py
 - `VAULT_PATH` = `vault/` (Obsidian + DB storage)
-- `DB_PATH` = `vault/database.sqlite`
+- `DB_PATH` = `vault/database.sqlite` (Compound Chains table dropped in v2.3 via `drop_compound_chains.sql`)
 - `.env` loaded via `python-dotenv`
 
 ### Key configuration groups:
