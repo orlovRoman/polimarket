@@ -639,37 +639,6 @@
             }).join('');
         }
     }
-                    } else if (chain.status === 'COMPLETED') {
-                         currentBetHtml = `<span class="text-muted">Цепочка завершена</span>`;
-                    }
-                }
-
-                let displayStep = chain.current_step;
-                if (chain.status === 'WAITING_RESOLUTION') {
-                    displayStep += 1;
-                }
-                
-                let stakeHtml = `$${chain.current_stake.toFixed(2)}`;
-                if (chain.status === 'FAILED') {
-                    stakeHtml = `<span style="color: var(--accent-red);">-$${chain.current_stake.toFixed(2)}</span>`;
-                } else if (chain.status === 'COMPLETED') {
-                    stakeHtml = `<span style="color: var(--accent-green);">+$${chain.current_stake.toFixed(2)}</span>`;
-                }
-
-                return `
-                    <tr>
-                        <td style="white-space: nowrap;"><b>#${chain.id}</b>${statusBadge}</td>
-                        <td>${historyHtml}</td>
-                        <td style="white-space: nowrap;">Шаг ${displayStep} / ${chain.target_steps}</td>
-                        <td style="white-space: nowrap;">${stakeHtml}</td>
-                        <td>${currentBetHtml}</td>
-                    </tr>
-                `;
-            }).join('');
-        }
-        chainsTbody.innerHTML = generateRows(activeChains, "Нет активных цепочек");
-        historyTbody.innerHTML = generateRows(historyChains, "Нет истории цепочек");
-    }
 
     function renderWinsTable(winsList) {
         const winsTbody = document.getElementById('wins-positions-tbody');
