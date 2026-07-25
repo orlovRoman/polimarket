@@ -249,8 +249,6 @@ async def start_dashboard():
         logger.info("Остановка дашборда...")
         await runner.cleanup()
 
-import socket
-
 _lock_socket = None
 
 def ensure_single_instance():
@@ -298,11 +296,9 @@ async def scheduled_calibration():
         from agents.orchestrator.scripts.calibrate import run_calibration
         report, has_updates = await run_calibration(trigger_type="scheduled")
         if has_updates:
-            from telegram.bot import bot
-            from config import AUTHORIZED_CHAT_ID
-            import asyncio
+            from telegram.bot import bot, AUTHORIZED_CHAT_ID
             msg = f"🔍 <b>Калибровка завершена</b>\n\nNEXUS предложил новые обновления промптов.\nЗайдите в Дашборд -> Calibration (NEXUS), чтобы рассмотреть их."
-            await asyncio.to_thread(bot.send_message, chat_id=AUTHORIZED_CHAT_ID, text=msg, parse_mode="HTML")
+            await bot.send_message(chat_id=AUTHORIZED_CHAT_ID, text=msg, parse_mode="HTML")
         logger.info("<<< Автоматическая калибровка агентов завершена.")
     except Exception as e:
         logger.error(f"Ошибка во время автоматической калибровки: {e}", exc_info=True)
@@ -502,9 +498,10 @@ async def scheduled_whale_discovery():
         system_started_at = get_memory("system_started_at", None)
         if recent_tx_count == 0 and system_started_at:
             import datetime
+            from datetime import timezone
             try:
                 started = datetime.datetime.fromisoformat(system_started_at)
-                uptime_hours = (datetime.datetime.utcnow() - started).total_seconds() / 3600
+                uptime_hours = (datetime.datetime.now(timezone.utc) - started.replace(tzinfo=timezone.utc)).total_seconds() / 3600
                 if uptime_hours > 24:
                     logger.warning("⚠️ Источник данных о китах (Telegram Listener) не получил ни одной сделки за 24ч аптайма. Поиск китов пропущен.")
                     return

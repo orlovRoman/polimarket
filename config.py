@@ -180,6 +180,9 @@ def get_report_logger():
         report_log.propagate = False
     return report_log
 
+import logging
+_cfg_logger = logging.getLogger("NexusPolyBot.Config")
+
 _logger_instance = None
 
 # PEP 562 lazy loading for llm_health_gate and logger
@@ -192,9 +195,6 @@ def __getattr__(name):
             _logger_instance = setup_logger()
         return _logger_instance
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-import logging
-_cfg_logger = logging.getLogger("NexusPolyBot.Config")
 
 def startup_check():
     """
@@ -260,6 +260,7 @@ __all__ = [
     "ARB_MIN_SPREAD_ALERT", "ARB_MAX_DAYS_DIFF", "ARB_MIN_SPREAD_PCT", "MAX_SCREENING_MARKETS",
     "CORRIDOR_BUDGET_PER_TRADE", "POLY_EVENTS_CACHE_TTL_SECONDS",
     "GOOGLE_API_KEY", "GOOGLE_API_KEY_SECONDARY", "GOOGLE_API_KEY_THIRD",
-    "LOCK_FILE", "LOCK_TIMEOUT_SEC", "SCREENING_INTERVAL_SEC",
+    "CEREBRAS_API_KEY", "CEREBRAS_API_KEY_SECONDARY", "CEREBRAS_API_KEY_THIRD",
+    "LOCK_TIMEOUT_SEC", "SCREENING_INTERVAL_SEC",
     "get_llm_health_gate", "setup_logger", "startup_check", "shutdown_requested"
 ]
