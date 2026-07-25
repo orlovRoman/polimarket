@@ -193,6 +193,9 @@ def __getattr__(name):
         return _logger_instance
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
+import logging
+_cfg_logger = logging.getLogger("NexusPolyBot.Config")
+
 def startup_check():
     """
     Валидация окружения перед стартом приложения.
@@ -208,7 +211,7 @@ def startup_check():
         if not TG_API_ID or not TG_API_HASH:
             missing.append("TG_API_ID / TG_API_HASH (нужны для Telethon userbot)")
     else:
-        print("[Config] Интеграция с Telegram и отправка уведомлений ОТКЛЮЧЕНЫ.")
+        _cfg_logger.info("Интеграция с Telegram и отправка уведомлений ОТКЛЮЧЕНЫ.")
         
     if missing:
         raise RuntimeError(f"Отсутствуют обязательные переменные окружения: {', '.join(missing)}")
@@ -235,7 +238,7 @@ def startup_check():
             if key_name == "GOOGLE_API_KEY":
                 raise RuntimeError(f"Первичный GOOGLE_API_KEY недействителен, истек или недоступен: {err_msg}")
             else:
-                print(f"⚠️ {key_name} недействителен или недоступен: {err_msg}")
+                _cfg_logger.warning(f"{key_name} недействителен или недоступен: {err_msg}")
         
     # Убеждаемся, что системные папки существуют
     VAULT_PATH.mkdir(parents=True, exist_ok=True)

@@ -50,6 +50,15 @@ import logging
 
 logger = logging.getLogger("NexusPolyBot.DB")
 
+COMPOUND_DEFAULTS = {
+    "min_price": "0.95",
+    "min_volume": "500",
+    "max_hours": "336",
+    "virtual_stake": "50",
+    "enabled": "1",
+    "min_confidence": "0.35"
+}
+
 from agents.shared.python.utils import _parse_dt_utc
 
 _thread_local = threading.local()

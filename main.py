@@ -221,11 +221,14 @@ async def job_onchain_alerts():
     except Exception as e:
         logger.error(f"Ошибка при сканировании ончейн-всплесков: {e}", exc_info=True)
 
+_uvicorn_server = None
+
 async def start_fastapi():
     """Запуск FastAPI сервера в фоне (через asyncio)"""
+    global _uvicorn_server
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info", handle_signals=False)
-    server = uvicorn.Server(config)
-    await server.serve()
+    _uvicorn_server = uvicorn.Server(config)
+    await _uvicorn_server.serve()
 
 async def start_dashboard():
     """Запуск aiohttp сервера дашборда в фоне"""
@@ -253,10 +256,15 @@ _lock_socket = None
 def ensure_single_instance():
     """Гарантирует, что запущена только одна копия бота через привязку к уникальному порту.
     Это надежнее файловых локов (особенно на сетевых дисках CIFS/SMB)."""
+    import struct
     global _lock_socket
     _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # Позволяем быстрому повторному привязыванию порта при перезапуске
     _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # Немедленно освобождать порт при close()
+    _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+    if hasattr(socket, "SO_REUSEPORT"):
+        _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     for attempt in range(5):
         try:
             # Пытаемся занять фиксированный локальный порт эксклюзивно
@@ -861,6 +869,8 @@ async def start_system():
         logger.info(f"🚨 Получен сигнал завершения (args={args}), стек вызова:\n{stack_str}")
         import config
         config.shutdown_requested = True
+        if _uvicorn_server:
+            _uvicorn_server.should_exit = True
         for task in [polling_task, api_task, watchlist_task, dashboard_task]:
             if task and not task.done():
                 task.cancel()
