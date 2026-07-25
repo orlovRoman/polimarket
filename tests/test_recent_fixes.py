@@ -123,10 +123,6 @@ class TestNormalizeStrategyName:
         from web.data_provider import normalize_strategy_name
         assert normalize_strategy_name(None) == ""
 
-    def test_compound_parlays_passthrough(self):
-        from web.data_provider import normalize_strategy_name
-        assert normalize_strategy_name("compound_parlays") == "compound_parlays"
-
     @pytest.mark.parametrize("raw,expected", [
         ("synthetic_corridor", "synthetic_corridor"),
         ("temporal_corridor",  "temporal_corridor"),
@@ -283,37 +279,6 @@ class TestSQLiteConnectionProxy:
         real_conn.close()
 
 
-# ──────────────────────────────────────────────────────────────
-# Баг 5: compound_parlays pnl не перезаписывается нулём из signals
-# ──────────────────────────────────────────────────────────────
-class TestCompoundParlaysPnlNotOverwritten:
-    def test_parlays_pnl_preserved_when_signals_empty(self, db):
-        """Если в signals нет compound_parlays — pnl из compound_chains не обнуляется."""
-        now = datetime.now(timezone.utc)
-        # В compound_chains есть данные
-        db.executemany(
-            "INSERT INTO compound_chains (id, status, initial_stake, current_stake, updated_at) VALUES (?,?,?,?,?)",
-            [
-                (1, "COMPLETED", 10.0, 18.0,
-                 (now - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")),
-                (2, "FAILED",    10.0, 0.0,
-                 (now - timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S")),
-            ]
-        )
-        # В signals — ничего про compound_parlays
-        db.commit()
-
-        from web.data_provider import get_overview_stats
-        with patch("agents.shared.python.db.get_connection") as mock_gc:
-            mock_gc.return_value.__enter__ = lambda s: db
-            mock_gc.return_value.__exit__ = MagicMock(return_value=False)
-            stats = get_overview_stats()
-
-        # pnl_7d должен быть (18-10) + (-10) = -2, а не 0
-        assert stats.get("compound_parlays", {}).get("periods", {}).get("7d", {}).get("pnl", 0) != 0 or \
-               stats.get("compound_parlays", {}).get("periods", {}).get("30d", {}).get("pnl", 0) != 0, \
-               "compound_parlays pnl был перезаписан нулём из пустого signals"
-
 
 # ──────────────────────────────────────────────────────────────
 # Интеграционный: overview возвращает корректную структуру
@@ -321,7 +286,7 @@ class TestCompoundParlaysPnlNotOverwritten:
 class TestOverviewStatsStructure:
     EXPECTED_STRATEGIES = [
         'scout', 'whale', 'penny_stocks',
-        'favourite_compounding', 'compound_parlays'
+        'favourite_compounding'
     ]
 
     def test_all_strategies_present(self, db):
@@ -387,25 +352,4 @@ class TestRecentBugFixes:
             stats = get_overview_stats()
 
         assert stats["penny_stocks"]["periods"]["24h"]["signals_count"] == 0
-
-    def test_compound_chains_resolved_at_filtering(self, db):
-        """Завершённая 60 дней назад цепочка не попадает в 7d PnL, даже если updated_at свежий."""
-        now = datetime.now(timezone.utc)
-        old_res = (now - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
-        fresh_upd = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-
-        db.execute(
-            "INSERT INTO compound_chains (id, status, initial_stake, current_stake, updated_at, resolved_at) VALUES (?,?,?,?,?,?)",
-            (1, "COMPLETED", 10.0, 20.0, fresh_upd, old_res)
-        )
-        db.commit()
-
-        from web.data_provider import get_overview_stats
-        with patch("agents.shared.python.db.get_connection") as mock_gc:
-            mock_gc.return_value.__enter__ = lambda s: db
-            mock_gc.return_value.__exit__ = MagicMock(return_value=False)
-            stats = get_overview_stats()
-
-        assert stats["compound_parlays"]["periods"]["7d"]["pnl"] == 0.0
-        assert stats["compound_parlays"]["periods"]["all"]["pnl"] == 10.0
 

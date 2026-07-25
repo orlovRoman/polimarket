@@ -133,7 +133,6 @@ ALLOWED_TOGGLE_KEYS = {
     "strategy_whale_enabled",
     "strategy_penny_stocks_enabled",
     "strategy_favourite_compounding_enabled",
-    "strategy_compound_parlays_enabled",
     "process_memory_archive_enabled",
     "process_evaluation_enabled",
     "process_wallet_recalculation_enabled",
@@ -1304,18 +1303,6 @@ async def api_save_compound_settings(request):
             try:
                 val = float(v)
                 if 0.0 <= val <= 1.0:
-                    save_compound_setting(k, str(val))
-            except ValueError: pass
-        elif k == "max_concurrent_chains":
-            try:
-                val = int(v)
-                if val >= 1:
-                    save_compound_setting(k, str(val))
-            except ValueError: pass
-        elif k == "chain_length":
-            try:
-                val = int(v)
-                if val >= 2:
                     save_compound_setting(k, str(val))
             except ValueError: pass
         elif k == "enabled":

@@ -38,7 +38,6 @@
 <div class="opinion-tabs" style="margin-bottom: 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 12px; display: flex; gap: 8px;">
     <button id="compound-tab-auto" class="opinion-tab-btn active" onclick="switchCompoundTab('auto')">🤖 Авто-сигналы агентов</button>
     <button id="compound-tab-wins" class="opinion-tab-btn" onclick="switchCompoundTab('wins')">🟢 Выигранные рынки</button>
-    <button id="compound-tab-chains" class="opinion-tab-btn" onclick="switchCompoundTab('chains')">🔗 Авто-цепочки (Parlays)</button>
     <button id="compound-tab-manual" class="opinion-tab-btn" onclick="switchCompoundTab('manual')">💼 Открытые позиции (Портфель)</button>
     <button id="compound-tab-losses" class="opinion-tab-btn" onclick="switchCompoundTab('losses')">🔴 Проигранные рынки</button>
     <button class="opinion-tab-btn" style="margin-left: auto; background: var(--surface-light);" onclick="toggleCompoundSettings()">⚙️ Настройки стратегии</button>
@@ -67,14 +66,7 @@
             <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Базовая уверенность LLM (0.0 - 1.0)</label>
             <input type="number" id="setting-min-confidence" step="0.05" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
         </div>
-        <div>
-            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Макс. одновременных цепочек</label>
-            <input type="number" id="setting-max-concurrent-chains" step="1" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
-        </div>
-        <div>
-            <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary);">Длина цепочки (шаги)</label>
-            <input type="number" id="setting-chain-length" step="1" min="2" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
-        </div>
+
         <div style="display: flex; align-items: flex-end;">
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-secondary); font-size: 0.9rem;">
                 <input type="checkbox" id="setting-enabled" style="width: 16px; height: 16px;">
@@ -199,50 +191,6 @@
     <div id="active-pagination"></div>
 </div>
 
-<div id="chains-card" class="table-card" style="display: none;">
-    <div class="table-title">🔗 Активные цепочки (Parlays)</div>
-    <div class="table-wrapper">
-        <table>
-            <thead>
-                <tr>
-                    <th>ID Цепочки</th>
-                    <th>История шагов</th>
-                    <th>Прогресс</th>
-                    <th>Текущий стейк</th>
-                    <th>Текущий рынок</th>
-                </tr>
-            </thead>
-            <tbody id="chains-tbody">
-                <tr>
-                    <td colspan="5" style="text-align: center;" class="text-muted">Загрузка данных...</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<div id="chains-history-card" class="table-card" style="display: none;">
-    <div class="table-title">🔗 История цепочек (Завершенные и Прерванные)</div>
-    <div class="table-wrapper">
-        <table>
-            <thead>
-                <tr>
-                    <th>ID Цепочки</th>
-                    <th>История шагов</th>
-                    <th>Прогресс</th>
-                    <th>Текущий стейк</th>
-                    <th>Статус</th>
-                </tr>
-            </thead>
-            <tbody id="chains-history-tbody">
-                <tr>
-                    <td colspan="5" style="text-align: center;" class="text-muted">Загрузка данных...</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
 <div id="resolved-card" class="table-card">
     <div class="table-title">Завершенные compound-рынки (Авто-сигналы)</div>
     <div class="table-wrapper">
@@ -330,73 +278,6 @@
         history: { page: 1, limit: 50, total: 0 }
     };
     
-    async function toggleCompoundSettings() {
-        const panel = document.getElementById('compound-settings-panel');
-        if (panel.style.display === 'none') {
-            panel.style.display = 'block';
-            await loadCompoundSettings();
-        } else {
-            panel.style.display = 'none';
-        }
-    }
-    
-    async function loadCompoundSettings() {
-        try {
-            const data = await fetchJSON('/api/compound-settings');
-            if (data) {
-                document.getElementById('setting-min-price').value = data.min_price;
-                document.getElementById('setting-min-volume').value = data.min_volume;
-                document.getElementById('setting-max-hours').value = data.max_hours;
-                document.getElementById('setting-virtual-stake').value = data.virtual_stake;
-                document.getElementById('setting-min-confidence').value = data.min_confidence;
-                document.getElementById('setting-max-concurrent-chains').value = data.max_concurrent_chains || 3;
-                document.getElementById('setting-chain-length').value = data.chain_length || 3;
-                document.getElementById('setting-enabled').checked = data.enabled === 1;
-            }
-        } catch (e) {
-            console.error("Ошибка загрузки настроек", e);
-        }
-    }
-    
-    async function saveCompoundSettings() {
-        const toFloat = (id) => {
-            const v = Number.parseFloat(document.getElementById(id).value);
-            return isNaN(v) ? null : v;
-        };
-        
-        const toInt = (id) => {
-            const v = parseInt(document.getElementById(id).value, 10);
-            return isNaN(v) ? null : v;
-        };
-
-        const payload = {
-            min_price: toFloat('setting-min-price'),
-            min_volume: toFloat('setting-min-volume'),
-            max_hours: toInt('setting-max-hours'),
-            virtual_stake: toInt('setting-virtual-stake'),
-            min_confidence: toFloat('setting-min-confidence'),
-            max_concurrent_chains: toInt('setting-max-concurrent-chains'),
-            chain_length: toInt('setting-chain-length'),
-            enabled: document.getElementById('setting-enabled').checked ? 1 : 0
-        };
-        
-        try {
-            const res = await fetch('/api/compound-settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (res.ok) {
-                alert("Настройки успешно сохранены!");
-                document.getElementById('compound-settings-panel').style.display = 'none';
-            } else {
-                alert("Ошибка сохранения настроек");
-            }
-        } catch (e) {
-            console.error("Ошибка сохранения:", e);
-        }
-    }
-
     function formatDate(dateStr) {
         if (!dateStr) return "—";
         try {
@@ -488,13 +369,10 @@
         document.getElementById('compound-tab-wins').classList.toggle('active', tab === 'wins');
         document.getElementById('compound-tab-manual').classList.toggle('active', tab === 'manual');
         document.getElementById('compound-tab-losses').classList.toggle('active', tab === 'losses');
-        document.getElementById('compound-tab-chains').classList.toggle('active', tab === 'chains');
         
         document.getElementById('top-grid').style.display = 'none';
         document.getElementById('active-card').style.display = 'none';
         document.getElementById('resolved-card').style.display = 'none';
-        document.getElementById('chains-card').style.display = 'none';
-        document.getElementById('chains-history-card').style.display = 'none';
         document.getElementById('history-card').style.display = 'none';
         document.getElementById('losses-card').style.display = 'none';
         
@@ -504,9 +382,6 @@
             document.getElementById('resolved-card').style.display = 'block';
         } else if (tab === 'losses') {
             document.getElementById('losses-card').style.display = 'block';
-        } else if (tab === 'chains') {
-            document.getElementById('chains-card').style.display = 'block';
-            document.getElementById('chains-history-card').style.display = 'block';
         } else {
             document.getElementById('top-grid').style.display = 'grid';
             document.getElementById('active-card').style.display = 'block';
@@ -571,65 +446,6 @@
             kpiAvgPnL.innerHTML = formatPnLUSD(currentStats.avg_pnl);
             kpiTotalPnLTitle.textContent = "Общий PnL сигналов";
             kpiTotalPnL.innerHTML = formatPnLUSD(currentStats.total_resolved_pnl);
-
-            document.getElementById('kpi-wins-count-card').style.display = 'block';
-            document.getElementById('kpi-losses-count-card').style.display = 'block';
-            document.getElementById('kpi-wins-count-title').textContent = "Выиграно ($)";
-            document.getElementById('kpi-wins-count').innerHTML = formatPnLUSD(currentStats.sum_won || 0);
-
-            document.getElementById('kpi-losses-count-title').textContent = "Проиграно ($)";
-            document.getElementById('kpi-losses-count').innerHTML = formatPnLUSD(-(currentStats.sum_lost || 0));
-
-        } else if (currentTab === 'chains') {
-            document.getElementById('kpi-wins-count-card').style.display = 'none';
-            document.getElementById('kpi-losses-count-card').style.display = 'none';
-
-            kpiActiveTitle.textContent = "Активных цепочек";
-            let activeChains = 0;
-            let resolvedChains = 0;
-            let wins = 0;
-            let losses = 0;
-            let totalPnL = 0;
-            if (data.chains) {
-                activeChains = data.chains.filter(c => ['NEW', 'WAITING_NEXT', 'WAITING_RESOLUTION'].includes(c.status)).length;
-                const completedChains = data.chains.filter(c => c.status === 'COMPLETED');
-                const failedChains = data.chains.filter(c => c.status === 'FAILED');
-                wins = completedChains.length;
-                losses = failedChains.length;
-                resolvedChains = wins + losses;
-                completedChains.forEach(c => {
-                    totalPnL += (Number.parseFloat(c.current_stake) || 0) - (Number.parseFloat(c.initial_stake) || 0);
-                });
-                failedChains.forEach(c => {
-                    totalPnL -= (Number.parseFloat(c.initial_stake) || 0);
-                });
-            }
-            kpiActive.textContent = activeChains;
-            kpiResolvedTitle.textContent = "Цепочек завершено";
-            kpiResolvedCount.textContent = resolvedChains;
-            
-            const wr = resolvedChains > 0 ? (wins / resolvedChains) : null;
-            kpiWinrate.textContent = wr === null ? "—" : `${(wr * 100).toFixed(1)}%`;
-            document.getElementById('kpi-avg-entry-title').textContent = "Общий портфель";
-            
-            let totalPortfolio = 0;
-            if (data.chains) {
-                data.chains.filter(c => ['NEW', 'WAITING_NEXT', 'WAITING_RESOLUTION'].includes(c.status)).forEach(c => {
-                    totalPortfolio += (Number.parseFloat(c.current_stake) || 0);
-                });
-            }
-            kpiAvgEntry.innerHTML = formatPnLUSD(totalPortfolio).replace('+', '');
-            kpiAvgEntry.style.color = "var(--text-primary)";
-            
-            kpiBestTrade.innerHTML = "—";
-            kpiAvgPnLTitle.textContent = "Ср. PnL";
-            const avgPnL = resolvedChains > 0 ? (totalPnL / resolvedChains) : 0;
-            kpiAvgPnL.innerHTML = formatPnLUSD(avgPnL);
-            kpiTotalPnLTitle.textContent = "Общий PnL";
-            kpiTotalPnL.innerHTML = formatPnLUSD(totalPnL);
-
-            document.getElementById('kpi-wins-count-card').style.display = 'none';
-            document.getElementById('kpi-losses-count-card').style.display = 'none';
         } else {
             let currentManualStats = data.manual_stats;
             if (currentPeriod === '24h' && data.manual_stats_24h) {
@@ -653,14 +469,6 @@
             kpiAvgPnL.innerHTML = formatPnLUSD(currentManualStats.avg_pnl);
             kpiTotalPnLTitle.textContent = "Общий PnL сделок";
             kpiTotalPnL.innerHTML = formatPnLUSD(currentManualStats.total_trades_pnl);
-
-            document.getElementById('kpi-wins-count-card').style.display = 'block';
-            document.getElementById('kpi-losses-count-card').style.display = 'block';
-            document.getElementById('kpi-wins-count-title').textContent = "Выиграно ($)";
-            document.getElementById('kpi-wins-count').innerHTML = formatPnLUSD(currentManualStats.sum_won || 0);
-
-            document.getElementById('kpi-losses-count-title').textContent = "Проиграно ($)";
-            document.getElementById('kpi-losses-count').innerHTML = formatPnLUSD(-(currentManualStats.sum_lost || 0));
         }
     }
 
@@ -751,10 +559,7 @@
         let activeData = Array.isArray(lastFetchedData.active) ? [...lastFetchedData.active] : [];
         sortDataArray(activeData, sortState.active.col, sortState.active.dir);
         renderActiveTable(activeData);
-        
-        if (Array.isArray(lastFetchedData.chains)) {
-            renderChainsTables(lastFetchedData.chains);
-        }
+
         
         let winsData = Array.isArray(lastFetchedData.resolved_wins) ? [...lastFetchedData.resolved_wins] : [];
         winsData = winsData.filter(r => r && r.actual_outcome === r.outcome);
@@ -834,108 +639,6 @@
             }).join('');
         }
     }
-    function getBetResult(bet, currentStake) {
-        let html = '';
-        let newStake = currentStake;
-        if (bet.status === 'WON') {
-            const payout = (bet.payout != null && !isNaN(bet.payout)) ? bet.payout : currentStake;
-            const pnl = payout - currentStake;
-            html = pnl !== 0 ? `<span style="color: var(--accent-green);">+$${pnl.toFixed(2)}</span>` : '';
-            newStake = payout;
-        } else if (bet.status === 'LOST') {
-            html = `<span style="color: var(--accent-red);">-$${currentStake.toFixed(2)}</span>`;
-            newStake = 0;
-        } else if (bet.status === 'REFUNDED') {
-            html = `<span style="color: var(--text-secondary);">Возврат ($${currentStake.toFixed(2)})</span>`;
-        }
-        return { html, newStake };
-    }
-
-    function renderChainsTables(chains) {
-        const chainsTbody = document.getElementById('chains-tbody');
-        const historyTbody = document.getElementById('chains-history-tbody');
-        
-        if (!chains || chains.length === 0) {
-            chainsTbody.innerHTML = `<tr><td colspan="5" style="text-align: center;" class="text-muted">Нет активных цепочек</td></tr>`;
-            historyTbody.innerHTML = `<tr><td colspan="5" style="text-align: center;" class="text-muted">Нет истории цепочек</td></tr>`;
-            return;
-        }
-
-        const activeChains = chains.filter(c => ['NEW', 'WAITING_NEXT', 'WAITING_RESOLUTION'].includes(c.status));
-        const historyChains = chains.filter(c => ['COMPLETED', 'FAILED'].includes(c.status));
-
-        function generateRows(chainList, emptyMsg) {
-            if (chainList.length === 0) {
-                return `<tr><td colspan="5" style="text-align: center;" class="text-muted">${emptyMsg}</td></tr>`;
-            }
-            return chainList.map(chain => {
-                let statusBadge = `<span class="badge badge-gray" style="margin-left: 6px;">${chain.status}</span>`;
-                if (chain.status === 'WAITING_NEXT' || chain.status === 'WAITING_RESOLUTION') {
-                    statusBadge = `<span class="badge badge-yellow" style="margin-left: 6px;">В ПРОЦЕССЕ</span>`;
-                } else if (chain.status === 'COMPLETED') {
-                    statusBadge = `<span class="badge badge-green" style="margin-left: 6px;">ЗАВЕРШЕНА</span>`;
-                } else if (chain.status === 'FAILED') {
-                    statusBadge = `<span class="badge badge-red" style="margin-left: 6px;">ПРЕРВАНА</span>`;
-                }
-
-                let historyHtml = '<div style="font-size: 0.85rem; color: var(--text-secondary);">Нет завершенных шагов</div>';
-                let currentBetHtml = '<span class="text-muted">Ожидание возможности</span>';
-                
-                if (chain.bets && chain.bets.length > 0) {
-                    let currentStakeForStep = chain.initial_stake;
-                    let pastBetsList = [];
-                    let currentBet = null;
-                    
-                    chain.bets.forEach(bet => {
-                        if (bet.status === 'PENDING') {
-                            currentBet = bet;
-                        } else {
-                            const result = getBetResult(bet, currentStakeForStep);
-                            let betPnlHtml = result.html;
-                            currentStakeForStep = result.newStake;
-                            
-                            let oppLink = bet.url ? `<a href="${bet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${bet.title || 'Рынок #' + bet.opp_id}</a>` : `Рынок #${bet.opp_id}`;
-                            pastBetsList.push(`
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.85rem;">
-                                    <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px;" title="${bet.title ? bet.title.replace(/"/g, '&quot;') : 'Рынок #' + bet.opp_id}">
-                                        <span class="text-muted">Шаг ${bet.step_index}:</span> ${oppLink}
-                                    </div>
-                                    <div style="white-space: nowrap; margin-left: 8px;">
-                                        ${betPnlHtml}
-                                    </div>
-                                </div>
-                            `);
-                        }
-                    });
-                    
-                    if (pastBetsList.length > 0) {
-                        historyHtml = pastBetsList.join('');
-                    }
-
-                    if (currentBet) {
-                        let oppLink = currentBet.url ? `<a href="${currentBet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none; border-bottom:1px dashed var(--text-secondary);">${currentBet.title}</a>` : `Рынок #${currentBet.opp_id}`;
-                        currentBetHtml = `
-                            <div style="font-size: 0.9rem;">
-                                <div>${oppLink}</div>
-                                <div style="margin-top:4px; font-size:0.8rem; color:var(--text-secondary);">
-                                    Исходом: <b>${currentBet.target_outcome}</b> | 
-                                    <span class="badge badge-yellow">PENDING</span> | Вход: ${formatPriceCents(currentBet.bet_price)}
-                                </div>
-                            </div>
-                        `;
-                    } else if (chain.status === 'FAILED') {
-                        const lostBet = chain.bets.find(b => b.status === 'LOST');
-                        if (lostBet) {
-                            let oppLink = lostBet.url ? `<a href="${lostBet.url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${lostBet.title}</a>` : `Рынок #${lostBet.opp_id}`;
-                            currentBetHtml = `
-                                <div style="font-size: 0.9rem;">
-                                    <div class="text-muted" style="margin-bottom: 2px;">Сгорела на шаге ${lostBet.step_index}:</div>
-                                    <div>${oppLink}</div>
-                                </div>
-                            `;
-                        } else {
-                            currentBetHtml = `<span class="text-muted">Цепочка прервана</span>`;
-                        }
                     } else if (chain.status === 'COMPLETED') {
                          currentBetHtml = `<span class="text-muted">Цепочка завершена</span>`;
                     }

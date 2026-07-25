@@ -42,7 +42,6 @@ def get_status_emoji(sharpe: float | None, win_rate: float | None) -> str:
 
 STRATEGY_ALIASES = {
     'favourite_compound': 'favourite_compounding',
-    'compound_parlay': 'compound_parlays',
 }
 
 def normalize_strategy_name(name: str) -> str:
@@ -470,51 +469,6 @@ def _load_compounding_stats(conn, stats, virtual_stake):
     except Exception as e:
         logger.warning(f"[Overview] Ошибка при расчете статистики favourite_compounding: {e}", exc_info=True)
 
-    try:
-        parlays_pnl = conn.execute("""
-            SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as signals_24h,
-                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as signals_7d,
-                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as signals_30d,
-                SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as wins_all,
-                SUM(CASE WHEN status = 'COMPLETED' AND COALESCE(resolved_at, updated_at) >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) as wins_24h,
-                SUM(CASE WHEN status = 'COMPLETED' AND COALESCE(resolved_at, updated_at) >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as wins_7d,
-                SUM(CASE WHEN status = 'COMPLETED' AND COALESCE(resolved_at, updated_at) >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as wins_30d,
-                SUM(CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END) as pnl_all,
-                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-24 hours') THEN
-                    CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END
-                    ELSE 0.0 END) as pnl_24h,
-                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-7 days') THEN
-                    CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END
-                    ELSE 0.0 END) as pnl_7d,
-                SUM(CASE WHEN COALESCE(resolved_at, updated_at) >= datetime('now', '-30 days') THEN
-                    CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END
-                    ELSE 0.0 END) as pnl_30d
-                FROM compound_chains
-            WHERE status IN ('COMPLETED', 'FAILED')
-        """).fetchone()
-
-        if parlays_pnl:
-            periods = stats['compound_parlays']['periods']
-            periods['24h']['pnl'] = round(parlays_pnl['pnl_24h'] or 0.0, 2)
-            periods['24h']['signals_count'] = parlays_pnl['signals_24h'] or 0
-            periods['24h']['win_rate'] = (parlays_pnl['wins_24h'] / parlays_pnl['signals_24h']) if parlays_pnl['signals_24h'] else None
-
-            periods['7d']['pnl'] = round(parlays_pnl['pnl_7d'] or 0.0, 2)
-            periods['7d']['signals_count'] = parlays_pnl['signals_7d'] or 0
-            periods['7d']['win_rate'] = (parlays_pnl['wins_7d'] / parlays_pnl['signals_7d']) if parlays_pnl['signals_7d'] else None
-
-            periods['30d']['pnl'] = round(parlays_pnl['pnl_30d'] or 0.0, 2)
-            periods['30d']['signals_count'] = parlays_pnl['signals_30d'] or 0
-            periods['30d']['win_rate'] = (parlays_pnl['wins_30d'] / parlays_pnl['signals_30d']) if parlays_pnl['signals_30d'] else None
-
-            periods['all']['pnl'] = round(parlays_pnl['pnl_all'] or 0.0, 2)
-            periods['all']['signals_count'] = parlays_pnl['total'] or 0
-            periods['all']['win_rate'] = (parlays_pnl['wins_all'] / parlays_pnl['total']) if parlays_pnl['total'] else None
-
-    except Exception as e:
-        logger.warning(f"[Overview] compound_chains недоступна: {e}")
 
 def get_overview_stats() -> dict:
     """
@@ -537,7 +491,7 @@ def get_overview_stats() -> dict:
     
     strategies = [
         'scout', 'whale', 'penny_stocks',
-        'favourite_compounding', 'compound_parlays'
+        'favourite_compounding'
     ]
     
     stats = {}
@@ -701,15 +655,7 @@ def get_equity_curve(strategy: str, days: int = 30) -> list[dict] | dict[str, li
                 GROUP BY date(ts)
                 ORDER BY date(ts) ASC
             """, (period_start, virtual_stake, virtual_stake, period_start)).fetchall()
-        elif stype == 'compound_parlays':
-            rows = conn.execute("""
-                SELECT date(updated_at) as date,
-                       SUM(CASE WHEN status = 'COMPLETED' THEN current_stake - initial_stake ELSE -current_stake END) as daily_pnl
-                FROM compound_chains
-                WHERE status IN ('COMPLETED', 'FAILED') AND updated_at >= ?
-                GROUP BY date(updated_at)
-                ORDER BY date(updated_at) ASC
-            """, (period_start,)).fetchall()
+
         else:
             rows = conn.execute("""
                 SELECT date(resolved_at) as date, SUM(pnl_realized) as daily_pnl
@@ -2523,36 +2469,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
                 row_dict['url'] = clean_db_url(row_dict['url'])
             virtual_history.append(row_dict)
 
-        # Цепочки реинвестирования (Parlays)
-        chains_rows = conn.execute("SELECT * FROM compound_chains ORDER BY id DESC LIMIT 200").fetchall()
-        chains = [dict(c) for c in chains_rows]
-        
-        if chains:
-            chain_ids = [c["id"] for c in chains]
-            placeholders = ",".join("?" * len(chain_ids))
-            bets_rows = conn.execute(
-                f"""
-                SELECT b.*, o.title, o.url, o.outcome as target_outcome 
-                FROM compound_chain_bets b
-                LEFT JOIN compound_opportunities o ON b.opp_id = o.id
-                WHERE b.chain_id IN ({placeholders}) 
-                ORDER BY b.chain_id DESC, b.step_index ASC
-                """, 
-                chain_ids
-            ).fetchall()
-            
-            bets_by_chain = {}
-            for b in bets_rows:
-                b_dict = dict(b)
-                if 'url' in b_dict:
-                    b_dict['url'] = clean_db_url(b_dict['url'])
-                c_id = b_dict["chain_id"]
-                if c_id not in bets_by_chain:
-                    bets_by_chain[c_id] = []
-                bets_by_chain[c_id].append(b_dict)
-                
-            for c in chains:
-                c["bets"] = bets_by_chain.get(c["id"], [])
+
 
     return {
         'active': active,
@@ -2572,8 +2489,7 @@ def get_compounding_dashboard(active_page=1, active_limit=100, wins_page=1, wins
 
         'wins_total': wins_total,
         'losses_total': losses_total,
-        'history_total': history_total,
-        'chains': chains
+        'history_total': history_total
     }
 
 def get_eval_status() -> dict:
