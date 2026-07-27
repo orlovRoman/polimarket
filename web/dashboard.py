@@ -1377,21 +1377,63 @@ async def api_penny_stocks_rederive_creds(request):
 
 async def api_system_status(request):
     from agents.shared.python.db import is_system_paused
+    import subprocess
     paused = await asyncio.to_thread(is_system_paused)
-    return web.json_response({"paused": paused})
+
+    # Проверяем реальный статус процесса
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["systemctl", "is-active", "polymarket-listener"],
+            capture_output=True, text=True, check=False
+        )
+        listener_active = result.stdout.strip() == "active"
+    except Exception:
+        listener_active = False
+
+    return web.json_response({
+        "paused": paused,
+        "listener_active": listener_active
+    })
 
 async def api_system_pause(request):
     from agents.shared.python.db import set_system_paused
+    import subprocess
     await asyncio.to_thread(set_system_paused, True)
     if _scheduler:
         _scheduler.pause()
+        
+    try:
+        await asyncio.to_thread(
+            subprocess.run,
+            ["sudo", "systemctl", "stop", "polymarket-listener"],
+            timeout=10,
+            check=False
+        )
+        logger.info("[Dashboard] polymarket-listener остановлен через systemctl")
+    except Exception as e:
+        logger.warning(f"[Dashboard] Не удалось остановить listener: {e}")
+
     return web.json_response({"status": "paused"})
 
 async def api_system_resume(request):
     from agents.shared.python.db import set_system_paused
+    import subprocess
     await asyncio.to_thread(set_system_paused, False)
     if _scheduler:
         _scheduler.resume()
+        
+    try:
+        await asyncio.to_thread(
+            subprocess.run,
+            ["sudo", "systemctl", "start", "polymarket-listener"],
+            timeout=10,
+            check=False
+        )
+        logger.info("[Dashboard] polymarket-listener запущен через systemctl")
+    except Exception as e:
+        logger.warning(f"[Dashboard] Не удалось запустить listener: {e}")
+
     return web.json_response({"status": "active"})
 
 # === Фабрика приложения ===

@@ -14,8 +14,8 @@ WorkingDirectory=/home/orlovrp/polymarket-bot
 Environment=PYTHONUNBUFFERED=1
 # Команда запуска с использованием виртуального окружения
 ExecStart=/home/orlovrp/polymarket-bot/venv/bin/python3 services/telegram_listener.py
-# Перезапускать сервис автоматически при сбое
-Restart=always
+# Перезапускать сервис автоматически при сбое (не перезапускать при штатном выходе)
+Restart=on-failure
 # Пауза перед перезапуском (10 секунд)
 RestartSec=10
 # Логирование вывода в системный журнал journald

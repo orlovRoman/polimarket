@@ -731,6 +731,7 @@ async def handle_incoming_telegram_message(
 
 async def main():
     from config import TELEGRAM_NOTIFICATIONS_ENABLED
+    from agents.shared.python.db import is_system_paused
     if not TELEGRAM_NOTIFICATIONS_ENABLED:
         logger.info("[Listener] Telegram интеграция отключена в конфигурации. Завершение работы слушателя.")
         return
@@ -795,7 +796,16 @@ async def main():
     await client.start(phone=lambda: phone)
     logger.info("[Listener] 🎉 Успешно подключено! Мониторинг китов (Whale Alerts) активен.")
     
-    await client.run_until_disconnected()
+    try:
+        while await client.is_connected():
+            if is_system_paused():
+                logger.info("[Listener] ⏸ Система на паузе. Отключаемся.")
+                await client.disconnect()
+                break
+            await asyncio.sleep(5)
+    finally:
+        if client.is_connected():
+            await client.disconnect()
 
 if __name__ == "__main__":
     try:
